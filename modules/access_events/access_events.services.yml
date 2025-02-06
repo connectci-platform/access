@@ -1,0 +1,4 @@
+services:
+  access_events.XsedeApi:
+    class: Drupal\access_events\Plugin\XsedeApi
+    arguments: ['@entity_type.manager', '@key.repository']
