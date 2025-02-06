@@ -1,0 +1,30 @@
+<?php
+
+/**
+ * @file
+ */
+
+use Drupal\Core\Form\FormStateInterface;
+
+/**
+ * Implements hook_form_alter().
+ */
+function access_events_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  // Custom tags on /events/add
+  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
+
+#    $form['set_grants'] = [
+#      '#type' => 'textfield',
+#      '#title' => t('Grant me this'),
+#    ];
+
+    $grantlist = \Drupal::service('access_events.XsedeApi')->getGrantList('hackwort');
+    $grantlist = [0 => 'No Allocation'] + $grantlist;
+
+    $form['field_event_allocation_grant']['widget'][0]['value']['#type'] = 'select';
+    $form['field_event_allocation_grant']['widget'][0]['value']['#options'] = $grantlist;
+    $form['field_event_allocation_grant']['widget'][0]['value']['#size'] = 1;
+  }
+
+}
+
