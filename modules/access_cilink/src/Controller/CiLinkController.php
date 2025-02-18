@@ -149,7 +149,7 @@ class CiLinkController extends ControllerBase {
     $login = Link::fromTextAndUrl($this->t('Login to vote'), Url::fromUri('internal:/user/login', $options))->toString();
 
     // Upvote widget.
-    $flag_upvote = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'upvote');
+    $flag_upvote = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'upvote', 'full');
     $flag_upvote = \Drupal::service('renderer')->renderPlain($flag_upvote);
     $flag_upvote_count = \Drupal::service('flag.count')->getEntityFlagCounts($this->webform_submission);
     $flag_upvote_set = $flag_upvote_count['upvote'] ?? 0;
@@ -157,13 +157,13 @@ class CiLinkController extends ControllerBase {
 
     // Flags.
     $flag_classes = 'no-underline text-dark-teal hover--underline';
-    $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'outdated');
+    $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'outdated', 'full');
     $flag_outdated['#attributes']['class'][] = $flag_classes;
     $flag_outdated = \Drupal::service('renderer')->renderPlain($flag_outdated);
-    $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'not_useful');
+    $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'not_useful', 'full');
     $flag_not_useful['#attributes']['class'][] = $flag_classes;
     $flag_not_useful = \Drupal::service('renderer')->renderPlain($flag_not_useful);
-    $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'inaccurate');
+    $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'inaccurate', 'full');
     $flag_inaccurate['#attributes']['class'][] = $flag_classes;
     $flag_inaccurate = \Drupal::service('renderer')->renderPlain($flag_inaccurate);
 
