@@ -39,6 +39,11 @@ class ViewsRegistrationCustomAccess extends AccessPluginBase {
     $event_id = is_numeric($url_bits[2]) ? $url_bits[2] : 0;
 
     $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_id);
+
+    if (!$eventinstance) {
+      return FALSE;
+    }
+
     $eventseries = $eventinstance->getEventSeries();
     // Get author of event series.
     $author = $eventseries->getOwner();
