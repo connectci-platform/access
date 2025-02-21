@@ -2,10 +2,10 @@
 
 namespace Drupal\access_misc\Controller;
 
+use Drupal\user\Entity\User;
 use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Cache\Cache;
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\Component\Utility\Xss;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Routing\RedirectDestinationInterface;
@@ -123,7 +123,6 @@ class EventWaitlist extends ControllerBase {
     return new RedirectResponse($this->eventRegistrationUrl);
   }
 
-
   /**
    * Add user grant allocation.
    */
@@ -166,7 +165,7 @@ class EventWaitlist extends ControllerBase {
    */
   private function currentUsername() {
     $account = \Drupal::currentUser();
-    $user = \Drupal\user\Entity\User::load($account->id());
+    $user = User::load($account->id());
     $username = $user->getAccountName();
     $username = str_replace('@access-ci.org', '', $username);
     return $username;
@@ -205,7 +204,6 @@ class EventWaitlist extends ControllerBase {
       'name' => '',
       'location' => $location,
     ];
-
 
     foreach ($this->registrantIds as $registrant_id) {
       $registrant = $this->entityTypeManager->getStorage('registrant')->load($registrant_id);
