@@ -102,6 +102,7 @@ class EventWaitlist extends ControllerBase {
   public function approve() {
     $this->status(1);
     $this->register_approve_email();
+    $this->addAllocation();
 
     // Clear cache eventinstance to reset block.
     Cache::invalidateTags(['eventinstance:' . $this->eventInstanceId]);
@@ -114,6 +115,7 @@ class EventWaitlist extends ControllerBase {
    */
   public function unapprove() {
     $this->status(0);
+    $this->removeAllocation();
 
     // Clear cache eventinstance to reset block.
     Cache::invalidateTags(['eventinstance:' . $this->eventInstanceId]);
@@ -122,10 +124,57 @@ class EventWaitlist extends ControllerBase {
   }
 
 
+  /**
+   * Add user grant allocation.
+   */
+  private function addAllocation() {
+    $username = [$this->currentUsername()];
+
+    $eventinstance_id = $this->eventInstanceId;
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
+    $eventseries = $eventinstance->getEventSeries();
+    $grant = $eventseries->get('field_event_allocation_grant')->value;
+
+    if ($grant == 0) {
+      return;
+    }
+
+    \Drupal::service('access_events.XsedeApi')->setGrantedUsers($grant, $username);
+  }
 
   /**
- * Approved Email.
- */
+   * Remove user grant allocation.
+   */
+  private function removeAllocation() {
+    $username = [$this->currentUsername()];
+
+    $eventinstance_id = $this->eventInstanceId;
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
+    $eventseries = $eventinstance->getEventSeries();
+    $grant = $eventseries->get('field_event_allocation_grant')->value;
+
+    if ($grant == 0) {
+      return;
+    }
+
+    \Drupal::service('access_events.XsedeApi')->removeGrantedUsers($grant, $username);
+
+  }
+
+  /**
+   * Get current username.
+   */
+  private function currentUsername() {
+    $account = \Drupal::currentUser();
+    $user = \Drupal\user\Entity\User::load($account->id());
+    $username = $user->getAccountName();
+    $username = str_replace('@access-ci.org', '', $username);
+    return $username;
+  }
+
+  /**
+   * Approved Email.
+   */
   private function register_approve_email() {
     $event_instance_id = $this->eventInstanceId;
     // Entity load eventinctance by id.
