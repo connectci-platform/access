@@ -5,6 +5,9 @@ namespace Drupal\access_events\Plugin;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\key\KeyRepositoryInterface;
 use GuzzleHttp\Exception\RequestException;
+use Drupal\Component\Utility\Xss;
+use GuzzleHttp\ClientInterface;
+use Psr\Log\LoggerInterface;
 
 /**
  * Interact with xsede api.
@@ -14,35 +17,35 @@ class XsedeApi {
   /**
    * The beginning of api call url.
    *
-   * @string $url
+   * @var string
    */
   protected $apiUrl = '/xdcdb-api-test/usermanagement/v1/users/';
 
   /**
    * Store header keys.
    *
-   * @array $header_keys
+   * @var array
    */
   protected $headerKeys;
 
   /**
    * Api Results.
    *
-   * @array $api_results
+   * @var array
    */
   protected $apiResults;
 
   /**
    * Grant List.
    *
-   * @array $grant_list
+   * @var array
    */
   protected $grantList;
 
   /**
-   * sp state.
+   * Sp state.
    *
-   * @string $sp_state
+   * @var string
    */
   protected $spState;
 
@@ -61,18 +64,39 @@ class XsedeApi {
   protected $entityTypeManager;
 
   /**
+   * HTTP client.
+   *
+   * @var \GuzzleHttp\ClientInterface
+   */
+  protected $httpClient;
+
+  /**
+   * Logger.
+   *
+   * @var \Psr\Log\LoggerInterface
+   */
+  protected $logger;
+
+  /**
    * Construct object.
    */
   public function __construct(
     EntityTypeManagerInterface $entity_type_manager,
-    KeyRepositoryInterface $key_repository
+    KeyRepositoryInterface $key_repository,
+    ClientInterface $http_client,
+    LoggerInterface $logger,
   ) {
     $this->entityTypeManager = $entity_type_manager;
     $this->key = $key_repository;
+    $this->httpClient = $http_client;
+    $this->logger = $logger;
 
     $this->headerKeys();
   }
 
+  /**
+   * Get header keys.
+   */
   private function headerKeys() {
     $headers = $this->key->getKey('xsede_api')->getKeyValue();
     $this->headerKeys = explode(",", $headers);
@@ -86,10 +110,9 @@ class XsedeApi {
 
     $url = 'https://a3mdev.xsede.org' . $path;
 
-    $client = \Drupal::httpClient();
     try {
-      $response = \Drupal::httpClient()->get($url, [
-        'verify' => true,
+      $response = $this->httpClient->get($url, [
+        'verify' => TRUE,
         'headers' => [
           'XA-RESOURCE' => $headers[0],
           'XA-AGENT' => $headers[1],
@@ -99,8 +122,10 @@ class XsedeApi {
 
     }
     catch (RequestException $e) {
-      \Drupal::logger('access_events')->error($e->getMessage());
+      $this->logger->error($e->getMessage());
     }
+
+    $response = Xss::filter($response);
 
     $this->apiResults = json_decode($response);
   }
@@ -113,22 +138,21 @@ class XsedeApi {
 
     $url = 'https://a3mdev.xsede.org' . $path;
 
-    $client = \Drupal::httpClient();
     try {
-        $response = $client->post($url, [
-            'verify' => true,
-            'headers' => [
-                'XA-RESOURCE' => $headers[0],
-                'XA-AGENT' => $headers[1],
-                'XA-API-KEY' => $headers[2],
-                'Content-Type' => 'application/json',
-            ],
-            'body' => $body,
-        ])->getBody()->getContents();
+      $this->httpClient->post($url, [
+        'verify' => TRUE,
+        'headers' => [
+          'XA-RESOURCE' => $headers[0],
+          'XA-AGENT' => $headers[1],
+          'XA-API-KEY' => $headers[2],
+          'Content-Type' => 'application/json',
+        ],
+        'body' => $body,
+      ])->getBody()->getContents();
 
     }
     catch (RequestException $e) {
-      \Drupal::logger('access_events')->error($e->getMessage());
+      $this->logger->error($e->getMessage());
     }
   }
 
@@ -190,6 +214,7 @@ class XsedeApi {
 
   /**
    * Make Api post to update user list.
+   *
    * @string $grantNumber
    *    The grant number.
    *  @array $usernames
@@ -201,10 +226,10 @@ class XsedeApi {
       'usernames' => $usernames,
     ];
 
-
     $post = json_encode($api_body);
     $path = '/xdcdb-api-test/usermanagement/v1/users/' . $grantNumber . '/' . $action;
-    $this->apiPost($path, $post);;
+    $this->apiPost($path, $post);
+
   }
 
 }
