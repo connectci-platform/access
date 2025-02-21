@@ -4,11 +4,19 @@ namespace Drupal\access_events\Plugin;
 
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\key\KeyRepositoryInterface;
+use GuzzleHttp\Exception\RequestException;
 
 /**
- * Notify people by roles.
+ * Interact with xsede api.
  */
 class XsedeApi {
+
+  /**
+   * The beginning of api call url.
+   *
+   * @string $url
+   */
+  protected $apiUrl = '/xdcdb-api-test/usermanagement/v1/users/';
 
   /**
    * Store header keys.
@@ -30,6 +38,13 @@ class XsedeApi {
    * @array $grant_list
    */
   protected $grantList;
+
+  /**
+   * sp state.
+   *
+   * @string $sp_state
+   */
+  protected $spState;
 
   /**
    * Drupal\Core\Entity\EntityTypeManagerInterface definition.
@@ -84,7 +99,7 @@ class XsedeApi {
 
     }
     catch (RequestException $e) {
-      watchdog_exception('access_events', $e);
+      \Drupal::logger('access_events')->error($e->getMessage());
     }
 
     $this->apiResults = json_decode($response);
@@ -100,23 +115,21 @@ class XsedeApi {
 
     $client = \Drupal::httpClient();
     try {
-      $request = \Drupal::httpClient()->post($url, [
-        'verify' => true,
-        'headers' => [
-          'XA-RESOURCE' => $headers[0],
-          'XA-AGENT' => $headers[1],
-          'XA-API-KEY' => $headers[2],
-        ],
-      ]);
-      $request->setBody($body);
-      $response = $request->send();
+        $response = $client->post($url, [
+            'verify' => true,
+            'headers' => [
+                'XA-RESOURCE' => $headers[0],
+                'XA-AGENT' => $headers[1],
+                'XA-API-KEY' => $headers[2],
+                'Content-Type' => 'application/json',
+            ],
+            'body' => $body,
+        ])->getBody()->getContents();
 
     }
     catch (RequestException $e) {
-      watchdog_exception('access_events', $e);
+      \Drupal::logger('access_events')->error($e->getMessage());
     }
-
-    kint(json_decode($response));
   }
 
   /**
@@ -136,6 +149,23 @@ class XsedeApi {
   }
 
   /**
+   * Make Api call to pull in users spState.
+   */
+  public function getSpState($grant_id, $user) {
+    $this->apiCall($this->apiUrl . $grant_id);
+
+    $this->spState = '';
+    foreach ($this->apiResults->result as $result) {
+      if ($result->username == $user) {
+        $this->spState = $result->spState;
+        break;
+      }
+    }
+
+    return $this->spState;
+  }
+
+  /**
    * Make Api call to pull in user list for a given grant.
    */
   public function getGrantedUsers($grant) {
@@ -145,11 +175,35 @@ class XsedeApi {
   }
 
   /**
-   * Make Api post to update user list — send back full list from above
-   * (getGrantUsers)) plus new user.
+   * Add User.
    */
-  public function setGrantedUsers($grantNumber, $post) {
-    $path = '/xdcdb-api-test/usermanagement/v1/users/' . $grantNumber;
+  public function setGrantedUsers($grantNumber, $usernames) {
+    $this->addRemoveUsers($grantNumber, $usernames, 'add_multiple');
+  }
+
+  /**
+   * Remove User.
+   */
+  public function removeGrantedUsers($grantNumber, $usernames) {
+    $this->addRemoveUsers($grantNumber, $usernames, 'remove_multiple');
+  }
+
+  /**
+   * Make Api post to update user list.
+   * @string $grantNumber
+   *    The grant number.
+   *  @array $usernames
+   *    The usernames to add.
+   */
+  private function addRemoveUsers($grantNumber, $usernames, $action) {
+    $api_body = [
+      'comment' => "bulk add",
+      'usernames' => $usernames,
+    ];
+
+
+    $post = json_encode($api_body);
+    $path = '/xdcdb-api-test/usermanagement/v1/users/' . $grantNumber . '/' . $action;
     $this->apiPost($path, $post);;
   }
 
