@@ -80,27 +80,56 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
         ->accessCheck(FALSE);
       $registrant_status = $entity_query->execute();
 
-      $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
-      $series = $eventinstance->getEventSeries();
-      $field_event_allocation_grant = $series->get('field_event_allocation_grant')->value;
-      if ($field_event_allocation_grant) {
-        if (!strpos($username, '@access-ci.org')) {
-          \Drupal::messenger()->addWarning(t('Registration for the event requires an <a href="https://access-ci.org">ACCESS ID</a>'));
-          $form['confirm_registeration']['#access'] = FALSE;
-          $form['actions']['submit']['#access'] = FALSE;
-        }
-      }
-
       if ($registrant_status) {
         $redirect = new RedirectResponse('/events/' . $eventinstance_id);
         $redirect->send();
         \Drupal::messenger()->addMessage(t('You are already registered for this event.'));
       }
-
-      // Add submit handler to registrant form to invalidate cache on Events
-      // Facet view.
-      $form['actions']['submit']['#submit'][] = 'access_misc_registrant_submit';
     }
+
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
+    $series = $eventinstance->getEventSeries();
+    $field_event_allocation_grant = $series->get('field_event_allocation_grant')->value;
+    if ($field_event_allocation_grant) {
+      if (!strpos($username, '@access-ci.org')) {
+        \Drupal::messenger()->addWarning(t('Registration for the event requires an <a href="https://access-ci.org">ACCESS ID</a>'));
+        $form['confirm_registeration']['#access'] = FALSE;
+        $form['actions']['submit']['#access'] = FALSE;
+      }
+
+      $allocation = $series->get('field_event_allocation_grant')->getValue();
+      $resources = NULL;
+      if ($allocation) {
+        $allocation = $allocation[0]['value'];
+        if ($allocation) {
+          $grantlist = \Drupal::service('access_events.XsedeApi')->getGrantedUsers($allocation);
+          $resourcename = [];
+          foreach ($grantlist->result as $value) {
+            foreach ($value as $key => $resource) {
+              if ($key == 'resourceName') {
+                $resourcename[$resource] = $resource;
+              }
+            }
+          }
+          $list_of_resources = t('List of resources:');
+          $resources = "<h3>$allocation</h3><p class='mb-0'>$list_of_resources</p><ul class='mt-0 mb-10'>";
+          foreach ($resourcename as $resource) {
+            $resources .= "<li>$resource</li>";
+          }
+          $resources .= "</ul>";
+        }
+      }
+
+      $form['resources'] = [
+        '#type' => 'markup',
+        '#weight' => 99,
+        '#markup' => $resources,
+      ];
+    }
+
+    // Add submit handler to registrant form to invalidate cache on Events
+    // Facet view.
+    $form['actions']['submit']['#submit'][] = 'access_misc_registrant_submit';
   }
 
   if ( ($form_id == 'registrant_default_add_form' || $form_id == 'registrant_default_edit_form') && in_array('administrator', $roles)) {

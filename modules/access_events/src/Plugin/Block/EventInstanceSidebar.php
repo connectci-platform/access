@@ -1,6 +1,6 @@
 <?php
 
-namespace Drupal\access_misc\Plugin\Block;
+namespace Drupal\access_events\Plugin\Block;
 
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Cache\Cache;
@@ -110,7 +110,8 @@ class EventInstanceSidebar extends BlockBase {
 
     $sidebar['string'] = [
       '#type' => 'inline_template',
-      '#template' => '{% if registrations_button %}
+      '#template' => '
+        {% if registrations_button %}
           <div class="field__items">
             <div class="field__item">{{ registrations_button|raw }}</div>
           </div>
