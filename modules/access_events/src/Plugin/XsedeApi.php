@@ -153,6 +153,12 @@ class XsedeApi {
     }
     catch (RequestException $e) {
       $this->logger->error($e->getMessage());
+      if (strpos($e->getMessage(), '400 Bad Request') !== FALSE) {
+        \Drupal::messenger()->addMessage('Username not found for Allocation', 'error');
+      }
+      else {
+        drupal_set_message('An error occurred.', 'error');
+      }
     }
   }
 
