@@ -21,21 +21,3 @@ wvuf_api_integration.unmask:
     _title: 'Unmask'
   requirements:
     _user_is_masquerading: 'TRUE'
-misc.eventApprove:
-  path: '/events/{event_id}/waitlist/approve'
-  defaults:
-    _controller: '\Drupal\access_misc\Controller\EventWaitlist::approve'
-    _title: 'Approved'
-  requirements:
-    _custom_access:  '\Drupal\access_misc\Controller\EventWaitlist::isAuthor'
-  options:
-    no_cache: 'TRUE'
-misc.eventDeny:
-  path: '/events/{event_id}/waitlist/unapprove'
-  defaults:
-    _controller: '\Drupal\access_misc\Controller\EventWaitlist::unapprove'
-    _title: 'Unapproved'
-  requirements:
-    _custom_access:  '\Drupal\access_misc\Controller\EventWaitlist::isAuthor'
-  options:
-    no_cache: 'TRUE'
