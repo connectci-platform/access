@@ -101,7 +101,7 @@ class EventWaitlist extends ControllerBase {
    */
   public function approve() {
     $this->status(1);
-    $this->register_approve_email();
+    $this->registerApproveEmail();
     $this->addAllocation();
 
     // Clear cache eventinstance to reset block.
@@ -174,7 +174,7 @@ class EventWaitlist extends ControllerBase {
   /**
    * Approved Email.
    */
-  private function register_approve_email() {
+  private function registerApproveEmail() {
     $event_instance_id = $this->eventInstanceId;
     // Entity load eventinctance by id.
     $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
