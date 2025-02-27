@@ -98,7 +98,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
       }
 
       $allocation = $series->get('field_event_allocation_grant')->getValue();
-      $resources = NULL;
+      $resources = '';
       if ($allocation) {
         $allocation = $allocation[0]['value'];
         if ($allocation) {
@@ -111,8 +111,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
               }
             }
           }
-          $list_of_resources = t('List of resources:');
-          $resources = "<h3>$allocation</h3><p class='mb-0'>$list_of_resources</p><ul class='mt-0 mb-10'>";
+          $resources = "<p class='mb-0'>When your registration is approved, you will be added the the $allocation allocation which will provide access to the following resources for this event:</p><ul class='mt-0 mb-10'>";
           foreach ($resourcename as $resource) {
             $resources .= "<li>$resource</li>";
           }
