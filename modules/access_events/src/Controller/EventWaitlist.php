@@ -1,6 +1,6 @@
 <?php
 
-namespace Drupal\access_misc\Controller;
+namespace Drupal\access_events\Controller;
 
 use Drupal\user\Entity\User;
 use Drupal\Core\Access\AccessResult;
