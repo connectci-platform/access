@@ -46,6 +46,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     // Get current user.
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
+    $username = $current_user->getAccountName();
 
     // Get event instance id.
     $uri = \Drupal::request()->getRequestUri();
@@ -78,6 +79,17 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
         ->condition('user_id', $current_user->id())
         ->accessCheck(FALSE);
       $registrant_status = $entity_query->execute();
+
+      $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
+      $series = $eventinstance->getEventSeries();
+      $field_event_allocation_grant = $series->get('field_event_allocation_grant')->value;
+      if ($field_event_allocation_grant) {
+        if (!strpos($username, '@access-ci.org')) {
+          \Drupal::messenger()->addWarning(t('Registration for the event requires an <a href="https://access-ci.org">ACCESS ID</a>'));
+          $form['confirm_registeration']['#access'] = FALSE;
+          $form['actions']['submit']['#access'] = FALSE;
+        }
+      }
 
       if ($registrant_status) {
         $redirect = new RedirectResponse('/events/' . $eventinstance_id);
@@ -115,6 +127,15 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     // Facet view.
     $form['actions']['submit']['#submit'][] = 'access_misc_registrant_submit';
   }
+}
+
+/**
+ * Custom submit handler for registrant form.
+ */
+function access_misc_registrant_submit($form, FormStateInterface $form_state) {
+  // Invalidate cache on Events Facet view.
+  $cache_tags = ['config:views.view.events_facet'];
+  \Drupal\Core\Cache\Cache::invalidateTags($cache_tags);
 }
 
 /**

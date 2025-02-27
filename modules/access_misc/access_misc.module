@@ -555,15 +555,6 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
 }
 
 /**
- * Custom submit handler for registrant form.
- */
-function access_misc_registrant_submit($form, FormStateInterface $form_state) {
-  // Invalidate cache on Events Facet view.
-  $cache_tags = ['config:views.view.events_facet'];
-  \Drupal\Core\Cache\Cache::invalidateTags($cache_tags);
-}
-
-/**
  * Custom submit handler for registrant form to email user.
  */
 function access_misc_registrant_email_submit($form, FormStateInterface $form_state) {
