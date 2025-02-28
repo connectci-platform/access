@@ -36,6 +36,11 @@ class ViewsRegistrationCustomAccess extends AccessPluginBase {
     // Get current uri.
     $current_uri = \Drupal::service('path.current')->getPath();
     $url_bits = explode('/', $current_uri);
+
+    if (count($url_bits) < 3) {
+      return FALSE;
+    }
+
     $event_id = is_numeric($url_bits[2]) ? $url_bits[2] : 0;
 
     $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_id);

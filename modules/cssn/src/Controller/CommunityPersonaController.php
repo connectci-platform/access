@@ -388,6 +388,15 @@ class CommunityPersonaController extends ControllerBase {
     // My Projects.
     $projects = $this->projectList($current_user);
 
+    // Events user is registered for.
+    $view = \Drupal\views\Views::getView('recurring_events_registrations');
+    $view->setDisplay('user_event_registrations');
+    $view->setArguments([$current_user->id()]);
+    $user_event_registrations = $view->buildRenderable('user_event_registrations');
+    // Get the total items in the view.
+    $view->execute();
+    $total_items = $view->total_rows;
+
     $persona_page['string'] = [
       '#type' => 'inline_template',
       '#attached' => [
@@ -482,6 +491,17 @@ class CommunityPersonaController extends ControllerBase {
             </div>
           </div>
         {% endif %}
+
+        {% if user_event_total_items >= 1 %}
+          <div class="border border-secondary border-md-teal my-3 mb-6 prose max-w-full">
+            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+              <span class="h4 m-0 text-white">{{ user_event_title }}</span>
+            </div>
+            <div class="p-3">
+              {{ user_event_registrations }}
+            </div>
+          </div>
+        {% endif %}
         ',
       '#context' => [
         'bio_title' => t('Bio'),
@@ -507,6 +527,9 @@ class CommunityPersonaController extends ControllerBase {
         'ws_title' => t('My Knowledge Base Contributions'),
         'ws_links' => $ws_link,
         'request_webform_link' => $build_webform_link,
+        'user_event_title' => t('My Event Registrations'),
+        'user_event_registrations' => $user_event_registrations,
+        'user_event_total_items' => $total_items,
       ],
     ];
 
