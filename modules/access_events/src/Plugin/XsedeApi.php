@@ -205,6 +205,15 @@ class XsedeApi {
   }
 
   /**
+   * Get grant title.
+   */
+  public function getTitle($grantId) {
+    $this->apiCall('/xdcdb-api-test/usermanagement/v1/requests/request/' . $grantId);
+
+    return $this->apiResults->result->masters[0]->requests[0]->projectTitle;
+  }
+
+  /**
    * Add User.
    */
   public function setGrantedUsers($grantNumber, $usernames) {
