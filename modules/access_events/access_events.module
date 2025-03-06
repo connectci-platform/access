@@ -103,6 +103,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
         $allocation = $allocation[0]['value'];
         if ($allocation) {
           $grantlist = \Drupal::service('access_events.XsedeApi')->getGrantedUsers($allocation);
+          $allocation_title = \Drupal::service('access_events.XsedeApi')->getTitle($allocation);
           $resourcename = [];
           foreach ($grantlist->result as $value) {
             foreach ($value as $key => $resource) {
@@ -111,7 +112,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
               }
             }
           }
-          $resources = "<p class='mb-0'>When your registration is approved, you will be added the the $allocation allocation which will provide access to the following resources for this event:</p><ul class='mt-0 mb-10'>";
+          $resources = "<p class='mb-0'>When your registration is approved, you will be added the the <strong><em>$allocation_title</em></strong> allocation which will provide access to the following resources for this event:</p><ul class='mt-0 mb-10'>";
           foreach ($resourcename as $resource) {
             $resources .= "<li>$resource</li>";
           }
