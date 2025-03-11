@@ -8,6 +8,9 @@ use GuzzleHttp\Exception\RequestException;
 use Drupal\Component\Utility\Xss;
 use GuzzleHttp\ClientInterface;
 use Psr\Log\LoggerInterface;
+use Drupal\Core\Messenger\MessengerInterface;
+use Drupal\Core\StringTranslation\StringTranslationTrait;
+use Drupal\Core\StringTranslation\TranslationInterface;
 
 /**
  * Interact with xsede api.
@@ -19,7 +22,14 @@ class XsedeApi {
    *
    * @var string
    */
-  protected $apiUrl = '/xdcdb-api-test/usermanagement/v1/users/';
+  protected $apiBaseUrl = 'https://allocations-api.access-ci.org';
+
+  /**
+   * The beginning of api call path.
+   *
+   * @var string
+   */
+  protected $apiUrl = '/acdb/usermanagement/v1/users/';
 
   /**
    * Store header keys.
@@ -78,6 +88,15 @@ class XsedeApi {
   protected $logger;
 
   /**
+   * Messenger.
+   *
+   * @var \Drupal\Core\Messenger\MessengerInterface
+   */
+  protected $messenger;
+
+  use StringTranslationTrait;
+
+  /**
    * Construct object.
    */
   public function __construct(
@@ -85,11 +104,15 @@ class XsedeApi {
     KeyRepositoryInterface $key_repository,
     ClientInterface $http_client,
     LoggerInterface $logger,
+    MessengerInterface $messenger,
+    TranslationInterface $string_translation,
   ) {
     $this->entityTypeManager = $entity_type_manager;
     $this->key = $key_repository;
     $this->httpClient = $http_client;
     $this->logger = $logger;
+    $this->messenger = $messenger;
+    $this->setStringTranslation($string_translation);
 
     $this->headerKeys();
   }
@@ -108,7 +131,7 @@ class XsedeApi {
   private function apiCall($path) {
     $headers = $this->headerKeys;
 
-    $url = 'https://a3mdev.xsede.org' . $path;
+    $url = $this->apiBaseUrl . $path;
 
     try {
       $response = $this->httpClient->get($url, [
@@ -127,7 +150,7 @@ class XsedeApi {
 
     $response = Xss::filter($response);
 
-    $this->apiResults = json_decode($response);
+    $this->apiResults = json_decode($response, TRUE);
   }
 
   /**
@@ -136,7 +159,7 @@ class XsedeApi {
   private function apiPost($path, $body) {
     $headers = $this->headerKeys;
 
-    $url = 'https://a3mdev.xsede.org' . $path;
+    $url = $this->apiBaseUrl . $path;
 
     try {
       $this->httpClient->post($url, [
@@ -152,12 +175,18 @@ class XsedeApi {
 
     }
     catch (RequestException $e) {
-      $this->logger->error($e->getMessage());
+      $this->messenger->addMessage($this->t('An error occurred.'), 'error');
       if (strpos($e->getMessage(), '400 Bad Request') !== FALSE) {
-        \Drupal::messenger()->addMessage('Username not found for Allocation', 'error');
+        \Drupal::messenger()->addMessage(
+          $this->t('Username not found for Allocation'),
+          'error'
+        );
       }
       else {
-        drupal_set_message('An error occurred.', 'error');
+        \Drupal::messenger()->addMessage(
+          $this->t('An error occurred.'),
+          'error'
+        );
       }
     }
   }
@@ -166,10 +195,10 @@ class XsedeApi {
    * Make Api call to pull in users grant results.
    */
   public function getGrantList($user) {
-    $this->apiCall('/xdcdb-api-test/usermanagement/v1/users/' . $user . '/projects_managed');
+    $this->apiCall($this->apiUrl . $user . '/projects_managed');
 
     $this->grantList = [];
-    foreach ($this->apiResults->result as $result) {
+    foreach ($this->apiResults['result'] as $result) {
       $key = $result->grantNumber;
       $title = $result->title;
       $this->grantList["$key"] = $title;
@@ -185,7 +214,7 @@ class XsedeApi {
     $this->apiCall($this->apiUrl . $grant_id);
 
     $this->spState = '';
-    foreach ($this->apiResults->result as $result) {
+    foreach ($this->apiResults['result'] as $result) {
       if ($result->username == $user) {
         $this->spState = $result->spState;
         break;
@@ -199,7 +228,7 @@ class XsedeApi {
    * Make Api call to pull in user list for a given grant.
    */
   public function getGrantedUsers($grant) {
-    $this->apiCall('/xdcdb-api-test/usermanagement/v1/users/' . $grant);
+    $this->apiCall($this->apiUrl . $grant);
 
     return $this->apiResults;
   }
@@ -208,9 +237,9 @@ class XsedeApi {
    * Get grant title.
    */
   public function getTitle($grantId) {
-    $this->apiCall('/xdcdb-api-test/usermanagement/v1/requests/request/' . $grantId);
+    $this->apiCall($this->apiUrl . '/requests/request/' . $grantId);
 
-    return $this->apiResults->result->masters[0]->requests[0]->projectTitle;
+    return $this->apiResults['result']->masters[0]->requests[0]->projectTitle;
   }
 
   /**
@@ -242,7 +271,7 @@ class XsedeApi {
     ];
 
     $post = json_encode($api_body);
-    $path = '/xdcdb-api-test/usermanagement/v1/users/' . $grantNumber . '/' . $action;
+    $path = $this->apiUrl . $grantNumber . '/' . $action;
     $this->apiPost($path, $post);
 
   }
