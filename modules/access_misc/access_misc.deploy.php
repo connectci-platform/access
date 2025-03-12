@@ -90,6 +90,7 @@ function access_misc_deploy_10001() {
   $query = $entity_type_manager->getStorage('webform_submission')->getQuery();
   $ids = $query
     ->condition('webform_id', 'resource')
+    ->accessCheck(FALSE)
     ->execute();
 
   if (!empty($ids)) {
