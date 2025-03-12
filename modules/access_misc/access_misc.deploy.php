@@ -7,6 +7,7 @@
 use Drupal\menu_link_content\Entity\MenuLinkContent;
 use Drupal\node\Entity\Node;
 use Drupal\redirect\Entity\Redirect;
+use Drupal\webform\WebformSubmissionForm;
 use Drupal\webform\Entity\WebformSubmission;
 
 /**
@@ -73,7 +74,7 @@ function access_misc_deploy_10000_people() {
  */
 function access_misc_deploy_10001() {
 
-  // Region taxonomy term ids,.
+  // Region taxonomy term ids.
   $new_term_ids = [
     780,
     572,
@@ -98,7 +99,7 @@ function access_misc_deploy_10001() {
 
     foreach ($submissions as $submission) {
       $submission->setElementData('domain', $new_term_ids);
-      $submission->save();
+      WebformSubmissionForm::submitWebformSubmission($submission);
 
       \Drupal::logger('custom_update')->info("Updated submission ID {$submission->id()} with new domain terms.");
     }
