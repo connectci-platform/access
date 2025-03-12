@@ -199,8 +199,8 @@ class XsedeApi {
 
     $this->grantList = [];
     foreach ($this->apiResults['result'] as $result) {
-      $key = $result->grantNumber;
-      $title = $result->title;
+      $key = $result['grantNumber'];
+      $title = $result['title'];
       $this->grantList["$key"] = $title;
     }
 
