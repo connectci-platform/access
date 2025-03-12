@@ -97,20 +97,7 @@ function access_misc_deploy_10001() {
     $submissions = WebformSubmission::loadMultiple($ids);
 
     foreach ($submissions as $submission) {
-      // Get current values of "domain" field.
-      $current_terms = $submission->get('domain')->getValue();
-
-      // Convert current terms into an array of target_ids.
-      $existing_term_ids = array_column($current_terms, 'target_id');
-
-      // Merge unique term IDs (avoid duplicates).
-      $merged_term_ids = array_unique(array_merge($existing_term_ids, $new_term_ids));
-
-      // Convert term IDs back to entity reference format.
-      $updated_terms = array_map(fn($tid) => ['target_id' => $tid], $merged_term_ids);
-
-      // Set and save the updated values.
-      $submission->set('domain', $updated_terms);
+      $submission->setElementData('domain', $new_term_ids);
       $submission->save();
 
       \Drupal::logger('custom_update')->info("Updated submission ID {$submission->id()} with new domain terms.");
