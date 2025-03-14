@@ -13,6 +13,27 @@ use Drupal\node\Entity\Node;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\user\Entity\User;
 use Drupal\views\ViewExecutable;
+use Drupal\views\Plugin\views\query\QueryPluginBase;
+
+
+/**
+ * Filter KB Resources for the current domain.
+ *
+ * The domain name is indexed from the Region taxonomy term using the
+ * Webform Submission Domain processor for the field_region_connected_domain.
+ *
+ * @param ViewExecutable $view
+ * @param QueryPluginBase $query
+ * @return void
+ */
+function access_cilink_views_query_alter(ViewExecutable $view, QueryPluginBase $query) {
+  if ($view->id() === 'search_ci_links' && $view->current_display === 'page_1') {
+    $token = \Drupal::token();
+    $domain_name = Html::getClass($token->replace(t('[domain:name]')));
+    $query->addCondition('webform_submission_domain', $domain_name, '=');
+  }
+}
+
 
 /**
  * Implements hook_views_pre_render().
@@ -122,7 +143,7 @@ function access_cilink_preprocess_views_view_field(&$variables) {
     $link_to_resource .= '</ul>';
 
     // Upvote widget.
-    $flag_upvote = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'upvote');
+    $flag_upvote = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'upvote', 'full');
     $flag_upvote = \Drupal::service('renderer')->renderPlain($flag_upvote);
     $flag_upvote = "<div class=''>$flag_upvote</div>";
 
@@ -163,13 +184,13 @@ function access_cilink_preprocess_views_view_field(&$variables) {
 
     // Flags.
     $flag_classes = 'no-underline text-dark-teal hover--underline';
-    $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'outdated');
+    $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'outdated', 'full');
     $flag_outdated['#attributes']['class'][] = $flag_classes;
     $flag_outdated = \Drupal::service('renderer')->renderPlain($flag_outdated);
-    $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'not_useful');
+    $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'not_useful', 'full');
     $flag_not_useful['#attributes']['class'][] = $flag_classes;
     $flag_not_useful = \Drupal::service('renderer')->renderPlain($flag_not_useful);
-    $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'inaccurate');
+    $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'inaccurate', 'full');
     $flag_inaccurate['#attributes']['class'][] = $flag_classes;
     $flag_inaccurate = \Drupal::service('renderer')->renderPlain($flag_inaccurate);
 
@@ -326,13 +347,13 @@ function access_cilink_preprocess_views_view_field(&$variables) {
       // Match and extract the number using preg_match for report flags.
       if (preg_match($pattern, $html, $matches)) {
         $sid = $matches[1];
-        $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'outdated');
+        $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'outdated', 'full');
         $flag_outdated['#attributes']['class'][] = 'dropdown-item';
         $flag_outdated = \Drupal::service('renderer')->renderPlain($flag_outdated);
-        $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'not_useful');
+        $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'not_useful', 'full');
         $flag_not_useful['#attributes']['class'][] = 'dropdown-item';
         $flag_not_useful = \Drupal::service('renderer')->renderPlain($flag_not_useful);
-        $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'inaccurate');
+        $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'inaccurate', 'full');
         $flag_inaccurate['#attributes']['class'][] = 'dropdown-item';
         $flag_inaccurate = \Drupal::service('renderer')->renderPlain($flag_inaccurate);
 

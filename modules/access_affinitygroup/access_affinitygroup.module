@@ -67,7 +67,7 @@ function access_affinitygroup_preprocess_views_view_field(&$variables) {
     $node = \Drupal::entityTypeManager()->getStorage('node')->load($nid);
     $tid = $node->get('field_affinity_group')->getValue();
     $tid = $tid[0]['target_id'];
-    $flag_ag = \Drupal::service('flag.link_builder')->build('taxonomy_term', $tid, 'affinity_group');
+    $flag_ag = \Drupal::service('flag.link_builder')->build('taxonomy_term', $tid, 'affinity_group', 'full');
     $flag_ag['#attributes']['class'][] = 'btn-sm btn-small btn-secondary-outline py-0 px-4';
     $flag_ag = \Drupal::service('renderer')->renderPlain($flag_ag);
     $current_user = \Drupal::currentUser();
