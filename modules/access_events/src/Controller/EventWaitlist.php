@@ -2,7 +2,6 @@
 
 namespace Drupal\access_events\Controller;
 
-use Drupal\user\Entity\User;
 use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Cache\Cache;
 use Drupal\Core\Controller\ControllerBase;
@@ -11,6 +10,7 @@ use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Routing\RedirectDestinationInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Request;
 
 /**
  * Controller for Event Waitlist.
@@ -90,19 +90,26 @@ class EventWaitlist extends ControllerBase {
    */
   public static function create(ContainerInterface $container): self {
     return new self(
-      $container->get('redirect.destination'),
-      $container->get('database'),
-      $container->get('entity_type.manager')
+    $container->get('redirect.destination'),
+    $container->get('database'),
+    $container->get('entity_type.manager')
     );
   }
 
   /**
    * Route to approve user.
    */
-  public function approve() {
+  public function approve(Request $request) {
     $this->status(1);
+    $id = $request->get('reg_id');
+    if (!$id) {
+      foreach ($this->registrantIds as $registrant) {
+        $this->addAllocation($registrant);
+      }
+    } else {
+      $this->addAllocation($id);
+    }
     $this->registerApproveEmail();
-    $this->addAllocation();
 
     // Clear cache eventinstance to reset block.
     Cache::invalidateTags(['eventinstance:' . $this->eventInstanceId]);
@@ -113,9 +120,10 @@ class EventWaitlist extends ControllerBase {
   /**
    * Route to unapprove user.
    */
-  public function unapprove() {
+  public function unapprove(Request $request) {
     $this->status(0);
-    $this->removeAllocation();
+    $id = $request->get('reg_id');
+    $this->removeAllocation($id);
 
     // Clear cache eventinstance to reset block.
     Cache::invalidateTags(['eventinstance:' . $this->eventInstanceId]);
@@ -126,49 +134,57 @@ class EventWaitlist extends ControllerBase {
   /**
    * Add user grant allocation.
    */
-  private function addAllocation() {
-    $username = [$this->currentUsername()];
+  private function addAllocation($id) {
+    $registrant = $this->entityTypeManager->getStorage('registrant')->load($id);
 
-    $eventinstance_id = $this->eventInstanceId;
-    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
-    $eventseries = $eventinstance->getEventSeries();
-    $grant = $eventseries->get('field_event_allocation_grant')->value;
+    if ($registrant && $registrant->hasField('user_id') && !$registrant->get('user_id')->isEmpty()) {
+      $user_id = $registrant->get('user_id')->target_id;
+      $user = $this->entityTypeManager->getStorage('user')->load($user_id);
 
-    if ($grant == 0) {
-      return;
+      if ($user) {
+        $username = $user->getAccountName();
+        $username = str_replace('@access-ci.org', '', $username);
+
+        $eventinstance_id = $this->eventInstanceId;
+        $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
+        $eventseries = $eventinstance->getEventSeries();
+        $grant = $eventseries->get('field_event_allocation_grant')->value;
+
+        if ($grant == 0) {
+          return;
+        }
+
+        \Drupal::service('access_events.XsedeApi')->setGrantedUsers($grant, [$username]);
+      }
     }
-
-    \Drupal::service('access_events.XsedeApi')->setGrantedUsers($grant, $username);
   }
 
   /**
    * Remove user grant allocation.
    */
-  private function removeAllocation() {
-    $username = [$this->currentUsername()];
+  private function removeAllocation($id) {
+    $registrant = $this->entityTypeManager->getStorage('registrant')->load($id);
 
-    $eventinstance_id = $this->eventInstanceId;
-    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
-    $eventseries = $eventinstance->getEventSeries();
-    $grant = $eventseries->get('field_event_allocation_grant')->value;
+    if ($registrant && $registrant->hasField('user_id') && !$registrant->get('user_id')->isEmpty()) {
+      $user_id = $registrant->get('user_id')->target_id;
+      $user = $this->entityTypeManager->getStorage('user')->load($user_id);
 
-    if ($grant == 0) {
-      return;
+      if ($user) {
+        $username = $user->getAccountName();
+        $username = str_replace('@access-ci.org', '', $username);
+
+        $eventinstance_id = $this->eventInstanceId;
+        $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
+        $eventseries = $eventinstance->getEventSeries();
+        $grant = $eventseries->get('field_event_allocation_grant')->value;
+
+        if ($grant == 0) {
+          return;
+        }
+
+        \Drupal::service('access_events.XsedeApi')->removeGrantedUsers($grant, [$username]);
+      }
     }
-
-    \Drupal::service('access_events.XsedeApi')->removeGrantedUsers($grant, $username);
-
-  }
-
-  /**
-   * Get current username.
-   */
-  private function currentUsername() {
-    $account = \Drupal::currentUser();
-    $user = User::load($account->id());
-    $username = $user->getAccountName();
-    $username = str_replace('@access-ci.org', '', $username);
-    return $username;
   }
 
   /**
@@ -240,14 +256,12 @@ class EventWaitlist extends ControllerBase {
       }
     }
 
-    $opposite_status = $status === 1 ? 0 : 1;
-
     // Entity query get all registrant id with 'eventseries_id' that equals
     // to $eventinstance_id.
     $registrant_entity = $this->entityTypeManager->getStorage('registrant');
     $entity_query = $registrant_entity->getQuery()
       ->condition('eventinstance_id', $eventinstance_id)
-      ->condition('status', $opposite_status)
+      ->condition('status', $status)
       ->accessCheck(FALSE);
     if ($reg_id) {
       $entity_query->condition('id', $reg_id);

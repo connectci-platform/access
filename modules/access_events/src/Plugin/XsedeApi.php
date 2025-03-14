@@ -142,15 +142,14 @@ class XsedeApi {
           'XA-API-KEY' => $headers[2],
         ],
       ])->getBody()->getContents();
+      $response = Xss::filter($response);
 
+      $this->apiResults = json_decode($response, TRUE);
     }
     catch (RequestException $e) {
       $this->logger->error($e->getMessage());
     }
 
-    $response = Xss::filter($response);
-
-    $this->apiResults = json_decode($response, TRUE);
   }
 
   /**
@@ -215,8 +214,8 @@ class XsedeApi {
 
     $this->spState = '';
     foreach ($this->apiResults['result'] as $result) {
-      if ($result->username == $user) {
-        $this->spState = $result->spState;
+      if ($result['username'] == $user) {
+        $this->spState = $result['spState'];
         break;
       }
     }
@@ -237,9 +236,8 @@ class XsedeApi {
    * Get grant title.
    */
   public function getTitle($grantId) {
-    $this->apiCall($this->apiUrl . '/requests/request/' . $grantId);
-
-    return $this->apiResults['result']->masters[0]->requests[0]->projectTitle;
+    $this->apiCall('/acdb/usermanagement/v1/requests/request/' . $grantId);
+    return $this->apiResults['result']['masters'][0]['requests'][0]['projectTitle'];
   }
 
   /**
@@ -266,7 +264,7 @@ class XsedeApi {
    */
   private function addRemoveUsers($grantNumber, $usernames, $action) {
     $api_body = [
-      'comment' => "bulk add",
+      'comment' => "class registration add",
       'usernames' => $usernames,
     ];
 
