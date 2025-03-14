@@ -7,16 +7,18 @@
 
 use Drupal\Component\Utility\Html;
 use Drupal\user\Entity\User;
+use Drupal\views\ViewExecutable;
+use Drupal\views\Plugin\views\query\QueryPluginBase;
 
 /**
  *
  */
 function ondemand_user_login($account) {
   $token = \Drupal::token();
-
   $domainName = t("[domain:name]");
   $current_domain_name = Html::getClass($token->replace($domainName));
-  if ($current_domain_name == 'ondemand') {
+
+  if ($current_domain_name == 'open-ondemand') {
     $current_user = \Drupal::currentUser();
     $uid = $current_user->id();
     $user = User::load($uid);
@@ -41,6 +43,36 @@ function ondemand_user_login($account) {
     }
     if ($new_ondemand_user) {
       $user->save();
+    }
+  }
+}
+
+/**
+ * Filters for People SearchAPI view.
+ *
+ * @param ViewExecutable $view
+ * @param QueryPluginBase $query
+ * @return void
+ */
+function ondemand_views_query_alter(ViewExecutable $view, QueryPluginBase $query) {
+
+  if ($view->id() === 'cyberteam_people_facets' && $view->current_display === 'page_1') {
+    $token = \Drupal::token();
+    $domain_name = Html::getClass($token->replace(t('[domain:name]')));
+
+    if ($domain_name == 'open-ondemand') {
+      $query->addCondition('field_region', '901', '=');
+    } else {
+      // Filter to the following roles for other domains.
+      $conditions = $query->createConditionGroup('OR');
+      $conditions->addCondition('roles', 'student', '=')
+        ->addCondition('roles', 'mentor', '=')
+        ->addCondition('roles', 'researcher', '=')
+        ->addCondition('roles', 'ci_systems_engineer', '=')
+        ->addCondition('roles', 'professional_mentor', '=')
+        ->addCondition('roles', 'research_computing_facilitator', '=')
+        ->addCondition('roles', 'research_software_engineer', '=');
+      $query->addConditionGroup($conditions);
     }
   }
 }

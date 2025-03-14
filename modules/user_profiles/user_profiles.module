@@ -73,14 +73,18 @@ function user_profiles_form_alter(&$form, &$form_state, $form_id) {
       // This is for both 'user_form' and 'user_register_form'
       // set these 2 fields to readonly for everyone including admin.
       $field = 'field_cider_resources';
-      $maxDelta = $form[$field]['widget']['#max_delta'];
-      for ($x = 0; $x <= $maxDelta; $x++) {
-        $form[$field]['widget'][$x]['target_id']['#attributes']['readonly'] = 'readonly';
+      if (isset($form[$field])) {
+        $maxDelta = $form[$field]['widget']['#max_delta'];
+        for ($x = 0; $x <= $maxDelta; $x++) {
+          $form[$field]['widget'][$x]['target_id']['#attributes']['readonly'] = 'readonly';
+        }
       }
       $field = 'field_blocked_ag_tax';
-      $maxDelta = $form[$field]['widget']['#max_delta'];
-      for ($x = 0; $x <= $maxDelta; $x++) {
-        $form[$field]['widget'][$x]['target_id']['#attributes']['readonly'] = 'readonly';
+      if (isset($form[$field])) {
+        $maxDelta = $form[$field]['widget']['#max_delta'];
+        for ($x = 0; $x <= $maxDelta; $x++) {
+          $form[$field]['widget'][$x]['target_id']['#attributes']['readonly'] = 'readonly';
+        }
       }
 
       // Check here for id because case fall-through from user_form case.
