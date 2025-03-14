@@ -1,16 +1,16 @@
 <?php
 
-namespace Drupal\access_misc\Controller;
+namespace Drupal\access_events\Controller;
 
 use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Cache\Cache;
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\Component\Utility\Xss;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Routing\RedirectDestinationInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Request;
 
 /**
  * Controller for Event Waitlist.
@@ -90,18 +90,26 @@ class EventWaitlist extends ControllerBase {
    */
   public static function create(ContainerInterface $container): self {
     return new self(
-      $container->get('redirect.destination'),
-      $container->get('database'),
-      $container->get('entity_type.manager')
+    $container->get('redirect.destination'),
+    $container->get('database'),
+    $container->get('entity_type.manager')
     );
   }
 
   /**
    * Route to approve user.
    */
-  public function approve() {
+  public function approve(Request $request) {
     $this->status(1);
-    $this->register_approve_email();
+    $id = $request->get('reg_id');
+    if (!$id) {
+      foreach ($this->registrantIds as $registrant) {
+        $this->addAllocation($registrant);
+      }
+    } else {
+      $this->addAllocation($id);
+    }
+    $this->registerApproveEmail();
 
     // Clear cache eventinstance to reset block.
     Cache::invalidateTags(['eventinstance:' . $this->eventInstanceId]);
@@ -112,8 +120,10 @@ class EventWaitlist extends ControllerBase {
   /**
    * Route to unapprove user.
    */
-  public function unapprove() {
+  public function unapprove(Request $request) {
     $this->status(0);
+    $id = $request->get('reg_id');
+    $this->removeAllocation($id);
 
     // Clear cache eventinstance to reset block.
     Cache::invalidateTags(['eventinstance:' . $this->eventInstanceId]);
@@ -121,12 +131,66 @@ class EventWaitlist extends ControllerBase {
     return new RedirectResponse($this->eventRegistrationUrl);
   }
 
+  /**
+   * Add user grant allocation.
+   */
+  private function addAllocation($id) {
+    $registrant = $this->entityTypeManager->getStorage('registrant')->load($id);
 
+    if ($registrant && $registrant->hasField('user_id') && !$registrant->get('user_id')->isEmpty()) {
+      $user_id = $registrant->get('user_id')->target_id;
+      $user = $this->entityTypeManager->getStorage('user')->load($user_id);
+
+      if ($user) {
+        $username = $user->getAccountName();
+        $username = str_replace('@access-ci.org', '', $username);
+
+        $eventinstance_id = $this->eventInstanceId;
+        $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
+        $eventseries = $eventinstance->getEventSeries();
+        $grant = $eventseries->get('field_event_allocation_grant')->value;
+
+        if ($grant == 0) {
+          return;
+        }
+
+        \Drupal::service('access_events.XsedeApi')->setGrantedUsers($grant, [$username]);
+      }
+    }
+  }
 
   /**
- * Approved Email.
- */
-  private function register_approve_email() {
+   * Remove user grant allocation.
+   */
+  private function removeAllocation($id) {
+    $registrant = $this->entityTypeManager->getStorage('registrant')->load($id);
+
+    if ($registrant && $registrant->hasField('user_id') && !$registrant->get('user_id')->isEmpty()) {
+      $user_id = $registrant->get('user_id')->target_id;
+      $user = $this->entityTypeManager->getStorage('user')->load($user_id);
+
+      if ($user) {
+        $username = $user->getAccountName();
+        $username = str_replace('@access-ci.org', '', $username);
+
+        $eventinstance_id = $this->eventInstanceId;
+        $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
+        $eventseries = $eventinstance->getEventSeries();
+        $grant = $eventseries->get('field_event_allocation_grant')->value;
+
+        if ($grant == 0) {
+          return;
+        }
+
+        \Drupal::service('access_events.XsedeApi')->removeGrantedUsers($grant, [$username]);
+      }
+    }
+  }
+
+  /**
+   * Approved Email.
+   */
+  private function registerApproveEmail() {
     $event_instance_id = $this->eventInstanceId;
     // Entity load eventinctance by id.
     $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
@@ -156,7 +220,6 @@ class EventWaitlist extends ControllerBase {
       'name' => '',
       'location' => $location,
     ];
-
 
     foreach ($this->registrantIds as $registrant_id) {
       $registrant = $this->entityTypeManager->getStorage('registrant')->load($registrant_id);

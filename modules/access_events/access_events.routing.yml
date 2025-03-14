@@ -1,0 +1,18 @@
+event.eventApprove:
+  path: '/events/{event_id}/waitlist/approve'
+  defaults:
+    _controller: '\Drupal\access_events\Controller\EventWaitlist::approve'
+    _title: 'Approved'
+  requirements:
+    _custom_access:  '\Drupal\access_events\Controller\EventWaitlist::isAuthor'
+  options:
+    no_cache: 'TRUE'
+event.eventDeny:
+  path: '/events/{event_id}/waitlist/unapprove'
+  defaults:
+    _controller: '\Drupal\access_events\Controller\EventWaitlist::unapprove'
+    _title: 'Unapproved'
+  requirements:
+    _custom_access:  '\Drupal\access_events\Controller\EventWaitlist::isAuthor'
+  options:
+    no_cache: 'TRUE'
