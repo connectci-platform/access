@@ -1,0 +1,46 @@
+<?php
+
+/**
+ * @file
+ * Module for customizing OnDemand ConnectCI domain.
+ */
+
+use Drupal\Component\Utility\Html;
+use Drupal\user\Entity\User;
+
+/**
+ *
+ */
+function ondemand_user_login($account) {
+  $token = \Drupal::token();
+
+  $domainName = t("[domain:name]");
+  $current_domain_name = Html::getClass($token->replace($domainName));
+  if ($current_domain_name == 'ondemand') {
+    $current_user = \Drupal::currentUser();
+    $uid = $current_user->id();
+    $user = User::load($uid);
+
+    $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'OnDemand']);
+    $term_id = reset($term)->id();
+
+    $new_ondemand_user = FALSE;
+    $programs = $user->get('field_region')->referencedEntities();
+    if (count($programs) == 0) {
+      $user->set('field_region', $term_id);
+      $new_ondemand_user = TRUE;
+    }
+    elseif (!array_filter(
+      $programs,
+      function ($program) use ($term_id) {
+        return $program->id() == $term_id;
+      }
+    )) {
+      $user->get('field_region')->appendItem(['target_id' => $term_id]);
+      $new_ondemand_user = TRUE;
+    }
+    if ($new_ondemand_user) {
+      $user->save();
+    }
+  }
+}
