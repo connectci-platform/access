@@ -256,12 +256,14 @@ class EventWaitlist extends ControllerBase {
       }
     }
 
+    $opposite_status = $status === 1 ? 0 : 1;
+
     // Entity query get all registrant id with 'eventseries_id' that equals
     // to $eventinstance_id.
     $registrant_entity = $this->entityTypeManager->getStorage('registrant');
     $entity_query = $registrant_entity->getQuery()
       ->condition('eventinstance_id', $eventinstance_id)
-      ->condition('status', $status)
+      ->condition('status', $opposite_status)
       ->accessCheck(FALSE);
     if ($reg_id) {
       $entity_query->condition('id', $reg_id);
