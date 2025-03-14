@@ -1,0 +1,7 @@
+name: ondemand
+description: 'Custom functionality for OnDemand'
+type: module
+core_version_requirement: ^10
+package: Custom
+dependencies:
+  - access

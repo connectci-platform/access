@@ -56,4 +56,3 @@ function checkRegistration() {
   }
 }
 
-checkRegistration();
