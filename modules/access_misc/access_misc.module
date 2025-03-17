@@ -5,19 +5,18 @@
  */
 
 use Drupal\access_misc\Plugin\Util\EventDateConvert;
+use Drupal\Component\Utility\Html;
+use Drupal\Component\Utility\Xss;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\Component\Utility\Html;
 use Drupal\Core\Render\Markup;
-use Drupal\user\UserInterface;
+use Drupal\Core\Url;
 use Drupal\taxonomy\Entity\Term;
+use Drupal\user\UserInterface;
 use Drupal\user\Entity\User;
 use Drupal\views\ViewExecutable;
-use Drupal\Component\Utility\Xss;
-use Symfony\Component\HttpFoundation\RedirectResponse;
-use Drupal\Core\Field\BaseFieldDefinition;
-use Drupal\Core\Url;
+
 
 /**
  * Implements hook_page_attachments().
@@ -710,6 +709,31 @@ function access_misc_mail($key, &$message, $params) {
       $message['subject'] = $params['subject'];
       $message['body'][] = $params['body'];
       break;
+  }
+}
+
+function get_domain_email() {
+  // Lookup the site_mail for the current domain.
+  // This is used to set the Reply-To header for emails sent from the site.
+  $domain_negotiator = \Drupal::service('domain.negotiator');
+  $active_domain = $domain_negotiator->getActiveDomain();
+  if ($active_domain) {
+    $domain_id = $active_domain->id();
+    $configFactory = \Drupal::configFactory()->get('domain_site_settings.domainconfigsettings');
+    if ($configFactory->get($domain_id) !== NULL) {
+      $domain_config = $configFactory->get($domain_id);
+      $site_mail = $domain_config['site_mail'];
+      return $site_mail;
+    }
+  }
+  return NULL; // Fallback if no domain match
+}
+
+function access_misc_mail_alter(&$message) {
+  // If the domain-specific email exists, use it.
+  $site_email = get_domain_email();
+  if (!empty($site_email)) {
+    $message['headers']['Reply-To'] = $site_email;
   }
 }
 
