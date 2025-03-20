@@ -2,7 +2,7 @@
 
 namespace Drupal\cssn\Plugin\Util;
 
-use Drupal\cssn\Plugin\Util\RoleProgramSorter;
+use Drupal\webform\Entity\WebformSubmission;
 
 /**
  * Sort CSSN Webform Submissions.
@@ -28,7 +28,7 @@ class CssnSubmissionsSort {
     $term = reset($term);
     $term_id = $term->id();
     foreach ($ws_results as $ws_result) {
-      $ws = \Drupal\webform\Entity\WebformSubmission::load($ws_result);
+      $ws = WebformSubmission::load($ws_result);
       $ws_data = $ws->getData();
       if (!empty($ws_data)) {
         $ws_owner = $ws->getOwner();
@@ -37,7 +37,7 @@ class CssnSubmissionsSort {
         if ($checked == 'General Member') {
           $role_program_sorter->addFieldRegion($term_id);
         }
-        if ($checked == 'MATCHPlus Mentor') {
+        if ($checked == 'MATCH Mentor') {
           $role_program_sorter->addFieldRegion($term_id);
           $role_program_sorter->addRole('mentor');
         }
@@ -52,4 +52,5 @@ class CssnSubmissionsSort {
       }
     }
   }
+
 }
