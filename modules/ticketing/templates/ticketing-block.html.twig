@@ -15,7 +15,7 @@
     <div class="form-check">
       <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="ticket-login-other">
       <label class="form-check-label px-1" for="ticket-login-other">
-        I need help logging into other affiliated infrastructure
+        I need help logging into a resource (i.e. Anvil, Expanse)
       </label>
     </div>
     <div class="form-check">
@@ -24,9 +24,9 @@
         I have another question
       </label>
     </div>
-    <div class="py-4">
+    <div class="py-4 flex">
       <a href="login?redirect=/open-a-ticket" id="ticket-link" class="btn btn-primary">Open a Ticket</a>
-      <button type="submit" id="ticket-submit" class="btn btn-primary">Open a Ticket</button>
+      <button type="submit" id="ticket-submit" class="btn btn-primary ml-0">Open a Ticket</button>
       <a href="https://access-ci.atlassian.net/servicedesk/customer/user/requests" class="btn btn-secondary">View your tickets</a>
     </div>
   </form>
@@ -56,6 +56,22 @@ if (document.getElementById("ticket-display-name").value == "anonymous") {
 
 function ticketChoiceChange(e) {
   url = null;
+  console.log(e.target.id);
+
+  if (e.target.id == 'ticket-login-access') {
+    document.getElementById("ticket-submit").style.display = "block";
+    document.getElementById("ticket-link").style.display = "none";
+  }
+  else {
+    if (document.getElementById("ticket-account-name").value == "") {
+      document.getElementById("ticket-submit").style.display = "none";
+      document.getElementById("ticket-link").style.display = "block";
+    } else {
+      document.getElementById("ticket-link").style.display = "none";
+      document.getElementById("ticket-submit").style.display = "block";
+    }
+  }
+
   if (e.target.id == 'ticket-other-question') {
     url = '/open-a-ticket';
   }
