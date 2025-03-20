@@ -1,5 +1,0 @@
-services:
-  access_affinitygroup.event_subscriber:
-    class: Drupal\access_affinitygroup\EventSubscriber\AccessAffinityGroupEventSubscriber
-    tags:
-      - { name: event_subscriber }
