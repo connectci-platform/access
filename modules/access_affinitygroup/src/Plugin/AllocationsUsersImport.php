@@ -822,9 +822,8 @@ class AllocationsUsersImport {
   private function setUserMembership($agNid, $userDetails, $blockList, $isJoin) {
     $ag = Node::load($agNid);
 
-    $agTax = \Drupal::entityTypeManager()
-      ->getStorage('taxonomy_term')
-      ->loadByProperties(['name' => ($ag->get('title')->value)]);
+    // Load the taxonomy term from the entity reference field "Affinity Group".
+    $agTax = $ag->get('field_affinity_group')->entity;
 
     // If taxonomy not on some new affinity group, fail gracefully.
     if (empty($agTax)) {
@@ -832,7 +831,6 @@ class AllocationsUsersImport {
       return;
     }
 
-    $agTax = reset($agTax);
     // For joining only, check if ag is on block list.
     if ($isJoin && in_array($agTax->id(), $blockList)) {
       $this->collectCronLog('...user blocked ' . $agTax->id() . ' ' . $ag->get('title')->value, 'd');
