@@ -573,7 +573,7 @@ class AllocationsUsersImport {
       $this->collectCronLog("Exception while processing api results at $userCount " . $e->getMessage(), 'err');
     }
 
-    $this->collectCronLog($sandbox['batchNum'] . ". $newUsers new users;  $newCCIds CC added; $userCount processed.", 'i', TRUE);
+    $this->collectCronLog($context['sandbox']['batchNum'] . ". $newUsers new users;  $newCCIds CC added; $userCount processed.", 'i', TRUE);
   }
 
   /**
