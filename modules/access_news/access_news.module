@@ -461,8 +461,73 @@ function weeklyNewsReport($noSend) {
     Drupal::logger('cron_accessnews')->notice('Digest: events from: ' . $d1 . ' to: ' . $d2);
     $eventHTML = eventsRangeView($d1, $d2, $utmCampaign);
 
-    $emailHTML = $wrapper->ccNewsRollupHTML($newsHTML, $eventHTML);
+    // Entity query to get all 'eventseries' entities with 'eventseries_type' field value 'office_hours'.
+    $query = \Drupal::entityQuery('eventseries')
+      ->condition('field_event_type', 'office_hours')
+      ->accessCheck(FALSE);
+    $entity_ids = $query->execute();
 
+    $eventseries_office_hours = [];
+    foreach ($entity_ids as $entity_id) {
+      $entity = \Drupal::entityTypeManager()->getStorage('eventseries')->load($entity_id);
+
+      $no_share = $entity->get('field_event_no_listing')->value;
+      if ($no_share) {
+        continue;
+      }
+
+      $title = $entity->get('title')->value;
+      $recur_type = $entity->get('recur_type')->value;
+
+      $weekly_recurring_day = $entity->get('weekly_recurring_date')->__get('days');
+      $weekly_recurring_time = $entity->get('weekly_recurring_date')->__get('time');
+
+      $monthly_occurance = $entity->get('monthly_recurring_date')->__get('day_occurrence');
+      $monthly_days = $entity->get('monthly_recurring_date')->__get('days');
+
+      $body = $entity->get('body')->view('rollup_list');
+      $bodyDisp = \Drupal::service('renderer')->renderPlain($body);
+
+      $eventseries_office_hours[$entity_id] = [
+        'title' => $title,
+        'recur_type' => $recur_type,
+        'day_of_week' => ucfirst($weekly_recurring_day),
+        'time' => $weekly_recurring_time,
+        'monthly_occurance' => ucwords($monthly_occurance),
+        'monthly_days' => $monthly_days,
+        'body' => $bodyDisp,
+      ];
+    }
+
+    $weekly = $wrapper->sectionHeadHTML("Weekly Events");
+    $weekly_exists = 0;
+    foreach ($eventseries_office_hours as $eid => $event) {
+      if ($event['recur_type'] == 'weekly_recurring_date') {
+        $weekly_exists = 1;
+        $weekly .= $wrapper->eventItemHTML($event['title'], "{$event['day_of_week']}s at {$event['time']} ET", $event['body'], "https://support.access-ci.org//events/series/$eid");
+      }
+    }
+
+    if ($weekly_exists == 0) {
+      $weekly = '';
+    }
+
+    $monthly = $wrapper->sectionHeadHTML("Monthly Events</h2>");
+    $monthly_exists = 0;
+    foreach ($eventseries_office_hours as $eid => $event) {
+      if ($event['recur_type'] == 'monthly_recurring_date') {
+        $monthly_exists = 1;
+        $monthly .= $wrapper->eventItemHTML($event['title'], "{$event['monthly_occurance']} {$event['monthly_days']} at {$event['time']} ET", $event['body'], "https://support.access-ci.org//events/series/$eid");
+      }
+    }
+
+    if ($monthly_exists == 0) {
+      $monthly = '';
+    }
+
+    $newsHTML .= $wrapper->dividerHTML() . $weekly . $wrapper->dividerHTML() . $monthly;
+
+    $emailHTML = $wrapper->ccNewsRollupHTML($newsHTML, $eventHTML, $weekly, $monthly);
     // Create constant contact campaign. this does not send it.
     $campaignName = uniqid('Access Digest: ' . $dtTomorrow->format('n/j/y') . ' ', FALSE);
 
@@ -570,6 +635,13 @@ function eventsRangeView($fromDate, $toDate, $utmCampaign) {
     foreach ($eventNodes as $enode) {
       try {
         $eCount += 1;
+        $series = $enode->getEventSeries();
+        $no_share = $series->get('field_event_no_listing')->value;
+
+        if ($series->field_event_type->value == 'office_hours' || $no_share) {
+          continue;
+        }
+
         $fields = $enode->getFields();
         $titleArray = $fields['title']->getValue();
         $title = $titleArray[0]['value'];
