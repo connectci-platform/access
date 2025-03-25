@@ -20,7 +20,7 @@ class TicketingController extends ControllerBase {
     $account_name = $account->getAccountName();
     $display_name = $account->getDisplayName();
 
-    $uri = Url::fromUri('https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/17',
+    $uri = Url::fromUri('https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/31',
       [
         'query' => [
           'customfield_10103' => $account_name,
