@@ -1159,7 +1159,7 @@ function setupEmailCampaign($emailSubject, $emailHtml, $campaignName) {
     'email_campaign_activities' => [
       [
         'format_type' => 5,
-        'from_name' => 'Access Support',
+        'from_name' => 'ACCESS Support',
         'from_email' => cAccessEmail,
         'reply_to_email' => cAccessEmail,
         'subject' => $emailSubject,
