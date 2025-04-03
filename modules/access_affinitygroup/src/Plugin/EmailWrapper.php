@@ -526,7 +526,7 @@ SECTIONHEADHTML;
                     style="table-layout:fixed;width:inherit;border-radius:2px;border-spacing:0px;background-color:rgb(72,192,185);border:none">
                 <tbody>
                   <tr>
-                    <td align="center" style="padding:8px 12px">
+                    <td align="center" style="padding:4px 6px">
                       <a href="$itemUrl"
                        style="text-decoration:none;color:rgb(255,255,255);font-family:Roboto,sans-serif;font-size:12px;font-weight:bold"
                        target="_blank"
@@ -871,9 +871,6 @@ DIVIDERHTML;
       .digest-news-body p {
         padding: 0px;
       }
-      .digest-news-text {
-        padding-bottom: 8px;
-      }
       .socialFollow a {
         text-decoration: none!important;
       }
@@ -1201,9 +1198,9 @@ DIVIDERHTML;
                           border="0" cellpadding="0" cellspacing="0" bgcolor="#48c0b9">
                     <tbody>
                       <tr>
-                        <td class="button_content-cell" style="padding:10px 15px" align="center">
+                        <td class="button_content-cell" style="padding:4px 6px" align="center">
                           <a href="$buttonUrl"
-                            style="color:#ffffff;font-family:Roboto,sans-serif;font-size:16px;word-wrap:break-word;font-weight:bold;text-decoration:none"
+                            style="color:#ffffff;font-family:Roboto,sans-serif;font-size:12px;word-wrap:break-word;font-weight:bold;text-decoration:none"
                             target="_blank">
                             $buttonText
                           </a>
