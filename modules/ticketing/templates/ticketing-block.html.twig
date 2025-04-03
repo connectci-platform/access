@@ -61,6 +61,8 @@ function ticketChoiceChange(e) {
   if (e.target.id == 'ticket-login-access') {
     document.getElementById("ticket-submit").style.display = "block";
     document.getElementById("ticket-link").style.display = "none";
+
+    document.getElementById("ticket-link").href = "login?redirect=/open-a-ticket#login";
   }
   else {
     if (document.getElementById("ticket-account-name").value == "") {
@@ -72,6 +74,15 @@ function ticketChoiceChange(e) {
     }
   }
 
+
+  if (e.target.id == 'ticket-login-other') {
+    document.getElementById("ticket-link").href = "login?redirect=/open-a-ticket#resource";
+  }
+
+  if (e.target.id == 'ticket-other-question') {
+    document.getElementById("ticket-link").href = "login?redirect=/open-a-ticket#question";
+  }
+
   if (e.target.id == 'ticket-other-question') {
     url = '/open-a-ticket';
   }
@@ -79,6 +90,7 @@ function ticketChoiceChange(e) {
     base = 'https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/';
     url = (e.target.id == 'ticket-login-access') ? base + '30' : base + '31';
   }
+
   document.getElementById('ticket-choice-form').action = url;
 }
 </SCRIPT>
