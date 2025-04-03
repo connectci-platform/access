@@ -197,10 +197,13 @@ class XsedeApi {
     $this->apiCall($this->apiUrl . $user . '/projects_managed');
 
     $this->grantList = [];
-    foreach ($this->apiResults['result'] as $result) {
-      $key = $result['grantNumber'];
-      $title = $result['title'];
-      $this->grantList["$key"] = $title;
+
+    if (!empty($this->apiResults['result'])) {
+      foreach ($this->apiResults['result'] as $result) {
+        $key = $result['grantNumber'];
+        $title = $result['title'];
+        $this->grantList["$key"] = $title;
+      }
     }
 
     return $this->grantList;
