@@ -72,48 +72,8 @@ function ccmnet_entity_insert(EntityInterface $entity) {
       $badge_tools->setUserBadge($match_badge, $mentee);
     }
 
-    $nid = $entity->id();
-    $mentor = $entity->get('field_mentor')->getValue();
-    $mentee = $entity->get('field_mentee')->getValue();
-    $author = $entity->getOwner()->id();
-    $authorized_users = [];
-    foreach ($mentor as $mentor_id) {
-      if ($mentor_id != $author) {
-        $authorized_users[] = $mentor_id['target_id'];
-      }
-    }
-    foreach ($mentee as $mentee_id) {
-      if ($mentee_id != $author) {
-        $authorized_users[] = $mentee_id['target_id'];
-      }
-    }
-    $grant = \Drupal::service('access_misc.nodeaccess.grant');
-    $grant->grant($authorized_users, $nid);
-
     $message = t('We will notify you by email once your mentorship has been posted on the website.');
     \Drupal::messenger()->addMessage($message);
-  }
-}
-
-/**
- * Implements hook_entity_update().
- */
-function ccmnet_entity_update(EntityInterface $entity) {
-  $type = $entity->bundle();
-  if ($type == 'mentorship_engagement') {
-    $nid = $entity->id();
-    $mentor = isset($entity->get('field_mentor')->getValue()[0]) ? $entity->get('field_mentor')->getValue()[0]['target_id'] : 0;
-    $mentee = isset($entity->get('field_mentee')->getValue()[0]) ? $entity->get('field_mentee')->getValue()[0]['target_id'] : 0;
-    $author = $entity->getOwner()->id();
-    $authorized_users = [];
-    if ($mentor && $mentor != $author) {
-      $authorized_users[] = $mentor;
-    }
-    if ($mentee && $mentee != $author) {
-      $authorized_users[] = $mentee;
-    }
-    $grant = \Drupal::service('access_misc.nodeaccess.grant');
-    $grant->grant($authorized_users, $nid);
   }
 }
 
