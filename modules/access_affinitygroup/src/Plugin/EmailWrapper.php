@@ -1042,7 +1042,7 @@ DIVIDERHTML;
                                   <td class="image_container" align="center" valign="top">
                                     <img data-image-content class="image_content" width="680"
                                         src="$imgLogo"
-                                        alt="Access Support logo" style="display: block; height: auto; max-width:100%;">
+                                        alt="ACCESS Support logo" style="display: block; height: auto; max-width:100%;">
                                   </td>
                                 </tr>
                               </table>

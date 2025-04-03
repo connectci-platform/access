@@ -281,7 +281,6 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
       }
     }
     $form['#validate'][] = 'access_match_engagement_form_validate';
-    $link = Link::createFromRoute('Engagement Guide', 'entity.node.canonical', ['node' => 6108]);
     $form['save_description'] = [
       '#markup' => '<div>' .
                     t("Save as <span class=\"font-bold\">Submitted</span> when you’re ready for an initial review,
@@ -290,8 +289,7 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
                     save as <span class=\"font-bold\">In Review</span>. After a second review it will be
                     published and displayed as <span class=\"font-bold\">Recruiting</span> so that people can use
                     the “I’m interested” button to be considered for
-                    participation. You can find more details in the @link.",
-                    ['@link' => $link->toString()]) .
+                    participation.") .
                     '</div>',
       '#weight' => 99,
       '#allowed_tags' => [
