@@ -22,18 +22,13 @@ class TicketingController extends ControllerBase {
 
     // Get anchor from url.
     $url = \Drupal::request()->getRequestUri();
-    $url_parts = explode('#', $url);
-    $anchor = array_pop($url_parts);
+    $url_parts = explode('/', $url);
+    $ticket_id = array_pop($url_parts);
 
-    if ($anchor == 'resource') {
-      $ticket = '31';
-    }
-    elseif ($anchor == 'question') {
-      $ticket = '17';
-    }
+    $ticket_id = is_numeric($ticket_id) ? $ticket_id : 0;
 
 
-    $uri = Url::fromUri('https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/' . $ticket,
+    $uri = Url::fromUri('https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/' . $ticket_id,
       [
         'query' => [
           'customfield_10103' => $account_name,
