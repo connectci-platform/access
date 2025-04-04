@@ -455,8 +455,8 @@ EMAILTEXT;
   /**
    * Used in digest (announcements/events rollup).
    */
-  public function sectionHeadHTML($titleText) {
-    $sectionHead = <<<SECTIONHEADHTML
+  public function mainHeadHTML($titleText) {
+    $mainHead = <<<MAINHEADHTML
     <table class="layout layout-feature layout-1-column" style="table-layout:fixed;
            background-color=#ffffff;" width="100%" border="0" cellpadding="0" cellspacing="0" bgcolor="#ffffff">
       <tr>
@@ -475,9 +475,65 @@ EMAILTEXT;
         </td>
       </tr>
     </table>
+MAINHEADHTML;
+    // note: SECTIONHEADHTML must be to the left column-wise of the last tag (php)
+    return $mainHead;
+  }
+
+  /**
+   * Used in digest (announcements/events rollup).
+   */
+  public function sectionHeadHTML($titleText) {
+    $sectionHead = <<<SECTIONHEADHTML
+    <table class="layout layout-feature layout-1-column" style="table-layout:fixed;
+           background-color=#ffffff;" width="100%" border="0" cellpadding="0" cellspacing="0" bgcolor="#ffffff">
+      <tr>
+        <td class="column column--1 scale stack" style="width:100%;" align="center" valign="top">
+          <table class="text text--feature text--padding-vertical" width="100%" border="0" cellpadding="0" cellspacing="0" style="table-layout: fixed;">
+            <tr>
+              <td class="text_content-cell content-padding-horizontal"
+                        style="text-align: center; font-family: Roboto,sans-serif; color:#4d4d4d; font-size:14px; line-height:1.2;
+                        display:block; word-wrap: break-word; padding: 10px 40px;" align="center" valign="top">
+                <h2 style="text-align:left; font-family:Roboto,sans-serif; background-color: rgb(16, 113, 128); font-size: 18px; font-weight:bold; padding: 8px 10px; margin:0;" align="left">
+                  <span style="font-family:Roboto,sans-serif; color:fff; font-weight:bold;">$titleText</span>
+                </h2>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
 SECTIONHEADHTML;
     // note: SECTIONHEADHTML must be to the left column-wise of the last tag (php)
     return $sectionHead;
+  }
+
+  /**
+   * Used in digest (announcements/events rollup).
+   */
+  public function sectionSubHeadHTML($titleText) {
+    $sectionSubHead = <<<SECTIONSUBHEADHTML
+    <table class="layout layout-feature layout-1-column" style="table-layout:fixed;
+           background-color=#ffffff;" width="100%" border="0" cellpadding="0" cellspacing="0" bgcolor="#ffffff">
+      <tr>
+        <td class="column column--1 scale stack" style="width:100%;" align="center" valign="top">
+          <table class="text text--feature text--padding-vertical" width="100%" border="0" cellpadding="0" cellspacing="0" style="table-layout: fixed;">
+            <tr>
+              <td class="text_content-cell content-padding-horizontal"
+                        style="text-align: center; font-family: Roboto,sans-serif; color:#4d4d4d; font-size:12px; line-height:1.2;
+                        display:block; word-wrap: break-word; padding: 10px 40px;" align="center" valign="top">
+                <h3 style="text-align:left; font-family:Roboto,sans-serif; color: #3E3E3E; background-color: rgb(236 249 248); font-size: 18px; font-weight:bold; padding: 8px 10px; margin:0;" align="left">
+                  <span style="font-family:Roboto,sans-serif; color:#1a5b6e;">$titleText</span>
+                </h3>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+SECTIONSUBHEADHTML;
+    // note: SECTIONHEADHTML must be to the left column-wise of the last tag (php)
+    return $sectionSubHead;
   }
 
   /**
@@ -584,12 +640,10 @@ DIVIDERHTML;
   public function ccNewsRollupHTML($news, $events) {
     $newsBody = '<div class="access-news-rollup-email">'
       . '<div class="access-news-rollup-news">' . $news . '</div>'
-      . $this->dividerHTML()
       . '<div class="access-news-rollup-events">' . $events . '</div>'
-      . $this->sectionHeadHTML("Join Affinity Groups")
+      . $this->sectionHeadHTML(t("Join Affinity Groups"))
       . $this->ccRollupBottomStatic1()
-      . $this->dividerHTML()
-      . $this->sectionHeadHTML("Share with the ACCESS Community")
+      . $this->sectionHeadHTML(t("Share with the ACCESS Community"))
       . $this->ccRollupBottomStatic2()
       . '</div>';
 
