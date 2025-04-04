@@ -116,7 +116,7 @@ class EmailWrapper {
             }
 
             p {
-              margin-bottom: 15px!important;
+              margin-bottom: 10px!important;
             }
 
               @media only screen and (max-width:480px) {
@@ -541,12 +541,11 @@ SECTIONSUBHEADHTML;
    */
   public function newsItemHTML($title, $pubDate, $body, $articleUrl) {
     $main = "<div  class=\"digest-news-item\">
-      <div class=\"digest-news-text\">$pubDate</div>
       <div class=\"digest-news-text\">
       $body
       </div>
       </div>";
-    return $this->itemHTML($title, $main, $articleUrl, "Read more");
+    return $this->itemHTML($title, $pubDate, $main, $articleUrl, "Read more");
   }
 
   /**
@@ -554,17 +553,16 @@ SECTIONSUBHEADHTML;
    */
   public function eventItemHTML($title, $eventDate, $description, $articleUrl) {
     $main = "<div>
-        <div class=\"digest-news-text\">$eventDate</div>
         <div class=\"digest-news-text\">$description</div>
       </div>";
-    return $this->itemHTML($title, $main, $articleUrl, "Read more");
+    return $this->itemHTML($title, $eventDate, $main, $articleUrl, "Read more");
   }
 
   /**
    * Used in announcements/events digest - each announcement or event item
    * with a link at the bottom to the event.
    */
-  private function itemHTML($titleText, $main, $itemUrl, $itemLinkText) {
+  private function itemHTML($titleText, $eventDate, $main, $itemUrl, $itemLinkText) {
     $title = $this->titleHTML($titleText);
     $article = <<<ARTICLEHTML
   <table class="layout layout--1-column" style="table-layout: fixed;" width="100%" border="0" cellpadding="0" cellspacing="0">
@@ -574,6 +572,7 @@ SECTIONSUBHEADHTML;
           <tr>
             <td class="text_content-cell content-padding-horizontal" style="text-align: left; font-family:Roboto,sans-serif;
             color: #4d4d4d; font-size: 14px; line-height: 1.2; display: block; word-wrap: break-word; padding: 10px 40px;" align="left" valign="top">
+            <div class="digest-news-text" style="margin-bottom: 10px; font-weight: bold;">$eventDate</div>
             $title
 
               <div><span style="font-size: 14px;">$main</span></div>
@@ -816,7 +815,7 @@ DIVIDERHTML;
         border: 4px solid;
       }
        p {
-        margin-bottom: 15px!important;
+        margin-bottom: 10px!important;
       }
       /* single event and news: spacing under fields such as location */
       .field__item:last-child {
