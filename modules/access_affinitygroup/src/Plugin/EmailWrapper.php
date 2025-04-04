@@ -586,7 +586,6 @@ DIVIDERHTML;
       . '<div class="access-news-rollup-news">' . $news . '</div>'
       . $this->dividerHTML()
       . '<div class="access-news-rollup-events">' . $events . '</div>'
-      . $this->dividerHTML()
       . $this->sectionHeadHTML("Join Affinity Groups")
       . $this->ccRollupBottomStatic1()
       . $this->dividerHTML()

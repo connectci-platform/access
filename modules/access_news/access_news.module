@@ -459,11 +459,13 @@ function weeklyNewsReport($noSend) {
       ->format(DateTimeItemInterface::DATETIME_STORAGE_FORMAT);
 
     Drupal::logger('cron_accessnews')->notice('Digest: events from: ' . $d1 . ' to: ' . $d2);
-    $eventHTML = eventsRangeView($d1, $d2, $utmCampaign);
+    $conference = eventsRangeView($d1, $d2, 'Conference', $utmCampaign);
+    $trainings = eventsRangeView($d1, $d2, 'Training', $utmCampaign);
+    $other = eventsRangeView($d1, $d2, 'Other', $utmCampaign);
 
     $office_hours = officeHours($wrapper);
 
-    $eventHTML = $eventHTML . $office_hours;
+    $eventHTML = $conference . $trainings .  $office_hours . $other;
 
     $emailHTML = $wrapper->ccNewsRollupHTML($newsHTML, $eventHTML);
 
@@ -489,7 +491,7 @@ function weeklyNewsReport($noSend) {
 function officeHours($wrapper) {
   // Select all office hours types.
   $query = \Drupal::entityQuery('eventseries')
-    ->condition('field_event_type', 'office_hours')
+    ->condition('field_event_type', 'Office Hours')
     ->accessCheck(FALSE);
   $entity_ids = $query->execute();
 
@@ -526,7 +528,7 @@ function officeHours($wrapper) {
     ];
   }
 
-  $weekly = $wrapper->sectionHeadHTML("Weekly Events");
+  $weekly = $wrapper->sectionHeadHTML("Office Hours");
   $weekly_exists = 0;
   foreach ($eventseries_office_hours as $eid => $event) {
     if ($event['recur_type'] == 'weekly_recurring_date') {
@@ -539,7 +541,7 @@ function officeHours($wrapper) {
     $weekly = '';
   }
 
-  $monthly = $wrapper->sectionHeadHTML("Monthly Events</h2>");
+  $monthly = '';
   $monthly_exists = 0;
   foreach ($eventseries_office_hours as $eid => $event) {
     if ($event['recur_type'] == 'monthly_recurring_date') {
@@ -552,10 +554,10 @@ function officeHours($wrapper) {
     $monthly = '';
   }
 
-  $weekly = $weekly != '' ? $wrapper->dividerHTML() . $weekly : '';
-  $monthly = $monthly != '' ? $wrapper->dividerHTML() . $monthly : '';
+  $weekly = $weekly != '' ? $weekly : '';
+  $monthly = $monthly != '' ? $monthly : '';
 
-  return $weekly . $monthly;
+  return $weekly . $monthly . $wrapper->dividerHTML();
 }
 
 /**
@@ -636,7 +638,7 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
  * Return html list of news in this date range.
  *  utmCampaign: text for utm_campaign=
  */
-function eventsRangeView($fromDate, $toDate, $utmCampaign) {
+function eventsRangeView($fromDate, $toDate, $type,  $utmCampaign) {
 
   $listDisplay = '';
   $eCount = 0;
@@ -658,7 +660,7 @@ function eventsRangeView($fromDate, $toDate, $utmCampaign) {
         $series = $enode->getEventSeries();
         $no_share = $series->get('field_event_no_listing')->value;
 
-        if ($series->field_event_type->value == 'office_hours' || $no_share) {
+        if ($series->field_event_type->value != $type || $no_share) {
           continue;
         }
 
@@ -700,7 +702,7 @@ function eventsRangeView($fromDate, $toDate, $utmCampaign) {
         // $location = empty($enode->location[0]) ? '' : $enode->location[0]->view('rollup_list');
         // $locationDisp = \Drupal::service('renderer')->renderPlain($location);
         if ($eCount > 1) {
-          $listDisplay = $listDisplay . $divider;
+          $listDisplay = $listDisplay;
         }
 
         $itemDisplay = $wrapper->eventItemHTML($title, $dateTimeDisp, $bodyDisp, $eventUrl);
@@ -713,8 +715,8 @@ function eventsRangeView($fromDate, $toDate, $utmCampaign) {
       $listDisplay = $listDisplay . $itemDisplay;
     } // end for
 
-    $sectionHeader = $wrapper->sectionHeadHTML("Events and Trainings");
-    $listDisplay = $sectionHeader . $listDisplay;
+    $sectionHeader = $wrapper->sectionHeadHTML($type);
+    $listDisplay = $listDisplay != "" ? $sectionHeader . $listDisplay . $divider : '';
   }
   catch (Exception $e) {
     $listDisplay = 'Error retrieving events: ' . $e->getMessage();
