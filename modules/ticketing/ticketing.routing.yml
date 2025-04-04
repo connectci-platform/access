@@ -1,5 +1,5 @@
 ticketing.content:
-  path: '/open-a-ticket'
+  path: '/open-a-ticket/{ticket_id}'
   defaults:
     _controller: '\Drupal\ticketing\Controller\TicketingController::doRedirect'
     _title: 'Ticket redirect'
