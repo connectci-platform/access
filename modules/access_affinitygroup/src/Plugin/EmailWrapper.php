@@ -578,10 +578,10 @@ SECTIONSUBHEADHTML;
               <div><span style="font-size: 14px;">$main</span></div>
 
               <table border="0" cellpadding="0" cellspacing="0" bgcolor="#48c0b9"
-                    style="table-layout:fixed;width:inherit;border-radius:2px;border-spacing:0px;background-color:rgb(72,192,185);border:none">
+                    style="table-layout:fixed;width:inherit;border-radius:2px;border-spacing:0px;background-color:rgb(72,192,185);border:none;margin-bottom:10px;">
                 <tbody>
                   <tr>
-                    <td align="center" style="padding:4px 6px">
+                    <td align="center" style="padding:4px 6px;">
                       <a href="$itemUrl"
                        style="text-decoration:none;color:rgb(255,255,255);font-family:Roboto,sans-serif;font-size:12px;font-weight:bold"
                        target="_blank"
