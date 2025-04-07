@@ -109,3 +109,11 @@ function access_misc_deploy_10001() {
   }
 
 }
+
+/**
+ * Rebuild permissions.
+ */
+function access_misc_deploy_10002() {
+  node_access_rebuild(TRUE);
+  node_access_rebuild(TRUE);
+}
