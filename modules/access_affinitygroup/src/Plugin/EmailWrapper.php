@@ -564,19 +564,11 @@ SECTIONSUBHEADHTML;
    */
   private function itemHTML($titleText, $eventDate, $main, $itemUrl, $itemLinkText) {
     $title = $this->titleHTML($titleText);
-    $article = <<<ARTICLEHTML
-  <table class="layout layout--1-column" style="table-layout: fixed;" width="100%" border="0" cellpadding="0" cellspacing="0">
-    <tr>
-      <td class="column column--1 scale stack" style="width:=65%;" align="center" valign="top">
-        <table class="text text--article text--padding-vertical" width="100%" border="0" cellpadding="0" cellspacing="0" style="table-layout:fixed;">
-          <tr>
-            <td class="text_content-cell content-padding-horizontal" style="text-align: left; font-family:Roboto,sans-serif;
-            color: #4d4d4d; font-size: 14px; line-height: 1.2; display: block; word-wrap: break-word; padding: 10px 40px;" align="left" valign="top">
-            <div class="digest-news-text" style="margin-bottom: 10px; font-weight: bold;">$eventDate</div>
-            $title
 
-              <div><span style="font-size: 14px;">$main</span></div>
+    $articleLink = '';
 
+    if ($itemUrl != NULL) {
+      $articleLink = <<<ARTICLELINK
               <table border="0" cellpadding="0" cellspacing="0" bgcolor="#48c0b9"
                     style="table-layout:fixed;width:inherit;border-radius:2px;border-spacing:0px;background-color:rgb(72,192,185);border:none;margin-bottom:10px;">
                 <tbody>
@@ -592,6 +584,23 @@ SECTIONSUBHEADHTML;
                   </tr>
                 </tbody>
               </table>
+      ARTICLELINK;
+    }
+
+    $article = <<<ARTICLEHTML
+  <table class="layout layout--1-column" style="table-layout: fixed;" width="100%" border="0" cellpadding="0" cellspacing="0">
+    <tr>
+      <td class="column column--1 scale stack" style="width:=65%;" align="center" valign="top">
+        <table class="text text--article text--padding-vertical" width="100%" border="0" cellpadding="0" cellspacing="0" style="table-layout:fixed;">
+          <tr>
+            <td class="text_content-cell content-padding-horizontal" style="text-align: left; font-family:Roboto,sans-serif;
+            color: #4d4d4d; font-size: 14px; line-height: 1.2; display: block; word-wrap: break-word; padding: 10px 40px;" align="left" valign="top">
+            <div class="digest-news-text" style="margin-bottom: 10px; font-weight: bold;">$eventDate</div>
+            $title
+
+              <div><span style="font-size: 14px;">$main</span></div>
+
+              $articleLink
           </td>
         </tr>
       </table>

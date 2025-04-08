@@ -492,7 +492,7 @@ function officeHours($ids, $utmCampaign = NULL) {
   $wrapper = new EmailWrapper();
   $eventseries_office_hours = [];
 
-  foreach ($ids as $entity_id) {
+  foreach ($ids as $entity_id => $entities) {
     $entity = \Drupal::entityTypeManager()->getStorage('eventseries')->load($entity_id);
 
     $title = $entity->get('title')->value;
@@ -507,6 +507,12 @@ function officeHours($ids, $utmCampaign = NULL) {
     $body = $entity->get('body')->view('list');
     $body = $body[0] != NULL ? $body[0] : '';
     $body = \Drupal::service('renderer')->renderPlain($body);
+
+    foreach ($entities as $entity) {
+      $date = $entity['date'];
+      $url = $entity['url'];
+      $body .= "<p><a href='$url'>$date</a></p>";
+    }
 
     $eventseries_office_hours[$entity_id] = [
       'title' => $title,
@@ -526,10 +532,10 @@ function officeHours($ids, $utmCampaign = NULL) {
     $eventUrl = appendUtmCC("https://support.access-ci.org//events/series/$eid", $utmCampaign);
 
     if ($event['day_of_week']) {
-      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['day_of_week']}s at {$event['time']} ET", $event['body'], $eventUrl);
+      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['day_of_week']}s at {$event['time']} ET", $event['body'], null);
     }
     else {
-      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['monthly_occurance']} {$event['monthly_days']} at {$event['time']} ET", $event['body'], $eventUrl);
+      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['monthly_occurance']} {$event['monthly_days']} at {$event['time']} ET", $event['body'], null);
     }
   }
 
@@ -648,16 +654,6 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
           continue;
         }
 
-        if ($recur_type == 'weekly_recurring_date') {
-          $weekly_id[$series_id] = $series_id;
-          continue;
-        }
-
-        if ($recur_type == 'monthly_recurring_date') {
-          $monthly_id[$series_id] = $series_id;
-          continue;
-        }
-
         $fields = $enode->getFields();
         $titleArray = $fields['title']->getValue();
         $title = $titleArray[0]['value'];
@@ -697,6 +693,24 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
         // $locationDisp = \Drupal::service('renderer')->renderPlain($location);
         if ($eCount > 1) {
           $listDisplay = $listDisplay;
+        }
+
+        if ($recur_type == 'weekly_recurring_date') {
+          $weekly_id[$series_id][] = [
+            'title' => $title,
+            'date' => $dateTimeDisp,
+            'url' => $eventUrl,
+          ];
+          continue;
+        }
+
+        if ($recur_type == 'monthly_recurring_date') {
+          $monthly_id[$series_id][] = [
+            'title' => $title,
+            'date' => $dateTimeDisp,
+            'url' => $eventUrl,
+          ];
+          continue;
         }
 
         $itemDisplay = $wrapper->eventItemHTML($title, $dateTimeDisp, $bodyDisp, $eventUrl);
