@@ -397,92 +397,6 @@ function access_misc_datalayer_alter(&$data_layer) {
  * Implements hook_form_alter().
  */
 function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id) {
-  // Custom tags on /events/add
-  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
-    $form['event_registration']['widget'][0]['#description'] = "<strong>Event registration is a new feature. If you encounter any issues or unexpected behavior, please submit a ticket to let us know.</strong>";
-    $form['consecutive_recurring_date'] = [];
-    $form['field_tags_replace'] = [
-      '#type' => 'container',
-      '#attributes' => [
-        'id' => 'field-tags-replace',
-        'data-suggest' => '0',
-      ],
-      '#weight' => 20,
-    ];
-
-    $form['field_tags_replace']['field_suggest_title'] = [
-      '#markup' => "<h4 class='label form-required mt-4'>Tags</h4>",
-    ];
-
-    $form['field_tags_replace']['field_suggest'] = [
-      '#type' => 'container',
-      '#attributes' => [
-        'class' => [
-          'bg-light-teal',
-          'my-5',
-          'p-5'
-        ]
-      ],
-    ];
-
-    $form['field_tags_replace']['field_suggest']['tag_list'] = [
-      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary.</div>",
-    ];
-    $form['field_tags_replace']['field_suggest']['replace_button'] = [
-      '#type' => 'button',
-      '#value' => t('Suggest Tags'),
-      '#limit_validation_errors' => array(),
-      '#attributes' => [
-        'class' => [
-          'ml-0'
-        ],
-      ],
-      '#ajax' => [
-        'callback' => 'access_misc_replace_event_section_callback',
-        'wrapper' => 'field-tags-replace',
-      ],
-    ];
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
-    ];
-
-
-    $add_tags = \Drupal::service('access_misc.addtags');
-    $output = $add_tags->getView();
-    $tag_label = t('Tags');
-    $tag_description = t('Add tags that will help people find your event.');
-    $tag_summary = t('Select Tags');
-
-    $form['node_add_tags'] = [
-      '#markup' => "<div class='mt-4'>
-          <h4 class='label form-required'>$tag_label</h4>
-          <div class='tag-description'>$tag_description</div>
-        </div>
-        <div id='tag-suggestions'></div>
-        <details class='tags m-0 mb-8'><summary class='font-bold'>$tag_summary</summary>$output</details>",
-      '#weight' => 20,
-      '#allowed_tags' => [
-        'button',
-        'details',
-        'summary',
-        'div',
-        'span',
-        'h2',
-        'h4',
-      ],
-    ];
-
-    // Attach javascript.
-    $form['#attached']['library'][] = 'access_misc/node_add_tags';
-    $form['#attached']['library'][] = 'access_misc/events';
-
-    // Registration form.
-    $form['event_registration']['widget'][0]['unique_email_address']['#default_value'] = 1;
-    $form['event_registration']['widget'][0]['unique_email_address']['#access'] = FALSE;
-    $form['event_registration']['widget'][0]['permitted_roles']['#default_value'] = ['authenticated'];
-    $form['event_registration']['widget'][0]['permitted_roles']['#access'] = FALSE;
-    $form['#validate'][] = 'access_misc_eventseries_validate';
-  }
   // Custom tags on /form/ci-link webform.
   if ($form_id == 'webform_submission_resource_add_form' || $form_id == 'webform_submission_resource_edit_form') {
     $form['field_tags_replace'] = [
@@ -612,29 +526,6 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
   \Drupal::state()->set('access_misc_email_digest', $digest);
 }
 
-/**
- * Custom validation handler for webform_submission_resource_add_form.
- */
-function access_misc_eventseries_validate($form, FormStateInterface $form_state) {
-  $recur_types = [
-    'custom' => 'custom_date',
-    'monthly_recurring_date' => 'monthly_recurring_date',
-    'weekly_recurring_date' => 'weekly_recurring_date',
-    'daily_recurring_date' => 'daily_recurring_date',
-    'consecutive_recurring_date' => 'included_dates',
-  ];
-
-  foreach ($recur_types as $recur_type => $date_field) {
-    if ($form_state->getValue('recur_type')[0]['value'] == $recur_type) {
-      $date = $form_state->getValue($date_field)[0]['value'];
-      if ($date == null) {
-        $form_state->setErrorByName($date_field, t('Please select a date.'));
-      }
-    }
-  }
-
-}
-
 
 /**
  * Custom submit handler for user_form.
@@ -644,34 +535,6 @@ function access_misc_user_password_change($form, FormStateInterface $form_state)
   if ($password) {
     \Drupal::messenger()->addMessage(t('Password changed successfully.'));
   }
-}
-
-/**
- * Ajax callback function to replace the section with '#markup'.
- */
-function access_misc_replace_event_section_callback(array &$form, FormStateInterface $form_state) {
-  $raw_data = $form_state->getUserInput();
-  $body_filter = $raw_data['body'][0]['value'] ? Xss::filter($raw_data['body'][0]['value']) : '';
-  $suggested_tag_ids = '0';
-  if (strlen($body_filter) >= 100) {
-    $llm = \Drupal::service('access_llm.ai_references_generator');
-    $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
-    $suggested_tag_ids = implode(', ', $llm->taxonomyIdSuggested());
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
-    ];
-  }
-  else {
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
-                    <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
-                    Your description must be over 400 characters to get a suggestion.</div>",
-    ];
-  }
-  $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
-
-  // Return the updated section.
-  return $form['field_tags_replace'];
 }
 
 function access_misc_replace_section_callback(array &$form, FormStateInterface $form_state) {
