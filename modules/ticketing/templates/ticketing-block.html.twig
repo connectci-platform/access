@@ -81,10 +81,7 @@ function ticketChoiceChange(e) {
 
   if (e.target.id == 'ticket-other-question') {
     document.getElementById("ticket-link").href = "login?redirect=/open-a-ticket/17";
-  }
-
-  if (e.target.id == 'ticket-other-question') {
-    url = '/open-a-ticket';
+    url = '/open-a-ticket/17';
   }
   else {
     base = 'https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/';
