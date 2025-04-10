@@ -82,6 +82,9 @@ function ccmnet_entity_insert(EntityInterface $entity) {
  */
 function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   if ($form_id == 'node_mentorship_engagement_edit_form' || $form_id == 'node_mentorship_engagement_form') {
+    // Set domain source to n/a by default.
+    $form['field_domain_source']['widget']['#default_value'] = '_none';
+
     $form['title']['widget'][0]['#maxlength'] = 65;
     $form['body']['widget'][0]['summary']['#description'] = t('No html tags allowed in summary. Limit to 275 characters.');
     $form['body']['widget'][0]['summary']['#maxlength'] = 275;
