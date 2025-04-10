@@ -495,7 +495,7 @@ MAINHEADHTML;
                         style="text-align: center; font-family: Roboto,sans-serif; color:#4d4d4d; font-size:14px; line-height:1.2;
                         display:block; word-wrap: break-word; padding: 10px 40px;" align="center" valign="top">
                 <h2 style="text-align:left; font-family:Roboto,sans-serif; background-color: rgb(16, 113, 128); font-size: 18px; font-weight:bold; padding: 8px 10px; margin:0;" align="left">
-                  <span style="font-family:Roboto,sans-serif; color:fff; font-weight:bold;">$titleText</span>
+                  <span style="font-family:Roboto,sans-serif; color: #fff; font-weight:bold;">$titleText</span>
                 </h2>
               </td>
             </tr>
