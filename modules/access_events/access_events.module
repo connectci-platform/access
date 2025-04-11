@@ -198,6 +198,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
       '#title' => t('Summary'),
       '#description' => $form['field_summary']['widget'][0]['#description'],
       '#default_value' => $form['field_summary']['widget'][0]['value']['#default_value'],
+      '#required' => TRUE,
       '#rows' => 5,
       '#weight' => 10,
       '#maxlength' => 150,
