@@ -3,7 +3,9 @@ ticketing.content:
   defaults:
     _controller: '\Drupal\ticketing\Controller\TicketingController::doRedirect'
     _title: 'Ticket redirect'
+    ticket_id: NULL
   requirements:
     _permission: 'access content'
   options:
     no_cache: 'TRUE'
+

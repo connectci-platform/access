@@ -15,18 +15,12 @@ class TicketingController extends ControllerBase {
   /**
    * Redirect to JSM, and prefill the .
    */
-  public function doRedirect() {
+  public function doRedirect($ticket_id = NULL) {
     $account = User::load(\Drupal::currentUser()->id());
     $account_name = $account->getAccountName();
     $display_name = $account->getDisplayName();
 
-    // Get anchor from url.
-    $url = \Drupal::request()->getRequestUri();
-    $url_parts = explode('/', $url);
-    $ticket_id = array_pop($url_parts);
-
-    $ticket_id = is_numeric($ticket_id) ? $ticket_id : 0;
-
+    $ticket_id = is_numeric($ticket_id) ? $ticket_id : 17;
 
     $uri = Url::fromUri('https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/' . $ticket_id,
       [
