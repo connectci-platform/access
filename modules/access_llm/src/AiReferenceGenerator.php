@@ -300,6 +300,29 @@ class AiReferenceGenerator {
   }
 
   /**
+   * Generate a summary text prompt.
+   */
+  public function generateSummaryPrompt($text) {
+
+    $prompt = 'For the contents within brackets: ({BODY}) ';
+    $prompt .= 'Return a summary of the text.';
+    $prompt .= 'It is very important that you do not exceed 15 tokens.';
+
+    $prompt = str_replace('{BODY}', $text, $prompt);
+
+    $this->prompt = $prompt;
+  }
+
+  /**
+   * Generate a summary text.
+   */
+  public function summarySuggested() {
+    $suggestion = $this->aiApiCall();
+
+    return $suggestion;
+  }
+
+  /**
    * Performs AI API call.
    *
    * @return string

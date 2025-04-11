@@ -6,6 +6,7 @@
 
 use Drupal\access_misc\Plugin\Util\EventDateConvert;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Component\Utility\Xss;
 use Drupal\Core\Render\Markup;
 use Drupal\user\Entity\User;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -172,6 +173,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
       '#weight' => 0,
     ];
 
+
     $form['field_summary_replace']['field_suggest_title'] = [
       '#markup' => "<h4 class='label form-required mt-4'>Summary</h4>",
     ];
@@ -191,6 +193,16 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
       '#markup' => "<div id='match-summary-list' class='mb-3'>Get summary suggestions based on your description and then curate as necessary.</div>",
     ];
 
+    $form['field_summary_replace']['field_suggest']['summary_text'] = [
+      '#type' => 'textarea',
+      '#title' => t('Summary'),
+      '#description' => $form['field_summary']['widget'][0]['#description'],
+      '#default_value' => $form['field_summary']['widget'][0]['value']['#default_value'],
+      '#rows' => 5,
+      '#weight' => 10,
+      '#maxlength' => 150,
+    ];
+
     $form['field_summary_replace']['field_suggest']['replace_button'] = [
       '#type' => 'button',
       '#value' => t('Suggest Summary'),
@@ -205,6 +217,15 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
         'wrapper' => 'field-summary-replace',
       ],
     ];
+
+    $form['field_summary_replace']['user_message'] = [
+      '#markup' => "",
+    ];
+
+    // Hide the field 'field_summary' and replace it with a textarea.
+    $form['field_summary']['widget'][0]['value']['#access'] = FALSE;
+
+    $form['actions']['submit']['#submit'][] = 'access_events_save_summary';
 
     // Tags ai suggestion.
     $form['field_tags_replace'] = [
@@ -351,14 +372,15 @@ function access_events_replace_summary_section_callback(array &$form, FormStateI
   $suggested_tag_ids = '0';
   if (strlen($body_filter) >= 100) {
     $llm = \Drupal::service('access_llm.ai_references_generator');
-    //$llm->generateTaxonomyPrompt('tags', 1, $body_filter);
-    //$suggested_tag_ids = implode(', ', $llm->taxonomyIdSuggested());
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
+    $llm->generateSummaryPrompt($body_filter);
+    $result = $llm->summarySuggested();
+    $form['field_summary_replace']['field_suggest']['summary_text']['#value'] = $result;
+    $form['field_summary_replace']['user_message'] = [
+      '#markup' => '',
     ];
   }
   else {
-    $form['field_tags_replace']['user_message'] = [
+    $form['field_summary_replace']['user_message'] = [
       '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
                     <strong class='text-sky-900'>Fill in the description below to get suggested tags.</strong><br />
                     Your description must be over 100 characters to get a suggestion.</div>",
@@ -367,7 +389,21 @@ function access_events_replace_summary_section_callback(array &$form, FormStateI
   $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
 
   // Return the updated section.
-  return $form['field_tags_replace'];
+  return $form['field_summary_replace'];
+}
+
+/**
+ * Custom submit handler for registrant form.
+ */
+function access_events_save_summary($form, FormStateInterface $form_state) {
+  $entity = $form_state->getFormObject()->getEntity();
+  $raw_data = $form_state->getUserInput();
+  $suggested_summary = $raw_data['summary_text'] ? Xss::filter($raw_data['summary_text']) : '';
+  $summary = $form_state->getValue('field_summary')[0]['value'] ? Xss::filter($form_state->getValue('field_summary')[0]['value']) : '';
+  if ($suggested_summary != $summary) {
+    $entity->set('field_summary', [['value' => $suggested_summary]]);
+    $entity->save();
+  }
 }
 
 /**
