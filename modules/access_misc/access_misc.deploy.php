@@ -117,3 +117,11 @@ function access_misc_deploy_10002() {
   node_access_rebuild(TRUE);
   node_access_rebuild(TRUE);
 }
+
+/**
+ * Run cron.
+ */
+function access_misc_deploy_10003() {
+  $cron = Drupal::service('cron');
+  $cron->run();
+}
