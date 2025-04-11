@@ -444,9 +444,9 @@ function weeklyNewsReport($noSend) {
 
     $wrapper = new EmailWrapper();
     $newsHTML = newsRangeView($d1, $d2, $utmCampaign);
-    $sectionHeader = $wrapper->mainHeadHTML("The ACCESS Support Digest // " . $dtTomorrow->format('F j, Y'));
-    $sectionHeader .= $wrapper->sectionHeadHTML(t('Announcements'));
-    $newsHTML = $sectionHeader . $newsHTML;
+    $mainHeader = $wrapper->mainHeadHTML("The ACCESS Support Digest // " . $dtTomorrow->format('F j, Y'));
+    $sectionHeader = $wrapper->sectionHeadHTML(t('Announcements'));
+    $newsHTML = $newsHTML != '' ? $mainHeader . $sectionHeader . $newsHTML : $mainHeader;
     Drupal::logger('cron_accessnews')->notice('Digest: news from: ' . $d1 . ' to: ' . $d2);
 
     // Gather all upcoming events for the next month (tomorrow, when digest is sent, to +1 month)
@@ -531,11 +531,13 @@ function officeHours($ids, $utmCampaign = NULL) {
     $recurring_events_exists = 1;
     $eventUrl = appendUtmCC("https://support.access-ci.org//events/series/$eid", $utmCampaign);
 
+    $date = new DateTime("now", new DateTimeZone("America/New_York"));
+    $tz = $date->format('T') // EST or EDT
     if ($event['day_of_week']) {
-      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['day_of_week']}s at {$event['time']} ET", $event['body'], null);
+      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['day_of_week']}s at {$event['time']} {$tz}", $event['body'], null);
     }
     else {
-      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['monthly_occurance']} {$event['monthly_days']} at {$event['time']} ET", $event['body'], null);
+      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['monthly_occurance']} {$event['monthly_days']} at {$event['time']} {$tz}", $event['body'], null);
     }
   }
 
