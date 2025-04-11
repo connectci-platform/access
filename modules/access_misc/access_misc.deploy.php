@@ -9,6 +9,7 @@ use Drupal\node\Entity\Node;
 use Drupal\redirect\Entity\Redirect;
 use Drupal\webform\WebformSubmissionForm;
 use Drupal\webform\Entity\WebformSubmission;
+use Drupal\search_api\Entity\Index;
 
 /**
  * My drush deploy hook example.
@@ -122,6 +123,10 @@ function access_misc_deploy_10002() {
  * Run cron.
  */
 function access_misc_deploy_10003() {
+  $index = Index::load('affinity_groups');
+  $index->status();
+  $index->reindex();
+
   $cron = Drupal::service('cron');
   $cron->run();
 }
