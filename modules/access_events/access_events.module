@@ -226,7 +226,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     // Hide the field 'field_summary' and replace it with a textarea.
     $form['field_summary']['widget'][0]['value']['#access'] = FALSE;
 
-    $form['actions']['submit']['#submit'][] = 'access_events_save_summary';
+    array_unshift($form['actions']['submit']['#submit'], 'access_events_save_summary');
 
     // Tags ai suggestion.
     $form['field_tags_replace'] = [
@@ -402,8 +402,7 @@ function access_events_save_summary($form, FormStateInterface $form_state) {
   $suggested_summary = $raw_data['summary_text'] ? Xss::filter($raw_data['summary_text']) : '';
   $summary = $form_state->getValue('field_summary')[0]['value'] ? Xss::filter($form_state->getValue('field_summary')[0]['value']) : '';
   if ($suggested_summary != $summary) {
-    $entity->set('field_summary', [['value' => $suggested_summary]]);
-    $entity->save();
+    $form_state->setValue('field_summary', [['value' => $suggested_summary]]);
   }
 }
 
