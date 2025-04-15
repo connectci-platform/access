@@ -160,6 +160,8 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
 
   // Custom tags on /events/add
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
+    $form['body']['widget'][0]['#required'] = TRUE;
+
     $form['event_registration']['widget'][0]['#description'] = "<strong>Event registration is a new feature. If you encounter any issues or unexpected behavior, please submit a ticket to let us know.</strong>";
     $form['consecutive_recurring_date'] = [];
 
@@ -170,7 +172,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
         'id' => 'field-summary-replace',
         'data-suggest' => '0',
       ],
-      '#weight' => 0,
+      '#weight' => 2,
     ];
 
 
