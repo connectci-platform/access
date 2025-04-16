@@ -357,7 +357,7 @@ function access_events_replace_event_section_callback(array &$form, FormStateInt
     $form['field_tags_replace']['user_message'] = [
       '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
                     <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
-                    Your description must be over 400 characters to get a suggestion.</div>",
+                    Your description must be over 100 characters to get a suggestion.</div>",
     ];
   }
   $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
