@@ -10,6 +10,10 @@ people_menu:
   version: 1.x
   js:
     js/people_menu.js: {}
+oodevents:
+  version: 1.x
+  js:
+    js/ood-events.js: {}
 copyclip:
   version: 1.x
   js:

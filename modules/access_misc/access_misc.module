@@ -43,6 +43,11 @@ function access_misc_page_attachments(&$variables) {
     $variables['#attached']['drupalSettings']['access_misc']['current_menu'] = $program_id[$current_domain_name];
     $variables['#attached']['library'][] = 'access_misc/people_menu';
   }
+
+  if ($current_domain_name == 'open-ondemand') {
+    $variables['#attached']['drupalSettings']['access_misc']['ag'] = 591;
+    $variables['#attached']['library'][] = 'access_misc/oodevents';
+  }
 }
 
 /**
