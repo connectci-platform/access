@@ -24,6 +24,12 @@
         I have another question
       </label>
     </div>
+    <div class="form-check">
+      <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="report-security">
+      <label class="form-check-label px-1" for="report-security">
+        I want to report a security incident
+      </label>
+    </div>
     <div class="py-4 flex">
       <a href="login?redirect=/open-a-ticket/17" id="ticket-link" class="btn btn-primary">Open a Ticket</a>
       <button type="submit" id="ticket-submit" class="btn btn-primary ml-0">Open a Ticket</button>
@@ -82,6 +88,9 @@ function ticketChoiceChange(e) {
   if (e.target.id == 'ticket-other-question') {
     document.getElementById("ticket-link").href = "login?redirect=/open-a-ticket/17";
     url = '/open-a-ticket/17';
+  }
+  else if (e.target.id == 'report-security') {
+    url = 'https://access-ci.atlassian.net/servicedesk/customer/portal/3/group/5/create/26';
   }
   else {
     base = 'https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/';
