@@ -405,7 +405,7 @@ function access_match_engagement_form_validate(&$form, FormStateInterface $form_
   }
 
   if (count($tags) > 6) {
-    $error .= t('You can only select 6 tags. Please remove some tags.');
+    $error .= "\n You can only select 6 tags. Please remove some tags.";
   }
 
   if (!empty($error)) {
