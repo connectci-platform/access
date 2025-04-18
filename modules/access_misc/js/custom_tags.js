@@ -1,12 +1,10 @@
 Drupal.behaviors.nodeAddTags = {
   attach: function (context, settings) {
-    once('custom_tags', 'html').forEach( element => {
-      const buttons = document.getElementsByClassName('tags-select');
-
+    once('custom_tags', '.tags-select', context).forEach(button => {
       // When button is selected add selected class and check the corresponding checkbox.
       const buttonPressed = e => {
-        currentButtonTid = e.target.dataset.tid;
-        isSelected = e.target.classList.contains("selected");
+        let currentButtonTid = e.target.dataset.tid;
+        let isSelected = e.target.classList.contains("selected");
         if (document.getElementById("edit-tags-" + currentButtonTid).checked) {
           document.getElementById("edit-tags-" + currentButtonTid).checked = false;
           if (isSelected) {
@@ -20,12 +18,9 @@ Drupal.behaviors.nodeAddTags = {
         }
         updateSelectedTagList();
       }
-
-      document.addEventListener('DOMContentLoaded', function () {
-        for (let button of buttons) {
-          button.addEventListener("click", buttonPressed, false);
-        }
-      });
+      
+      // Add click event to this button
+      button.addEventListener("click", buttonPressed, false);
     });
 
     var tid_values = [];
