@@ -42,7 +42,7 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
       ],
     ];
     $form['field_tags_replace']['field_suggest']['tag_list'] = [
-      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary.</div>",
+      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary. Limited to 6 tags.</div>",
     ];
     $form['field_tags_replace']['field_suggest']['replace_button'] = [
       '#type' => 'button',
@@ -173,6 +173,12 @@ function access_news_validate(&$form, FormStateInterface $form_state) {
         }
       }
     }
+  }
+
+  $values = $form_state->getValues();
+  $tags = $values['field_tags'];
+  if (count($tags) > 6) {
+    $form_state->setErrorByName('Tags', t('You can only select 6 tags. Please remove some tags.'));
   }
 }
 
