@@ -246,7 +246,6 @@ function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
  * Validate handler for mentorship_engagement form.
  */
 function access_mentorship_engagement_validate(array &$form, FormStateInterface $form_state) {
-  $error = '';
   $values = $form_state->getValues();
 
   $summary = $values['body'][0]['summary'];
