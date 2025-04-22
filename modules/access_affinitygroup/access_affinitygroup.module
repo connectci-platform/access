@@ -1294,6 +1294,8 @@ function access_affinitygroup_form_alter(&$form, FormStateInterface $form_state,
     // Attach javascript.
     $form['#attached']['library'][] = 'access_misc/node_add_tags';
     $form['#validate'][] = 'access_affinitygroup_edit_validate';
+
+    $form['#attached']['library'][] = 'access_affinitygroup/ag_node_form';
   }
 
   if ($form_id == 'node_affinity_group_form') {
@@ -1554,5 +1556,40 @@ function access_affinitygroup_edit_validate(&$form, FormStateInterface $form_sta
     $nidArray = array_values($nidArray);
     $ag = Node::load($nidArray[0]);
     $form_state->setErrorByName('field_group_slug', "The Short Name must be unique, but $slug is already in use by " . $ag->getTitle());
+  }
+}
+
+/**
+ * Implements hook_entity_access().
+ */
+function access_affinitygroup_entity_access(EntityInterface $entity, $operation, AccountInterface $account) {
+  if ($entity->getEntityTypeId() == 'node' && $entity->bundle() == 'affinity_group') {
+    $ag_private = $entity->get('field_ag_private')->getValue();
+    $access = 1;
+    if (!empty($ag_private)) {
+      // If private is set, deny access.
+      if ($ag_private[0]['value']) {
+        $access = 0;
+
+        $ag_private_users = $entity->get('field_ag_private_users')->getValue();
+
+        $current_user = \Drupal::currentUser();
+        $current_uid = $current_user->id();
+
+        // Give access to users in the private users field.
+        foreach ($ag_private_users as $user) {
+          $uid = $user['target_id'];
+          if ($uid == $current_uid) {
+            $access = 1;
+          }
+        }
+      }
+    }
+
+    if ($access) {
+      return AccessResult::neutral();
+    } else {
+      return AccessResult::forbidden();
+    }
   }
 }

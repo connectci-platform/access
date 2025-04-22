@@ -2,3 +2,6 @@ extra_styles:
   css:
     theme:
       css/styles.css: {}
+ag_node_form:
+  js:
+    js/ag_node_form.js: {}
