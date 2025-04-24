@@ -20,6 +20,20 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['actions']['submit']['#submit'][] = 'access_events_user_delete_submit';
   }
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
+    $set_tz = $form['custom_date']['widget'][0]['value']['#date_timezone'];
+    $suffix = '<div class="form-text"><strong>' . t('Timezone') . ':</strong> ' . $set_tz . '</div>';
+
+    foreach ($form['custom_date']['widget'] as $key => $value) {
+      if (is_numeric($key)) {
+        $form['custom_date']['widget'][$key]['day_occurance']['#suffix'] = $suffix;
+      }
+    }
+
+    $form['monthly_recurring_date']['widget'][0]['day_occurrence']['#suffix'] = $suffix;
+
+    $form['weekly_recurring_date']['widget'][0]['days']['#suffix'] = $suffix;
+    $form['daily_recurring_date']['widget'][0]['duration']['#suffix'] = $suffix;
+
     $current_user = \Drupal::currentUser();
     $username = $current_user->getAccountName();
     $username = str_replace('@access-ci.org', '', $username);
