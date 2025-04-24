@@ -6,6 +6,7 @@
 
 use Drupal\access_misc\Plugin\Util\EventDateConvert;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Entity\EntityInterface;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Render\Markup;
 use Drupal\user\Entity\User;
@@ -585,3 +586,24 @@ function access_events_preprocess_views_view_field(&$variables) {
   }
 
 }
+
+/**
+ * Implements hook_entity_update().
+ */
+function access_events_entity_update(EntityInterface $entity) {
+  $type = $entity->getEntityTypeId();
+  if ( $type == 'eventinstance') {
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($entity->id());
+    $eventseries = $eventinstance->getEventSeries();
+    $series_domain = $eventseries->get('domain_access')->getValue();
+
+    // If series domain(s) is set, set the same domain(s) on the event instance.
+    if ($series_domain) {
+      $instance_domain = $eventinstance->get('domain_access')->getValue();
+      if ($instance_domain != $series_domain) {
+        $eventinstance->set('domain_access', $series_domain);
+      }
+    }
+  }
+}
+
