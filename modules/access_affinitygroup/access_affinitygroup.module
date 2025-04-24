@@ -1566,6 +1566,7 @@ function access_affinitygroup_entity_access(EntityInterface $entity, $operation,
   if ($entity->getEntityTypeId() == 'node' && $entity->bundle() == 'affinity_group') {
     $ag_private = $entity->get('field_ag_private')->getValue();
     $access = 1;
+
     if (!empty($ag_private)) {
       // If private is set, deny access.
       if ($ag_private[0]['value']) {
@@ -1578,6 +1579,16 @@ function access_affinitygroup_entity_access(EntityInterface $entity, $operation,
 
         // Give access to users in the private users field.
         foreach ($ag_private_users as $user) {
+          $uid = $user['target_id'];
+          if ($uid == $current_uid) {
+            $access = 1;
+          }
+        }
+
+        $ag_coordinator = $entity->get('field_coordinator')->getValue();
+
+        // Give access to users in the private users field.
+        foreach ($ag_coordinator as $user) {
           $uid = $user['target_id'];
           if ($uid == $current_uid) {
             $access = 1;
