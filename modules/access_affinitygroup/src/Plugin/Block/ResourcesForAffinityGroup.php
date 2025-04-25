@@ -28,24 +28,24 @@ class ResourcesForAffinityGroup extends BlockBase {
     $field_resources_entity_reference = $node->get('field_resources_entity_reference')->getValue();
     // Create empty string in case the following if statement is not true.
     $rendered = '';
-    if (!empty($field_resources_entity_reference)) {
-      // Get field field_affinity_group_category.
-      $affinity_group_tag = $node->get('field_affinity_group')->getValue();
 
-      // Lookup webform submission with data that has 'affinity_group' with the value of $affinity_group_tag.
-      $affinity_group_tag = $affinity_group_tag[0]['target_id'];
-      $webform_submissions = \Drupal::database()->select('webform_submission_data', 'wsd')
-        ->fields('wsd', ['sid'])
-        ->condition('name', 'affinity_group')
-        ->condition('value', $affinity_group_tag)
-        ->execute()
-        ->fetchCol();
+    // Get field field_affinity_group_category.
+    $affinity_group_tag = $node->get('field_affinity_group')->getValue()[0]['target_id'];
 
-      foreach ($webform_submissions as $ws) {
-        $field_resources_entity_reference[] = [
-          'target_id' => $ws
-        ];
-      }
+    $webform_submissions = \Drupal::database()->select('webform_submission_data', 'wsd')
+      ->fields('wsd', ['sid'])
+      ->condition('name', 'affinity_group')
+      ->condition('value', $affinity_group_tag)
+      ->execute()
+      ->fetchCol();
+
+    foreach ($webform_submissions as $ws) {
+      $field_resources_entity_reference[] = [
+        'target_id' => $ws
+      ];
+    }
+
+    if (!array_key_exists(0, $field_resources_entity_reference)) {
 
       $rendered = '<h2 class="text-white-er text-xl font-semibold border-bottom pb-2 bg-dark-teal py-2 px-4">Knowledge Base Resources</h2>';
       $header = [
