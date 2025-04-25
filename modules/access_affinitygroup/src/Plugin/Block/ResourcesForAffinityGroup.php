@@ -29,6 +29,24 @@ class ResourcesForAffinityGroup extends BlockBase {
     // Create empty string in case the following if statement is not true.
     $rendered = '';
     if (!empty($field_resources_entity_reference)) {
+      // Get field field_affinity_group_category.
+      $affinity_group_tag = $node->get('field_affinity_group')->getValue();
+
+      // Lookup webform submission with data that has 'affinity_group' with the value of $affinity_group_tag.
+      $affinity_group_tag = $affinity_group_tag[0]['target_id'];
+      $webform_submissions = \Drupal::database()->select('webform_submission_data', 'wsd')
+        ->fields('wsd', ['sid'])
+        ->condition('name', 'affinity_group')
+        ->condition('value', $affinity_group_tag)
+        ->execute()
+        ->fetchCol();
+
+      foreach ($webform_submissions as $ws) {
+        $field_resources_entity_reference[] = [
+          'target_id' => $ws
+        ];
+      }
+
       $rendered = '<h2 class="text-white-er text-xl font-semibold border-bottom pb-2 bg-dark-teal py-2 px-4">Knowledge Base Resources</h2>';
       $header = [
         [
@@ -62,7 +80,10 @@ class ResourcesForAffinityGroup extends BlockBase {
           ],
         ],
       ];
+
       $rows = [];
+      $private = $node->get('field_ag_private')->getValue();
+
       foreach ($field_resources_entity_reference as $value) {
         $webform_submission = WebformSubmission::load($value['target_id']);
         if (!$webform_submission) {
@@ -70,6 +91,17 @@ class ResourcesForAffinityGroup extends BlockBase {
           continue;
         }
         $submission_data = $webform_submission->getData();
+
+        if ($submission_data['approved'] == 0) {
+          if (!array_key_exists(0, $private)) {
+            continue;
+          }
+          else {
+            if ($private[0]['value'] == 0) {
+              continue;
+            }
+          }
+        }
 
         // Ci link name and url.
         // On ASP, use /knowledge-base/ci-links/{sid}.
