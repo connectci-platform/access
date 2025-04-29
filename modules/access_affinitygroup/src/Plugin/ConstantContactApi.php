@@ -40,6 +40,16 @@ class ConstantContactApi {
   private $supressErrDisplay;
 
   /**
+   * Return cc key.
+   */
+  private $cc_key;
+
+  /**
+   * Return key secret.
+   */
+  private $key_secret;
+
+  /**
    * Function to sort the curl headers.
    * Sets the clientId and the clientSecret. If they are not present, sets to empty.
    */
@@ -49,22 +59,23 @@ class ConstantContactApi {
       $this->configSettings = $config_factory->getEditable('access_affinitygroup.settings');
       $this->accessToken = $this->configSettings->get('access_token');
       $this->refreshToken = $this->configSettings->get('refresh_token');
+      $this->getKey();
 
-      $cc_key = \Drupal::service('key.repository')->getKey('constant_contact_client_id')->getKeyValue();
+      $cc_key = $this->cc_key;
       if (empty($cc_key)) {
         \Drupal::logger('access_affinitygroup')->error('Constant Contact: client id not in repository.');
       }
       else {
-        $cc_key = urlencode(trim($cc_key));
+        $cc_key = $cc_key;
       }
       $this->clientId = $cc_key;
 
-      $key_secret = \Drupal::service('key.repository')->getKey('constant_contact_client_secret')->getKeyValue();
+      $key_secret = $this->key_secret;
       if (empty($key_secret)) {
         \Drupal::logger('access_affinitygroup')->error('Constant Contact: client secret not in repository.');
       }
       else {
-        $key_secret = urlencode(trim($key_secret));
+        $key_secret = $key_secret;
       }
 
       $this->clientSecret = $key_secret;
@@ -111,8 +122,6 @@ class ConstantContactApi {
   /**
    * @param  $redirectURI
    *   - URL Encoded Redirect URI
-   * @param  $clientId
-   *   - API Key
    * @param  $scope
    *   - URL encoded, plus sign delimited list of scopes that your
    *   application requires. The 'offline_access' scope needed to request a
@@ -122,12 +131,42 @@ class ConstantContactApi {
    *   application state
    * @return string - Full Authorization URL
    */
-  public function getAuthorizationURL($clientId, $redirectURI, $scope, $state) {
+  public function getAuthorizationURL($redirectURI, $scope, $state) {
     // Create authorization URL.
     $baseURL = "https://authz.constantcontact.com/oauth2/default/v1/authorize";
-    $authURL = $baseURL . "?client_id=" . $clientId . "&scope=" . $scope . "+offline_access&response_type=code&state=" . $state . "&redirect_uri=" . $redirectURI;
+    $authURL = $baseURL . "?client_id=" . $this->cc_key . "&scope=" . $scope . "+offline_access&response_type=code&state=" . $state . "&redirect_uri=" . $redirectURI;
 
     return $authURL;
+  }
+
+  /**
+   * Get the Constant Contact key and secret.
+   */
+  private function getKey() {
+    $keys = \Drupal::service('key.repository')->getKey('constant_contact_json')->getKeyValues();
+    $env = getenv('PANTHEON_ENVIRONMENT');
+
+    if ($env == 'local') {
+      $cc_key = json_decode($keys[0], true)['test']['id'];
+      $key_secret = json_decode($keys[0], true)['test']['secret'];
+    }
+    else {
+      $token = \Drupal::token();
+      $domainName = t("[domain:name]");
+      $current_domain_name = \Drupal\Component\Utility\Html::getClass($token->replace($domainName));
+
+      if ($current_domain_name == 'open-ondemand') {
+        $cc_key = json_decode($keys[0], true)['openondemand']['id'];
+        $key_secret = json_decode($keys[0], true)['openondemand']['secret'];
+      }
+      else {
+        $cc_key = json_decode($keys[0], true)['support']['id'];
+        $key_secret = json_decode($keys[0], true)['support']['secret'];
+      }
+    }
+
+    $this->cc_key = urlencode(trim($cc_key));
+    $this->key_secret = urlencode(trim($key_secret));
   }
 
   /**

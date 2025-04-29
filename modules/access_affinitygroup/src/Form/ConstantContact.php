@@ -342,13 +342,11 @@ class ConstantContact extends FormBase {
       }
     }
     $cc = new ConstantContactApi();
-    $key = trim(\Drupal::service('key.repository')->getKey('constant_contact_client_id')->getKeyValue());
-    $token = urlencode($key);
     $host = \Drupal::request()->getSchemeAndHttpHost();
     $redirectURI = urlencode("$host/admin/services/constantcontact-token");
     $scope = urlencode(rtrim($selected_scope));
     $state = uniqid();
-    $response = new RedirectResponse($cc->getAuthorizationURL($token, $redirectURI, $scope, $state));
+    $response = new RedirectResponse($cc->getAuthorizationURL($redirectURI, $scope, $state));
     $response->send();
     parent::submitForm($form, $form_state);
   }
