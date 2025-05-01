@@ -4,7 +4,7 @@
  * @file
  */
 
-use Drupal\access_misc\Plugin\Util\EventDateConvert;
+use Drupal\access_events\Plugin\Util\EventDateConvert;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Component\Utility\Xss;
@@ -565,7 +565,7 @@ function access_events_preprocess_views_view_field(&$variables) {
         $end_date = $output[1];
         $date = new EventDateConvert($start_date, $end_date);
         if ($date->sameDay ) {
-          $variables['output'] = Markup::create($date->getStart() . " - " . $date->getEnd());
+          $variables['output'] = Markup::create($date->getStartTime() . " - " . $date->getEndTime());
         } else {
           $variables['output'] = Markup::create($date->getStart() . " to " . $date->getEnd());
         }

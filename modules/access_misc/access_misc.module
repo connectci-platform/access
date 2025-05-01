@@ -4,7 +4,7 @@
  * @file
  */
 
-use Drupal\access_misc\Plugin\Util\EventDateConvert;
+use Drupal\access_events\Plugin\Util\EventDateConvert;
 use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
