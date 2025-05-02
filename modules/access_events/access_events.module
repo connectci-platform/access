@@ -39,6 +39,14 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
       $form['field_event_allocation_grant']['widget'][0]['value']['#default_value'] = 0;
       $form['field_event_allocation_grant']['widget'][0]['value']['#access'] = FALSE;
     }
+
+    // Get current user.
+    $current_user = \Drupal::currentUser();
+    $roles = $current_user->getRoles();
+
+    if (!in_array('administrator', $roles)) {
+      $form['domain_access']['#access'] = FALSE;
+    }
   }
 
   if ($form_id == 'registrant_default_add_form' || $form_id == 'registrant_default_edit_form') {
