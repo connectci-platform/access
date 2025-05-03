@@ -45,8 +45,8 @@ class ResourcesForAffinityGroup extends BlockBase {
       ];
     }
 
-    if (!array_key_exists(0, $field_resources_entity_reference)) {
 
+    if (array_key_exists(0, $field_resources_entity_reference)) {
       $rendered = '<h2 class="text-white-er text-xl font-semibold border-bottom pb-2 bg-dark-teal py-2 px-4">Knowledge Base Resources</h2>';
       $header = [
         [
