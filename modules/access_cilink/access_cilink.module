@@ -82,6 +82,12 @@ function access_cilink_preprocess_views_view_field(&$variables) {
     $description = $data['description'];
     $type = $data['category'];
 
+    // Only show approved resources.
+    if ($data['approved'] == 0) {
+      $variables['output'] = '';
+      return;
+    }
+
     // If current user id is the same as the submission user id, show the edit link.
     $edit_link = '';
     $roles = \Drupal::currentUser()->getRoles();
