@@ -83,7 +83,7 @@ function access_cilink_preprocess_views_view_field(&$variables) {
     $type = $data['category'];
 
     // Only show approved resources.
-    if ($data['approved'] == 0) {
+    if ($data['approved'] == 0 || $data['private'] == 1) {
       $variables['output'] = '';
       return;
     }

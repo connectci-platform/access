@@ -41,10 +41,9 @@ class ResourcesForAffinityGroup extends BlockBase {
 
     foreach ($webform_submissions as $ws) {
       $field_resources_entity_reference[] = [
-        'target_id' => $ws
+        'target_id' => $ws,
       ];
     }
-
 
     if (array_key_exists(0, $field_resources_entity_reference)) {
       $rendered = '<h2 class="text-white-er text-xl font-semibold border-bottom pb-2 bg-dark-teal py-2 px-4">Knowledge Base Resources</h2>';
@@ -85,6 +84,8 @@ class ResourcesForAffinityGroup extends BlockBase {
       $private = $node->get('field_ag_private')->getValue();
 
       foreach ($field_resources_entity_reference as $value) {
+        $needs_approval = '';
+
         $webform_submission = WebformSubmission::load($value['target_id']);
         if (!$webform_submission) {
           // Webform submissions are sanitized in dev enviroments.
@@ -93,13 +94,45 @@ class ResourcesForAffinityGroup extends BlockBase {
         $submission_data = $webform_submission->getData();
 
         if ($submission_data['approved'] == 0) {
+          // If private checkbox doesn't exist, skip.
           if (!array_key_exists(0, $private)) {
             continue;
           }
           else {
+            // If private checkbox exists and is not checked, skip.
             if ($private[0]['value'] == 0) {
               continue;
             }
+
+            // Get user roles.
+            $user = \Drupal::currentUser();
+            $roles = $user->getRoles();
+
+            // Only show if user is admin or affinity group leader when resource is not approved.
+            if (
+                ($submission_data['resource_allowed_on_affinity_group'] == 0) &&
+                (!in_array('administrator', $roles) &&
+                  !in_array('affinity_group_leader', $roles) &&
+                  !in_array('match_pm', $roles) &&
+                  !in_array('sc', $roles) &&
+                  !in_array('lt', $roles) &&
+                  !in_array('ra', $roles)
+                )
+            ) {
+              // If resource_allowed_on_affinity_group checkbox doesn't exist, skip.
+              continue;
+            }
+            elseif ($submission_data['resource_allowed_on_affinity_group'] == 0) {
+              $needs_approval = [
+                '#type' => 'link',
+                '#title' => '⚠️  Needs Approval ⚠️ ',
+                '#url' => Url::fromRoute('entity.webform_submission.edit_form', ['webform' => 'resource', 'webform_submission' => $value['target_id']]),
+                '#attributes' => ['class' => ['text-red-500', 'font-bold']],
+              ];
+
+              $needs_approval = \Drupal::service('renderer')->render($needs_approval)->__toString();
+            }
+
           }
         }
 
@@ -151,7 +184,7 @@ class ResourcesForAffinityGroup extends BlockBase {
         $rows[] = [
           'name' => [
             'data' => [
-              '#markup' => $ci_link_name,
+              '#markup' => $ci_link_name . $needs_approval,
             ],
             'class' => [
               'border-x-0',
