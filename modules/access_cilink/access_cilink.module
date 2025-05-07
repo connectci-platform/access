@@ -56,6 +56,28 @@ function access_cilink_views_post_render(ViewExecutable $view) {
 }
 
 /**
+ * Implements hook_views_query_alter().
+ *
+ * @param \Drupal\views\ViewExecutable $view
+ * @param \Drupal\views\Plugin\views\query\QueryPluginInterface $query
+ *
+ * @return void
+ *
+ * Filter KB Resources by domain name.
+ */
+function access_cilink_views_query_alter($view, $query) {
+  // Check if this is the 'search_ci_links' view and 'page_1' display.
+  if ($view->id() == 'search_ci_links' && $view->current_display == 'page_1') {
+    $token = \Drupal::token();
+    $domainName = Html::getClass($token->replace(t('[domain:name]')));
+
+    if ($query instanceof \Drupal\search_api\Plugin\views\query\SearchApiQuery) {
+      $query->addCondition('webform_submission_domain', $domainName, '=');
+    }
+  }
+}
+
+/**
  * Implements hook_preprocess_views_view_field().
  */
 function access_cilink_preprocess_views_view_field(&$variables) {
