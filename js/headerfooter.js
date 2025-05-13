@@ -7,9 +7,10 @@ import {
   footer,
   footerMenus,
   header,
+  qaBot,
   siteMenus,
   universalMenus,
-} from "https://esm.sh/@access-ci/ui@0.8.0-beta2";
+} from "https://esm.sh/@access-ci/ui@0.8.0?standalone";
 
 (function (Drupal, drupalSettings) {
 
@@ -90,4 +91,17 @@ async function setMenu(menu, currentUri) {
     target: document.getElementById("footer")
   });
 
+  qaBot({
+    target: document.getElementById("qa-bot"),
+    apiKey: "4nn5l4T4TnkMdzsK0AwAtnGRcheBDnjawuAT42LaOLc",
+    isLoggedIn: isLoggedIn
+  });
+  qaBot({
+    target: document.querySelector(".embedded-qa-bot"),
+    embedded: true,
+    welcome: "Welcome to the embedded ACCESS Q&A Bot!",
+    prompt: "What would you like to know about ACCESS?",
+    apiKey: "4nn5l4T4TnkMdzsK0AwAtnGRcheBDnjawuAT42LaOLc",
+    isLoggedIn: isLoggedIn
+  });
 };
