@@ -1316,6 +1316,7 @@ function access_affinitygroup_form_alter(&$form, FormStateInterface $form_state,
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
     if (!in_array('administrator', $roles)) {
+      $form['title']['#disabled'] = TRUE;
       $form['field_cider_resources']['#disabled'] = TRUE;
       $form['field_use_ext_email_list']['#access'] = FALSE;
       $form['field_group_slug']['#access'] = FALSE;
