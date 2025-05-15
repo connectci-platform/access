@@ -91,6 +91,22 @@ function access_affinitygroup_views_query_alter(ViewExecutable $view, QueryPlugi
 }
 
 /**
+ * Implements hook_search_api_query_alter().
+ */
+function access_affinitygroup_search_api_query_alter(\Drupal\search_api\Query\QueryInterface &$query) {
+  $user = \Drupal::currentUser();
+  $user_id = $user->id();
+  $roles = $user->getRoles();
+  if (in_array('administrator', $roles)) {
+    return;
+  }
+  $condition_group = $query->createConditionGroup('OR');
+  $condition_group->addCondition('field_ag_private', FALSE);
+  $condition_group->addCondition('field_ag_private_users', $user_id);
+  $query->addConditionGroup($condition_group);
+}
+
+/**
  * Implements hook_preprocess_views_view_field().
  */
 function access_affinitygroup_preprocess_views_view_field(&$variables) {
