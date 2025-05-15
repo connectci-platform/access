@@ -16,3 +16,9 @@
 #ci-links th:first-of-type {
   width: 33%;
 }
+
+.block-field-blocknodeaffinity-groupfield-ag-private {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
