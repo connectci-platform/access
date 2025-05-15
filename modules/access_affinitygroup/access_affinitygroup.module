@@ -1592,7 +1592,7 @@ function access_affinitygroup_entity_access(EntityInterface $entity, $operation,
 
         $ag_coordinator = $entity->get('field_coordinator')->getValue();
 
-        // Give access to users in the private users field.
+        // Give access to users in the coordinators field.
         foreach ($ag_coordinator as $user) {
           $uid = $user['target_id'];
           if ($uid == $current_uid) {
