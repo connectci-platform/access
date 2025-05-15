@@ -174,7 +174,13 @@ class CiLinkController extends ControllerBase {
         'btn-md-teal',
       ],
     ]);
-    $edit_link = Link::fromTextAndUrl($this->t('Edit'), $edit_url)->toString();
+    // If current user id is the same as the submission user id, show the edit link.
+    $edit_link = '';
+    $uid = $webform_submission->getOwnerId();
+    $roles = \Drupal::currentUser()->getRoles();
+    if (\Drupal::currentUser()->id() == $uid || in_array('administrator', $roles) || in_array('kb_pm', $roles)) {
+      $edit_link = Link::fromTextAndUrl($this->t('Edit'), $edit_url)->toString();
+    }
 
     // Flags.
     $flag_classes = 'no-underline text-dark-teal hover--underline';
