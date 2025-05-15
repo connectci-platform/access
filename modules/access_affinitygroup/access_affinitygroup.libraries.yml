@@ -5,3 +5,7 @@ extra_styles:
 ag_node_form:
   js:
     js/ag_node_form.js: {}
+ag_view:
+  css:
+    theme:
+      css/ag_view.css: {}

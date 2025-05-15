@@ -311,6 +311,11 @@ function access_affinitygroup_entity_presave(EntityInterface $entity) {
  * CiDeR resources, both their title & description.
  */
 function access_affinitygroup_views_pre_render(ViewExecutable $view) {
+
+  if ($view->id() == 'affinity_group_search') {
+    $view->element['#attached']['library'][] = 'access_affinitygroup/ag_view';
+  }
+
   if ($view->id() == 'affinity_group_members') {
     // Afinity group user list change title to match AG title.
     $url = new EndUrl();

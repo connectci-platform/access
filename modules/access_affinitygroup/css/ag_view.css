@@ -1,0 +1,10 @@
+.path-affinity-groups {
+  .ag_img {
+    position: relative;
+  }
+  img.private {
+    position: absolute;
+    top: 0;
+    right: 0;
+  }
+}
