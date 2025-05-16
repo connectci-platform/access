@@ -17,6 +17,10 @@
   width: 33%;
 }
 
+div:has(>div img.private) {
+  position: relative;
+}
+
 div:has(>img.private) {
   position: absolute;
   top: 0;
