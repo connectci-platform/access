@@ -95,6 +95,10 @@ function access_affinitygroup_views_query_alter(ViewExecutable $view, QueryPlugi
  */
 function access_affinitygroup_search_api_query_alter(\Drupal\search_api\Query\QueryInterface &$query) {
   return;
+  // Check if the query is for the affinity_group index.
+  if ($query->getIndex()->id() !== 'affinity_groups') {
+    return;
+  }
   $user = \Drupal::currentUser();
   $user_id = $user->id();
   $roles = $user->getRoles();
