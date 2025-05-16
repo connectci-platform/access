@@ -176,7 +176,10 @@ class CiLinkController extends ControllerBase {
     ]);
     // If current user id is the same as the submission user id, show the edit link.
     $edit_link = '';
-    $uid = $webform_submission->getOwnerId();
+
+    $webform_submission = $this->webform_submission;
+
+    $uid = $this->webform_submission->getOwnerId();
     $roles = \Drupal::currentUser()->getRoles();
     if (\Drupal::currentUser()->id() == $uid || in_array('administrator', $roles) || in_array('kb_pm', $roles)) {
       $edit_link = Link::fromTextAndUrl($this->t('Edit'), $edit_url)->toString();
