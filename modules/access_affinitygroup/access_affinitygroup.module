@@ -94,7 +94,6 @@ function access_affinitygroup_views_query_alter(ViewExecutable $view, QueryPlugi
  * Implements hook_search_api_query_alter().
  */
 function access_affinitygroup_search_api_query_alter(\Drupal\search_api\Query\QueryInterface &$query) {
-  return;
   $user = \Drupal::currentUser();
   $user_id = $user->id();
   $roles = $user->getRoles();
@@ -488,7 +487,11 @@ function subscribeToSimpleLists($flagEntityId, $user, $isSubscribe) {
   $nid = $aval[0];
   $ag = Node::load($nid);
 
-  if (!$ag->get('field_use_ext_email_list')->getValue()[0]['value'] || $ag == NULL) {
+  if ($ag == NULL) {
+    return;
+  }
+
+  if (!$ag->get('field_use_ext_email_list')->getValue()[0]['value']) {
     return;
   }
 
