@@ -1234,6 +1234,8 @@ function sendEmailCampaign($campaignId, $campaignActivityId, $ccListIds) {
  */
 function access_affinitygroup_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   if ($form_id == 'node_affinity_group_edit_form' || $form_id == 'node_affinity_group_form') {
+    $form['field_persona_source']['#group'] = 'advanced';
+
     $form['field_tags_replace'] = [
       '#type' => 'container',
       '#attributes' => [
