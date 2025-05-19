@@ -1,0 +1,48 @@
+<?php
+
+/**
+ * Update hook to resave all Affinity Group nodes with a default value
+ * of FALSE for field_ag_private and reindex the search_api index.
+ */
+function access_affinitygroup_update_10001() {
+  // Load all affinity_group nodes.
+  $nids = \Drupal::entityQuery('node')
+    ->condition('type', 'affinity_group')
+    ->accessCheck(FALSE)
+    ->execute();
+
+  if (!empty($nids)) {
+    $storage = \Drupal::entityTypeManager()->getStorage('node');
+    $nodes = $storage->loadMultiple($nids);
+
+    foreach ($nodes as $node) {
+      $node->setNewRevision(FALSE);
+
+      if ($node->get('field_ag_private')->isEmpty()) {
+        $node->set('field_ag_private', 0);
+      }
+
+      try {
+        $node->save();
+        \Drupal::logger('access_affinitygroup')->notice('Successfully saved Affinity Group node @nid.', ['@nid' => $node->id()]);
+      }
+      catch (\Exception $e) {
+        \Drupal::logger('access_affinitygroup')->error('Failed to save Affinity Group node @nid: @msg', [
+          '@nid' => $node->id(),
+          '@msg' => $e->getMessage(),
+        ]);
+      }
+    }
+    \Drupal::logger('access_affinitygroup')->notice('Attempted to resave @count Affinity Group nodes.', ['@count' => count($nodes)]);
+  }
+
+  // Reindex the affinity_groups Search API index.
+  $index = \Drupal::entityTypeManager()->getStorage('search_api_index')->load('affinity_groups');
+  if ($index) {
+    $index->indexItems();
+    \Drupal::logger('access_affinitygroup')->notice('Reindexed the affinity_groups Search API index.');
+  }
+  else {
+    \Drupal::logger('access_affinitygroup')->error('Could not load the affinity_groups Search API index.');
+  }
+}
