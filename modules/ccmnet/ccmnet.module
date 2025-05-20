@@ -173,7 +173,7 @@ function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
     $add_tags = \Drupal::service('access_misc.addtags');
     $output = $add_tags->getView();
     $tag_label = t('Tags');
-    $tag_description = t('Select tags that relate to your engagement. Tags will help us find people with related expertise.');
+    $tag_description = t('Select tags that relate to your engagement. Tags will help us find people with related expertise. Limited to 6 tags.');
     $tag_summary = t('Select Tags');
 
     $form['node_add_tags'] = [
