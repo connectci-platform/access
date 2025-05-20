@@ -93,7 +93,7 @@ if (checkBoxEmail) {
             // Count how many tags are selected
             const selectedElements = document.querySelectorAll('.tags-select.selected');
             if (selectedElements.length > 5) {
-              alert('You have selected more than 6 tags. Please remove some tags.');
+              alert('You have selected more than 6 tags. Please remove one or more tags before selecting another one.');
               return;
             }
             e.target.classList.add("selected");
