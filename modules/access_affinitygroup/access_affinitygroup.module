@@ -376,7 +376,9 @@ function update_ag_leader_roles($entity) {
     $coordinator_id = $coordinator['target_id'];
     $coordinator_ids[] = $coordinator_id;
     $user = User::load($coordinator_id);
-
+    if (!$user) {
+      continue;
+    }
     $user->addRole('affinity_group_leader');
     $user->save();
   }
@@ -813,10 +815,12 @@ function removeBlockedAG($agTaxonomyId, $userDetails) {
   $userBlockedArray = $userDetails->get('field_blocked_ag_tax')->getValue();
   $wasBlocked = FALSE;
   foreach ($userBlockedArray as $userBlock) {
-    if ($userBlock['target_id'] !== $agTaxonomyId) {
-      $userBlockedTaxIds[] = $userBlock['target_id'];
-    } else {
-      $wasBlocked = TRUE;
+    if (isset($userBlock['target_id'])) {
+      if ($userBlock['target_id'] !== $agTaxonomyId) {
+        $userBlockedTaxIds[] = $userBlock['target_id'];
+      } else {
+        $wasBlocked = TRUE;
+      }
     }
   }
 
@@ -1624,9 +1628,11 @@ function access_affinitygroup_entity_access(EntityInterface $entity, $operation,
 
         // Give access to users in the coordinators field.
         foreach ($ag_coordinator as $user) {
-          $uid = $user['target_id'];
-          if ($uid == $current_uid) {
-            $access = 1;
+          if (isset($user['target_id'])) {
+            $uid = $user['target_id'];
+            if ($uid == $current_uid) {
+              $access = 1;
+            }
           }
         }
       }
