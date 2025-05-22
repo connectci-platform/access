@@ -498,9 +498,8 @@ function access_cilink_form_alter(&$form, FormStateInterface $form_state, $form_
  * Webform submission resource submit.
  */
 function access_cilink_webform_submission_resource_submit($form, FormStateInterface $form_state) {
-  // Clear block cache for block id 'resources_for_affinity_group'.
-  $block_id = 'resources_for_affinity_group';
-  Cache::invalidateTags(['config:block.block.' . $block_id]);
+  // Invalidate KB block on AG.
+  \Drupal::service('cache_tags.invalidator')->invalidateTags(['affinity_group_ci_links', 'config:block.blockresources_for_affinity_group']);
 
   // Get current user.
   $user = \Drupal::currentUser();
