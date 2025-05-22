@@ -1355,6 +1355,7 @@ function access_affinitygroup_form_alter(&$form, FormStateInterface $form_state,
       $form['field_cider_resources']['#disabled'] = TRUE;
       $form['field_use_ext_email_list']['#disabled'] = TRUE;
       $form['field_group_slug']['#disabled'] = TRUE;
+      $form['field_group_id']['#disabled'] = TRUE;
     }
     $form['field_ext_email_list']['#disabled'] = TRUE;
 

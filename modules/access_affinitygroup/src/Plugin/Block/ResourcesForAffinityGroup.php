@@ -125,7 +125,7 @@ class ResourcesForAffinityGroup extends BlockBase {
             elseif ($submission_data['resource_allowed_on_affinity_group'] == 0) {
               $needs_approval = [
                 '#type' => 'link',
-                '#title' => '⚠️  Needs Approval ⚠️ ',
+                '#title' => '⚠️ Allow on this Affinity Group ⚠️ ',
                 '#url' => Url::fromRoute('entity.webform_submission.edit_form', ['webform' => 'resource', 'webform_submission' => $value['target_id']]),
                 '#attributes' => ['class' => ['text-red-500', 'font-bold']],
               ];

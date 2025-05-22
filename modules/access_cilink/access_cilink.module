@@ -485,6 +485,11 @@ function cilink_send($key, $params) {
  */
 function access_cilink_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   if ($form_id == 'webform_submission_resource_add_form' || $form_id == 'webform_submission_resource_edit_form') {
+    $roles = \Drupal::currentUser()->getRoles();
+    if (in_array('administrator', $roles) || in_array('kb_pm', $roles)) {
+      $form['elements']['approved']['#disabled'] = FALSE;
+    }
+
     $form['actions']['submit']['#submit'][] = 'access_cilink_webform_submission_resource_submit';
   }
 }
@@ -493,6 +498,10 @@ function access_cilink_form_alter(&$form, FormStateInterface $form_state, $form_
  * Webform submission resource submit.
  */
 function access_cilink_webform_submission_resource_submit($form, FormStateInterface $form_state) {
+  // Clear block cache for block id 'resources_for_affinity_group'.
+  $block_id = 'resources_for_affinity_group';
+  Cache::invalidateTags(['config:block.block.' . $block_id]);
+
   // Get current user.
   $user = \Drupal::currentUser();
   $kb_one = \Drupal::service('access_badges.badgeTools')->getBadgeTid('KB Resource Contributor (1)');
