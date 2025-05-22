@@ -145,11 +145,13 @@ function access_news_validate(&$form, FormStateInterface $form_state) {
       if ($nid) {
         $authorized = FALSE;
         $n = Node::load($nid);
-        // Administrator can assign ACCESS News to any Affinity Group.
-        if (in_array('administrator', \Drupal::currentUser()->getRoles())) {
+        // Administrator or news_pm role can assign ACCESS News to any Affinity Group.
+        if (
+          in_array('administrator', \Drupal::currentUser()->getRoles()) ||
+          in_array('news_pm', \Drupal::currentUser()->getRoles())
+        ) {
           $authorized = TRUE;
-        }
-        else {
+        } else {
           // Load coordinator(s) for the Affinity Group.
           $coordinator_field = $n->get('field_coordinator');
           if ($coordinator_field) {
