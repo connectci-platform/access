@@ -557,3 +557,54 @@ function access_cilink_cron() {
     access_cilink_resource_email();
   }
 }
+
+/**
+ * Implements hook_token_info().
+ */
+function access_cilink_token_info() {
+  $info = [];
+
+  // Define a new token type for access_cilink.
+  $info['types']['access_cilink'] = [
+    'name' => t('Access CI Link'),
+    'description' => t('Tokens related to CI Links in the Access module.'),
+  ];
+
+  // Define the new token for affinity_group.
+  $info['tokens']['access_cilink']['webform-affinity-group'] = [
+    'name' => t('Webform Affinity Group'),
+    'description' => t('The affinity group value from a webform submission.'),
+  ];
+
+  return $info;
+}
+
+/**
+ * Implements hook_tokens().
+ */
+function access_cilink_tokens($type, $tokens, array $data, array $options, \Drupal\Core\Render\BubbleableMetadata $bubbleable_metadata) {
+  $replacements = [];
+
+  if ($type == 'access_cilink') {
+    foreach ($tokens as $name => $original) {
+      switch ($name) {
+        case 'webform-affinity-group':
+          // If we have a webform_submission entity in the context.
+          if (!empty($data['webform_submission']) && $data['webform_submission'] instanceof \Drupal\webform\Entity\WebformSubmission) {
+            $webform_submission = $data['webform_submission'];
+            $submission_data = $webform_submission->getData();
+
+            // Check if the affinity_group field exists in the submission data.
+            if (isset($submission_data['affinity_group'])) {
+              $replacements[$original] = $submission_data['affinity_group'];
+            }
+            // Add cache tag for the webform submission.
+            $bubbleable_metadata->addCacheableDependency($webform_submission);
+          }
+          break;
+      }
+    }
+  }
+
+  return $replacements;
+}
