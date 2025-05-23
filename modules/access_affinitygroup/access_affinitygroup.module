@@ -466,14 +466,17 @@ function subscribeToSimpleLists($flagEntityId, $user, $isSubscribe) {
   $nid = $aval[0];
   $ag = Node::load($nid);
 
-  if (!$ag->get('field_use_ext_email_list')->getValue()[0]['value']) {
+  if (empty($ag)) {
+    \Drupal::logger('access_affinitygroup')->error('Missing Affinity group with flag id ' . $flagEntityId . '.');
     return;
   }
 
   $simpleListsName = "";
-  $simpleListsNameA = $ag->get('field_ext_email_list')->getValue();
-  if (!empty($simpleListsNameA)) {
-    $simpleListsName = $simpleListsNameA[0]['value'];
+  if ($ag->hasField('field_ext_email_list')) {
+    $simpleListsNameA = $ag->get('field_ext_email_list')->getValue();
+    if (!empty($simpleListsNameA)) {
+      $simpleListsName = $simpleListsNameA[0]['value'];
+    }
   }
   if (!empty($simpleListsName)) {
     $msg = "";
