@@ -570,10 +570,14 @@ function access_cilink_token_info() {
     'description' => t('Tokens related to CI Links in the Access module.'),
   ];
 
-  // Define the new token for affinity_group.
-  $info['tokens']['access_cilink']['webform-affinity-group'] = [
-    'name' => t('Webform Affinity Group'),
-    'description' => t('The affinity group value from a webform submission.'),
+  $info['tokens']['access_cilink']['webform-affinity-group-title'] = [
+    'name' => t('Webform Affinity Group Title'),
+    'description' => t('The affinity group nid as referenced by taxonomy'),
+  ];
+
+  $info['tokens']['access_cilink']['webform-affinity-group-nid'] = [
+    'name' => t('Webform Affinity Group nid'),
+    'description' => t('The affinity group nid as referenced by taxonomy'),
   ];
 
   return $info;
@@ -588,7 +592,7 @@ function access_cilink_tokens($type, $tokens, array $data, array $options, \Drup
   if ($type == 'access_cilink') {
     foreach ($tokens as $name => $original) {
       switch ($name) {
-        case 'webform-affinity-group':
+        case 'webform-affinity-group-nid':
           // If we have a webform_submission entity in the context.
           if (!empty($data['webform_submission']) && $data['webform_submission'] instanceof \Drupal\webform\Entity\WebformSubmission) {
             $webform_submission = $data['webform_submission'];
@@ -596,7 +600,38 @@ function access_cilink_tokens($type, $tokens, array $data, array $options, \Drup
 
             // Check if the affinity_group field exists in the submission data.
             if (isset($submission_data['affinity_group'])) {
-              $replacements[$original] = $submission_data['affinity_group'];
+              if (is_numeric($submission_data['affinity_group'])) {
+                $query = \Drupal::entityQuery('node')
+                  ->condition('type', 'affinity_group')
+                  ->condition('field_affinity_group', $submission_data['affinity_group'])
+                  ->accessCheck(TRUE);
+                $nid = implode($query->execute());
+                $replacements[$original] = $nid;
+              }
+            }
+            // Add cache tag for the webform submission.
+            $bubbleable_metadata->addCacheableDependency($webform_submission);
+          }
+          break;
+
+        case 'webform-affinity-group-title':
+          // If we have a webform_submission entity in the context.
+          if (!empty($data['webform_submission']) && $data['webform_submission'] instanceof \Drupal\webform\Entity\WebformSubmission) {
+            $webform_submission = $data['webform_submission'];
+            $submission_data = $webform_submission->getData();
+
+            // Check if the affinity_group field exists in the submission data.
+            if (isset($submission_data['affinity_group'])) {
+              if (is_numeric($submission_data['affinity_group'])) {
+                $query = \Drupal::entityQuery('node')
+                  ->condition('type', 'affinity_group')
+                  ->condition('field_affinity_group', $submission_data['affinity_group'])
+                  ->accessCheck(TRUE);
+                $nid = implode($query->execute());
+                $node = Node::load($nid);
+                $title = $node->getTitle();
+                $replacements[$original] = $title;
+              }
             }
             // Add cache tag for the webform submission.
             $bubbleable_metadata->addCacheableDependency($webform_submission);
