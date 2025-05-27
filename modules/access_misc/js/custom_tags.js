@@ -11,14 +11,19 @@ Drupal.behaviors.nodeAddTags = {
             e.target.classList.remove("selected");
           }
         } else {
+          const selectedElements = document.querySelectorAll('.tags-select.selected');
           document.getElementById("edit-tags-" + currentButtonTid).checked = true;
+          if (selectedElements.length > 5) {
+            alert('You have selected more than 6 tags. Please remove one or more tags before selecting another one.');
+            return;
+          }
           if (!isSelected) {
             e.target.classList.add("selected");
           }
         }
         updateSelectedTagList();
       }
-      
+
       // Add click event to this button
       button.addEventListener("click", buttonPressed, false);
     });
