@@ -1359,19 +1359,13 @@ function access_affinitygroup_form_alter(&$form, FormStateInterface $form_state,
     if (!in_array('administrator', $roles)) {
       $form['title']['#disabled'] = TRUE;
       $form['field_cider_resources']['#disabled'] = TRUE;
-<<<<<<< HEAD
       $form['field_use_ext_email_list']['#disabled'] = TRUE;
       $form['field_group_slug']['#disabled'] = TRUE;
       $form['field_group_id']['#disabled'] = TRUE;
-||||||| 5360b02
-      $form['field_use_ext_email_list']['#disabled'] = TRUE;
-      $form['field_group_slug']['#disabled'] = TRUE;
-=======
       $form['field_use_ext_email_list']['#access'] = FALSE;
       $form['field_group_slug']['#access'] = FALSE;
       $form['field_group_id']['#access'] = FALSE;
       $form['field_affinity_group_category']['#access'] = FALSE;
->>>>>>> 3.0.x
     }
     $form['field_ext_email_list']['#disabled'] = TRUE;
 
