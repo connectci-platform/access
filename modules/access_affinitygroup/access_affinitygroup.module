@@ -499,13 +499,16 @@ function subscribeToSimpleLists($flagEntityId, $user, $isSubscribe) {
   }
 
   if (!$ag->get('field_use_ext_email_list')->getValue()[0]['value']) {
+    \Drupal::logger('access_affinitygroup')->error('Missing Affinity group with flag id ' . $flagEntityId . '.');
     return;
   }
 
   $simpleListsName = "";
-  $simpleListsNameA = $ag->get('field_ext_email_list')->getValue();
-  if (!empty($simpleListsNameA)) {
-    $simpleListsName = $simpleListsNameA[0]['value'];
+  if ($ag->hasField('field_ext_email_list')) {
+    $simpleListsNameA = $ag->get('field_ext_email_list')->getValue();
+    if (!empty($simpleListsNameA)) {
+      $simpleListsName = $simpleListsNameA[0]['value'];
+    }
   }
   if (!empty($simpleListsName)) {
     $msg = "";
@@ -1268,6 +1271,8 @@ function sendEmailCampaign($campaignId, $campaignActivityId, $ccListIds) {
  */
 function access_affinitygroup_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   if ($form_id == 'node_affinity_group_edit_form' || $form_id == 'node_affinity_group_form') {
+    $form['field_persona_source']['#group'] = 'advanced';
+
     $form['field_tags_replace'] = [
       '#type' => 'container',
       '#attributes' => [
@@ -1352,22 +1357,42 @@ function access_affinitygroup_form_alter(&$form, FormStateInterface $form_state,
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
     if (!in_array('administrator', $roles)) {
+      $form['title']['#disabled'] = TRUE;
       $form['field_cider_resources']['#disabled'] = TRUE;
+<<<<<<< HEAD
       $form['field_use_ext_email_list']['#disabled'] = TRUE;
       $form['field_group_slug']['#disabled'] = TRUE;
       $form['field_group_id']['#disabled'] = TRUE;
+||||||| 5360b02
+      $form['field_use_ext_email_list']['#disabled'] = TRUE;
+      $form['field_group_slug']['#disabled'] = TRUE;
+=======
+      $form['field_use_ext_email_list']['#access'] = FALSE;
+      $form['field_group_slug']['#access'] = FALSE;
+      $form['field_group_id']['#access'] = FALSE;
+      $form['field_affinity_group_category']['#access'] = FALSE;
+>>>>>>> 3.0.x
     }
     $form['field_ext_email_list']['#disabled'] = TRUE;
 
-    // Only AGs set to Community should see Reccomended Ciders;
-    // only AGs set to ACCESS RP category should see Associated Ciders.
-    $category = $form['field_affinity_group_category']['widget']['#default_value'];
-    if (!isset($category[0]) || $category[0] !== 'Community') {
+    $token = \Drupal::token();
+    $domain_name = Html::getClass($token->replace(t('[domain:name]')));
+    if ($domain_name != 'access-support') {
       $form['field_recommended_access_res']['#access'] = FALSE;
-    }
-    if (!isset($category[0]) || $category[0] !== 'ACCESS_RP') {
       $form['field_cider_resources']['#access'] = FALSE;
+    } else {
+      // Only AGs set to Community should see Reccomended Ciders;
+      // only AGs set to ACCESS RP category should see Associated Ciders.
+      $category = $form['field_affinity_group_category']['widget']['#default_value'];
+      if (!isset($category[0]) || $category[0] !== 'Community') {
+        $form['field_recommended_access_res']['#access'] = FALSE;
+      }
+      if (!isset($category[0]) || $category[0] !== 'ACCESS_RP') {
+        $form['field_cider_resources']['#access'] = FALSE;
+      }
     }
+
+
   } elseif ($form_id == 'webform_submission_affinity_group_contact_add_form') {
     $form_allowed = FALSE;
     $coordinator = FALSE;
