@@ -4,8 +4,9 @@
  * @file
  */
 
-use Drupal\access_misc\Plugin\Util\EventDateConvert;
+use Drupal\access_events\Plugin\Util\EventDateConvert;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Entity\EntityInterface;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Render\Markup;
 use Drupal\user\Entity\User;
@@ -38,6 +39,15 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
       $form['field_event_allocation_grant']['widget'][0]['value']['#default_value'] = 0;
       $form['field_event_allocation_grant']['widget'][0]['value']['#access'] = FALSE;
     }
+
+    // Get current user.
+    $current_user = \Drupal::currentUser();
+    $roles = $current_user->getRoles();
+
+    if (!in_array('administrator', $roles)) {
+      $form['domain_access']['#access'] = FALSE;
+    }
+
   }
 
   if ($form_id == 'registrant_default_add_form' || $form_id == 'registrant_default_edit_form') {
@@ -319,6 +329,20 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
  * Custom validation handler for webform_submission_resource_add_form.
  */
 function access_events_eventseries_validate($form, FormStateInterface $form_state) {
+  $values = $form_state->getValues();
+
+  foreach ($values['custom_date'] as $key => $value) {
+    if (is_numeric($key)) {
+      if ($value['value'] != null) {
+        $start_date = (string) $values['custom_date'][$key]['value'];
+        $end_date = (string) $values['custom_date'][$key]['end_value'];
+        if ($start_date == $end_date) {
+          $form_state->setErrorByName('custom_date', t('Start date and end date must not be the same.'));
+        }
+      }
+    }
+  }
+
   $recur_types = [
     'custom' => 'custom_date',
     'monthly_recurring_date' => 'monthly_recurring_date',
@@ -564,7 +588,7 @@ function access_events_preprocess_views_view_field(&$variables) {
         $end_date = $output[1];
         $date = new EventDateConvert($start_date, $end_date);
         if ($date->sameDay ) {
-          $variables['output'] = Markup::create($date->getStart() . " - " . $date->getEnd());
+          $variables['output'] = Markup::create($date->getStartTime() . " - " . $date->getEndTime());
         } else {
           $variables['output'] = Markup::create($date->getStart() . " to " . $date->getEnd());
         }
@@ -585,3 +609,51 @@ function access_events_preprocess_views_view_field(&$variables) {
   }
 
 }
+
+/**
+ * Implements hook_entity_update().
+ */
+function access_events_entity_update(EntityInterface $entity) {
+  $type = $entity->getEntityTypeId();
+  if ( $type == 'eventinstance') {
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($entity->id());
+    $eventseries = $eventinstance->getEventSeries();
+    $series_domain = $eventseries->get('domain_access')->getValue();
+
+    // If series domain(s) is set, set the same domain(s) on the event instance.
+    if ($series_domain) {
+      $instance_domain = $eventinstance->get('domain_access')->getValue();
+      if ($instance_domain != $series_domain) {
+        $eventinstance->set('domain_access', $series_domain);
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_entity_insert().
+ */
+function access_events_entity_insert(EntityInterface $entity) {
+  $type = $entity->getEntityTypeId();
+  if ( $type == 'eventinstance') {
+    // During entity insertion, $entity is already the event instance we need
+    $eventinstance = $entity;
+    $eventseries = $eventinstance->getEventSeries();
+    $series_domain = $eventseries->get('domain_access')->getValue();
+
+    // If series domain(s) is set, set the same domain(s) on the event instance.
+    if ($series_domain) {
+      $instance_domain = $eventinstance->get('domain_access')->getValue();
+      if (!$instance_domain || $instance_domain != $series_domain) {
+        $eventinstance->set('domain_access', $series_domain);
+        // We need to save the entity, but we need to avoid an infinite loop
+        // by preventing the insert hook from firing again during this save.
+        $original_value = $eventinstance->isNew();
+        $eventinstance->enforceIsNew(FALSE);
+        $eventinstance->save();
+        $eventinstance->enforceIsNew($original_value);
+      }
+    }
+  }
+}
+
