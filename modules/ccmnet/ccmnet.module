@@ -173,7 +173,7 @@ function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
     $add_tags = \Drupal::service('access_misc.addtags');
     $output = $add_tags->getView();
     $tag_label = t('Tags');
-    $tag_description = t('Select tags that relate to your engagement. Tags will help us find people with related expertise.');
+    $tag_description = t('Select tags that relate to your engagement. Tags will help us find people with related expertise. Limited to 6 tags.');
     $tag_summary = t('Select Tags');
 
     $form['node_add_tags'] = [
@@ -246,11 +246,18 @@ function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
  * Validate handler for mentorship_engagement form.
  */
 function access_mentorship_engagement_validate(array &$form, FormStateInterface $form_state) {
-  $summary = $form_state->getValue('body')[0]['summary'];
-  $summary = $summary ? Xss::filter($summary) : '';
+  $values = $form_state->getValues();
+
+  $summary = $values['body'][0]['summary'];
+  $tags = $values['field_tags'];
+
   // Check if summary contains html.
   if (preg_match('/<[^>]*>/', $summary)) {
     $form_state->setErrorByName('body][0][summary', t('Summary cannot contain html tags.'));
+  }
+
+  if (count($tags) > 6) {
+    $form_state->setErrorByName('Tags', t('You can only select 6 tags. Please remove some tags.'));
   }
 }
 

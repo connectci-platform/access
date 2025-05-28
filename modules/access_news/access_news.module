@@ -42,7 +42,7 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
       ],
     ];
     $form['field_tags_replace']['field_suggest']['tag_list'] = [
-      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary.</div>",
+      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary. Limited to 6 tags.</div>",
     ];
     $form['field_tags_replace']['field_suggest']['replace_button'] = [
       '#type' => 'button',
@@ -145,11 +145,13 @@ function access_news_validate(&$form, FormStateInterface $form_state) {
       if ($nid) {
         $authorized = FALSE;
         $n = Node::load($nid);
-        // Administrator can assign ACCESS News to any Affinity Group.
-        if (in_array('administrator', \Drupal::currentUser()->getRoles())) {
+        // Administrator or news_pm role can assign ACCESS News to any Affinity Group.
+        if (
+          in_array('administrator', \Drupal::currentUser()->getRoles()) ||
+          in_array('news_pm', \Drupal::currentUser()->getRoles())
+        ) {
           $authorized = TRUE;
-        }
-        else {
+        } else {
           // Load coordinator(s) for the Affinity Group.
           $coordinator_field = $n->get('field_coordinator');
           if ($coordinator_field) {
@@ -173,6 +175,12 @@ function access_news_validate(&$form, FormStateInterface $form_state) {
         }
       }
     }
+  }
+
+  $values = $form_state->getValues();
+  $tags = $values['field_tags'];
+  if (count($tags) > 6) {
+    $form_state->setErrorByName('Tags', t('You can only select 6 tags. Please remove some tags.'));
   }
 }
 
@@ -499,30 +507,43 @@ function officeHours($ids, $utmCampaign = NULL) {
     $recur_type = $entity->get('recur_type')->value;
 
     $weekly_recurring_day = $entity->get('weekly_recurring_date')->__get('days');
-    $weekly_recurring_time = $entity->get('weekly_recurring_date')->__get('time');
+    //$weekly_recurring_time = $entity->get('weekly_recurring_date')->__get('time');
 
     $monthly_occurance = $entity->get('monthly_recurring_date')->__get('day_occurrence');
     $monthly_days = $entity->get('monthly_recurring_date')->__get('days');
 
-    $body = $entity->get('body')->view('list');
-    $body = $body[0] != NULL ? $body[0] : '';
-    $body = \Drupal::service('renderer')->renderPlain($body);
+    $body = '<p>' . $entity->get('field_summary')->value . '</p>';
+    if ($body == NULL) {
+      $body = $entity->get('body')->view('list');
+      $body = $body[0] != NULL ? $body[0] : '';
+      $body = \Drupal::service('renderer')->renderPlain($body);
+    }
 
+    $n = 0;
     foreach ($entities as $entity) {
       $date = $entity['date'];
       $url = $entity['url'];
       $body .= "<p><a href='$url'>$date</a></p>";
+      if ($n == 0) {
+        $time = preg_replace('/\d+\/\d+\/\d+/', '', $date);
+        $time = ltrim($time);
+      }
+      $n++;
     }
+
+    // Add space after comma.
+    $monthly_occurance = str_replace(',', ', ', $monthly_occurance);
 
     $eventseries_office_hours[$entity_id] = [
       'title' => $title,
       'recur_type' => $recur_type,
       'day_of_week' => ucfirst($weekly_recurring_day),
-      'time' => $weekly_recurring_time,
+      'time' => $time,
       'monthly_occurance' => ucfirst($monthly_occurance),
       'monthly_days' => ucfirst($monthly_days),
       'body' => $body,
     ];
+
   }
 
   $recurring_events = '';
@@ -531,13 +552,11 @@ function officeHours($ids, $utmCampaign = NULL) {
     $recurring_events_exists = 1;
     $eventUrl = appendUtmCC("https://support.access-ci.org//events/series/$eid", $utmCampaign);
 
-    $date = new DateTime("now", new DateTimeZone("America/New_York"));
-    $tz = $date->format('T'); // EST or EDT
     if ($event['day_of_week']) {
-      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['day_of_week']}s at {$event['time']} {$tz}", $event['body'], null);
+      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['day_of_week']}s at {$event['time']}", $event['body'], null);
     }
     else {
-      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['monthly_occurance']} {$event['monthly_days']} at {$event['time']} {$tz}", $event['body'], null);
+      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['monthly_occurance']} {$event['monthly_days']} at {$event['time']}", $event['body'], null);
     }
   }
 

@@ -9,7 +9,7 @@ import {
   header,
   siteMenus,
   universalMenus,
-} from "https://esm.sh/@access-ci/ui@0.7.0";
+} from "https://esm.sh/@access-ci/ui@0.8.0-beta2";
 
 (function (Drupal, drupalSettings) {
 
@@ -82,6 +82,7 @@ async function setMenu(menu, currentUri) {
 
   footerMenus({
     items: siteItems,
+    siteName: "Support",
     target: document.getElementById("footer-menus"),
   });
 

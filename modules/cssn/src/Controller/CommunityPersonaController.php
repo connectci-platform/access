@@ -3,6 +3,7 @@
 namespace Drupal\cssn\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\Component\Utility\Html;
 use Drupal\Core\Link;
 use Drupal\Core\Url;
 use Drupal\ccmnet\Plugin\Util\MentorshipLookup;
@@ -60,7 +61,21 @@ class CommunityPersonaController extends ControllerBase {
 
         if ($ag_node) {
           $affinity_group_loaded = $ag_node;
-          $url = Url::fromRoute('entity.node.canonical', ['node' => $affinity_group_loaded->id()]);
+          $persona_source = $affinity_group_loaded->get('field_persona_source')->value;
+          $env = getenv('PANTHEON_ENVIRONMENT');
+          $token = \Drupal::token();
+          $domainName = Html::getClass($token->replace(t('[domain:name]')));
+
+          if ($persona_source == 'openondemand' && $domainName != 'open-ondemand' && $env == 'live') {
+            $url = Url::fromUri('https://ondemand.connectci.org/node/' . $affinity_group_loaded->id());
+          }
+          elseif ($persona_source == 'access' && $domainName == 'open-ondemand' && $env == 'live') {
+            $url = Url::fromUri('https://support.access-ci.org/node/' . $affinity_group_loaded->id());
+          }
+          else {
+            $url = Url::fromRoute('entity.node.canonical', ['node' => $affinity_group_loaded->id()]);
+          }
+
           $class = ['font-bold', 'underline', 'hover--no-underline', 'hover--text-dark-teal'];
           $project_link = Link::fromTextAndUrl($affinity_group_loaded->getTitle(), $url)->toRenderable();
           $project_link['#attributes'] = ['class' => $class];

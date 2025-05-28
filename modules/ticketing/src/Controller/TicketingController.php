@@ -22,14 +22,26 @@ class TicketingController extends ControllerBase {
 
     $ticket_id = is_numeric($ticket_id) ? $ticket_id : 17;
 
-    $uri = Url::fromUri('https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/' . $ticket_id,
-      [
-        'query' => [
-          'customfield_10103' => $account_name,
-          'customfield_10108' => $display_name,
-        ],
-      ]
-    );
+    if ($ticket_id == 26) {
+      $uri = Url::fromUri('https://access-ci.atlassian.net/servicedesk/customer/portal/3/group/5/create/' . $ticket_id,
+        [
+          'query' => [
+            'customfield_10103' => $account_name,
+            'customfield_10108' => $display_name,
+          ],
+        ]
+      );
+    }
+    else {
+      $uri = Url::fromUri('https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/' . $ticket_id,
+        [
+          'query' => [
+            'customfield_10103' => $account_name,
+            'customfield_10108' => $display_name,
+          ],
+        ]
+      );
+    }
 
     return new TrustedRedirectResponse($uri->toString());
   }

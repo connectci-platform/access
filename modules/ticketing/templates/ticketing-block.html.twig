@@ -1,5 +1,5 @@
 <!-- User ticketing choices in a set of radio buttons -->
-<div class="mx-auto flex flex-col justify-center relative py-10 pt-24">
+<div class="mx-auto flex flex-col justify-center relative py-10">
   <img src="/themes/contrib/asp-theme/images/misc/shapes-top.svg" alt="" class="absolute top-0 right-0 w-2/5 md--w-1/5"/>
   <img src="/themes/contrib/asp-theme/images/misc/shapes-bottom.svg" alt="" class="absolute bottom-0 right-0 md--w-1/2"/>
   <form id="ticket-choice-form"  method="PUT" action="/open-a-ticket/17" class="w-fit py-10 my-10 mx-auto">
@@ -8,19 +8,25 @@
     <h1 class="my-2 pt-4">How can we help you?</h1>
     <div class="form-check">
       <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="ticket-login-access">
-      <label class="form-check-label px-1" for="ticket-login-access">
+      <label class="form-check-label px-1 font-medium" for="ticket-login-access">
         I need help logging into ACCESS website
       </label>
     </div>
     <div class="form-check">
       <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="ticket-login-other">
-      <label class="form-check-label px-1" for="ticket-login-other">
+      <label class="form-check-label px-1 font-medium" for="ticket-login-other">
         I need help logging into a resource (i.e. Anvil, Expanse)
       </label>
     </div>
     <div class="form-check">
+      <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="report-security">
+      <label class="form-check-label px-1 font-medium" for="report-security">
+        I want to report a security incident
+      </label>
+    </div>
+    <div class="form-check">
       <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="ticket-other-question" checked>
-      <label class="form-check-label px-1" for="ticket-other-question">
+      <label class="form-check-label px-1 font-medium" for="ticket-other-question">
         I have another question
       </label>
     </div>
@@ -82,6 +88,10 @@ function ticketChoiceChange(e) {
   if (e.target.id == 'ticket-other-question') {
     document.getElementById("ticket-link").href = "login?redirect=/open-a-ticket/17";
     url = '/open-a-ticket/17';
+  }
+  else if (e.target.id == 'report-security') {
+    document.getElementById("ticket-link").href = "/open-a-ticket/26";
+    url = '/open-a-ticket/26';
   }
   else {
     base = 'https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/';

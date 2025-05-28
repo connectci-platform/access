@@ -266,7 +266,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     ];
 
     $form['field_tags_replace']['field_suggest']['tag_list'] = [
-      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary.</div>",
+      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary. Limited to 6 tags.</div>",
     ];
     $form['field_tags_replace']['field_suggest']['replace_button'] = [
       '#type' => 'button',
