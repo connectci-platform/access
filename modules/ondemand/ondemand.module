@@ -23,8 +23,11 @@ function ondemand_user_login($account) {
     $uid = $current_user->id();
     $user = User::load($uid);
 
-    $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'OnDemand']);
-    $term_id = reset($term)->id();
+    $terms = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties([
+      'name' => 'OnDemand',
+      'vid' => 'region',
+    ]);
+    $term_id = reset($terms)->id();
 
     $new_ondemand_user = FALSE;
     $programs = $user->get('field_region')->referencedEntities();
@@ -50,8 +53,9 @@ function ondemand_user_login($account) {
 /**
  * Filters for People SearchAPI view.
  *
- * @param ViewExecutable $view
- * @param QueryPluginBase $query
+ * @param \Drupal\views\ViewExecutable $view
+ * @param \Drupal\views\Plugin\views\query\QueryPluginBase $query
+ *
  * @return void
  */
 function ondemand_views_query_alter(ViewExecutable $view, QueryPluginBase $query) {
@@ -62,7 +66,8 @@ function ondemand_views_query_alter(ViewExecutable $view, QueryPluginBase $query
 
     if ($domain_name == 'open-ondemand') {
       $query->addCondition('field_region', '901', '=');
-    } else {
+    }
+    else {
       // Filter to the following roles for other domains.
       $conditions = $query->createConditionGroup('OR');
       $conditions->addCondition('roles', 'student', '=')
