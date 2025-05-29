@@ -2,6 +2,7 @@
 
 namespace Drupal\cssn\Controller;
 
+use Drupal\views\Views;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Link;
@@ -12,7 +13,6 @@ use Drupal\cssn\Plugin\Util\MatchLookup;
 use Drupal\cssn\Plugin\Util\ProjectLookup;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\user\Entity\User;
-use Drupal\webform\Entity\WebformSubmission;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
 /**
@@ -155,8 +155,7 @@ class CommunityPersonaController extends ControllerBase {
       $n = 1;
       foreach ($ws_results as $ws_result) {
         $stripe_class = $n % 2 == 0 ? 'bg-light bg-light-teal' : '';
-        $ws = WebformSubmission::load($ws_result);
-        $url = $ws->toUrl()->toString();
+        $url = '/knowledge-base/resources/' . $ws_result;
         $ws_data = $ws->getData();
         $ws_link .= '<li class="p-3 ' . $stripe_class . '"><a href=' . $url . ' class="font-bold underline hover--no-underline hover--text-dark-teal">' . $ws_data['title'] . '</a></li>';
         $n++;
@@ -404,7 +403,7 @@ class CommunityPersonaController extends ControllerBase {
     $projects = $this->projectList($current_user);
 
     // Events user is registered for.
-    $view = \Drupal\views\Views::getView('recurring_events_registrations');
+    $view = Views::getView('recurring_events_registrations');
     $view->setDisplay('user_event_registrations');
     $view->setArguments([$current_user->id()]);
     $user_event_registrations = $view->buildRenderable('user_event_registrations');
