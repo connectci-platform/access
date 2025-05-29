@@ -135,7 +135,7 @@ function access_misc_deploy_10003() {
  * Resave ag node with private set to 0.
  */
 function access_misc_deploy_10004() {
-  // load node entitiies that are affinity_group.
+  // Load node entities that are affinity_group.
   $query = \Drupal::entityQuery('node')
     ->condition('type', 'affinity_group')
     ->accessCheck(FALSE)
@@ -144,7 +144,7 @@ function access_misc_deploy_10004() {
 
   // Foreach resave node.
   foreach ($nids as $nid) {
-    $node = \Drupal\node\Entity\Node::load($nid);
+    $node = Node::load($nid);
     $node->set('field_ag_private', 0);
     $node->save();
   }
@@ -154,6 +154,6 @@ function access_misc_deploy_10004() {
   $index->status();
   $index->reindex();
 
-  $cron = Drupal::service('cron');
-  $cron->run();
+  // $cron = Drupal::service('cron');
+  // $cron->run();
 }
