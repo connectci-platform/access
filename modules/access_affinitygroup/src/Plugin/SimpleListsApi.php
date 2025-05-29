@@ -247,9 +247,23 @@ class SimpleListsApi {
   }
 
   /**
-   * Return simplelists contact id string or else NULL if not found.
+   * Returns the SimpleLists contact ID for a given email, or NULL if not found.
+   *
+   * @param string $userEmail
+   *   The user's email address.
+   * @param string &$msg
+   *   Reference to a message string for error reporting.
+   *
+   * @return string|null
+   *   The contact ID, or NULL if not found or on error.
    */
   public function getUserIdFromEmail($userEmail, &$msg) {
+    if (empty($userEmail)) {
+      $msg = 'No user email provided to getUserIdFromEmail.';
+      \Drupal::logger('access_affinitygroup')->error($msg);
+      return NULL;
+    }
+
     try {
       $urlEnd = 'emails/' . urlencode($userEmail) . '/';
       $ch = $this->makeCurl('GET', $urlEnd);
@@ -262,8 +276,13 @@ class SimpleListsApi {
         \Drupal::logger('access_affinitygroup')->error($msg);
         return NULL;
       }
-      if (isset($deResponse['is_error']) && $deResponse['is_error']) {
-        $msg = $deResponse['message'];
+      if (!empty($deResponse['is_error'])) {
+        $msg = $deResponse['message'] ?? 'Unknown error from SimpleLists API.';
+        return NULL;
+      }
+      if (empty($deResponse['contact'])) {
+        $msg = 'SimpleLists API response missing contact ID for email: ' . $userEmail;
+        \Drupal::logger('access_affinitygroup')->error($msg);
         return NULL;
       }
 
@@ -271,12 +290,14 @@ class SimpleListsApi {
     }
     catch (\Exception $e) {
       $msg = $e->getMessage();
+      \Drupal::logger('access_affinitygroup')->error($msg);
       return NULL;
     }
   }
 
   /**
    * With a user email, get listnames for that user.
+   *
    * Set listNames if user found, and return simplelist user contact id.
    */
   public function getUserListNames($userEmail, &$listNames, &$msg) {
