@@ -394,7 +394,7 @@ class CommunityPersonaController extends ControllerBase {
     // My Match Engagements.
     $match_link = $this->matchList($current_user);
     // Link to see all Match Engagements.
-    $match_engage_url = Url::fromUri('internal:/engagements');
+    $match_engage_url = Url::fromUri('https://support.access-ci.org/engagements');
     $match_engage_link = Link::fromTextAndUrl('See engagements', $match_engage_url);
     $match_engage_renderable = $match_engage_link->toRenderable();
     $build_match_engage_link = $match_engage_renderable;
