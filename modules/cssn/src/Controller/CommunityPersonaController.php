@@ -2,6 +2,7 @@
 
 namespace Drupal\cssn\Controller;
 
+use Drupal\webform\Entity\WebformSubmission;
 use Drupal\views\Views;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Component\Utility\Html;
@@ -155,7 +156,8 @@ class CommunityPersonaController extends ControllerBase {
       $n = 1;
       foreach ($ws_results as $ws_result) {
         $stripe_class = $n % 2 == 0 ? 'bg-light bg-light-teal' : '';
-        $url = '/knowledge-base/resources/' . $ws_result;
+        $ws = WebformSubmission::load($ws_result);
+        $url = '/knowledge-base/resources/' . $ws->id();
         $ws_data = $ws->getData();
         $ws_link .= '<li class="p-3 ' . $stripe_class . '"><a href=' . $url . ' class="font-bold underline hover--no-underline hover--text-dark-teal">' . $ws_data['title'] . '</a></li>';
         $n++;
