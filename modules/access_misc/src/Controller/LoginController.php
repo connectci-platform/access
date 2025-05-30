@@ -70,6 +70,21 @@ class LoginController extends ControllerBase {
    * Route user to login.
    */
   public function login() {
+    $current_user = \Drupal::currentUser();
+
+    $user_id = $current_user->id();
+    $user_detail = \Drupal\user\Entity\User::load($user_id);
+
+    $cca_user_id = NULL;
+    $field_val = $user_detail->get('field_constant_contact_id')->getValue();
+    $user_cc_id = $field_val[0]['value'];
+
+    $constantcontactapi = new \Drupal\access_affinitygroup\Plugin\ConstantContactApi;
+    $user_cc_id = $constantcontactapi->getUserCcId($user_cc_id);
+
+    kint($user_cc_id);
+    die();
+
     $this->killSwitch->trigger();
     // Check if user is logged in.
     if ($this->currentUser->isAuthenticated()) {

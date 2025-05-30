@@ -812,6 +812,8 @@ function makeListMembershipJSON($flagEntityId, $userDetails) {
   $ccIdField = $userDetails->get('field_constant_contact_id')->getValue();
   if (!empty($ccIdField)) {
     $user_cc_id = $ccIdField[0]['value'];
+    $constantcontactapi = new ConstantContactApi();
+    $user_cc_id = $constantcontactapi->getUserCcId($user_cc_id);
   }
 
   if (empty($user_cc_id)) {
@@ -871,17 +873,42 @@ function access_affinitygroup_user_login(UserInterface $account) {
   if (!empty($field_val)) {
     $cca_user_id = $field_val[0]['value'];
   }
+
   // If user did not already have the CC id, try to add to CC.
-  if (empty($cca_user_id)) {
+  if (empty($cca_user_id) || !json_validate($cca_user_id)) {
+    // If $cca_user_id contains `-` and doesn't contain spaces then we'll assume
+    // it's a support CC user id.
+    if (strpos($cca_user_id, '-') !== FALSE && strpos($cca_user_id, ' ') === FALSE) {
+      $user_cc_id = [
+        'test' => '',
+        'openondemand' => '',
+        'support' => $cca_user_id,
+      ];
+    }
+    else {
+      $user_cc_id = [
+        'test' => '',
+        'openondemand' => '',
+        'support' => '',
+      ];
+    }
+
+    $constantcontactapi = new ConstantContactApi();
+    $env = $constantcontactapi->getEnvironment();
 
     $firstName = $user_detail->get('field_user_first_name')->getString();
     $lastName = $user_detail->get('field_user_last_name')->getString();
 
-    $cca_user_id = addUserToConstantContact($current_user->getEmail(), $firstName, $lastName);
-    if (empty($cca_user_id)) {
+
+    if ($env != 'support') {
+      $user_cc_id[$env] = addUserToConstantContact($current_user->getEmail(), $firstName, $lastName);
+    }
+
+    if (empty($user_cc_id[$env])) {
       showStatus("Could not add user to Constant Contact.");
     } else {
-      $user_detail->set('field_constant_contact_id', $cca_user_id);
+      $user_cc_id = json_encode($user_cc_id);
+      $user_detail->set('field_constant_contact_id', $user_cc_id);
       $user_detail->save();
     }
   } else {

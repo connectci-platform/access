@@ -144,11 +144,23 @@ class ConstantContactApi {
    */
   private function getKey() {
     $keys = \Drupal::service('key.repository')->getKey('constant_contact_json')->getKeyValues();
+    $env = $this->getEnvironment();
+
+    $cc_key = json_decode($keys[0], true)[$env]['id'];
+    $key_secret = json_decode($keys[0], true)[$env]['secret'];
+
+    $this->cc_key = urlencode(trim($cc_key));
+    $this->key_secret = urlencode(trim($key_secret));
+  }
+
+  /**
+   * Get the current environment.
+   */
+  public function getEnvironment() {
     $env = getenv('PANTHEON_ENVIRONMENT');
 
     if ($env == 'local') {
-      $cc_key = json_decode($keys[0], true)['test']['id'];
-      $key_secret = json_decode($keys[0], true)['test']['secret'];
+      $env = 'test';
     }
     else {
       $token = \Drupal::token();
@@ -156,17 +168,23 @@ class ConstantContactApi {
       $current_domain_name = \Drupal\Component\Utility\Html::getClass($token->replace($domainName));
 
       if ($current_domain_name == 'open-ondemand') {
-        $cc_key = json_decode($keys[0], true)['openondemand']['id'];
-        $key_secret = json_decode($keys[0], true)['openondemand']['secret'];
+        $env = 'openondemand';
       }
       else {
-        $cc_key = json_decode($keys[0], true)['support']['id'];
-        $key_secret = json_decode($keys[0], true)['support']['secret'];
+        $env = 'support';
       }
     }
 
-    $this->cc_key = urlencode(trim($cc_key));
-    $this->key_secret = urlencode(trim($key_secret));
+      return $env;
+  }
+
+  /**
+   * Get the user CC id.
+   */
+  public function getUserCcId($user_cc_json) {
+    $env = $this->getEnvironment();
+    $user_cc_json = json_decode($user_cc_json, TRUE);
+    return $user_cc_json[$env] ?? 0;
   }
 
   /**
