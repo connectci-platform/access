@@ -16,3 +16,13 @@
 #ci-links th:first-of-type {
   width: 33%;
 }
+
+div:has(>div img.private) {
+  position: relative;
+}
+
+div:has(>img.private) {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
