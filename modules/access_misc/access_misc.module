@@ -284,6 +284,11 @@ function access_misc_preprocess_views_view_field(&$variables) {
     }
     $event_instance_id = $variables['output']->__toString();
     $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
+
+    if ($event_instance == NULL) {
+      return;
+    }
+
     $series = $event_instance->getEventSeries();
     $link = $series->get('field_event_virtual_meeting_link')->getValue();
 
