@@ -51,3 +51,45 @@ function access_cilink_update_10001() {
     'status_code' => 301,
   ])->save();
 }
+
+/**
+ * Remove OnDemand from webform_submission_data table.
+ */
+function access_cilink_update_10002() {
+  // Get the database connection.
+  $database = \Drupal::database();
+
+  // Delete rows from the webform_submission_data table.
+  $num_deleted = $database->delete('webform_submission_data')
+    ->condition('webform_id', 'resource')
+    ->condition('name', 'domain')
+    ->condition('value', '901')
+    ->execute();
+
+  // Log the number of rows deleted.
+  \Drupal::logger('access_cilink')->info('Deleted @count rows from webform_submission_data where webform_id = "resource", name = "domain", and value = "901".', [
+    '@count' => $num_deleted,
+  ]);
+
+  // reindex the search api index
+  $index = \Drupal::entityTypeManager()->getStorage('search_api_index')->load('ci_links');
+  if ($index) {
+    $index->indexItems();
+    \Drupal::logger('access_cilink')->info('Reindexed the search API index "ci_links".');
+  }
+  else {
+    \Drupal::logger('access_cilink')->error('Failed to load the search API index "ci_links".');
+  }
+}
+
+/**
+ * Delete old skill level in resource webform.
+ */
+function access_cilink_update_10003() {
+  // Delete rows from the webform_submission_data table.
+  \Drupal::database()->delete('webform_submission_data')
+    ->condition('webform_id', 'resource')
+    ->condition('name', 'skill_level')
+    ->condition('value', '307')
+    ->execute();
+}

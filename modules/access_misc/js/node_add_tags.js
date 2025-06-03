@@ -49,6 +49,7 @@ if (checkBoxEmail) {
             selectedElements.forEach(element => {
               textArray.push(element.textContent.trim());
             });
+
             if (textArray.length > 0) {
               var divElement = document.getElementById('tag-suggestions');
               var textTagListing = '';
@@ -89,6 +90,12 @@ if (checkBoxEmail) {
               selected.splice(index, 1); // 2nd parameter means remove one item only
             }
           } else {
+            // Count how many tags are selected
+            const selectedElements = document.querySelectorAll('.tags-select.selected');
+            if (selectedElements.length > 5) {
+              alert('You have selected more than 6 tags. Please remove one or more tags before selecting another one.');
+              return;
+            }
             e.target.classList.add("selected");
             selected.push(e.target.dataset.tid);
           }

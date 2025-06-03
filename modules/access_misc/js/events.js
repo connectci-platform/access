@@ -38,20 +38,21 @@ let virtualTitle = document.querySelector('#edit-field-event-virtual-meeting-lin
 console.log(virtualTitle.textContent);
 virtualTitle.insertAdjacentHTML('afterend', '<div class="form-item__description description form-item__description--label-help">Provide link to virtual meeting. If there is one.</div>');
 
-// If #edit-event-registration-0-registration is checked or unchecked add a console.log message.
 let registration = document.querySelector('#edit-event-registration-0-registration');
 registration.addEventListener('change', function() {
   checkRegistration();
+  console.log('changed');
 });
 
 function checkRegistration() {
   if (registration.checked) {
     document.getElementById("edit-field-registration-0-uri").value = 'http://example.com';
     document.getElementById("edit-field-registration-wrapper").style.display = 'none';
+    document.getElementById("edit-field-event-allocation-grant-wrapper").style.display = 'block';
   } else {
     document.getElementById("edit-field-registration-0-uri").value = '';
     document.getElementById("edit-field-registration-wrapper").style.display = 'block';
+    document.getElementById("edit-field-event-allocation-grant-wrapper").style.display = 'none';
   }
 }
 
-checkRegistration();

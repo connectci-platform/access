@@ -149,23 +149,57 @@ class CiLinkController extends ControllerBase {
     $login = Link::fromTextAndUrl($this->t('Login to vote'), Url::fromUri('internal:/user/login', $options))->toString();
 
     // Upvote widget.
-    $flag_upvote = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'upvote');
+    $flag_upvote = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'upvote', 'full');
     $flag_upvote = \Drupal::service('renderer')->renderPlain($flag_upvote);
     $flag_upvote_count = \Drupal::service('flag.count')->getEntityFlagCounts($this->webform_submission);
     $flag_upvote_set = $flag_upvote_count['upvote'] ?? 0;
     $flag_upvote_count = $flag_upvote_set ? $flag_upvote_count['upvote'] : 0;
 
+    // Edit Button.
+    // Get the webform ID from the submission to properly build the edit route
+    $webform_id = $this->webform_submission->getWebform()->id();
+    $edit_url = Url::fromRoute('entity.webform_submission.edit_form', [
+      'webform' => $webform_id,
+      'webform_submission' => $this->sid
+    ]);
+    // Set the options on the URL object before creating the link
+    $edit_url->setOption('attributes', [
+      'class' => [
+        'btn',
+        'btn-sm',
+        'btn-secondary-outline',
+        'py-0',
+        'px-4',
+        'w-full',
+        'btn-md-teal',
+      ],
+    ]);
+    // If current user id is the same as the submission user id, show the edit link.
+    $edit_link = '';
+
+    $webform_submission = $this->webform_submission;
+
+    $uid = $this->webform_submission->getOwnerId();
+    $roles = \Drupal::currentUser()->getRoles();
+    if (\Drupal::currentUser()->id() == $uid || in_array('administrator', $roles) || in_array('kb_pm', $roles)) {
+      $edit_link = Link::fromTextAndUrl($this->t('Edit'), $edit_url)->toString();
+    }
+
     // Flags.
     $flag_classes = 'no-underline text-dark-teal hover--underline';
-    $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'outdated');
+    $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'outdated', 'full');
     $flag_outdated['#attributes']['class'][] = $flag_classes;
     $flag_outdated = \Drupal::service('renderer')->renderPlain($flag_outdated);
-    $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'not_useful');
+    $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'not_useful', 'full');
     $flag_not_useful['#attributes']['class'][] = $flag_classes;
     $flag_not_useful = \Drupal::service('renderer')->renderPlain($flag_not_useful);
-    $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'inaccurate');
+    $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'inaccurate', 'full');
     $flag_inaccurate['#attributes']['class'][] = $flag_classes;
     $flag_inaccurate = \Drupal::service('renderer')->renderPlain($flag_inaccurate);
+
+    // Check if the user is logged in.
+    $user = \Drupal::currentUser();
+    $authenticated = $user->isAuthenticated();
 
     // Use TailwindCSS classes for ACCESS Support
     // or use Bootstrap classes for other sites.
@@ -208,6 +242,11 @@ class CiLinkController extends ControllerBase {
               </div>
               {% if affinity_groups %}
                 {{ affinity_groups | raw }}
+              {% endif %}
+              {% if authenticated %}
+                <div class="mt-5">
+                  {{ edit_link | raw }}
+                </div>
               {% endif %}
               {% if user > 0 %}
                 <details class="border border-solid border-dark-teal open:bg-white duration-300 relative">
@@ -264,6 +303,11 @@ class CiLinkController extends ControllerBase {
               <div class="mt-3">
                 {{ affinity_groups | raw }}
               </div>
+              {% if authenticated %}
+                <div class="mt-5">
+                  {{ edit_link | raw }}
+                </div>
+              {% endif %}
               {% if user > 0 %}
                 <div class="dropdown mt-3">
                   <a class="btn btn-outline-dark btn-outline-primary btn-sm dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -309,6 +353,8 @@ class CiLinkController extends ControllerBase {
         'outdated' => $flag_outdated,
         'not_useful' => $flag_not_useful,
         'inaccurate' => $flag_inaccurate,
+        'authenticated' => $authenticated,
+        'edit_link' => $edit_link,
       ],
       // Add cache tags to invalidate cache when the webform submission changes.
       '#cache' => [

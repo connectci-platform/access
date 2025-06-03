@@ -1,0 +1,659 @@
+<?php
+
+/**
+ * @file
+ */
+
+use Drupal\access_events\Plugin\Util\EventDateConvert;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Component\Utility\Xss;
+use Drupal\Core\Render\Markup;
+use Drupal\user\Entity\User;
+use Symfony\Component\HttpFoundation\RedirectResponse;
+use Drupal\views\ViewExecutable;
+
+/**
+ * Implements hook_form_alter().
+ */
+function access_events_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  if ($form_id == 'registrant_default_delete_form') {
+    $form['actions']['submit']['#submit'][] = 'access_events_user_delete_submit';
+  }
+  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
+    $current_user = \Drupal::currentUser();
+    $username = $current_user->getAccountName();
+    $username = str_replace('@access-ci.org', '', $username);
+
+    $grantlist = \Drupal::service('access_events.XsedeApi')->getGrantList($username);
+    $no_grants = 0;
+    if (empty($grantlist)) {
+      $no_grants = 1;
+    }
+    $grantlist = [0 => 'No Allocation'] + $grantlist;
+
+    $form['field_event_allocation_grant']['widget'][0]['value']['#type'] = 'select';
+    $form['field_event_allocation_grant']['widget'][0]['value']['#options'] = $grantlist;
+    $form['field_event_allocation_grant']['widget'][0]['value']['#size'] = 1;
+    if ($no_grants) {
+      $form['field_event_allocation_grant']['widget'][0]['value']['#default_value'] = 0;
+      $form['field_event_allocation_grant']['widget'][0]['value']['#access'] = FALSE;
+    }
+
+    // Get current user.
+    $current_user = \Drupal::currentUser();
+    $roles = $current_user->getRoles();
+
+    if (!in_array('administrator', $roles)) {
+      $form['domain_access']['#access'] = FALSE;
+    }
+
+  }
+
+  if ($form_id == 'registrant_default_add_form' || $form_id == 'registrant_default_edit_form') {
+    // Email registered user.
+    $form['actions']['submit']['#submit'][] = 'access_misc_registrant_email_submit';
+
+    // Get current user.
+    $current_user = \Drupal::currentUser();
+    $roles = $current_user->getRoles();
+    $username = $current_user->getAccountName();
+
+    // Get event instance id.
+    $uri = \Drupal::request()->getRequestUri();
+    $uri = explode('/', $uri);
+    $eventinstance_id = $uri[2];
+
+    if (!in_array('administrator', $roles)) {
+      // Get current user field 'field_user_first_name'.
+      $user = User::load($current_user->id());
+      $first_name = $user->get('field_user_first_name')->value;
+      $last_name = $user->get('field_user_last_name')->value;
+      $email = $user->getEmail();
+      $form['field_first_name']['widget'][0]['value']['#default_value'] = $first_name;
+      $form['field_first_name']['widget'][0]['value']['#access'] = FALSE;
+      $form['field_last_name']['widget'][0]['value']['#default_value'] = $last_name;
+      $form['field_last_name']['widget'][0]['value']['#access'] = FALSE;
+      $form['email']['widget'][0]['value']['#default_value'] = $email;
+      $form['email']['widget'][0]['value']['#access'] = FALSE;
+      $form['user_id']['widget'][0]['#access'] = FALSE;
+
+      $form['confirm_registeration'] = [
+        '#type' => 'markup',
+        '#weight' => 99,
+        '#markup' => "<div class='py-4'><strong>Please confirm your registration below.</strong></div>",
+      ];
+
+      // Check if user is registered and redirect back to event if so.
+      $entity_query = \Drupal::entityQuery('registrant')
+        ->condition('eventinstance_id', $eventinstance_id)
+        ->condition('user_id', $current_user->id())
+        ->accessCheck(FALSE);
+      $registrant_status = $entity_query->execute();
+
+      if ($registrant_status) {
+        $redirect = new RedirectResponse('/events/' . $eventinstance_id);
+        $redirect->send();
+        \Drupal::messenger()->addMessage(t('You are already registered for this event.'));
+      }
+    }
+
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
+    $series = $eventinstance->getEventSeries();
+    $field_event_allocation_grant = $series->get('field_event_allocation_grant')->value;
+    if ($field_event_allocation_grant) {
+      if (!strpos($username, '@access-ci.org')) {
+        \Drupal::messenger()->addWarning(t('Registration for the event requires an <a href="https://access-ci.org">ACCESS ID</a>'));
+        $form['confirm_registeration']['#access'] = FALSE;
+        $form['actions']['submit']['#access'] = FALSE;
+      }
+
+      $allocation = $series->get('field_event_allocation_grant')->getValue();
+      $resources = '';
+      if ($allocation) {
+        $allocation = $allocation[0]['value'];
+        if ($allocation) {
+          $grantlist = \Drupal::service('access_events.XsedeApi')->getGrantedUsers($allocation);
+          $allocation_title = \Drupal::service('access_events.XsedeApi')->getTitle($allocation);
+          $resourcename = [];
+          foreach ($grantlist['result'] as $value) {
+            foreach ($value as $key => $resource) {
+              if ($key == 'resourceName') {
+                $resourcename[$resource] = $resource;
+              }
+            }
+          }
+          $resources = "<p class='mb-0'>When your registration is approved, you will be added the the <strong><em>$allocation_title</em></strong> allocation which will provide access to the following resources for this event:</p><ul class='mt-0 mb-10'>";
+          foreach ($resourcename as $resource) {
+            $resources .= "<li>$resource</li>";
+          }
+          $resources .= "</ul>";
+        }
+      }
+
+      $form['resources'] = [
+        '#type' => 'markup',
+        '#weight' => 99,
+        '#markup' => $resources,
+      ];
+    }
+
+    // Add submit handler to registrant form to invalidate cache on Events
+    // Facet view.
+    $form['actions']['submit']['#submit'][] = 'access_misc_registrant_submit';
+  }
+
+  if ( ($form_id == 'registrant_default_add_form' || $form_id == 'registrant_default_edit_form') && in_array('administrator', $roles)) {
+    $form['field_first_name']['widget'][0]['value']['#access'] = TRUE;
+    $form['field_last_name']['widget'][0]['value']['#access'] = TRUE;
+    $form['email']['widget'][0]['value']['#access'] = TRUE;
+    $form['user_id']['widget'][0]['#access'] = TRUE;
+
+    if ($form_id == 'registrant_default_add_form') {
+      // Get current user.
+      $current_user = \Drupal::currentUser();
+      // Get current user field 'field_user_first_name'.
+      $user = User::load($current_user->id());
+      $first_name = $user->get('field_user_first_name')->value;
+      $last_name = $user->get('field_user_last_name')->value;
+      $email = $user->getEmail();
+
+      $form['field_first_name']['widget'][0]['value']['#default_value'] = $first_name;
+      $form['field_last_name']['widget'][0]['value']['#default_value'] = $last_name;
+      $form['email']['widget'][0]['value']['#default_value'] = $email;
+    }
+
+    // Add submit handler to registrant form to invalidate cache on Events
+    // Facet view.
+    $form['actions']['submit']['#submit'][] = 'access_misc_registrant_submit';
+  }
+
+  // Custom tags on /events/add
+  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
+    $form['body']['widget'][0]['#required'] = TRUE;
+
+    $form['event_registration']['widget'][0]['#description'] = "<strong>Event registration is a new feature. If you encounter any issues or unexpected behavior, please submit a ticket to let us know.</strong>";
+    $form['consecutive_recurring_date'] = [];
+
+    // Summary ai suggestion.
+    $form['field_summary_replace'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'id' => 'field-summary-replace',
+        'data-suggest' => '0',
+      ],
+      '#weight' => 2,
+    ];
+
+
+    $form['field_summary_replace']['field_suggest_title'] = [
+      '#markup' => "<h4 class='label form-required mt-4'>Summary</h4>",
+    ];
+
+    $form['field_summary_replace']['field_suggest'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'class' => [
+          'bg-light-teal',
+          'my-5',
+          'p-5'
+        ]
+      ],
+    ];
+
+    $form['field_summary_replace']['field_suggest']['summary_list'] = [
+      '#markup' => "<div id='match-summary-list' class='mb-3'>Get summary suggestions based on your description and then curate as necessary.</div>",
+    ];
+
+    $form['field_summary_replace']['field_suggest']['summary_text'] = [
+      '#type' => 'textarea',
+      '#title' => t('Summary'),
+      '#description' => $form['field_summary']['widget'][0]['#description'],
+      '#default_value' => $form['field_summary']['widget'][0]['value']['#default_value'],
+      '#required' => TRUE,
+      '#rows' => 5,
+      '#weight' => 10,
+      '#maxlength' => 150,
+    ];
+
+    $form['field_summary_replace']['field_suggest']['replace_button'] = [
+      '#type' => 'button',
+      '#value' => t('Suggest Summary'),
+      '#limit_validation_errors' => array(),
+      '#attributes' => [
+        'class' => [
+          'ml-0'
+        ],
+      ],
+      '#ajax' => [
+        'callback' => 'access_events_replace_summary_section_callback',
+        'wrapper' => 'field-summary-replace',
+      ],
+    ];
+
+    $form['field_summary_replace']['user_message'] = [
+      '#markup' => "",
+    ];
+
+    // Hide the field 'field_summary' and replace it with a textarea.
+    $form['field_summary']['widget'][0]['value']['#access'] = FALSE;
+
+    array_unshift($form['actions']['submit']['#submit'], 'access_events_save_summary');
+
+    // Tags ai suggestion.
+    $form['field_tags_replace'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'id' => 'field-tags-replace',
+        'data-suggest' => '0',
+      ],
+      '#weight' => 20,
+    ];
+
+    $form['field_tags_replace']['field_suggest_title'] = [
+      '#markup' => "<h4 class='label form-required mt-4'>Tags</h4>",
+    ];
+
+    $form['field_tags_replace']['field_suggest'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'class' => [
+          'bg-light-teal',
+          'my-5',
+          'p-5'
+        ]
+      ],
+    ];
+
+    $form['field_tags_replace']['field_suggest']['tag_list'] = [
+      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary. Limited to 6 tags.</div>",
+    ];
+    $form['field_tags_replace']['field_suggest']['replace_button'] = [
+      '#type' => 'button',
+      '#value' => t('Suggest Tags'),
+      '#limit_validation_errors' => array(),
+      '#attributes' => [
+        'class' => [
+          'ml-0'
+        ],
+      ],
+      '#ajax' => [
+        'callback' => 'access_events_replace_event_section_callback',
+        'wrapper' => 'field-tags-replace',
+      ],
+    ];
+    $form['field_tags_replace']['user_message'] = [
+      '#markup' => "",
+    ];
+
+
+    $add_tags = \Drupal::service('access_misc.addtags');
+    $output = $add_tags->getView();
+    $tag_label = t('Tags');
+    $tag_description = t('Add tags that will help people find your event.');
+    $tag_summary = t('Select Tags');
+
+    $form['node_add_tags'] = [
+      '#markup' => "<div class='mt-4'>
+          <h4 class='label form-required'>$tag_label</h4>
+          <div class='tag-description'>$tag_description</div>
+        </div>
+        <div id='tag-suggestions'></div>
+        <details class='tags m-0 mb-8'><summary class='font-bold'>$tag_summary</summary>$output</details>",
+      '#weight' => 20,
+      '#allowed_tags' => [
+        'button',
+        'details',
+        'summary',
+        'div',
+        'span',
+        'h2',
+        'h4',
+      ],
+    ];
+
+    // Attach javascript.
+    $form['#attached']['library'][] = 'access_misc/node_add_tags';
+    $form['#attached']['library'][] = 'access_misc/events';
+
+    // Registration form.
+    $form['event_registration']['widget'][0]['unique_email_address']['#default_value'] = 1;
+    $form['event_registration']['widget'][0]['unique_email_address']['#access'] = FALSE;
+    $form['event_registration']['widget'][0]['permitted_roles']['#default_value'] = ['authenticated'];
+    $form['event_registration']['widget'][0]['permitted_roles']['#access'] = FALSE;
+    $form['#validate'][] = 'access_events_eventseries_validate';
+  }
+}
+
+/**
+ * Custom validation handler for webform_submission_resource_add_form.
+ */
+function access_events_eventseries_validate($form, FormStateInterface $form_state) {
+  $values = $form_state->getValues();
+
+  foreach ($values['custom_date'] as $key => $value) {
+    if (is_numeric($key)) {
+      if ($value['value'] != null) {
+        $start_date = (string) $values['custom_date'][$key]['value'];
+        $end_date = (string) $values['custom_date'][$key]['end_value'];
+        if ($start_date == $end_date) {
+          $form_state->setErrorByName('custom_date', t('Start date and end date must not be the same.'));
+        }
+      }
+    }
+  }
+
+  $recur_types = [
+    'custom' => 'custom_date',
+    'monthly_recurring_date' => 'monthly_recurring_date',
+    'weekly_recurring_date' => 'weekly_recurring_date',
+    'daily_recurring_date' => 'daily_recurring_date',
+    'consecutive_recurring_date' => 'included_dates',
+  ];
+
+  foreach ($recur_types as $recur_type => $date_field) {
+    if ($form_state->getValue('recur_type')[0]['value'] == $recur_type) {
+      $date = $form_state->getValue($date_field)[0]['value'];
+      if ($date == null) {
+        $form_state->setErrorByName($date_field, t('Please select a date.'));
+      }
+    }
+  }
+
+}
+
+/**
+ * Ajax callback function to replace the section with '#markup'.
+ */
+function access_events_replace_event_section_callback(array &$form, FormStateInterface $form_state) {
+  $raw_data = $form_state->getUserInput();
+  $body_filter = $raw_data['body'][0]['value'] ? Xss::filter($raw_data['body'][0]['value']) : '';
+  $suggested_tag_ids = '0';
+  if (strlen($body_filter) >= 100) {
+    $llm = \Drupal::service('access_llm.ai_references_generator');
+    $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
+    $suggested_tag_ids = implode(', ', $llm->taxonomyIdSuggested());
+    $form['field_tags_replace']['user_message'] = [
+      '#markup' => "",
+    ];
+  }
+  else {
+    $form['field_tags_replace']['user_message'] = [
+      '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
+                    <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
+                    Your description must be over 100 characters to get a suggestion.</div>",
+    ];
+  }
+  $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
+
+  // Return the updated section.
+  return $form['field_tags_replace'];
+}
+
+/**
+ * Ajax callback function to replace the section with '#markup'.
+ */
+function access_events_replace_summary_section_callback(array &$form, FormStateInterface $form_state) {
+  $raw_data = $form_state->getUserInput();
+  $body_filter = $raw_data['body'][0]['value'] ? Xss::filter($raw_data['body'][0]['value']) : '';
+  $suggested_tag_ids = '0';
+  if (strlen($body_filter) >= 100) {
+    $llm = \Drupal::service('access_llm.ai_references_generator');
+    $llm->generateSummaryPrompt($body_filter);
+    $result = $llm->summarySuggested();
+    $form['field_summary_replace']['field_suggest']['summary_text']['#value'] = $result;
+    $form['field_summary_replace']['user_message'] = [
+      '#markup' => '',
+    ];
+  }
+  else {
+    $form['field_summary_replace']['user_message'] = [
+      '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
+                    <strong class='text-sky-900'>Fill in the description below to get suggested tags.</strong><br />
+                    Your description must be over 100 characters to get a suggestion.</div>",
+    ];
+  }
+  $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
+
+  // Return the updated section.
+  return $form['field_summary_replace'];
+}
+
+/**
+ * Custom submit handler for registrant form.
+ */
+function access_events_save_summary($form, FormStateInterface $form_state) {
+  $entity = $form_state->getFormObject()->getEntity();
+  $raw_data = $form_state->getUserInput();
+  $suggested_summary = $raw_data['summary_text'] ? Xss::filter($raw_data['summary_text']) : '';
+  $summary = $form_state->getValue('field_summary')[0]['value'] ? Xss::filter($form_state->getValue('field_summary')[0]['value']) : '';
+  if ($suggested_summary != $summary) {
+    $form_state->setValue('field_summary', [['value' => $suggested_summary]]);
+  }
+}
+
+/**
+ * Custom submit handler for registrant form.
+ */
+function access_misc_registrant_submit($form, FormStateInterface $form_state) {
+  // Invalidate cache on Events Facet view.
+  $cache_tags = ['config:views.view.events_facet'];
+  \Drupal\Core\Cache\Cache::invalidateTags($cache_tags);
+}
+
+/**
+ * Submit handler for registrant user delete form.
+ */
+function access_events_user_delete_submit($form, FormStateInterface $form_state) {
+  $current_user = \Drupal::currentUser();
+  $username = $current_user->getAccountName();
+  $username = [str_replace('@access-ci.org', '', $username)];
+
+  // Get uri.
+  $uri = \Drupal::request()->getRequestUri();
+  $uri = explode('/', $uri);
+  $eventinstance_id = $uri[2];
+  $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
+  $eventseries = $eventinstance->getEventSeries();
+  $grant = $eventseries->get('field_event_allocation_grant')->value;
+
+  if ($grant == 0) {
+    return;
+  }
+
+  \Drupal::service('access_events.XsedeApi')->removeGrantedUsers($grant, $username);
+}
+
+/**
+ * Implements hook_pre_view() for node templates.
+ */
+function access_events_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
+  if ($view->id() == 'recurring_events_event_instances' && $display_id === 'block_3') {
+    $term = term_lookup_from_path();
+
+    $footer = \Drupal::service('access_misc.viewstools');
+    $footer->setFooter($view, 'All Events with this tag', '/events?f%5B0%5D=custom_event_tags%3A' . $term['title'], 'block_3');
+  }
+
+  // Override registration csv /admin/structure/views/view/recurring_events_registrations/edit/data_export_1.
+  if ($view->id() == 'recurring_events_registrations' && $view->getDisplay()->view->element['#display_id'] === 'data_export_1') {
+    $view_filters = $view->display_handler->getOption('filters');
+
+    $path = \Drupal::service('path.current')->getPath();
+    $path_args = explode('/', $path);
+    $instance_id = is_numeric($path_args[2]) ? $path_args[2] : '';
+
+    $view_filters['id']['value']['value'] = $instance_id;
+
+    $user = \Drupal::currentUser();
+    $roles = $user->getRoles();
+
+    if (in_array('administrator', $roles)) {
+      unset($view_filters['id']);
+    }
+
+    $view->display_handler->setOption('filters', $view_filters);
+  }
+
+}
+
+/**
+ * Implements hook_preprocess_views_view_field for views-view-field.html.twig.
+ */
+function access_events_preprocess_views_view_field(&$variables) {
+  $view = $variables['view'];
+  $field = $variables['field'];
+
+  // /admin/structure/views/view/recurring_events_registrations/edit/event_registrant_list
+  if ($view->id() == 'recurring_events_registrations' && $field->options['id'] == 'nothing_1') {
+    $reg_data = explode(',', $variables['output']->__toString());
+
+
+    if ($reg_data[1] && $reg_data[2]) {
+      $sp_state = \Drupal::service('access_events.XsedeApi')->getSpState($reg_data[1], $reg_data[0]);
+      $variables['output'] = $sp_state;
+    } else {
+      $variables['output'] = "n/a";
+    }
+  }
+
+  // /admin/structure/views/view/events_facet/edit/page_1 view.
+  if ($view->id() == 'events_facet' && $field->options['id'] == 'id_1') {
+    $event_instance_id = $variables['output']->__toString();
+    $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
+    $series = $event_instance->getEventSeries();
+    $link = $series->get('field_event_virtual_meeting_link')->getValue();
+
+    $variables['output'] = "";
+
+    if ($link) {
+      $registration_status = $series->get('event_registration')->getValue()[0]['registration'];
+
+      // Get current user id.
+      $current_user = \Drupal::currentUser();
+      $uid = $current_user->id();
+
+      $link_url = $link[0]['uri'];
+
+      $meeting_link = "<a href='$link_url' class='btn-sm btn-small btn-secondary-outline py-0 px-4 btn btn-md-teal ms-auto'> Join meeting</a>";
+
+      if ($registration_status) {
+        // Entity Query 'registrant' to get all registrants for the event instance.
+        $query = \Drupal::entityQuery('registrant')
+          ->condition('eventinstance_id', $event_instance_id)
+          ->condition('status', 1)
+          ->condition('user_id', $uid)
+          ->accessCheck(TRUE);
+        $registrants = $query->execute();
+
+        $registrants = empty($registrants) ? FALSE : TRUE;
+
+
+        if ($registrants) {
+          $variables['output'] = Markup::create($meeting_link);
+        }
+      } else {
+        // Show link when registration is not required.
+        $variables['output'] = Markup::create($meeting_link);
+      }
+    }
+  }
+
+  // Display event instance date in the right format.
+  if ($view->id() == 'recurring_events_event_instances' && ($view->current_display == 'block_1' || $view->current_display == 'block_2')) {
+    if ($field->field == 'date__value') {
+      // Default separator between start and end dates is ' - '.
+      $output = explode(' - ', $variables['output']);
+      if (count($output) == 2) {
+        $start_date = $output[0];
+        $end_date = $output[1];
+        $date = new EventDateConvert($start_date, $end_date);
+        if ($date->sameDay ) {
+          $variables['output'] = Markup::create($date->getStart() . " - " . $date->getEnd());
+        } else {
+          $variables['output'] = Markup::create($date->getStart() . " to " . $date->getEnd());
+        }
+      }
+    }
+  }
+
+  // Display event instance date in the right format.
+  if ($view->id() == 'events_facet') {
+    if ($field->field == 'date') {
+      // Default separator between start and end dates is ' - '.
+      $output = strip_tags($variables['output']);
+      $output = explode('::', $output);
+      if (count($output) == 2) {
+        $start_date = $output[0];
+        $end_date = $output[1];
+        $date = new EventDateConvert($start_date, $end_date);
+        if ($date->sameDay ) {
+          $variables['output'] = Markup::create($date->getStartTime() . " - " . $date->getEndTime());
+        } else {
+          $variables['output'] = Markup::create($date->getStart() . " to " . $date->getEnd());
+        }
+      }
+    }
+  }
+
+  // Overwrite location field into /events page on
+  // /admin/structure/views/view/events_facet/edit/page_1
+  if ($view->id() == 'events_facet' && $view->current_display == 'page_1' && $field->options['id'] == 'location') {
+    $location = html_entity_decode($variables['output']);
+    $location = strip_tags($location);
+    if (strlen($location) > 80) {
+      $location = substr($location, 0, 80) . '...';
+    }
+    $location = "<i class='bi bi-geo text-dark-teal'></i> <span class='text-dark-teal'>$location</span>";
+    $variables['output'] = Markup::create($location);
+  }
+
+}
+
+/**
+ * Implements hook_entity_update().
+ */
+function access_events_entity_update(EntityInterface $entity) {
+  $type = $entity->getEntityTypeId();
+  if ( $type == 'eventinstance') {
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($entity->id());
+    $eventseries = $eventinstance->getEventSeries();
+    $series_domain = $eventseries->get('domain_access')->getValue();
+
+    // If series domain(s) is set, set the same domain(s) on the event instance.
+    if ($series_domain) {
+      $instance_domain = $eventinstance->get('domain_access')->getValue();
+      if ($instance_domain != $series_domain) {
+        $eventinstance->set('domain_access', $series_domain);
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_entity_insert().
+ */
+function access_events_entity_insert(EntityInterface $entity) {
+  $type = $entity->getEntityTypeId();
+  if ( $type == 'eventinstance') {
+    // During entity insertion, $entity is already the event instance we need
+    $eventinstance = $entity;
+    $eventseries = $eventinstance->getEventSeries();
+    $series_domain = $eventseries->get('domain_access')->getValue();
+
+    // If series domain(s) is set, set the same domain(s) on the event instance.
+    if ($series_domain) {
+      $instance_domain = $eventinstance->get('domain_access')->getValue();
+      if (!$instance_domain || $instance_domain != $series_domain) {
+        $eventinstance->set('domain_access', $series_domain);
+        // We need to save the entity, but we need to avoid an infinite loop
+        // by preventing the insert hook from firing again during this save.
+        $original_value = $eventinstance->isNew();
+        $eventinstance->enforceIsNew(FALSE);
+        $eventinstance->save();
+        $eventinstance->enforceIsNew($original_value);
+      }
+    }
+  }
+}
+

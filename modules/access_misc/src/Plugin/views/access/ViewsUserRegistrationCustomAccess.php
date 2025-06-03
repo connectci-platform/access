@@ -13,17 +13,17 @@ use Symfony\Component\Routing\Route;
  * @ingroup views_access_plugins
  *
  * @ViewsAccess(
- *     id = "ViewsRegistrationCustomAccess",
- *     title = @Translation("Custom Registration Access"),
- *     help = @Translation("Custom Registration Access for view"),
+ *     id = "views_user_registration_custom_access",
+ *     title = @Translation("Custom /user Registration Access"),
+ *     help = @Translation("Custom Registration Access for registration on the /user page."),
  * )
  */
-class ViewsRegistrationCustomAccess extends AccessPluginBase {
+class ViewsUserRegistrationCustomAccess extends AccessPluginBase {
   /**
    * {@inheritdoc}
    */
   public function summaryTitle() {
-    return $this->t('Custom Registration Access');
+    return $this->t('Custom User Registration Access');
   }
 
 
@@ -37,27 +37,15 @@ class ViewsRegistrationCustomAccess extends AccessPluginBase {
     $current_uri = \Drupal::service('path.current')->getPath();
     $url_bits = explode('/', $current_uri);
 
-    if (count($url_bits) < 3) {
-      return FALSE;
-    }
+    $profile_uid = is_numeric($url_bits[2]) ? $url_bits[2] : 0;
 
-    $event_id = is_numeric($url_bits[2]) ? $url_bits[2] : 0;
+    $current_user_id = $account->id();
 
-    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_id);
-
-    if (!$eventinstance) {
-      return FALSE;
-    }
-
-    $eventseries = $eventinstance->getEventSeries();
-    // Get author of event series.
-    $author = $eventseries->getOwner();
-
-    if ($author->id() == $account->id()) {
+    if ($profile_uid == $current_user_id) {
       $access = TRUE;
     }
 
-    if ($account->hasPermission('administer site configuration')) {
+    if ($account->hasRole('administrator')) {
       $access = TRUE;
     }
 

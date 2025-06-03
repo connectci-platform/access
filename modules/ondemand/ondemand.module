@@ -1,0 +1,83 @@
+<?php
+
+/**
+ * @file
+ * Module for customizing OnDemand ConnectCI domain.
+ */
+
+use Drupal\Component\Utility\Html;
+use Drupal\user\Entity\User;
+use Drupal\views\ViewExecutable;
+use Drupal\views\Plugin\views\query\QueryPluginBase;
+
+/**
+ *
+ */
+function ondemand_user_login($account) {
+  $token = \Drupal::token();
+  $domainName = t("[domain:name]");
+  $current_domain_name = Html::getClass($token->replace($domainName));
+
+  if ($current_domain_name == 'open-ondemand') {
+    $current_user = \Drupal::currentUser();
+    $uid = $current_user->id();
+    $user = User::load($uid);
+
+    $terms = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties([
+      'name' => 'OnDemand',
+      'vid' => 'region',
+    ]);
+    $term_id = reset($terms)->id();
+
+    $new_ondemand_user = FALSE;
+    $programs = $user->get('field_region')->referencedEntities();
+    if (count($programs) == 0) {
+      $user->set('field_region', $term_id);
+      $new_ondemand_user = TRUE;
+    }
+    elseif (!array_filter(
+      $programs,
+      function ($program) use ($term_id) {
+        return $program->id() == $term_id;
+      }
+    )) {
+      $user->get('field_region')->appendItem(['target_id' => $term_id]);
+      $new_ondemand_user = TRUE;
+    }
+    if ($new_ondemand_user) {
+      $user->save();
+    }
+  }
+}
+
+/**
+ * Filters for People SearchAPI view.
+ *
+ * @param \Drupal\views\ViewExecutable $view
+ * @param \Drupal\views\Plugin\views\query\QueryPluginBase $query
+ *
+ * @return void
+ */
+function ondemand_views_query_alter(ViewExecutable $view, QueryPluginBase $query) {
+
+  if ($view->id() === 'cyberteam_people_facets' && $view->current_display === 'page_1') {
+    $token = \Drupal::token();
+    $domain_name = Html::getClass($token->replace(t('[domain:name]')));
+
+    if ($domain_name == 'open-ondemand') {
+      $query->addCondition('field_region', '901', '=');
+    }
+    else {
+      // Filter to the following roles for other domains.
+      $conditions = $query->createConditionGroup('OR');
+      $conditions->addCondition('roles', 'student', '=')
+        ->addCondition('roles', 'mentor', '=')
+        ->addCondition('roles', 'researcher', '=')
+        ->addCondition('roles', 'ci_systems_engineer', '=')
+        ->addCondition('roles', 'professional_mentor', '=')
+        ->addCondition('roles', 'research_computing_facilitator', '=')
+        ->addCondition('roles', 'research_software_engineer', '=');
+      $query->addConditionGroup($conditions);
+    }
+  }
+}

@@ -1,5 +1,5 @@
 services:
-  access_affinitygroup.event_subscriber:
-    class: Drupal\access_affinitygroup\EventSubscriber\AccessAffinityGroupEventSubscriber
+  access_affinitygroup.cache_clear_subscriber:
+    class: Drupal\access_affinitygroup\EventSubscriber\AffinityGroupCacheClearSubscriber
     tags:
       - { name: event_subscriber }

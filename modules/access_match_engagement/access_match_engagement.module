@@ -111,11 +111,11 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
     $add_tags = \Drupal::service('access_misc.addtags');
     $output = $add_tags->getView();
     $tag_label = t('Tags');
-    $tag_description = t('Select tags that relate to your engagement. Tags will help us find people with related expertise.');
+    $tag_description = t('Select up to 6 tags that relate to your engagement. Tags will help us find people with related expertise.');
     $tag_summary = t('Select Tags');
 
     $form['node_add_tags'] = [
-      '#markup' => "<div class='font-bold form-required'>$tag_label</div>
+      '#markup' => "<div class='font-bold'>$tag_label</div>
         <div class='tag-description'>$tag_description</div>
         <div id='tag-suggestions'></div>
         <details class='tags m-0 mb-8'><summary class='font-bold'>$tag_summary</summary>$output</details>",
@@ -253,6 +253,9 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
       // Show author, status, and last saved date to SC.
       $form['meta']['#access'] = TRUE;
       unset($form['meta']['#group']);
+
+      // match_sc roles seem confused by this — so hiding.
+      $form['field_node_type']['#access'] = FALSE;
     }
 
     if ($form_id == 'node_match_engagement_edit_form') {
@@ -278,7 +281,6 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
       }
     }
     $form['#validate'][] = 'access_match_engagement_form_validate';
-    $link = Link::createFromRoute('Engagement Guide', 'entity.node.canonical', ['node' => 6108]);
     $form['save_description'] = [
       '#markup' => '<div>' .
                     t("Save as <span class=\"font-bold\">Submitted</span> when you’re ready for an initial review,
@@ -287,8 +289,7 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
                     save as <span class=\"font-bold\">In Review</span>. After a second review it will be
                     published and displayed as <span class=\"font-bold\">Recruiting</span> so that people can use
                     the “I’m interested” button to be considered for
-                    participation. You can find more details in the @link.",
-                    ['@link' => $link->toString()]) .
+                    participation.") .
                     '</div>',
       '#weight' => 99,
       '#allowed_tags' => [
@@ -303,6 +304,7 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
     $form['field_preferred_semester']['#attributes']['class'][] = '[&_select]--pr-8';
     $form['field_mentor']['widget']['add_more']['#value'] = 'Add another person';
     $form['field_students']['widget']['add_more']['#value'] = 'Add another person';
+
   }
 
   if ($form_id == 'node_match_engagement_form') {
@@ -389,12 +391,9 @@ function access_match_engagement_submit_function(&$form, FormStateInterface $for
 function access_match_engagement_form_validate(&$form, FormStateInterface $form_state) {
   $error = '';
   $values = $form_state->getValues();
+  $tags = $values['field_tags'];
   if (!empty($values)) {
 
-    $tag_count = count($values['field_tags']);
-    if ($tag_count < 1) {
-      $error .= t('Please add at least one tag.');
-    }
     $person_array = $values['field_students'];
     $error .= match_check_role($person_array, 'student', FALSE);
 
@@ -403,6 +402,10 @@ function access_match_engagement_form_validate(&$form, FormStateInterface $form_
 
     $person_array = $values['field_consultant'];
     $error .= match_check_role($person_array, 'consultant', TRUE);
+  }
+
+  if (count($tags) > 6) {
+    $error .= "\n You can only select 6 tags. Please remove some tags.";
   }
 
   if (!empty($error)) {

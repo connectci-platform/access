@@ -72,48 +72,8 @@ function ccmnet_entity_insert(EntityInterface $entity) {
       $badge_tools->setUserBadge($match_badge, $mentee);
     }
 
-    $nid = $entity->id();
-    $mentor = $entity->get('field_mentor')->getValue();
-    $mentee = $entity->get('field_mentee')->getValue();
-    $author = $entity->getOwner()->id();
-    $authorized_users = [];
-    foreach ($mentor as $mentor_id) {
-      if ($mentor_id != $author) {
-        $authorized_users[] = $mentor_id['target_id'];
-      }
-    }
-    foreach ($mentee as $mentee_id) {
-      if ($mentee_id != $author) {
-        $authorized_users[] = $mentee_id['target_id'];
-      }
-    }
-    $grant = \Drupal::service('access_misc.nodeaccess.grant');
-    $grant->grant($authorized_users, $nid);
-
     $message = t('We will notify you by email once your mentorship has been posted on the website.');
     \Drupal::messenger()->addMessage($message);
-  }
-}
-
-/**
- * Implements hook_entity_update().
- */
-function ccmnet_entity_update(EntityInterface $entity) {
-  $type = $entity->bundle();
-  if ($type == 'mentorship_engagement') {
-    $nid = $entity->id();
-    $mentor = isset($entity->get('field_mentor')->getValue()[0]) ? $entity->get('field_mentor')->getValue()[0]['target_id'] : 0;
-    $mentee = isset($entity->get('field_mentee')->getValue()[0]) ? $entity->get('field_mentee')->getValue()[0]['target_id'] : 0;
-    $author = $entity->getOwner()->id();
-    $authorized_users = [];
-    if ($mentor && $mentor != $author) {
-      $authorized_users[] = $mentor;
-    }
-    if ($mentee && $mentee != $author) {
-      $authorized_users[] = $mentee;
-    }
-    $grant = \Drupal::service('access_misc.nodeaccess.grant');
-    $grant->grant($authorized_users, $nid);
   }
 }
 
@@ -122,6 +82,9 @@ function ccmnet_entity_update(EntityInterface $entity) {
  */
 function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   if ($form_id == 'node_mentorship_engagement_edit_form' || $form_id == 'node_mentorship_engagement_form') {
+    // Set domain source to n/a by default.
+    $form['field_domain_source']['widget']['#default_value'] = '_none';
+
     $form['title']['widget'][0]['#maxlength'] = 65;
     $form['body']['widget'][0]['summary']['#description'] = t('No html tags allowed in summary. Limit to 275 characters.');
     $form['body']['widget'][0]['summary']['#maxlength'] = 275;
@@ -210,7 +173,7 @@ function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
     $add_tags = \Drupal::service('access_misc.addtags');
     $output = $add_tags->getView();
     $tag_label = t('Tags');
-    $tag_description = t('Select tags that relate to your engagement. Tags will help us find people with related expertise.');
+    $tag_description = t('Select tags that relate to your engagement. Tags will help us find people with related expertise. Limited to 6 tags.');
     $tag_summary = t('Select Tags');
 
     $form['node_add_tags'] = [
@@ -283,11 +246,18 @@ function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
  * Validate handler for mentorship_engagement form.
  */
 function access_mentorship_engagement_validate(array &$form, FormStateInterface $form_state) {
-  $summary = $form_state->getValue('body')[0]['summary'];
-  $summary = $summary ? Xss::filter($summary) : '';
+  $values = $form_state->getValues();
+
+  $summary = $values['body'][0]['summary'];
+  $tags = $values['field_tags'];
+
   // Check if summary contains html.
   if (preg_match('/<[^>]*>/', $summary)) {
     $form_state->setErrorByName('body][0][summary', t('Summary cannot contain html tags.'));
+  }
+
+  if (count($tags) > 6) {
+    $form_state->setErrorByName('Tags', t('You can only select 6 tags. Please remove some tags.'));
   }
 }
 

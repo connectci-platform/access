@@ -9,7 +9,7 @@ import {
   header,
   siteMenus,
   universalMenus,
-} from "https://esm.sh/@access-ci/ui@0.4.0";
+} from "https://esm.sh/@access-ci/ui@0.8.0-beta2";
 
 (function (Drupal, drupalSettings) {
 
@@ -32,16 +32,39 @@ import {
   };
 })(Drupal, drupalSettings);
 
-function setMenu(menu, currentUri) {
+async function getLogoutToken() {
+  try {
+    const response = await fetch('/session/logout/token')
+
+    if (!response.ok) {
+      throw new Error(`Error: ${response.status}`)
+    }
+
+    const token = await response.text()
+    return token
+  } catch (error) {
+    console.error('Error fetching logout token:', error)
+    return null
+  }
+}
+
+async function setMenu(menu, currentUri) {
   let mainMenu = menu;
 
   const siteItems = mainMenu;
   const isLoggedIn = document.body.classList.contains("user-logged-in");
+  let logoutUrl = "/user/logout"
+
+  if (isLoggedIn) {
+    await getLogoutToken().then(token => {
+      logoutUrl += `?token=${token}`
+    });
+  }
 
   universalMenus({
     isLoggedIn: isLoggedIn,
     loginUrl: "/login?redirect=" + currentUri,
-    logoutUrl: "/user/logout",
+    logoutUrl,
     siteName: "Support",
     target: document.getElementById("universal-menus"),
   });
@@ -59,6 +82,7 @@ function setMenu(menu, currentUri) {
 
   footerMenus({
     items: siteItems,
+    siteName: "Support",
     target: document.getElementById("footer-menus"),
   });
 

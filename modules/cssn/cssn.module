@@ -69,10 +69,12 @@ function cssn_preprocess_views_view_field(&$variables) {
             }
           }
         }
-      } elseif (
+      }
+      elseif (
         $line == "!!!!=-=-= This line is programmatically replaced, if you change anything in this line you'll break badges. See cssn.module to fix any issues =-=-=-=-!!!!") {
         $new_output .= $badges;
-      } else {
+      }
+      else {
         $new_output .= $line;
       }
     }
@@ -164,9 +166,9 @@ function cssn_form_alter(&$form, FormStateInterface $form_state, $form_id) {
     // Update form's check marks for roles in user's profile.
     $fields_to_roles = [
       'cssn' => 'General Member',
-      'mentor' => 'MATCHPlus Mentor',
+      'mentor' => 'MATCH Mentor',
       'student' => 'Student-Facilitator',
-      'consultant' => 'MATCH Plus Consultant',
+      'consultant' => 'MATCH Consultant',
       'cip' => 'NSF-funded CIP',
     ];
     $user = \Drupal::currentUser();
@@ -257,9 +259,9 @@ function cssn_role_form_submit(&$form, FormStateInterface $form_state) {
 function cssn_form_submit(&$form, FormStateInterface $form_state) {
   $elements = $form['elements']['i_am_joining_as_a_'];
   $general = $elements['General Member']['#checked'];
-  $match_mentor = $elements['MATCHPlus Mentor']['#checked'];
+  $match_mentor = $elements['MATCH Mentor']['#checked'];
   $student_facilitator = $elements['Student-Facilitator']['#checked'];
-  $consultant = $elements['MATCH Plus Consultant']['#checked'];
+  $consultant = $elements['MATCH Consultant']['#checked'];
   $cip = $elements['NSF-funded CIP']['#checked'];
   // Lookup taxonomy term id by name 'ACCESS CSSN'.
   $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'ACCESS CSSN']);

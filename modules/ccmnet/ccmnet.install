@@ -45,7 +45,6 @@ function ccmnet_update_10000() {
 
 }
 
-
 /**
  * Add state.
  */
@@ -56,4 +55,34 @@ function ccmnet_update_10002() {
     'weight' => 3,
   ]);
   $term->save();
+}
+
+/**
+ * Add "Campus Champions AI Mentorship" term to the Mentorship Programs taxonomy.
+ */
+function ccmnet_update_10003() {
+  // Load the vocabulary by its machine name.
+  $vocabulary = 'mentorship_programs';
+
+  // Check if the term already exists.
+  $terms = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties([
+    'name' => 'Campus Champions AI Mentorship',
+    'vid' => $vocabulary,
+  ]);
+
+  if (empty($terms)) {
+    // Create the term if it doesn't exist.
+    $term = Term::create([
+      'vid' => $vocabulary,
+      'name' => 'Campus Champions AI Mentorship',
+    ]);
+    $term->save();
+
+    // Log the creation of the term.
+    \Drupal::logger('ccmnet')->info('Added "Campus Champions AI Mentorship" term to the Mentorship Programs taxonomy.');
+  }
+  else {
+    // Log that the term already exists.
+    \Drupal::logger('ccmnet')->info('The "Campus Champions AI Mentorship" term already exists in the Mentorship Programs taxonomy.');
+  }
 }

@@ -1,3 +1,3 @@
-.messages--error {
+html:has(.facet-item) .messages--error {
   display: none;
 }

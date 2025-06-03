@@ -1,6 +1,6 @@
 <?php
 
-namespace Drupal\access_misc\Plugin\Block;
+namespace Drupal\access_events\Plugin\Block;
 
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Cache\Cache;
@@ -31,7 +31,21 @@ class EventInstanceSidebar extends BlockBase {
     $current_user = \Drupal::currentUser();
 
     $speakers = $series->get('field_event_speakers')->getValue();
+
     $contact = $series->get('field_contact')->getValue();
+    // If $contact is an email address, create a mailto link.
+    foreach ($contact as $key => $value) {
+      if (filter_var($value['value'], FILTER_VALIDATE_EMAIL)) {
+        $contact[$key]['value'] = Link::fromTextAndUrl($value['value'], Url::fromUri('mailto:' . $value['value']))->toString();
+      }
+    }
+    // If $contact is a url, create a link.
+    foreach ($contact as $key => $value) {
+      if (filter_var($value['value'], FILTER_VALIDATE_URL)) {
+        $contact[$key]['value'] = Link::fromTextAndUrl($value['value'], Url::fromUri($value['value']))->toString();
+      }
+    }
+
     $skill_level = $series->get('field_skill_level')->getValue();
 
     $event_registration = $series->get('event_registration')->getValue();
@@ -110,7 +124,8 @@ class EventInstanceSidebar extends BlockBase {
 
     $sidebar['string'] = [
       '#type' => 'inline_template',
-      '#template' => '{% if registrations_button %}
+      '#template' => '
+        {% if registrations_button %}
           <div class="field__items">
             <div class="field__item">{{ registrations_button|raw }}</div>
           </div>
@@ -156,7 +171,7 @@ class EventInstanceSidebar extends BlockBase {
           <div class="field__items">
             {% for contact in contacts %}
               <div class="field__item">
-                <a href="mailto:{{ contact.value }}"> {{ contact.value }} </a>
+                {{ contact.value }}
               </div>
             {% endfor %}
           </div>
@@ -238,10 +253,10 @@ class EventInstanceSidebar extends BlockBase {
   }
 
   /**
-   *
+   * {@inheritdoc}
    */
   public function getCacheContexts() {
-    return Cache::mergeContexts(parent::getCacheContexts(), ['route']);
+    return Cache::mergeContexts(parent::getCacheContexts(), ['route', 'user']);
   }
 
 }

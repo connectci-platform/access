@@ -34,7 +34,7 @@ class SimpleListsApi {
       \Drupal::logger('access_affinitygroup')->error($errmsg);
 
       // Send email to Site Developer.
-      // simplelist_error
+      // simplelist_error.
       $policy = 'affinitygroup';
       $policy_subtype = 'simplelist_error';
       $role = 'site_developer';
@@ -105,14 +105,14 @@ class SimpleListsApi {
   /**
    * Check if user is subscribed to list and if so get their type of digest.
    */
-  public function getUserListStatus($listName, $userEmail,  &$msg) {
+  public function getUserListStatus($listName, $userEmail, &$msg) {
     // Gets list info.
     try {
       $ch = $this->makeCurl('GET', "lists/$listName/");
       $list_info = curl_exec($ch);
       curl_close($ch);
       $list_info = json_decode($list_info, TRUE);
-      $subscribers = isset($list_info['contacts']) ? $list_info['contacts'] : [];
+      $subscribers = $list_info['contacts'] ?? [];
     }
     catch (\Exception $e) {
       $msg = $e->getMessage();
@@ -141,13 +141,13 @@ class SimpleListsApi {
       try {
         // Gets Contact.
         $ch = $this->makeCurl('GET', "contacts/$userId/");
-        $contact  = curl_exec($ch);
+        $contact = curl_exec($ch);
         curl_close($ch);
         $contact = json_decode($contact, TRUE);
-        $contact_list = isset($contact['lists']) ? $contact['lists'] : [];
+        $contact_list = $contact['lists'] ?? [];
         foreach ($contact_list as $list) {
           if ($list['list'] == $listName) {
-            // Digest is either 1 for daily digest or else send right away
+            // Digest is either 1 for daily digest or else send right away.
             $user_subscribed = $list['digest'] === 1 ? 'daily' : 'full';
             break;
           }
@@ -172,7 +172,7 @@ class SimpleListsApi {
     try {
       // Gets Contact.
       $ch = $this->makeCurl('GET', "contacts/$userId/");
-      $contact  = curl_exec($ch);
+      $contact = curl_exec($ch);
       curl_close($ch);
       $contact = json_decode($contact, TRUE);
       $contact_list = $contact['lists'];
@@ -203,7 +203,7 @@ class SimpleListsApi {
       try {
         // Update Membership digest settings.
         $ch = $this->makeCurl('GET', "membership/$membershipId/");
-        $membership  = curl_exec($ch);
+        $membership = curl_exec($ch);
         curl_close($ch);
       }
       catch (\Exception $e) {
@@ -247,9 +247,23 @@ class SimpleListsApi {
   }
 
   /**
-   * Return simplelists contact id string or else NULL if not found.
+   * Returns the SimpleLists contact ID for a given email, or NULL if not found.
+   *
+   * @param string $userEmail
+   *   The user's email address.
+   * @param string &$msg
+   *   Reference to a message string for error reporting.
+   *
+   * @return string|null
+   *   The contact ID, or NULL if not found or on error.
    */
   public function getUserIdFromEmail($userEmail, &$msg) {
+    if (empty($userEmail)) {
+      $msg = 'No user email provided to getUserIdFromEmail.';
+      \Drupal::logger('access_affinitygroup')->error($msg);
+      return NULL;
+    }
+
     try {
       $urlEnd = 'emails/' . urlencode($userEmail) . '/';
       $ch = $this->makeCurl('GET', $urlEnd);
@@ -257,8 +271,18 @@ class SimpleListsApi {
       curl_close($ch);
 
       $deResponse = json_decode($response, TRUE);
-      if (isset($deResponse['is_error']) && $deResponse['is_error']) {
-        $msg = $deResponse['message'];
+      if ($deResponse === NULL) {
+        $msg = 'SimpleLists API returned invalid JSON or empty response: ' . var_export($response, TRUE);
+        \Drupal::logger('access_affinitygroup')->error($msg);
+        return NULL;
+      }
+      if (!empty($deResponse['is_error'])) {
+        $msg = $deResponse['message'] ?? 'Unknown error from SimpleLists API.';
+        return NULL;
+      }
+      if (empty($deResponse['contact'])) {
+        $msg = 'SimpleLists API response missing contact ID for email: ' . $userEmail;
+        \Drupal::logger('access_affinitygroup')->error($msg);
         return NULL;
       }
 
@@ -266,12 +290,14 @@ class SimpleListsApi {
     }
     catch (\Exception $e) {
       $msg = $e->getMessage();
+      \Drupal::logger('access_affinitygroup')->error($msg);
       return NULL;
     }
   }
 
   /**
    * With a user email, get listnames for that user.
+   *
    * Set listNames if user found, and return simplelist user contact id.
    */
   public function getUserListNames($userEmail, &$listNames, &$msg) {

@@ -1,32 +1,38 @@
 <!-- User ticketing choices in a set of radio buttons -->
-<div class="mx-auto flex flex-col justify-center relative py-10 pt-24">
+<div class="mx-auto flex flex-col justify-center relative py-10">
   <img src="/themes/contrib/asp-theme/images/misc/shapes-top.svg" alt="" class="absolute top-0 right-0 w-2/5 md--w-1/5"/>
   <img src="/themes/contrib/asp-theme/images/misc/shapes-bottom.svg" alt="" class="absolute bottom-0 right-0 md--w-1/2"/>
-  <form id="ticket-choice-form"  method="PUT" action="/open-a-ticket" class="w-fit py-10 my-10 mx-auto">
+  <form id="ticket-choice-form"  method="PUT" action="/open-a-ticket/17" class="w-fit py-10 my-10 mx-auto">
     <input type="hidden" name="customfield_10103" id="ticket-account-name" value="{{ data.account_name }}" />
     <input type="hidden" name="customfield_10108" id="ticket-display-name" value="{{ data.display_name }}" />
     <h1 class="my-2 pt-4">How can we help you?</h1>
     <div class="form-check">
       <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="ticket-login-access">
-      <label class="form-check-label px-1" for="ticket-login-access">
+      <label class="form-check-label px-1 font-medium" for="ticket-login-access">
         I need help logging into ACCESS website
       </label>
     </div>
     <div class="form-check">
       <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="ticket-login-other">
-      <label class="form-check-label px-1" for="ticket-login-other">
-        I need help logging into other affiliated infrastructure
+      <label class="form-check-label px-1 font-medium" for="ticket-login-other">
+        I need help logging into a resource (i.e. Anvil, Expanse)
+      </label>
+    </div>
+    <div class="form-check">
+      <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="report-security">
+      <label class="form-check-label px-1 font-medium" for="report-security">
+        I want to report a security incident
       </label>
     </div>
     <div class="form-check">
       <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="ticket-other-question" checked>
-      <label class="form-check-label px-1" for="ticket-other-question">
+      <label class="form-check-label px-1 font-medium" for="ticket-other-question">
         I have another question
       </label>
     </div>
-    <div class="py-4">
-      <a href="login?redirect=/open-a-ticket" id="ticket-link" class="btn btn-primary">Open a Ticket</a>
-      <button type="submit" id="ticket-submit" class="btn btn-primary">Open a Ticket</button>
+    <div class="py-4 flex">
+      <a href="login?redirect=/open-a-ticket/17" id="ticket-link" class="btn btn-primary">Open a Ticket</a>
+      <button type="submit" id="ticket-submit" class="btn btn-primary ml-0">Open a Ticket</button>
       <a href="https://access-ci.atlassian.net/servicedesk/customer/user/requests" class="btn btn-secondary">View your tickets</a>
     </div>
   </form>
@@ -56,13 +62,42 @@ if (document.getElementById("ticket-display-name").value == "anonymous") {
 
 function ticketChoiceChange(e) {
   url = null;
+  console.log(e.target.id);
+
+  if (e.target.id == 'ticket-login-access') {
+    document.getElementById("ticket-submit").style.display = "block";
+    document.getElementById("ticket-link").style.display = "none";
+
+    document.getElementById("ticket-link").href = "login?redirect=/open-a-ticket/30";
+  }
+  else {
+    if (document.getElementById("ticket-account-name").value == "") {
+      document.getElementById("ticket-submit").style.display = "none";
+      document.getElementById("ticket-link").style.display = "block";
+    } else {
+      document.getElementById("ticket-link").style.display = "none";
+      document.getElementById("ticket-submit").style.display = "block";
+    }
+  }
+
+
+  if (e.target.id == 'ticket-login-other') {
+    document.getElementById("ticket-link").href = "login?redirect=/open-a-ticket/31";
+  }
+
   if (e.target.id == 'ticket-other-question') {
-    url = '/open-a-ticket';
+    document.getElementById("ticket-link").href = "login?redirect=/open-a-ticket/17";
+    url = '/open-a-ticket/17';
+  }
+  else if (e.target.id == 'report-security') {
+    document.getElementById("ticket-link").href = "/open-a-ticket/26";
+    url = '/open-a-ticket/26';
   }
   else {
     base = 'https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/';
     url = (e.target.id == 'ticket-login-access') ? base + '30' : base + '31';
   }
+
   document.getElementById('ticket-choice-form').action = url;
 }
 </SCRIPT>

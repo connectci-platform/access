@@ -17,10 +17,6 @@ services:
   access_misc.symfony.mail:
     class: Drupal\access_misc\Services\SymfonyMail
 
-  access_misc.nodeaccess.grant:
-    class: Drupal\access_misc\Plugin\Util\NodeAccessGrant
-    arguments: ['@database']
-
   access_misc.usertools:
     class: Drupal\access_misc\Plugin\Util\UserTools
     arguments: ['@entity_type.manager']
