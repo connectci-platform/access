@@ -110,7 +110,7 @@ function access_cilink_preprocess_views_view_field(&$variables) {
       return;
     }
 
-    if (array_key_exists('private', data)) {
+    if (array_key_exists('private', $data)) {
       if($data['private'] == 1) {
         $variables['output'] = '';
         return;
