@@ -20,7 +20,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   if ($form_id == 'registrant_default_delete_form') {
     $form['actions']['submit']['#submit'][] = 'access_events_user_delete_submit';
   }
-  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
+  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $current_user = \Drupal::currentUser();
     $username = $current_user->getAccountName();
     $username = str_replace('@access-ci.org', '', $username);
@@ -166,7 +166,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   }
 
   // Custom tags on /events/add
-  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
+  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $form['body']['widget'][0]['#required'] = TRUE;
 
     $form['event_registration']['widget'][0]['#description'] = "<strong>Event registration is a new feature. If you encounter any issues or unexpected behavior, please submit a ticket to let us know.</strong>";
@@ -321,6 +321,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['#validate'][] = 'access_events_eventseries_validate';
   }
 }
+
 
 /**
  * Custom validation handler for webform_submission_resource_add_form.
