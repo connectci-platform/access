@@ -44,9 +44,6 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
 
-    if (!in_array('administrator', $roles)) {
-      $form['domain_access']['#access'] = FALSE;
-    }
 
   }
 
@@ -610,50 +607,4 @@ function access_events_preprocess_views_view_field(&$variables) {
 
 }
 
-/**
- * Implements hook_entity_update().
- */
-function access_events_entity_update(EntityInterface $entity) {
-  $type = $entity->getEntityTypeId();
-  if ( $type == 'eventinstance') {
-    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($entity->id());
-    $eventseries = $eventinstance->getEventSeries();
-    $series_domain = $eventseries->get('domain_access')->getValue();
-
-    // If series domain(s) is set, set the same domain(s) on the event instance.
-    if ($series_domain) {
-      $instance_domain = $eventinstance->get('domain_access')->getValue();
-      if ($instance_domain != $series_domain) {
-        $eventinstance->set('domain_access', $series_domain);
-      }
-    }
-  }
-}
-
-/**
- * Implements hook_entity_insert().
- */
-function access_events_entity_insert(EntityInterface $entity) {
-  $type = $entity->getEntityTypeId();
-  if ( $type == 'eventinstance') {
-    // During entity insertion, $entity is already the event instance we need
-    $eventinstance = $entity;
-    $eventseries = $eventinstance->getEventSeries();
-    $series_domain = $eventseries->get('domain_access')->getValue();
-
-    // If series domain(s) is set, set the same domain(s) on the event instance.
-    if ($series_domain) {
-      $instance_domain = $eventinstance->get('domain_access')->getValue();
-      if (!$instance_domain || $instance_domain != $series_domain) {
-        $eventinstance->set('domain_access', $series_domain);
-        // We need to save the entity, but we need to avoid an infinite loop
-        // by preventing the insert hook from firing again during this save.
-        $original_value = $eventinstance->isNew();
-        $eventinstance->enforceIsNew(FALSE);
-        $eventinstance->save();
-        $eventinstance->enforceIsNew($original_value);
-      }
-    }
-  }
-}
 
