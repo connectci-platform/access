@@ -137,7 +137,7 @@ function access_news_validate(&$form, FormStateInterface $form_state) {
   // Require that the person saving is an Affinity Group Coordinator
   // if an Affinity Group is selected for ACCESS News.
   $user = User::load(\Drupal::currentUser()->id());
-  $ag_node_array = $form_state->getValue('field_affinity_group_node');
+  $ag_node_array = $form_state->getValue('field_affinity_group_node') ?? [];
   // Valid values are arrays with non-null 'target-id' value.
   foreach ($ag_node_array as $ag_node) {
     if (is_array($ag_node)) {
@@ -178,8 +178,8 @@ function access_news_validate(&$form, FormStateInterface $form_state) {
   }
 
   $values = $form_state->getValues();
-  $tags = $values['field_tags'];
-  if (count($tags) > 6) {
+  $tags = $values['field_tags'] ?? [];
+  if (is_array($tags) && count($tags) > 6) {
     $form_state->setErrorByName('Tags', t('You can only select 6 tags. Please remove some tags.'));
   }
 }
