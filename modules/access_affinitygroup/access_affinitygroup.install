@@ -1,0 +1,34 @@
+<?php
+
+/**
+ * @file
+ */
+
+/**
+ * Update user CC ids.
+ */
+function access_affinitygroup_update_10000() {
+  $connection = \Drupal::database();
+  $query = $connection->select('user__field_constant_contact_id', 'cci');
+  $query->fields('cci', ['entity_id', 'field_constant_contact_id_value']);
+  $result = $query->execute()->fetchAll();
+  foreach ($result as $row) {
+    $user_id = $row->entity_id;
+    $cc_id = $row->field_constant_contact_id_value;
+
+    $user_cc_id = [
+      'test' => '',
+      'openondemand' => '',
+      'support' => $cc_id,
+    ];
+
+    $user_cc_id = json_encode($user_cc_id);
+
+    $query = \Drupal::database()->update('user__field_constant_contact_id')
+      ->fields([
+        'field_constant_contact_id_value' => $user_cc_id,
+      ])
+      ->condition('entity_id', $user_id, '=')
+      ->execute();
+  }
+}
