@@ -81,3 +81,15 @@ function access_cilink_update_10002() {
     \Drupal::logger('access_cilink')->error('Failed to load the search API index "ci_links".');
   }
 }
+
+/**
+ * Delete old skill level in resource webform.
+ */
+function access_cilink_update_10003() {
+  // Delete rows from the webform_submission_data table.
+  \Drupal::database()->delete('webform_submission_data')
+    ->condition('webform_id', 'resource')
+    ->condition('name', 'skill_level')
+    ->condition('value', '307')
+    ->execute();
+}

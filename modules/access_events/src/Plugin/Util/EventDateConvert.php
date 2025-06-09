@@ -1,6 +1,6 @@
 <?php
 
-namespace Drupal\access_misc\Plugin\Util;
+namespace Drupal\access_events\Plugin\Util;
 
 /**
  * Convert Date for events.
@@ -20,11 +20,25 @@ class EventDateConvert {
   private $start;
 
   /**
+   * Stores start time.
+   *
+   * @var string
+   */
+  private $start_time;
+
+  /**
    * Stores end date.
    *
    * @var string
    */
   private $end;
+
+  /**
+   * Stores end date time.
+   *
+   * @var string
+   */
+  private $end_time;
 
   /**
    * True if start and end date are the same day.
@@ -42,7 +56,8 @@ class EventDateConvert {
     if ($set_start != NULL ) {
       $start_iso = strtotime($set_start);
       $start_day = date('d', $start_iso);
-      $start = date('m/d/y - h:i A', $start_iso);
+      $start = date('m/d/y - g:i A', $start_iso);
+      $start_time = date('g:i A', $start_iso);
     }
 
     $end = 0;
@@ -55,14 +70,18 @@ class EventDateConvert {
       if ($start_day != $end_day) {
         $this->sameDay = 0;
 
-        $end = date('m/d/y - h:i A T', $end_iso);
+        $end = date('m/d/y - g:i A T', $end_iso);
+        $end_time = date('g:i A', $end_iso);
       }
       else {
-        $end = date('h:i A T', $end_iso);
+        $end = date('g:i A T', $end_iso);
+        $end_time = date('g:i A', $end_iso);
       }
     }
     $this->start = $start;
+    $this->start_time = $start_time;
     $this->end = $end;
+    $this->end_time = $end_time;
   }
 
   /**
@@ -73,10 +92,24 @@ class EventDateConvert {
   }
 
   /**
+   * Function to get start time.
+   */
+  public function getStartTime() {
+    return $this->start_time;
+  }
+
+  /**
    * Function to get end date.
    */
   public function getEnd() {
     return $this->end;
+  }
+
+  /**
+   * Function to get end time.
+   */
+  public function getEndTime() {
+    return $this->end_time;
   }
 
 }

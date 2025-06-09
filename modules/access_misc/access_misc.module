@@ -4,7 +4,7 @@
  * @file
  */
 
-use Drupal\access_misc\Plugin\Util\EventDateConvert;
+use Drupal\access_events\Plugin\Util\EventDateConvert;
 use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
@@ -425,7 +425,7 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     ];
 
     $form['field_tags_replace']['field_suggest']['tag_list'] = [
-      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary.</div>",
+      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary. Limited to 6 tags.</div>",
     ];
     $form['field_tags_replace']['field_suggest']['replace_button'] = [
       '#type' => 'button',
@@ -466,9 +466,22 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
       ],
     ];
 
+    $form['#validate'][] = 'access_misc_custom_tags_validate';
   }
   if ($form_id == 'user_form') {
     $form['actions']['submit']['#submit'][] = 'access_misc_user_password_change';
+  }
+}
+
+/**
+ * Validate handler for mentorship_engagement form.
+ */
+function access_misc_custom_tags_validate(array &$form, FormStateInterface $form_state) {
+  $values = $form_state->getValues();
+  $tags = $values['tags'];
+
+  if (count($tags) > 6) {
+    $form_state->setErrorByName('Tags', t('You can only select 6 tags. Please remove some tags.'));
   }
 }
 

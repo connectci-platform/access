@@ -228,10 +228,12 @@ class XsedeApi {
     $this->apiCall($this->apiUrl . $grant_id);
 
     $this->spState = '';
-    foreach ($this->apiResults['result'] as $result) {
-      if ($result['username'] == $user) {
-        $this->spState = $result['spState'];
-        break;
+    if ($this->apiResults != NULL) {
+      foreach ($this->apiResults['result'] as $result) {
+        if ($result['username'] == $user) {
+          $this->spState = $result['spState'];
+          break;
+        }
       }
     }
 

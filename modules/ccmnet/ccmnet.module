@@ -173,7 +173,7 @@ function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
     $add_tags = \Drupal::service('access_misc.addtags');
     $output = $add_tags->getView();
     $tag_label = t('Tags');
-    $tag_description = t('Select tags that relate to your engagement. Tags will help us find people with related expertise.');
+    $tag_description = t('Select tags that relate to your engagement. Tags will help us find people with related expertise. Limited to 6 tags.');
     $tag_summary = t('Select Tags');
 
     $form['node_add_tags'] = [
@@ -246,11 +246,18 @@ function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
  * Validate handler for mentorship_engagement form.
  */
 function access_mentorship_engagement_validate(array &$form, FormStateInterface $form_state) {
-  $summary = $form_state->getValue('body')[0]['summary'];
-  $summary = $summary ? Xss::filter($summary) : '';
+  $values = $form_state->getValues();
+
+  $summary = $values['body'][0]['summary'];
+  $tags = $values['field_tags'];
+
   // Check if summary contains html.
   if (preg_match('/<[^>]*>/', $summary)) {
     $form_state->setErrorByName('body][0][summary', t('Summary cannot contain html tags.'));
+  }
+
+  if (count($tags) > 6) {
+    $form_state->setErrorByName('Tags', t('You can only select 6 tags. Please remove some tags.'));
   }
 }
 
@@ -694,52 +701,62 @@ function ccmnet_node_view(array &$build, EntityInterface $entity, EntityViewDisp
 
 /**
  * Implements hook_cron().
+ *
+ *  This function runs at 1:00am on the live environment to send
+ *  emails to mentorship authors when someone has expressed interest in their
+ *  mentorship. It collects the list of interested mentorships from the state,
+ *  constructs links to those mentorships, and sends an email to the authors.
+ *  It also sends a summary email to the CCMNet PMs with the list of links.
+ *  The state is reset to 0 after sending the emails.
  */
 function ccmnet_cron() {
   $env = getenv('PANTHEON_ENVIRONMENT');
   if ($env == 'live') {
-    $interested_status = \Drupal::state()->get('access_mentorship_interested');
-
-    // Send interested email at 1:00am.
-    if ((date('G', time()) == 01) && (date('i', time()) >= 0) && (date('i', time()) < 15) && $interested_status != 0) {
-      if ($interested_status != 0) {
-        $policy = 'ccmnet';
-        $render = \Drupal::service('renderer');
-        $interested_list = json_decode($interested_status);
-        $interested_links = '';
-
-        // send one email to each author of a mentorship where someone has expresses interest
-        foreach ($interested_list as $interested_nid) {
-          $policy_subtype = 'cron_author_update';
-          $email_body = [];
-          $node = \Drupal::entityTypeManager()->getStorage('node')->load($interested_nid);
-          $options = ['absolute' => FALSE];
-          $here = Url::fromRoute('entity.node.canonical', ['node' => $interested_nid], $options);
-          // Get author of node.
-          $author = $node->getOwner()->getEmail();
-          $title = t('click here');
-          $link = 'https://ccmnet.org' . $here->toString(TRUE)->getGeneratedUrl();
-          $interested_links .= 'https://ccmnet.org' . $here->toString(TRUE)->getGeneratedUrl() . "\n";
-          $variables = [
-            'title' => $title,
-            'url' => $link,
-          ];
-
-          \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $author, $variables);
+    // Send interested email between 1:00am and 1:15am.
+    if ((date('G', time()) == 01) && (date('i', time()) >= 0) && (date('i', time()) < 15)) {
+      $interested_status = \Drupal::state()->get('access_mentorship_interested');
+      $interested_list = json_decode($interested_status, TRUE);
+      if (empty($interested_list) || !is_array($interested_list)) {
+        \Drupal::logger('ccmnet')->warning('No interested list or invalid JSON: @status', ['@status' => $interested_status]);
+        return;
+      }
+      $policy = 'ccmnet';
+      $policy_subtype = 'cron_author_update';
+      $interested_links = '';
+      // Send email to each author
+      foreach ($interested_list as $interested_nid) {
+        $node = \Drupal::entityTypeManager()->getStorage('node')->load($interested_nid);
+        if (!$node) {
+          \Drupal::logger('ccmnet')->warning('Could not load node @nid', ['@nid' => $interested_nid]);
+          continue;
         }
 
-        // 2nd email: send collection of request links to all with ccmnet_pm role
-        $env = getenv('PANTHEON_ENVIRONMENT');
-        $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
-        $policy_subtype = 'cron_role_update';
+        $author = $node->getOwner()->getEmail();
+        $options = ['absolute' => FALSE];
+        $here = Url::fromRoute('entity.node.canonical', ['node' => $interested_nid], $options);
+        $link = 'https://ccmnet.org' . $here->toString(TRUE)->getGeneratedUrl();
+        $interested_links .= $link . "\n";
+        $title = t('click here');
 
-        $ccmnet_admin_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
         $variables = [
-          'extra' => $interested_links,
+          'title' => $title,
+          'url' => $link,
         ];
-        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $ccmnet_admin_emails, $variables);
-        \Drupal::state()->set('access_mentorship_interested', 0);
+
+        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $author, $variables);
+        \Drupal::logger('ccmnet')->info('Sent interested email to @user for node @nid', ['@user' => $author, '@nid' => $interested_nid]);
       }
+      // 2nd email: send collection of request links to all with ccmnet_pm role
+      $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
+      $policy_subtype = 'cron_role_update';
+
+      $ccmnet_admin_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
+      $variables = [
+        'extra' => $interested_links,
+      ];
+      \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $ccmnet_admin_emails, $variables);
+      \Drupal::logger('ccmnet')->info('Sent interested summary email to @role', ['@role' => $role]);
+      \Drupal::state()->set('access_mentorship_interested', 0);
     }
   }
 }

@@ -4,8 +4,9 @@
  * @file
  */
 
-use Drupal\access_misc\Plugin\Util\EventDateConvert;
+use Drupal\access_events\Plugin\Util\EventDateConvert;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Entity\EntityInterface;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Render\Markup;
 use Drupal\user\Entity\User;
@@ -19,7 +20,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   if ($form_id == 'registrant_default_delete_form') {
     $form['actions']['submit']['#submit'][] = 'access_events_user_delete_submit';
   }
-  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
+  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $current_user = \Drupal::currentUser();
     $username = $current_user->getAccountName();
     $username = str_replace('@access-ci.org', '', $username);
@@ -38,6 +39,12 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
       $form['field_event_allocation_grant']['widget'][0]['value']['#default_value'] = 0;
       $form['field_event_allocation_grant']['widget'][0]['value']['#access'] = FALSE;
     }
+
+    // Get current user.
+    $current_user = \Drupal::currentUser();
+    $roles = $current_user->getRoles();
+
+
   }
 
   if ($form_id == 'registrant_default_add_form' || $form_id == 'registrant_default_edit_form') {
@@ -159,7 +166,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   }
 
   // Custom tags on /events/add
-  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
+  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $form['body']['widget'][0]['#required'] = TRUE;
 
     $form['event_registration']['widget'][0]['#description'] = "<strong>Event registration is a new feature. If you encounter any issues or unexpected behavior, please submit a ticket to let us know.</strong>";
@@ -256,7 +263,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     ];
 
     $form['field_tags_replace']['field_suggest']['tag_list'] = [
-      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary.</div>",
+      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary. Limited to 6 tags.</div>",
     ];
     $form['field_tags_replace']['field_suggest']['replace_button'] = [
       '#type' => 'button',
@@ -315,10 +322,25 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   }
 }
 
+
 /**
  * Custom validation handler for webform_submission_resource_add_form.
  */
 function access_events_eventseries_validate($form, FormStateInterface $form_state) {
+  $values = $form_state->getValues();
+
+  foreach ($values['custom_date'] as $key => $value) {
+    if (is_numeric($key)) {
+      if ($value['value'] != null) {
+        $start_date = (string) $values['custom_date'][$key]['value'];
+        $end_date = (string) $values['custom_date'][$key]['end_value'];
+        if ($start_date == $end_date) {
+          $form_state->setErrorByName('custom_date', t('Start date and end date must not be the same.'));
+        }
+      }
+    }
+  }
+
   $recur_types = [
     'custom' => 'custom_date',
     'monthly_recurring_date' => 'monthly_recurring_date',
@@ -564,7 +586,7 @@ function access_events_preprocess_views_view_field(&$variables) {
         $end_date = $output[1];
         $date = new EventDateConvert($start_date, $end_date);
         if ($date->sameDay ) {
-          $variables['output'] = Markup::create($date->getStart() . " - " . $date->getEnd());
+          $variables['output'] = Markup::create($date->getStartTime() . " - " . $date->getEndTime());
         } else {
           $variables['output'] = Markup::create($date->getStart() . " to " . $date->getEnd());
         }
@@ -585,3 +607,5 @@ function access_events_preprocess_views_view_field(&$variables) {
   }
 
 }
+
+

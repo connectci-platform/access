@@ -48,9 +48,6 @@ function access_page_attachments(array &$attachments) {
         $roles = $user->getRoles();
 
         if (in_array('match_pm', $roles) || in_array('match_sc', $roles) || in_array('administrator', $roles)) {
-          $menu[$weight]['items'][300]['name'] = 'MATCH Interested Users';
-          $menu[$weight]['items'][300]['url'] = '/match-interested-users';
-
           $menu[$weight]['items'][301]['name'] = 'MATCH Engagement Submissions';
           $menu[$weight]['items'][301]['url'] = '/match-engagements-submissions';
         }
