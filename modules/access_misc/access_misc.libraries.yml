@@ -17,6 +17,9 @@ copyclip:
 events:
   js:
     js/events.js: {}
+kb_select_ag:
+  js:
+    js/kb_select_ag.js: {}
 add_select:
   version: 1.x
   js:

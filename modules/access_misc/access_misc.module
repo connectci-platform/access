@@ -438,6 +438,57 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
 
   // Custom tags on /form/ci-link webform.
   if ($form_id == 'webform_submission_resource_add_form' || $form_id == 'webform_submission_resource_edit_form') {
+
+    $form['elements']['affinity_group_nodes']['#selection_settings']['view']['arguments'] = ['openondemand_cyberinfrastructure_org'];
+
+    $domain_id = \Drupal::service('domain.negotiator')->getActiveDomain()->id();
+
+    // Entity query to get all affinity_group nodes.
+    $query = \Drupal::entityQuery('node')
+      ->condition('type', 'affinity_group')
+      ->condition('field_domain_access', $domain_id)
+      ->accessCheck(FALSE);
+    $nids = $query->execute();
+
+    $form['elements']['field_ag_nodes_select'] = [
+      '#type' => 'select',
+      '#title' => t('Would you like to associate this resource with an Affinity Group? - new'),
+      '#options' => [],
+      '#description' => t('Select an Affinity Group to associate with this resource.'),
+    ];
+
+    if (array_key_exists('#default_value', $form['elements']['affinity_group'])) {
+      $form['elements']['field_ag_nodes_select']['#default_value'] = $form['elements']['affinity_group']['#default_value'];
+    }
+
+    // Need to force the affinity_group and resource_allowed_on_affinity_group elements to the bottom.
+    $elements = [];
+    foreach ($form['elements'] as $key => $element) {
+      if ($key == 'affinity_group' || $key == 'resource_allowed_on_affinity_group' || $key == 'private') {
+        $elements[$key] = $element;
+        unset($form['elements'][$key]);
+      }
+    }
+
+    $form['elements'] = array_merge($form['elements'], $elements);
+
+    // Set first item.
+    $form['elements']['field_ag_nodes_select']['#options'][''] = '- None -';
+
+    foreach ($nids as $nid) {
+      $node = \Drupal::entityTypeManager()->getStorage('node')->load($nid);
+      if ($node instanceof \Drupal\node\NodeInterface) {
+        $title = $node->getTitle();
+        // Get field field_affinity_group.
+        $field_affinity_group = $node->get('field_affinity_group')->getValue();
+        $ag_tid = !empty($field_affinity_group) ? $field_affinity_group[0]['target_id'] : 0;
+        $form['elements']['field_ag_nodes_select']['#options'][$ag_tid] = $title;
+      }
+    }
+
+    $form['#attached']['library'][] = 'access_misc/add_select';
+    $form['#attached']['library'][] = 'access_misc/kb_select_ag';
+
     $form['field_tags_replace'] = [
       '#type' => 'container',
       '#attributes' => [
