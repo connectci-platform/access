@@ -22,7 +22,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   }
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $set_tz = $form['custom_date']['widget'][0]['value']['#date_timezone'];
-    $suffix = '<div class="form-text"><strong>' . t('Timezone') . ':</strong> ' . $set_tz . '</div>';
+    $suffix = '<div class="form-text">' . t('Your time zone is set to ') . "<strong>$set_tz</strong>. " . t('If your event is in a different time zone, calculate the time difference accordingly.') . '</div>';
 
     foreach ($form['custom_date']['widget'] as $key => $value) {
       if (is_numeric($key)) {
