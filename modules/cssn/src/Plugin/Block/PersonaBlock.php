@@ -205,10 +205,10 @@ class PersonaBlock extends BlockBase {
         '#type' => 'inline_template',
         '#template' => '<div class="persona">
                           {{ user_image | raw }}
-                          <h2 {% if pronouns %}class="m-0" {% endif %}>
+                          <h2 {% if pronouns == "DONOTDISPLAY" %}class="m-0" {% endif %}>
                             {{ first_name }} {{ last_name }}
                           </h2>
-                          {% if pronouns %}
+                          {% if pronouns == "DONOTDISPLAY" %}
                             <div><strong>Pronouns:</strong> {{ pronouns }}</div>
                           {% endif %}
                           <h4 class="institution text-md-teal">{{ institution }}</h4>

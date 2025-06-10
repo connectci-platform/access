@@ -91,6 +91,27 @@ function access_affinitygroup_views_query_alter(ViewExecutable $view, QueryPlugi
 }
 
 /**
+ * Implements hook_search_api_query_alter().
+ */
+function access_affinitygroup_search_api_query_alter(\Drupal\search_api\Query\QueryInterface &$query) {
+  // Check if the query is for the affinity_group index.
+  if ($query->getIndex()->id() !== 'affinity_groups') {
+    return;
+  }
+  $user = \Drupal::currentUser();
+  $user_id = $user->id();
+  $roles = $user->getRoles();
+  if (in_array('administrator', $roles)) {
+    return;
+  }
+  $condition_group = $query->createConditionGroup('OR');
+  $condition_group->addCondition('field_ag_private', FALSE);
+  $condition_group->addCondition('field_coordinator', $user_id);
+  $condition_group->addCondition('field_ag_private_users', $user_id);
+  $query->addConditionGroup($condition_group);
+}
+
+/**
  * Implements hook_preprocess_views_view_field().
  */
 function access_affinitygroup_preprocess_views_view_field(&$variables) {
@@ -105,9 +126,14 @@ function access_affinitygroup_preprocess_views_view_field(&$variables) {
     $node = \Drupal::entityTypeManager()->getStorage('node')->load($nid);
     $tid = $node->get('field_affinity_group')->getValue();
     $tid = $tid[0]['target_id'];
+
     $flag_ag = \Drupal::service('flag.link_builder')->build('taxonomy_term', $tid, 'affinity_group', 'full');
     $flag_ag['#attributes']['class'][] = 'btn-sm btn-small btn-secondary-outline py-0 px-4';
     $flag_ag = \Drupal::service('renderer')->renderPlain($flag_ag);
+
+    // Attach a custom cache tag to the output.
+    $variables['#cache']['tags'][] = 'affinity_group_field_' . $tid;
+
     $current_user = \Drupal::currentUser();
     if ($current_user->isAnonymous()) {
       $output['string'] = [
@@ -290,6 +316,11 @@ function access_affinitygroup_entity_presave(EntityInterface $entity) {
  * CiDeR resources, both their title & description.
  */
 function access_affinitygroup_views_pre_render(ViewExecutable $view) {
+
+  if ($view->id() == 'affinity_group_search') {
+    $view->element['#attached']['library'][] = 'access_affinitygroup/ag_view';
+  }
+
   if ($view->id() == 'affinity_group_members') {
     // Afinity group user list change title to match AG title.
     $url = new EndUrl();
@@ -345,7 +376,9 @@ function update_ag_leader_roles($entity) {
     $coordinator_id = $coordinator['target_id'];
     $coordinator_ids[] = $coordinator_id;
     $user = User::load($coordinator_id);
-
+    if (!$user) {
+      continue;
+    }
     $user->addRole('affinity_group_leader');
     $user->save();
   }
@@ -461,14 +494,21 @@ function subscribeToSimpleLists($flagEntityId, $user, $isSubscribe) {
   $nid = $aval[0];
   $ag = Node::load($nid);
 
+  if ($ag == NULL) {
+    return;
+  }
+
   if (!$ag->get('field_use_ext_email_list')->getValue()[0]['value']) {
+    \Drupal::logger('access_affinitygroup')->error('Missing Affinity group with flag id ' . $flagEntityId . '.');
     return;
   }
 
   $simpleListsName = "";
-  $simpleListsNameA = $ag->get('field_ext_email_list')->getValue();
-  if (!empty($simpleListsNameA)) {
-    $simpleListsName = $simpleListsNameA[0]['value'];
+  if ($ag->hasField('field_ext_email_list')) {
+    $simpleListsNameA = $ag->get('field_ext_email_list')->getValue();
+    if (!empty($simpleListsNameA)) {
+      $simpleListsName = $simpleListsNameA[0]['value'];
+    }
   }
   if (!empty($simpleListsName)) {
     $msg = "";
@@ -778,10 +818,12 @@ function removeBlockedAG($agTaxonomyId, $userDetails) {
   $userBlockedArray = $userDetails->get('field_blocked_ag_tax')->getValue();
   $wasBlocked = FALSE;
   foreach ($userBlockedArray as $userBlock) {
-    if ($userBlock['target_id'] !== $agTaxonomyId) {
-      $userBlockedTaxIds[] = $userBlock['target_id'];
-    } else {
-      $wasBlocked = TRUE;
+    if (isset($userBlock['target_id'])) {
+      if ($userBlock['target_id'] !== $agTaxonomyId) {
+        $userBlockedTaxIds[] = $userBlock['target_id'];
+      } else {
+        $wasBlocked = TRUE;
+      }
     }
   }
 
@@ -1229,6 +1271,8 @@ function sendEmailCampaign($campaignId, $campaignActivityId, $ccListIds) {
  */
 function access_affinitygroup_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   if ($form_id == 'node_affinity_group_edit_form' || $form_id == 'node_affinity_group_form') {
+    $form['field_persona_source']['#group'] = 'advanced';
+
     $form['field_tags_replace'] = [
       '#type' => 'container',
       '#attributes' => [
@@ -1294,6 +1338,8 @@ function access_affinitygroup_form_alter(&$form, FormStateInterface $form_state,
     // Attach javascript.
     $form['#attached']['library'][] = 'access_misc/node_add_tags';
     $form['#validate'][] = 'access_affinitygroup_edit_validate';
+
+    $form['#attached']['library'][] = 'access_affinitygroup/ag_node_form';
   }
 
   if ($form_id == 'node_affinity_group_form') {
@@ -1311,21 +1357,36 @@ function access_affinitygroup_form_alter(&$form, FormStateInterface $form_state,
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
     if (!in_array('administrator', $roles)) {
+      $form['title']['#disabled'] = TRUE;
       $form['field_cider_resources']['#disabled'] = TRUE;
       $form['field_use_ext_email_list']['#disabled'] = TRUE;
       $form['field_group_slug']['#disabled'] = TRUE;
+      $form['field_group_id']['#disabled'] = TRUE;
+      $form['field_use_ext_email_list']['#access'] = FALSE;
+      $form['field_group_slug']['#access'] = FALSE;
+      $form['field_group_id']['#access'] = FALSE;
+      $form['field_affinity_group_category']['#access'] = FALSE;
     }
     $form['field_ext_email_list']['#disabled'] = TRUE;
 
-    // Only AGs set to Community should see Reccomended Ciders;
-    // only AGs set to ACCESS RP category should see Associated Ciders.
-    $category = $form['field_affinity_group_category']['widget']['#default_value'];
-    if (!isset($category[0]) || $category[0] !== 'Community') {
+    $token = \Drupal::token();
+    $domain_name = Html::getClass($token->replace(t('[domain:name]')));
+    if ($domain_name != 'access-support') {
       $form['field_recommended_access_res']['#access'] = FALSE;
-    }
-    if (!isset($category[0]) || $category[0] !== 'ACCESS_RP') {
       $form['field_cider_resources']['#access'] = FALSE;
+    } else {
+      // Only AGs set to Community should see Reccomended Ciders;
+      // only AGs set to ACCESS RP category should see Associated Ciders.
+      $category = $form['field_affinity_group_category']['widget']['#default_value'];
+      if (!isset($category[0]) || $category[0] !== 'Community') {
+        $form['field_recommended_access_res']['#access'] = FALSE;
+      }
+      if (!isset($category[0]) || $category[0] !== 'ACCESS_RP') {
+        $form['field_cider_resources']['#access'] = FALSE;
+      }
     }
+
+
   } elseif ($form_id == 'webform_submission_affinity_group_contact_add_form') {
     $form_allowed = FALSE;
     $coordinator = FALSE;
@@ -1555,4 +1616,90 @@ function access_affinitygroup_edit_validate(&$form, FormStateInterface $form_sta
     $ag = Node::load($nidArray[0]);
     $form_state->setErrorByName('field_group_slug', "The Short Name must be unique, but $slug is already in use by " . $ag->getTitle());
   }
+}
+
+/**
+ * Implements hook_entity_access().
+ */
+function access_affinitygroup_entity_access(EntityInterface $entity, $operation, AccountInterface $account) {
+  if ($entity->getEntityTypeId() == 'node' && $entity->bundle() == 'affinity_group') {
+    $ag_private = $entity->get('field_ag_private')->getValue();
+    $access = 1;
+
+    if (!empty($ag_private)) {
+      // If private is set, deny access.
+      if ($ag_private[0]['value']) {
+        $access = 0;
+
+        $ag_private_users = $entity->get('field_ag_private_users')->getValue();
+
+        $current_user = \Drupal::currentUser();
+        $current_uid = $current_user->id();
+
+        // Give access to users in the private users field.
+        foreach ($ag_private_users as $user) {
+          $uid = $user['target_id'];
+          if ($uid == $current_uid) {
+            $access = 1;
+          }
+        }
+
+        $ag_coordinator = $entity->get('field_coordinator')->getValue();
+
+        // Give access to users in the coordinators field.
+        foreach ($ag_coordinator as $user) {
+          if (isset($user['target_id'])) {
+            $uid = $user['target_id'];
+            if ($uid == $current_uid) {
+              $access = 1;
+            }
+          }
+        }
+      }
+    }
+
+    if ($access) {
+      return AccessResult::neutral();
+    } else {
+      return AccessResult::forbidden();
+    }
+  }
+
+  if ($entity->getEntityTypeId() == 'webform_submission' && $operation === 'update') {
+    if ($entity->getWebform()->id() != 'resource') {
+      return AccessResult::neutral();
+    }
+
+    $affinity_group = $entity->getElementData('affinity_group');
+
+    $query = \Drupal::database()->select('taxonomy_index', 'ti');
+    $query->condition('ti.tid', $affinity_group);
+    $query->fields('ti', ['nid']);
+    $affinity_group_nid = $query->execute()->fetchCol();
+
+    $coordinator = [];
+    foreach ($affinity_group_nid as $nid) {
+      $node = \Drupal::entityTypeManager()->getStorage('node')->load($nid);
+      if ($node->getType() == 'affinity_group') {
+        $coordinator = $node->get('field_coordinator')->getValue();
+        break;
+      }
+    }
+    if (empty($coordinator)) {
+      return AccessResult::neutral();
+    }
+    else {
+      $current_user = \Drupal::currentUser();
+      $current_uid = $current_user->id();
+
+      // Give access to users in the coordinators field.
+      foreach ($coordinator as $user) {
+        $uid = $user['target_id'];
+        if ($uid == $current_uid) {
+          return AccessResult::allowed();
+        }
+      }
+    }
+  }
+
 }

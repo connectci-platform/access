@@ -165,7 +165,7 @@ class MentorshipLookup {
       </div>";
       $mentorship_link .= "<li class='d-flex flex p-3 $stripe_class'>
         <div class='text-truncate' style='width: 400px;'>
-          <a href='/node/$nid' class='font-bold underline hover--no-underline hover--text-dark-teal'>$title</a>
+          <a href='https://ccmnet.org/node/$nid' class='font-bold underline hover--no-underline hover--text-dark-teal'>$title</a>
         </div>
         <div>
           $mentorship_name

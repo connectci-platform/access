@@ -121,8 +121,15 @@ class XsedeApi {
    * Get header keys.
    */
   private function headerKeys() {
+    // Retrieve the keys from the key repository.
     $headers = $this->key->getKey('xsede_api')->getKeyValue();
-    $this->headerKeys = explode(",", $headers);
+    // Ensure $headers is a string before passing it to explode().
+    // Default to an empty string if null.
+    $headers = $headers ?? '';
+
+    // Explode the headers into an array.
+    $this->headerKeys = explode(',', $headers);
+
   }
 
   /**
@@ -130,6 +137,10 @@ class XsedeApi {
    */
   private function apiCall($path) {
     $headers = $this->headerKeys;
+    if (count($headers) < 3) {
+      $this->messenger->addMessage($this->t('No Allocations API keys found.'), 'warning');
+      return;
+    }
 
     $url = $this->apiBaseUrl . $path;
 
@@ -147,6 +158,7 @@ class XsedeApi {
       $this->apiResults = json_decode($response, TRUE);
     }
     catch (RequestException $e) {
+      $this->messenger->addMessage($this->t('An error occurred with the Allocations API.'), 'error');
       $this->logger->error($e->getMessage());
     }
 
@@ -216,10 +228,12 @@ class XsedeApi {
     $this->apiCall($this->apiUrl . $grant_id);
 
     $this->spState = '';
-    foreach ($this->apiResults['result'] as $result) {
-      if ($result['username'] == $user) {
-        $this->spState = $result['spState'];
-        break;
+    if ($this->apiResults != NULL) {
+      foreach ($this->apiResults['result'] as $result) {
+        if ($result['username'] == $user) {
+          $this->spState = $result['spState'];
+          break;
+        }
       }
     }
 

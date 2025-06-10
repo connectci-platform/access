@@ -47,7 +47,7 @@ class AffinityCoordinatorDocumentation extends BlockBase {
         '#template' => '<a class="btn btn-outline-dark cursor-default mx-0 my-2" target="_blank" href="{{ link }}">{{ coordinator_text }}</a>',
         '#context' => [
           'coordinator_text' => $this->t('Coordinator Documentation'),
-          'link' => 'https://access-ci.atlassian.net/wiki/spaces/ACCESSdocumentation/pages/1263534105/Affinity+Group+Coordinator+Notes',
+          'link' => '/affinity-groups/coordinator-documentation',
         ],
       ];
     }

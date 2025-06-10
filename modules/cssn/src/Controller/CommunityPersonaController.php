@@ -2,7 +2,10 @@
 
 namespace Drupal\cssn\Controller;
 
+use Drupal\webform\Entity\WebformSubmission;
+use Drupal\views\Views;
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\Component\Utility\Html;
 use Drupal\Core\Link;
 use Drupal\Core\Url;
 use Drupal\ccmnet\Plugin\Util\MentorshipLookup;
@@ -11,7 +14,6 @@ use Drupal\cssn\Plugin\Util\MatchLookup;
 use Drupal\cssn\Plugin\Util\ProjectLookup;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\user\Entity\User;
-use Drupal\webform\Entity\WebformSubmission;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
 /**
@@ -60,7 +62,21 @@ class CommunityPersonaController extends ControllerBase {
 
         if ($ag_node) {
           $affinity_group_loaded = $ag_node;
-          $url = Url::fromRoute('entity.node.canonical', ['node' => $affinity_group_loaded->id()]);
+          $persona_source = $affinity_group_loaded->get('field_persona_source')->value;
+          $env = getenv('PANTHEON_ENVIRONMENT');
+          $token = \Drupal::token();
+          $domainName = Html::getClass($token->replace(t('[domain:name]')));
+
+          if ($persona_source == 'openondemand' && $domainName != 'open-ondemand' && $env == 'live') {
+            $url = Url::fromUri('https://ondemand.connectci.org/node/' . $affinity_group_loaded->id());
+          }
+          elseif ($persona_source == 'access' && $domainName != 'access' && $env == 'live') {
+            $url = Url::fromUri('https://support.access-ci.org/node/' . $affinity_group_loaded->id());
+          }
+          else {
+            $url = Url::fromRoute('entity.node.canonical', ['node' => $affinity_group_loaded->id()]);
+          }
+
           $class = ['font-bold', 'underline', 'hover--no-underline', 'hover--text-dark-teal'];
           $project_link = Link::fromTextAndUrl($affinity_group_loaded->getTitle(), $url)->toRenderable();
           $project_link['#attributes'] = ['class' => $class];
@@ -141,7 +157,7 @@ class CommunityPersonaController extends ControllerBase {
       foreach ($ws_results as $ws_result) {
         $stripe_class = $n % 2 == 0 ? 'bg-light bg-light-teal' : '';
         $ws = WebformSubmission::load($ws_result);
-        $url = $ws->toUrl()->toString();
+        $url = '/knowledge-base/resources/' . $ws->id();
         $ws_data = $ws->getData();
         $ws_link .= '<li class="p-3 ' . $stripe_class . '"><a href=' . $url . ' class="font-bold underline hover--no-underline hover--text-dark-teal">' . $ws_data['title'] . '</a></li>';
         $n++;
@@ -378,7 +394,7 @@ class CommunityPersonaController extends ControllerBase {
     // My Match Engagements.
     $match_link = $this->matchList($current_user);
     // Link to see all Match Engagements.
-    $match_engage_url = Url::fromUri('internal:/engagements');
+    $match_engage_url = Url::fromUri('https://support.access-ci.org/engagements');
     $match_engage_link = Link::fromTextAndUrl('See engagements', $match_engage_url);
     $match_engage_renderable = $match_engage_link->toRenderable();
     $build_match_engage_link = $match_engage_renderable;
@@ -389,7 +405,7 @@ class CommunityPersonaController extends ControllerBase {
     $projects = $this->projectList($current_user);
 
     // Events user is registered for.
-    $view = \Drupal\views\Views::getView('recurring_events_registrations');
+    $view = Views::getView('recurring_events_registrations');
     $view->setDisplay('user_event_registrations');
     $view->setArguments([$current_user->id()]);
     $user_event_registrations = $view->buildRenderable('user_event_registrations');
