@@ -75,6 +75,27 @@ function access_cilink_views_query_alter($view, $query) {
       $query->addCondition('webform_submission_domain', $domainName, '=');
     }
   }
+  
+  // Filter KB Resources on the /tags/ pages
+  // Check if this is the 'resources' view and 'block_1' display.
+  if ($view->id() == 'resources' && $view->current_display == 'block_1') {
+    $token = \Drupal::token();
+    $domain_name = Html::getClass($token->replace(t('[domain:name]')));
+
+    if ($query instanceof \Drupal\views\Plugin\views\query\Sql) {
+      // First get the taxonomy term ID that matches the domain name in the region vocabulary
+      $term_query = \Drupal::entityQuery('taxonomy_term')
+        ->condition('vid', 'region')
+        ->condition('field_region_connected_domain', $domain_name)
+        ->accessCheck(FALSE);
+      $term_ids = $term_query->execute();
+      
+      if (!empty($term_ids)) {
+        $term_id = reset($term_ids);
+        $query->addWhere('AND', 'webform_submission_field_resource_domain.value', $term_id, '=');
+      }
+    }
+  }
 }
 
 /**
