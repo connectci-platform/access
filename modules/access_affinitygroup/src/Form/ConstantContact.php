@@ -34,14 +34,13 @@ class ConstantContact extends FormBase {
     $request = \Drupal::request();
     $code = $request->get('code');
     $refresh_token = $request->get('refresh_token');
+    $cca = new ConstantContactApi();
 
     if ($refresh_token) {
-      $cca = new ConstantContactApi();
       $cca->newToken();
     }
 
     if ($code) {
-      $cca = new ConstantContactApi();
       $cca->initializeToken($code);
     }
 
@@ -72,9 +71,11 @@ class ConstantContact extends FormBase {
       '#description' => $this->t('Select Constant Contact permissions.'),
     ];
 
+    $environment = $cca->getEnvironment();
+
     $form['submit'] = [
       '#type' => 'submit',
-      '#value' => $this->t('Authorize App'),
+      '#value' => $this->t('Authorize App on') . ' ' . $environment,
       '#submit' => [[$this, 'submitForm']],
     ];
 
