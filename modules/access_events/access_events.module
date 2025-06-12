@@ -20,7 +20,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   if ($form_id == 'registrant_default_delete_form') {
     $form['actions']['submit']['#submit'][] = 'access_events_user_delete_submit';
   }
-  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
+  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $current_user = \Drupal::currentUser();
     $username = $current_user->getAccountName();
     $username = str_replace('@access-ci.org', '', $username);
@@ -44,9 +44,6 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
 
-    if (!in_array('administrator', $roles)) {
-      $form['domain_access']['#access'] = FALSE;
-    }
 
   }
 
@@ -169,7 +166,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   }
 
   // Custom tags on /events/add
-  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
+  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $form['body']['widget'][0]['#required'] = TRUE;
 
     $form['event_registration']['widget'][0]['#description'] = "<strong>Event registration is a new feature. If you encounter any issues or unexpected behavior, please submit a ticket to let us know.</strong>";
@@ -324,6 +321,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['#validate'][] = 'access_events_eventseries_validate';
   }
 }
+
 
 /**
  * Custom validation handler for webform_submission_resource_add_form.
@@ -610,50 +608,4 @@ function access_events_preprocess_views_view_field(&$variables) {
 
 }
 
-/**
- * Implements hook_entity_update().
- */
-function access_events_entity_update(EntityInterface $entity) {
-  $type = $entity->getEntityTypeId();
-  if ( $type == 'eventinstance') {
-    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($entity->id());
-    $eventseries = $eventinstance->getEventSeries();
-    $series_domain = $eventseries->get('domain_access')->getValue();
-
-    // If series domain(s) is set, set the same domain(s) on the event instance.
-    if ($series_domain) {
-      $instance_domain = $eventinstance->get('domain_access')->getValue();
-      if ($instance_domain != $series_domain) {
-        $eventinstance->set('domain_access', $series_domain);
-      }
-    }
-  }
-}
-
-/**
- * Implements hook_entity_insert().
- */
-function access_events_entity_insert(EntityInterface $entity) {
-  $type = $entity->getEntityTypeId();
-  if ( $type == 'eventinstance') {
-    // During entity insertion, $entity is already the event instance we need
-    $eventinstance = $entity;
-    $eventseries = $eventinstance->getEventSeries();
-    $series_domain = $eventseries->get('domain_access')->getValue();
-
-    // If series domain(s) is set, set the same domain(s) on the event instance.
-    if ($series_domain) {
-      $instance_domain = $eventinstance->get('domain_access')->getValue();
-      if (!$instance_domain || $instance_domain != $series_domain) {
-        $eventinstance->set('domain_access', $series_domain);
-        // We need to save the entity, but we need to avoid an infinite loop
-        // by preventing the insert hook from firing again during this save.
-        $original_value = $eventinstance->isNew();
-        $eventinstance->enforceIsNew(FALSE);
-        $eventinstance->save();
-        $eventinstance->enforceIsNew($original_value);
-      }
-    }
-  }
-}
 

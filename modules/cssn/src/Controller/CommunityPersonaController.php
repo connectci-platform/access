@@ -70,7 +70,7 @@ class CommunityPersonaController extends ControllerBase {
           if ($persona_source == 'openondemand' && $domainName != 'open-ondemand' && $env == 'live') {
             $url = Url::fromUri('https://ondemand.connectci.org/node/' . $affinity_group_loaded->id());
           }
-          elseif ($persona_source == 'access' && $domainName == 'open-ondemand' && $env == 'live') {
+          elseif ($persona_source == 'access' && $domainName != 'access' && $env == 'live') {
             $url = Url::fromUri('https://support.access-ci.org/node/' . $affinity_group_loaded->id());
           }
           else {
