@@ -145,7 +145,7 @@ class EmailWrapper {
                   }
               }
 
-              .field--name-title, .field--name-recur-type {
+              .field--name-title, .field--name-recur-type, .field--name-event-instances .field__label, .field--name-field-affinity-group-node, .field--name-field-tags {
                 display: none;
               }
               .field { margin: 15px 0; }

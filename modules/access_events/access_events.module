@@ -535,7 +535,7 @@ function access_events_preprocess_views_view_field(&$variables) {
 
       $link_url = $link[0]['uri'];
 
-      $meeting_link = "<a href='$link_url' class='btn-sm btn-small btn-secondary-outline py-0 px-4 btn btn-md-teal ms-auto'> Join meeting</a>";
+      $meeting_link = "<a href='$link_url' class='btn-sm btn-small btn-secondary-outline py-0 px-4 btn btn-md-teal ms-auto'>Join meeting</a>";
 
       if ($registration_status) {
         // Entity Query 'registrant' to get all registrants for the event instance.

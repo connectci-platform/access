@@ -277,57 +277,6 @@ function access_misc_preprocess_views_view_field(&$variables) {
   $field = $variables['field'];
 
   // Overwrite affinity_groups into /people page on the
-  // /admin/structure/views/view/events_facet/edit/page_1 view.
-  if ($view->id() == 'events_facet' && $field->options['id'] == 'id_1') {
-    if (empty($variables['output'])) {
-      return;
-    }
-    $event_instance_id = $variables['output']->__toString();
-    $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
-
-    if ($event_instance == NULL) {
-      return;
-    }
-
-    $series = $event_instance->getEventSeries();
-    $link = $series->get('field_event_virtual_meeting_link')->getValue();
-
-    $variables['output'] = "";
-
-    if ($link) {
-      $registration_status = $series->get('event_registration')->getValue()[0]['registration'];
-
-      // Get current user id.
-      $current_user = \Drupal::currentUser();
-      $uid = $current_user->id();
-
-      $link_url = $link[0]['uri'];
-
-      $meeting_link = "<a href='$link_url' class='btn-sm btn-small btn-secondary-outline py-0 px-4 btn btn-md-teal ms-auto'> Join meeting</a>";
-
-      if ($registration_status) {
-        // Entity Query 'registrant' to get all registrants for the event instance.
-        $query = \Drupal::entityQuery('registrant')
-          ->condition('eventinstance_id', $event_instance_id)
-          ->condition('status', 1)
-          ->condition('user_id', $uid)
-          ->accessCheck(TRUE);
-        $registrants = $query->execute();
-
-        $registrants = empty($registrants) ? FALSE : TRUE;
-
-
-        if ($registrants) {
-          $variables['output'] = Markup::create($meeting_link);
-        }
-      } else {
-        // Show link when registration is not required.
-        $variables['output'] = Markup::create($meeting_link);
-      }
-    }
-  }
-
-  // Overwrite affinity_groups into /people page on the
   // /admin/structure/views/view/nect_cc_people/edit/page_1 view.
   if ($view->id() == 'nect_cc_people' && $view->current_display == 'page_1' && $field->options['id'] == 'uid_1') {
     $uid = $variables['output'];
