@@ -518,7 +518,7 @@ function access_cilink_form_alter(&$form, FormStateInterface $form_state, $form_
 
     $form['elements']['field_ag_nodes_select'] = [
       '#type' => 'select',
-      '#title' => t('Would you like to associate this resource with an Affinity Group? - new'),
+      '#title' => t('Would you like to associate this resource with an Affinity Group?'),
       '#options' => [],
       '#description' => t('Select an Affinity Group to associate with this resource.'),
     ];
@@ -551,6 +551,8 @@ function access_cilink_form_alter(&$form, FormStateInterface $form_state, $form_
         $form['elements']['field_ag_nodes_select']['#options'][$ag_tid] = $title;
       }
     }
+
+    asort($form['elements']['field_ag_nodes_select']['#options']);
 
     $form['#attached']['library'][] = 'access_misc/add_select';
     $form['#attached']['library'][] = 'access_cilink/kb_select_ag';

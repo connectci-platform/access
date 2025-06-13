@@ -13,16 +13,22 @@ console.log("Knowledge Base Select Agent");
       $("#edit-affinity-group").val(data.id).trigger("change");
     });
 
-  // if #edit-approved checkbox is checked, set #edit-field-ag-nodes-select to disabled
-  $("#edit-approved").on("change", function () {
-    if ($(this).is(":checked")) {
+    // Check the initial state of #edit-approved on page load
+    if ($("#edit-approved").is(":checked")) {
       $("#edit-field-ag-nodes-select").prop("disabled", true);
       $('.js-form-item-field-ag-nodes-select').addClass('form-disabled');
-    } else {
-      $("#edit-field-ag-nodes-select").prop("disabled", false);
-      $('.js-form-item-field-ag-nodes-select').removeClass('form-disabled');
     }
-  });
+
+    // Handle checkbox changes
+    $("#edit-approved").on("change", function () {
+      if ($(this).is(":checked")) {
+        $("#edit-field-ag-nodes-select").prop("disabled", true);
+        $('.js-form-item-field-ag-nodes-select').addClass('form-disabled');
+      } else {
+        $("#edit-field-ag-nodes-select").prop("disabled", false);
+        $('.js-form-item-field-ag-nodes-select').removeClass('form-disabled');
+      }
+    });
 
   });
 })(jQuery, Drupal);
