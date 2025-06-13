@@ -78,7 +78,7 @@ function access_cilink_views_query_alter($view, $query) {
 
   // Filter KB Resources on the /tags/ pages
   // Check if this is the 'resources' view and 'block_1' display.
-  if ($view->id() == 'resources' && $view->current_display == 'block_1') {
+  if (($view->id() == 'resources' && $view->current_display == 'block_1') || ($view->id() == 'resources' && $view->current_display == 'page_2')) {
     if ($query instanceof \Drupal\views\Plugin\views\query\Sql) {
       $program = \Drupal::service('access_misc.sitetools')->getProgram();
       $program = reset($program);
