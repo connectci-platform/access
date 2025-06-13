@@ -185,7 +185,9 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
 
   if (
     ($view->id() == 'people_with_expertise_tags' && $view->getDisplay()->view->element['#display_id'] == 'block_1') ||
-    ($view->id() == 'people_with_interest_tags' && $view->getDisplay()->view->element['#display_id'] == 'block_1')
+    ($view->id() == 'people_with_expertise_tags' && $view->getDisplay()->view->element['#display_id'] == 'page_1') ||
+    ($view->id() == 'people_with_interest_tags' && $view->getDisplay()->view->element['#display_id'] == 'block_1') ||
+    ($view->id() == 'people_with_interest_tags' && $view->getDisplay()->view->element['#display_id'] == 'page_1')
   ) {
     $view_filters = $view->display_handler->getOption('filters');
     $program = \Drupal::service('access_misc.sitetools')->getProgram();
