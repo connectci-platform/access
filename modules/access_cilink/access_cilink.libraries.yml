@@ -4,3 +4,6 @@ cilink_view:
   css:
     theme:
       css/resource_view.css: {}
+kb_select_ag:
+  js:
+    js/kb_select_ag.js: {}
