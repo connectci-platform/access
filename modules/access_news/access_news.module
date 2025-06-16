@@ -9,6 +9,7 @@ use Drupal\Component\Utility\Xss;
 use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Component\Utility\Html;
 use Drupal\datetime\Plugin\Field\FieldType\DateTimeItemInterface;
 use Drupal\node\Entity\Node;
 use Drupal\recurring_events\Entity\EventInstance;
@@ -399,10 +400,18 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
           // Newstype is eventseries.
           $pubDate = NULL;
 
+          if ($node->getInstanceCount() > 1) {
+            $newsUrl = NULL;
+          }
+
           // Body set using a custom view mode: ccemail.
           $view_builder = \Drupal::entityTypeManager()->getViewBuilder('eventseries');
-          $renderArray = $view_builder->view($node);
+          $renderArray = $view_builder->view($node, 'ccemail');
           $body = \Drupal::service('renderer')->renderPlain($renderArray);
+
+          $body = str_replace('Event Instances', 'Event Date & Time', $body);
+          $body = Html::transformRootRelativeUrlsToAbsolute($body, \Drupal::request()->getSchemeAndHttpHost());
+
         }
 
         // Now emailing the group; set option broadcast off. If user wants to email again after
