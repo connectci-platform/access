@@ -84,7 +84,7 @@ function access_cilink_views_query_alter($view, $query) {
       $program = reset($program);
 
       if (!empty($program)) {
-        $query->addWhere('AND', 'webform_submission_field_resource_domain.value', $program, '%');
+        $query->addWhere('AND', 'webform_submission_field_resource_domain.value', $program, '=');
       }
     }
   }
