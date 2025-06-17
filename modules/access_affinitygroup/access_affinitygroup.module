@@ -1458,7 +1458,7 @@ function access_affinitygroup_replace_section_callback(array &$form, FormStateIn
       You can remove some tags to get more suggestions.</div>",
     ];
   }
-  elseif (strlen($body_filter) >= 400) {
+  elseif (strlen($body_filter) >= 100) {
     $llm = \Drupal::service('access_llm.ai_references_generator');
     $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
     $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
@@ -1471,7 +1471,7 @@ function access_affinitygroup_replace_section_callback(array &$form, FormStateIn
     $form['field_tags_replace']['user_message'] = [
       '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
       <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
-                    Your description must be over 400 characters to get a suggestion.</div>",
+                    Your description must be over 100 characters to get a suggestion.</div>",
     ];
   }
 
