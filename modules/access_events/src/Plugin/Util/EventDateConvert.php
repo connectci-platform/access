@@ -71,13 +71,14 @@ class EventDateConvert {
         $this->sameDay = 0;
 
         $end = date('m/d/y - g:i A T', $end_iso);
-        $end_time = date('g:i A', $end_iso);
+        $end_time = date('g:i A T', $end_iso);
       }
       else {
         $end = date('g:i A T', $end_iso);
-        $end_time = date('g:i A', $end_iso);
+        $end_time = date('g:i A T', $end_iso);
       }
     }
+
     $this->start = $start;
     $this->start_time = $start_time;
     $this->end = $end;
