@@ -1722,3 +1722,15 @@ function access_misc_update_10027() {
     'jquery_ui_touch_punch']);
 }
 
+/**
+ * Remove some menu items in db.
+ */
+function access_misc_update_10028() {
+  $query = \Drupal::database()->delete('menu_link_content_data');
+  $query->condition('title', 'Submissions', '=');
+  $result = $query->execute();
+
+  $query = \Drupal::database()->delete('menu_link_content_data');
+  $query->condition('title', 'Interested People', '=');
+  $result = $query->execute();
+}
