@@ -695,7 +695,7 @@ function access_events_entity_update(EntityInterface $entity) {
   }
 }
 
-/**Add commentMore actions
+/**
  * Implements hook_entity_insert().
  */
 function access_events_entity_insert(EntityInterface $entity) {
