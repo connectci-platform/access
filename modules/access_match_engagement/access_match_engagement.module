@@ -28,6 +28,34 @@ function access_match_engagement_views_pre_render(ViewExecutable $view) {
 }
 
 /**
+ * Implements hook_preprocess_views_view_field for views-view-field.html.twig.
+ */
+function access_match_engagement_preprocess_views_view_field(&$variables) {
+  $view = $variables['view'];
+  $field = $variables['field'];
+
+  // Overwrite MATCH Engagements submissions on /match-engagements-submissions.
+  // /admin/structure/views/view/match_engagements_submissions/edit/page_1
+  if ($view->id() == 'match_engagements_submissions' && $view->current_display == 'page_1' && $field->options['id'] == 'nothing') {
+    $output =$variables['output'];
+
+    $matches = [];
+    preg_match('/~\s*(\d+)\s*~/', $output, $matches);
+    if (isset($matches[1])) {
+      $nid = $matches[1];
+      $user = User::load($nid);
+      if ($user) {
+        // Replace the nid with the user's email.
+        $email = "<strong>Email:</strong> " . $user->getEmail() . "<br />";
+        $output = str_replace("~ $nid ~", $email, $output);
+        // Set the output to the modified output.
+        $variables['output'] = Markup::create($output);
+      }
+    }
+  }
+}
+
+/**
  * Implements hook_block_build_BASE_BLOCK_ID_alter().
  */
 function access_match_engagement_block_build_views_block_alter(array &$build, BlockPluginInterface $block) {
