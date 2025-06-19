@@ -181,63 +181,6 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
     $moderation_state = $form['moderation_state']['widget'][0]['state']['#default_value'];
     $accepted = !in_array($moderation_state, $unaccepted_states);
 
-    if (!$accepted) {
-      $form['field_milestone_completion_date']['widget'][0]['#after_build'][] = 'access_match_engagement_customize_required_date';
-      $form['field_requested_engagement']['#access'] = FALSE;
-      $form['field_project_image']['#access'] = FALSE;
-      $form['field_project_deliverables']['#access'] = FALSE;
-      $form['fieldset_launch']['#access'] = FALSE;
-      $form['group_milestones_group']['#access'] = FALSE;
-      $form['field_milestone_description']['#access'] = FALSE;
-      $form['field_milestone_completion_date']['#access'] = FALSE;
-      $form['field_milestone_actual_date']['#access'] = FALSE;
-      $form['field_milestone_title_1']['#access'] = FALSE;
-      $form['field_milestone_description_1']['#access'] = FALSE;
-      $form['field_completion_date_goal_1']['#access'] = FALSE;
-      $form['field_actual_completion_date_1']['#access'] = FALSE;
-      $form['field_milestone_title_2']['#access'] = FALSE;
-      $form['field_milestone_description_2']['#access'] = FALSE;
-      $form['field_completion_date_goal_2']['#access'] = FALSE;
-      $form['field_actual_completion_date_2']['#access'] = FALSE;
-      $form['field_milestone_title_3']['#access'] = FALSE;
-      $form['field_milestone_description_3']['#access'] = FALSE;
-      $form['field_completion_date_goal_3']['#access'] = FALSE;
-      $form['field_actual_completion_date_3']['#access'] = FALSE;
-      $form['field_milestone_title_4']['#access'] = FALSE;
-      $form['field_milestone_description_4']['#access'] = FALSE;
-      $form['field_completion_date_goal_4']['#access'] = FALSE;
-      $form['field_actual_completion_date_4']['#access'] = FALSE;
-      $form['field_hpc_resources_needed']['#access'] = FALSE;
-      $form['field_consultant']['#access'] = FALSE;
-      $form['field_mentor']['#access'] = FALSE;
-      $form['field_researcher']['#access'] = FALSE;
-      $form['field_students']['#access'] = FALSE;
-      $form['field_qualifications']['#access'] = FALSE;
-      $form['field_student_learning']['#access'] = FALSE;
-      $form['field_education']['#access'] = FALSE;
-      $form['field_programming_skill_level']['#access'] = FALSE;
-      $form['field_launch_presentation']['#access'] = FALSE;
-      $form['field_launch_presentation_date']['#access'] = FALSE;
-      $form['field_wrap_presentation']['#access'] = FALSE;
-      $form['field_wrap_presentation_date']['#access'] = FALSE;
-      $form['field_git_contribution']['#access'] = FALSE;
-      $form['field_planned_portal_contributio']['#access'] = FALSE;
-      $form['field_planned_publications']['#access'] = FALSE;
-      $form['field_what_match_will_learn']['#access'] = FALSE;
-      $form['field_notes']['#access'] = FALSE;
-      $form['field_what_is_the_impact_on_othe']['#access'] = FALSE;
-      $form['field_what_is_the_impact_on_the_']['#access'] = FALSE;
-      $form['What is the impact on the development discipline(s) of the project?']['#access'] = FALSE;
-      $form['field_is_there_an_impact_on_info']['#access'] = FALSE;
-      $form['field_is_there_an_impact_on_inst']['#access'] = FALSE;
-      $form['field_is_there_an_impact_on_soci']['#access'] = FALSE;
-      $form['field_is_there_an_impact_on_tech']['#access'] = FALSE;
-      $form['field_is_there_an_impact_physica']['#access'] = FALSE;
-      $form['field_match_steering_committee_m']['#access'] = FALSE;
-      $form['field_lessons_learned']['#access'] = FALSE;
-      $form['field_overall_results']['#access'] = FALSE;
-    }
-
     if (!in_array('administrator', $roles) && !in_array('match_sc', $roles)) {
       $form['field_email_user']['#access'] = FALSE;
       $form['field_notes_to_author']['#access'] = FALSE;
