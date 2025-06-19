@@ -181,6 +181,14 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
 
   // Custom tags on /events/add
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
+
+    // If user is not administrator, hide the field 'field_event_allocation_grant'.
+    $current_user = \Drupal::currentUser();
+    $roles = $current_user->getRoles();
+    if (!in_array('administrator', $roles)) {
+      $form['domain_access']['#access'] = FALSE;
+    }
+
     $form['body']['widget'][0]['#required'] = TRUE;
 
     $form['event_registration']['widget'][0]['#description'] = "<strong>Event registration is a new feature. If you encounter any issues or unexpected behavior, please submit a ticket to let us know.</strong>";
