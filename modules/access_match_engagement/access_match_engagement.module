@@ -134,23 +134,6 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
     $form['#attached']['library'][] = 'access_misc/node_add_tags';
     $form['#attached']['library'][] = 'access_match_engagement/access_match_engagement';
 
-    // If creating a new engagement, use the request type from the url.
-    if ($form_id == 'node_match_engagement_form') {
-      $request = \Drupal::request();
-      $request_type = $request->get("type");
-      // Default to plus if type is unexpected value for node creation.
-      $request_type = $request_type == 'premier' ? 'premier' : 'plus';
-      if ($request_type == 'premier') {
-        $form['#title'] = t('Create Premier Engagement');
-      }
-      if (!isset($request_type)) {
-        $url = '/node/add/match_engagement?type=plus';
-        $response = new RedirectResponse($url);
-        $response->send();
-      }
-      $form['field_node_type']['widget']['#default_value'][0] = $request_type;
-    }
-
     $form['field-launch-presentation'] = [
       '#group' => 'fieldset_launch',
     ];
@@ -186,7 +169,6 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
       $form['field_notes_to_author']['#access'] = FALSE;
       $form['field_match_interested_users']['#access'] = FALSE;
       $form['field_match_steering_committee_m']['#disabled'] = TRUE;
-      $form['field_node_type']['#access'] = FALSE;
       $form['field_email_user']['#access'] = FALSE;
       $form['revision']['#access'] = FALSE;
       $form['revision_log']['#access'] = FALSE;
@@ -196,43 +178,12 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
       // Show author, status, and last saved date to SC.
       $form['meta']['#access'] = TRUE;
       unset($form['meta']['#group']);
-
-      // match_sc roles seem confused by this — so hiding.
-      $form['field_node_type']['#access'] = FALSE;
     }
 
-    if ($form_id == 'node_match_engagement_edit_form') {
-      $node_param = \Drupal::routeMatch()->getParameter('node');
-      $node_storage = \Drupal::entityTypeManager()->getStorage('node');
-      $node = $node_storage->load($node_param->id());
-      $type = $node->get('field_node_type')->value;
-      if ($type == 'plus') {
-        $form['field_requested_engagement']['#access'] = FALSE;
-        $form['field_consultant']['#access'] = FALSE;
-      }
-      if ($type == 'premier') {
-        $title = $node->get('title')->value;
-        $form['#title'] = t('Edit Premier Engagement ') . $title;
-        // Engagement length: hide 3 months; leave in 6, 12 and 18 months.
-        unset($form['field_requested_engagement']['widget']['#options'][3]);
-        $form['field_mentor']['#access'] = FALSE;
-        $form['field_students']['#access'] = FALSE;
-        $form['field_qualifications']['#access'] = FALSE;
-        $form['field_student_learning']['#access'] = FALSE;
-        $form['field_education']['#access'] = FALSE;
-        $form['field_programming_skill_level']['#access'] = FALSE;
-      }
-    }
     $form['#validate'][] = 'access_match_engagement_form_validate';
     $form['save_description'] = [
       '#markup' => '<div>' .
-                    t("Save as <span class=\"font-bold\">Submitted</span> when you’re ready for an initial review,
-                    or <span class=\"font-bold\">Draft</span> if you need more time. Once the engagement has been
-                    <span class=\"font-bold\">Received</span> you can fill in more details about your needs and
-                    save as <span class=\"font-bold\">In Review</span>. After a second review it will be
-                    published and displayed as <span class=\"font-bold\">Recruiting</span> so that people can use
-                    the “I’m interested” button to be considered for
-                    participation.") .
+                    t("Save as <span class=\"font-bold\">Submitted</span> when your request is ready, or <span class=\"font-bold\">Draft</span> if you need more time") .
                     '</div>',
       '#weight' => 99,
       '#allowed_tags' => [
