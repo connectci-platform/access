@@ -7,6 +7,8 @@
 use Drupal\access_events\Plugin\Util\EventDateConvert;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Session\AccountInterface;
+use Drupal\Core\Access\AccessResult;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Render\Markup;
 use Drupal\user\Entity\User;
@@ -730,4 +732,25 @@ function access_events_entity_insert(EntityInterface $entity) {
   }
 }
 
+/**
+ * Implements hook_entity_access().
+ */
+function access_events_entity_access(EntityInterface $entity, $operation, AccountInterface $account) {
+  if (($entity->getEntityTypeId() == 'eventinstance' || $entity->getEntityTypeId() == 'eventseries') && $entity->bundle() == 'default') {
+    $author = $entity->getOwner();
+    $author_id = $author->id();
+    $current_user = \Drupal::currentUser();
+    $current_user_id = $current_user->id();
+
+    if ($author_id == $current_user_id) {
+      // Allow access if the user is the author of the event instance.
+      return AccessResult::allowed();
+    }
+    else {
+      // Return neutral if not author.
+      return AccessResult::neutral();
+    }
+  }
+
+}
 
