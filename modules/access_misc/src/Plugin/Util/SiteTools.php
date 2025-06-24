@@ -44,6 +44,16 @@ class SiteTools {
   }
 
   /**
+   * Get Current Domain ID.
+   */
+  public function getDomainId() {
+    $domain_negotiator = \Drupal::service('domain.negotiator');
+    $active_domain = $domain_negotiator->getActiveDomain();
+
+    return $active_domain->id();
+  }
+
+  /**
    * Get current program based on domain.
    */
   public function getProgram() {

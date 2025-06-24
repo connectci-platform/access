@@ -307,6 +307,22 @@ function access_affinitygroup_entity_presave(EntityInterface $entity) {
 }
 
 /**
+ * Implements hook_views_pre_view() for node templates.
+ */
+function access_affinitygroup_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
+  if ($view->id() == 'affinity_groups_with_tag' && $view->getDisplay()->view->element['#display_id'] == 'block_2') {
+    $view_filters = $view->display_handler->getOption('filters');
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    $view_filters['field_domain_access_target_id']['value'] = [
+      $domain => $domain
+    ];
+
+    $view->display_handler->setOption('filters', $view_filters);
+  }
+}
+
+/**
  * Implements hook_views_pre_render().
  *
  * Used in this case to add the CiDeR resource titles & descriptions to the view.
