@@ -557,12 +557,30 @@ function access_misc_user_password_change($form, FormStateInterface $form_state)
 
 function access_misc_replace_section_callback(array &$form, FormStateInterface $form_state) {
   $raw_data = $form_state->getUserInput();
-  $body_filter = $raw_data['description'] ? Xss::filter($raw_data['description']) : '';
+  $body = $raw_data['description'];
+  $body_filter = $body ? Xss::filter($body) : '';
   $suggested_tag_ids = '0';
-  if (strlen($body_filter) >= 100) {
+  $tagged_tags = array_filter($raw_data['tags']);
+  $tag_count = count($tagged_tags);
+  $tag_limit = 6;
+  $tag_amount = $tag_limit - $tag_count;
+
+  $form['field_tags_replace']['user_message'] = [
+    '#markup' => "",
+  ];
+
+  if ($tag_amount <= 0) {
+    $form['field_tags_replace']['user_message'] = [
+      '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
+      <strong class='text-sky-900'>You already have 6 tags</strong><br />
+      You can remove some tags to get more suggestions.</div>",
+    ];
+  }
+  elseif (strlen($body_filter) >= 100) {
     $llm = \Drupal::service('access_llm.ai_references_generator');
     $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
-    $suggested_tag_ids = implode(', ', $llm->taxonomyIdSuggested());
+    $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
+    $suggested_tag_ids = implode(', ', $suggestions);
     $form['field_tags_replace']['user_message'] = [
       '#markup' => "",
     ];
@@ -570,10 +588,11 @@ function access_misc_replace_section_callback(array &$form, FormStateInterface $
   else {
     $form['field_tags_replace']['user_message'] = [
       '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
-                    <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
+      <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
                     Your description must be over 100 characters to get a suggestion.</div>",
     ];
   }
+
   $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
 
   // Return the updated section.
