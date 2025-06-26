@@ -730,9 +730,9 @@ function ccmnet_node_view(array &$build, EntityInterface $entity, EntityViewDisp
  */
 function ccmnet_cron() {
   $env = getenv('PANTHEON_ENVIRONMENT');
-  if ($env == 'live') {
+  //if ($env == 'live') {
     // Send interested email between 1:00am and 1:15am.
-    if ((date('G', time()) == 01) && (date('i', time()) >= 0) && (date('i', time()) < 15)) {
+    //if ((date('G', time()) == 01) && (date('i', time()) >= 0) && (date('i', time()) < 15)) {
       $interested_status = \Drupal::state()->get('access_mentorship_interested');
       $interested_list = json_decode($interested_status, TRUE);
       if (empty($interested_list) || !is_array($interested_list)) {
@@ -776,6 +776,5 @@ function ccmnet_cron() {
       \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $ccmnet_admin_emails, $variables);
       \Drupal::logger('ccmnet')->info('Sent interested summary email to @role', ['@role' => $role]);
       \Drupal::state()->set('access_mentorship_interested', 0);
-    }
-  }
-}
+  //}
+//}
