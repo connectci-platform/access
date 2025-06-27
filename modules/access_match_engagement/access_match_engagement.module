@@ -42,18 +42,6 @@ function access_match_engagement_block_build_views_block_alter(array &$build, Bl
  */
 function access_match_engagement_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   if ($form_id == 'node_match_engagement_edit_form' || $form_id == 'node_match_engagement_form') {
-    $form['description'] = [
-      '#markup' => t('Tell us about your project and the support you need. After we review your request we will ask for more details, and then make the engagement public to find a team to help you.'),
-      '#weight' => -10,
-      '#allowed_tags' => [
-        'details',
-        'summary',
-        'div',
-        'span',
-        'h2',
-      ],
-    ];
-
     // Make text boxes stretch full width and give labels bold/width.
     $form['#attributes']['class'][] = 'prose mb-10';
     // Make details top summary text bold.
