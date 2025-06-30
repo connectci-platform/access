@@ -731,8 +731,8 @@ function ccmnet_node_view(array &$build, EntityInterface $entity, EntityViewDisp
 function ccmnet_cron() {
   $env = getenv('PANTHEON_ENVIRONMENT');
   if ($env == 'live') {
-    // Send interested email between 1:00am and 1:15am.
-    if ((date('G', time()) == 01) && (date('i', time()) >= 0) && (date('i', time()) < 15)) {
+    // Send interested email between 1:00 am and 1:59 am.
+    if (date('G', time()) == 01) {
       $interested_status = \Drupal::state()->get('access_mentorship_interested');
       $interested_list = json_decode($interested_status, TRUE);
       if (empty($interested_list) || !is_array($interested_list)) {
