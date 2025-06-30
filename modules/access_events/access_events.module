@@ -591,17 +591,51 @@ function access_events_preprocess_views_view_field(&$variables) {
 
   // Display event instance date in the right format.
   if ($view->id() == 'recurring_events_event_instances' && ($view->current_display == 'block_1' || $view->current_display == 'block_2')) {
-    if ($field->field == 'date__value') {
-      // Default separator between start and end dates is ' - '.
-      $output = explode(' - ', $variables['output']);
-      if (count($output) == 2) {
-        $start_date = $output[0];
-        $end_date = $output[1];
-        $date = new EventDateConvert($start_date, $end_date);
-        if ($date->sameDay ) {
-          $variables['output'] = Markup::create($date->getStart() . " - " . $date->getEnd());
-        } else {
-          $variables['output'] = Markup::create($date->getStart() . " to " . $date->getEnd());
+    if ($field->field == 'date__value' || $field->field == 'date__end_value') {
+      // Handle custom Twig rewrite by getting dates from the entity directly
+      $row = $variables['row'];
+      if (isset($row->_entity) && $row->_entity->hasField('date')) {
+        $entity = $row->_entity;
+        $date_field = $entity->get('date');
+        
+        if (!$date_field->isEmpty()) {
+          $start_date = $date_field->start_date;
+          $end_date = $date_field->end_date;
+          
+          // Convert to user timezone
+          $user = \Drupal::currentUser();
+          $user_timezone = $user->getTimeZone() ?: date_default_timezone_get();
+          
+          if ($start_date) {
+            $start_date->setTimezone(new \DateTimeZone($user_timezone));
+          }
+          if ($end_date) {
+            $end_date->setTimezone(new \DateTimeZone($user_timezone));
+          }
+          
+          // Create formatted output
+          if ($start_date && $end_date) {
+            $formatted_date = $start_date->format('l, n/j/Y');
+            $start_time = $start_date->format('g:i A');
+            $end_time = $end_date->format('g:i A T');
+            $formatted_output = $formatted_date . '<br>' . $start_time . ' - ' . $end_time;
+            
+            $variables['output'] = Markup::create($formatted_output);
+          }
+        }
+      }
+      else {
+        // Fallback to original logic for non-custom rewrite cases
+        $output = explode(' - ', $variables['output']);
+        if (count($output) == 2) {
+          $start_date = $output[0];
+          $end_date = $output[1];
+          $date = new EventDateConvert($start_date, $end_date);
+          if ($date->sameDay ) {
+            $variables['output'] = Markup::create($date->getStart() . " - " . $date->getEnd());
+          } else {
+            $variables['output'] = Markup::create($date->getStart() . " to " . $date->getEnd());
+          }
         }
       }
     }
