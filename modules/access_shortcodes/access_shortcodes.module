@@ -11,7 +11,6 @@ function access_shortcodes_theme() {
   return [
     'shortcode_icon_block' => [
       'variables' => [
-        'icon' => '',
         'img' => '',
         'alt' => '',
         'title' => '',
