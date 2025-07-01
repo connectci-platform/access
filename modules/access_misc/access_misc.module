@@ -182,9 +182,7 @@ function access_misc_views_post_render(ViewExecutable $view) {
  * Implements hook_views_pre_view() for node templates.
  */
 function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
-  $token = \Drupal::token();
-  $domainName = t("[domain:name]");
-  $current_domain_name = Html::getClass($token->replace($domainName));
+  $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
 
   $view_element = $view->element;
 
@@ -279,7 +277,7 @@ function term_lookup_from_path() {
   $path_args = explode('/', $path);
   $tid = NULL;
   $title = NULL;
-  
+
   if (is_numeric($path_args[3])) {
     $tid = $path_args[3];
     // Lookup term by tid.
