@@ -168,6 +168,18 @@ function access_misc_views_post_render(ViewExecutable $view) {
  * Implements hook_pre_view() for node templates.
  */
 function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
+  $token = \Drupal::token();
+  $domainName = t("[domain:name]");
+  $current_domain_name = Html::getClass($token->replace($domainName));
+
+  $view_element = $view->element;
+
+  // Add domain cache tag to all views.
+  if (array_key_exists('#cache', $view_element)) {
+    if (array_key_exists('tags', $view_element['#cache'])) {
+      $view_element['#cache']['tags']['domain:' . $current_domain_name];
+    }
+  }
 
   if ($view->id() == 'affinity_groups_with_tag' && $display_id === 'block_2') {
     $term = term_lookup_from_path();
