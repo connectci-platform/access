@@ -9,6 +9,7 @@ use Drupal\Component\Utility\Xss;
 use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Component\Utility\Html;
 use Drupal\datetime\Plugin\Field\FieldType\DateTimeItemInterface;
 use Drupal\node\Entity\Node;
 use Drupal\recurring_events\Entity\EventInstance;
@@ -101,13 +102,29 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
  */
 function access_news_replace_section_callback(array &$form, FormStateInterface $form_state) {
   $raw_data = $form_state->getUserInput();
-  $body = $raw_data['body']['0']['value'];
+  $body = $raw_data['body'][0]['value'];
   $body_filter = $body ? Xss::filter($body) : '';
   $suggested_tag_ids = '0';
-  if (strlen($body_filter) >= 100) {
+  $tag_count = count($raw_data['field_tags']);
+  $tag_limit = 6;
+  $tag_amount = $tag_limit - $tag_count;
+
+  $form['field_tags_replace']['user_message'] = [
+    '#markup' => "",
+  ];
+
+  if ($tag_amount <= 0) {
+    $form['field_tags_replace']['user_message'] = [
+      '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
+      <strong class='text-sky-900'>You already have 6 tags</strong><br />
+      You can remove some tags to get more suggestions.</div>",
+    ];
+  }
+  elseif (strlen($body_filter) >= 100) {
     $llm = \Drupal::service('access_llm.ai_references_generator');
     $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
-    $suggested_tag_ids = implode(', ', $llm->taxonomyIdSuggested());
+    $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
+    $suggested_tag_ids = implode(', ', $suggestions);
     $form['field_tags_replace']['user_message'] = [
       '#markup' => "",
     ];
@@ -115,11 +132,12 @@ function access_news_replace_section_callback(array &$form, FormStateInterface $
   else {
     $form['field_tags_replace']['user_message'] = [
       '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
-                    <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
+      <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
                     Your description must be over 100 characters to get a suggestion.</div>",
     ];
   }
-  $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids;
+
+  $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
 
   // Return the updated section.
   return $form['field_tags_replace'];
@@ -399,10 +417,18 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
           // Newstype is eventseries.
           $pubDate = NULL;
 
+          if ($node->getInstanceCount() > 1) {
+            $newsUrl = NULL;
+          }
+
           // Body set using a custom view mode: ccemail.
           $view_builder = \Drupal::entityTypeManager()->getViewBuilder('eventseries');
-          $renderArray = $view_builder->view($node);
+          $renderArray = $view_builder->view($node, 'ccemail');
           $body = \Drupal::service('renderer')->renderPlain($renderArray);
+
+          $body = str_replace('Event Instances', 'Event Date & Time', $body);
+          $body = Html::transformRootRelativeUrlsToAbsolute($body, \Drupal::request()->getSchemeAndHttpHost());
+
         }
 
         // Now emailing the group; set option broadcast off. If user wants to email again after

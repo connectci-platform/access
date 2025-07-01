@@ -182,6 +182,25 @@ function access_misc_views_post_render(ViewExecutable $view) {
  * Implements hook_views_pre_view() for node templates.
  */
 function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
+  $token = \Drupal::token();
+  $domainName = t("[domain:name]");
+  $current_domain_name = Html::getClass($token->replace($domainName));
+
+  $view_element = $view->element;
+
+  // Add domain cache tag to all views.
+  if (array_key_exists('#cache', $view_element)) {
+    if (array_key_exists('tags', $view_element['#cache'])) {
+      // Ensure the domain name is valid before using it as a cache tag
+      if (!empty($current_domain_name) && is_string($current_domain_name)) {
+        $domain_tag = 'domain:' . $current_domain_name;
+        // Avoid duplicate tags
+        if (!in_array($domain_tag, $view_element['#cache']['tags'])) {
+          $view_element['#cache']['tags'][] = $domain_tag;
+        }
+      }
+    }
+  }
 
   if (
     ($view->id() == 'people_with_expertise_tags' && $view->getDisplay()->view->element['#display_id'] == 'block_1') ||
@@ -205,44 +224,50 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
 
   if ($view->id() == 'affinity_groups_with_tag' && $display_id === 'block_2') {
     $term = term_lookup_from_path();
-
-    $footer = \Drupal::service('access_misc.viewstools');
-    $footer->setFooter($view, 'All Affinity Groups with this tag', '/tags/' . $term['tid'] . '/affinity-groups', 'block_2');
+    if (!empty($term['tid'])) {
+      $footer = \Drupal::service('access_misc.viewstools');
+      $footer->setFooter($view, 'All Affinity Groups with this tag', '/tags/' . $term['tid'] . '/affinity-groups', 'block_2');
+    }
   }
 
   if ($view->id() == 'people_with_expertise_tags' && $display_id === 'block_1') {
     $term = term_lookup_from_path();
-
-    $footer = \Drupal::service('access_misc.viewstools');
-    $footer->setFooter($view, 'more people', '/tags/' . $term['tid'] . '/people-with-expertise', 'block_1');
+    if (!empty($term['tid'])) {
+      $footer = \Drupal::service('access_misc.viewstools');
+      $footer->setFooter($view, 'more people', '/tags/' . $term['tid'] . '/people-with-expertise', 'block_1');
+    }
   }
 
   if ($view->id() == 'people_with_interest_tags' && $display_id === 'block_1') {
     $term = term_lookup_from_path();
-
-    $footer = \Drupal::service('access_misc.viewstools');
-    $footer->setFooter($view, 'more people', '/tags/' . $term['tid'] . '/people-with-interest', 'block_1');
+    if (!empty($term['tid'])) {
+      $footer = \Drupal::service('access_misc.viewstools');
+      $footer->setFooter($view, 'more people', '/tags/' . $term['tid'] . '/people-with-interest', 'block_1');
+    }
   }
 
   if ($view->id() == 'match_engagement_view' && $display_id === 'block_6') {
     $term = term_lookup_from_path();
-
-    $footer = \Drupal::service('access_misc.viewstools');
-    $footer->setFooter($view, 'All Engagements with this tag', '/tag/' . $term['tid'] . '/engagements', 'block_6');
+    if (!empty($term['tid'])) {
+      $footer = \Drupal::service('access_misc.viewstools');
+      $footer->setFooter($view, 'All Engagements with this tag', '/tag/' . $term['tid'] . '/engagements', 'block_6');
+    }
   }
 
   if ($view->id() == 'resources' && $display_id === 'block_1') {
     $term = term_lookup_from_path();
-
-    $footer = \Drupal::service('access_misc.viewstools');
-    $footer->setFooter($view, 'All Resources with this tag', '/tags/' . $term['tid'] . '/resources', 'block_1');
+    if (!empty($term['tid'])) {
+      $footer = \Drupal::service('access_misc.viewstools');
+      $footer->setFooter($view, 'All Resources with this tag', '/tags/' . $term['tid'] . '/resources', 'block_1');
+    }
   }
 
   if ($view->id() == 'tagged_news_block' && $display_id === 'block_1') {
     $term = term_lookup_from_path();
-
-    $footer = \Drupal::service('access_misc.viewstools');
-    $footer->setFooter($view, 'more', '/announcements?tid=' . $term['tid'], 'block_1');
+    if (!empty($term['tid'])) {
+      $footer = \Drupal::service('access_misc.viewstools');
+      $footer->setFooter($view, 'more', '/announcements?tid=' . $term['tid'], 'block_1');
+    }
   }
 }
 
@@ -252,8 +277,9 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
 function term_lookup_from_path() {
   $path = Xss::filter(\Drupal::service('path.current')->getPath());
   $path_args = explode('/', $path);
-  $tid = 0;
-  $title = '';
+  $tid = NULL;
+  $title = NULL;
+  
   if (is_numeric($path_args[3])) {
     $tid = $path_args[3];
     // Lookup term by tid.
@@ -527,12 +553,30 @@ function access_misc_user_password_change($form, FormStateInterface $form_state)
 
 function access_misc_replace_section_callback(array &$form, FormStateInterface $form_state) {
   $raw_data = $form_state->getUserInput();
-  $body_filter = $raw_data['description'] ? Xss::filter($raw_data['description']) : '';
+  $body = $raw_data['description'];
+  $body_filter = $body ? Xss::filter($body) : '';
   $suggested_tag_ids = '0';
-  if (strlen($body_filter) >= 100) {
+  $tagged_tags = array_filter($raw_data['tags']);
+  $tag_count = count($tagged_tags);
+  $tag_limit = 6;
+  $tag_amount = $tag_limit - $tag_count;
+
+  $form['field_tags_replace']['user_message'] = [
+    '#markup' => "",
+  ];
+
+  if ($tag_amount <= 0) {
+    $form['field_tags_replace']['user_message'] = [
+      '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
+      <strong class='text-sky-900'>You already have 6 tags</strong><br />
+      You can remove some tags to get more suggestions.</div>",
+    ];
+  }
+  elseif (strlen($body_filter) >= 100) {
     $llm = \Drupal::service('access_llm.ai_references_generator');
     $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
-    $suggested_tag_ids = implode(', ', $llm->taxonomyIdSuggested());
+    $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
+    $suggested_tag_ids = implode(', ', $suggestions);
     $form['field_tags_replace']['user_message'] = [
       '#markup' => "",
     ];
@@ -540,10 +584,11 @@ function access_misc_replace_section_callback(array &$form, FormStateInterface $
   else {
     $form['field_tags_replace']['user_message'] = [
       '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
-                    <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
+      <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
                     Your description must be over 100 characters to get a suggestion.</div>",
     ];
   }
+
   $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
 
   // Return the updated section.
