@@ -5,7 +5,6 @@
  */
 
 use Drupal\access_events\Plugin\Util\EventDateConvert;
-use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityInterface;
@@ -31,9 +30,7 @@ function access_misc_page_attachments(&$variables) {
     $variables['#attached']['library'][] = 'access_misc/nonadmin';
   }
 
-  $token = \Drupal::token();
-  $domainName = t("[domain:name]");
-  $current_domain_name = Html::getClass($token->replace($domainName));
+  $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
 
   $query = \Drupal::database()->select('taxonomy_term__field_region_connected_domain', 't');
   $query->fields('t', ['field_region_connected_domain_value', 'entity_id']);
@@ -42,6 +39,23 @@ function access_misc_page_attachments(&$variables) {
   if (array_key_exists($current_domain_name, $program_id)) {
     $variables['#attached']['drupalSettings']['access_misc']['current_menu'] = $program_id[$current_domain_name];
     $variables['#attached']['library'][] = 'access_misc/people_menu';
+  }
+}
+
+/**
+ * Implements hook_entity_view_mode_alter().
+ */
+function access_misc_entity_view_mode_alter(&$view_mode, Drupal\Core\Entity\EntityInterface $entity, $context) {
+  $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
+
+  // Custom view modes for taxonomy terms per domains.
+  if ($entity->getEntityTypeId() == 'taxonomy_term' && $entity->bundle() == 'tags' && $view_mode == 'full') {
+    if ($current_domain_name == 'access-support') {
+      $view_mode = 'taxonomy_term_page_support';
+    }
+    elseif ($current_domain_name == 'open-ondemand') {
+      $view_mode = 'taxonomy_term_page_open_ondemand';
+    }
   }
 }
 
@@ -165,12 +179,10 @@ function access_misc_views_post_render(ViewExecutable $view) {
 }
 
 /**
- * Implements hook_pre_view() for node templates.
+ * Implements hook_views_pre_view() for node templates.
  */
 function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
-  $token = \Drupal::token();
-  $domainName = t("[domain:name]");
-  $current_domain_name = Html::getClass($token->replace($domainName));
+  $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
 
   $view_element = $view->element;
 
@@ -186,6 +198,26 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
         }
       }
     }
+  }
+
+  if (
+    ($view->id() == 'people_with_expertise_tags' && $view->getDisplay()->view->element['#display_id'] == 'block_1') ||
+    ($view->id() == 'people_with_expertise_tags' && $view->getDisplay()->view->element['#display_id'] == 'page_1') ||
+    ($view->id() == 'people_with_interest_tags' && $view->getDisplay()->view->element['#display_id'] == 'block_1') ||
+    ($view->id() == 'people_with_interest_tags' && $view->getDisplay()->view->element['#display_id'] == 'page_1')
+  ) {
+    $view_filters = $view->display_handler->getOption('filters');
+    $program = \Drupal::service('access_misc.sitetools')->getProgram();
+
+    if (empty($program)) {
+      // If no program for the domain, set the filter to not match any program.
+      $view_filters['field_region_target_id_1']['operator'] = 'not';
+    }
+    else {
+      $view_filters['field_region_target_id_1']['value'] = $program;
+    }
+
+    $view->display_handler->setOption('filters', $view_filters);
   }
 
   if ($view->id() == 'affinity_groups_with_tag' && $display_id === 'block_2') {
@@ -245,7 +277,7 @@ function term_lookup_from_path() {
   $path_args = explode('/', $path);
   $tid = NULL;
   $title = NULL;
-  
+
   if (is_numeric($path_args[3])) {
     $tid = $path_args[3];
     // Lookup term by tid.
@@ -430,72 +462,6 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     $form['#title'] = t('Join or Login');
   }
 
-  // Custom tags on /form/ci-link webform.
-  if ($form_id == 'webform_submission_resource_add_form' || $form_id == 'webform_submission_resource_edit_form') {
-    $form['field_tags_replace'] = [
-      '#type' => 'container',
-      '#attributes' => [
-        'id' => 'field-tags-replace',
-        'data-suggest' => '0',
-      ],
-      '#weight' => 2,
-    ];
-
-    $form['field_tags_replace']['field_suggest'] = [
-      '#type' => 'container',
-      '#attributes' => [
-        'class' => [
-          'bg-light-teal',
-          'my-5',
-          'p-5'
-        ]
-      ],
-    ];
-
-    $form['field_tags_replace']['field_suggest']['tag_list'] = [
-      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary. Limited to 6 tags.</div>",
-    ];
-    $form['field_tags_replace']['field_suggest']['replace_button'] = [
-      '#type' => 'button',
-      '#value' => t('Suggest Tags'),
-      '#limit_validation_errors' => array(),
-      '#attributes' => [
-        'class' => [
-          'ml-0'
-        ],
-      ],
-      '#ajax' => [
-        'callback' => 'access_misc_replace_section_callback',
-        'wrapper' => 'field-tags-replace',
-      ],
-    ];
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
-    ];
-
-    $form['#attached']['library'][] = 'access_misc/custom_tags';
-    $add_tags = \Drupal::service('access_misc.addtags');
-    $output = $add_tags->getView();
-    $form['custom_tags'] = [
-      '#markup' => "<div id='tag-suggestions'></div>
-                    <details open class='tags'>
-                     <summary><label class='js-form-required form-required'>Select relevant tags</label></summary>
-                      $output
-                    </details>",
-      '#weight' => 3,
-      '#allowed_tags' => [
-        'button',
-        'details',
-        'summary',
-        'label',
-        'span',
-        'div',
-        'h2',
-      ],
-    ];
-
-    $form['#validate'][] = 'access_misc_custom_tags_validate';
-  }
   if ($form_id == 'user_form') {
     $form['actions']['submit']['#submit'][] = 'access_misc_user_password_change';
   }
