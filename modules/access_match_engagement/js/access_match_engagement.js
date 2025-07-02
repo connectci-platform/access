@@ -5,7 +5,7 @@ if (notes) {
 }
 
 var checkBoxEmail = document.getElementById("edit-field-email-user-value");
-if (checkBoxEmail) {
+if (checkBoxEmail && notes) {
   checkBoxEmail.onclick = function () {
     notes.classList.toggle("hide");
   };

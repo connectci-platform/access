@@ -104,7 +104,13 @@ class EventInstanceSidebar extends BlockBase {
     $skill_image = \Drupal::service('access_misc.skillLevel')->getSkillsImage($skill_list);
 
     $event_type = $series->get('field_event_type')->getValue();
-    $event_affiliation = $series->get('field_affiliation')->getValue();
+    $event_affiliation_id = $series->get('field_affiliation')->getValue();
+    $event_affiliation_list = $series->getFieldDefinition('field_affiliation')->getFieldStorageDefinition()->getSetting('allowed_values');
+
+    $event_affiliation = '';
+    foreach ($event_affiliation_id as $affiliation) {
+      $event_affiliation .= $event_affiliation_list[$affiliation['value']] . '<br />' ?? '';
+    }
 
     $affinity_group = $series->get('field_affinity_group_node')->getValue();
 
@@ -205,11 +211,9 @@ class EventInstanceSidebar extends BlockBase {
         {% if event_affiliation %}
           <h3 class="field__label">{{ event_affiliation_title }}</h3>
            <div class="field__items">
-            {% for affiliation in event_affiliation %}
               <div class="field__item">
-                {{ affiliation.value }}
+                {{ event_affiliation|raw }}
               </div>
-            {% endfor %}
           </div>
         {% endif %}
 
