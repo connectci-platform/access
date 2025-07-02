@@ -392,7 +392,7 @@ function access_events_replace_event_section_callback(array &$form, FormStateInt
   $body = $raw_data['body'][0]['value'];
   $body_filter = $body ? Xss::filter($body) : '';
   $suggested_tag_ids = '0';
-  $tag_count = count($raw_data['field_tags']);
+  $tag_count = count($raw_data['field_tags'] ?? []);
   $tag_limit = 6;
   $tag_amount = $tag_limit - $tag_count;
 
