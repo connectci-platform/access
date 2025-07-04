@@ -252,7 +252,7 @@ function access_cilink_preprocess_views_view_field(&$variables) {
                           <div class="grid grid-cols-5 gap-4 p-4">
                             <div class="col-span-5 md--col-span-4">
                               {{ linkToResource | raw }}
-                              {{ description }}
+                              {{ description | raw }}
                               <div class="square-tags">{{ tags | raw }}</div>
                             </div>
                             <div class="col-span-5 md--col-span-1 flex flex-row flex-wrap justify-between">
