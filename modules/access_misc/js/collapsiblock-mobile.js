@@ -13,6 +13,10 @@
           'collapsiblock',
           JSON.stringify(cookieData)
         );
+        $('.collapsiblockTitle:not(.collapsiblockTitleCollapsed)').addClass('collapsiblockTitleCollapsed');
+        $('[aria-expanded="true]').attr('aria-expanded', 'false');
+        $('.collapsiblockContent:not(.collapsiblockContentCollapsed)').addClass('collapsiblockContentCollapsed');
+        $('.collapsiblockContent').attr('style', 'display: none;');
       }
     })(Drupal, window.Cookies, once);
   });
