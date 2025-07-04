@@ -120,6 +120,13 @@ function access_misc_views_pre_render(ViewExecutable $view) {
   if ($view->id() == 'cyberteam_people_facets') {
     $view->element['#attached']['library'][] = 'access_misc/people_directory';
   }
+  if ($view->id() == 'affinity_group_search' ||
+    $view->id() == 'search_ci_links' ||
+    $view->id() == 'cssn_directory' ||
+    $view->id() == 'mentorship_facet_search' ||
+    $view->id() == 'events_facet') {
+    $view->element['#attached']['library'][] = 'access_misc/collapsiblock_mobile';
+  }
 }
 
 /**
