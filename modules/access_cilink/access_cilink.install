@@ -93,3 +93,39 @@ function access_cilink_update_10003() {
     ->condition('value', '307')
     ->execute();
 }
+
+/**
+ * Delete old skill level in resource webform.
+ */
+function access_cilink_update_10004() {
+  $query = \Drupal::database()->select('webform_submission_data', 'wsd');
+  $query->fields('wsd', ['sid', 'value']);
+  $query->condition('wsd.webform_id', 'resource');
+  $query->condition('wsd.name', 'description');
+  $resources = $query->execute()->fetchAll();
+
+  foreach ($resources as $resource) {
+    $insert = \Drupal::database()->insert('webform_submission_data')
+      ->fields([
+        'webform_id' => 'resource',
+        'sid' => $resource->sid,
+        'name' => 'description_html',
+        'property' => 'value',
+        'value' => 'value',
+        'delta' => 0,
+        'value' => $resource->value,
+      ])
+      ->execute();
+
+    $insert = \Drupal::database()->insert('webform_submission_data')
+      ->fields([
+        'webform_id' => 'resource',
+        'sid' => $resource->sid,
+        'name' => 'description_html',
+        'property' => 'format',
+        'delta' => 0,
+        'value' => 'basic_html',
+      ])
+      ->execute();
+  }
+}

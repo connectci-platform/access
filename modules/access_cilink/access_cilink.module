@@ -114,7 +114,7 @@ function access_cilink_preprocess_views_view_field(&$variables) {
     $uid = $webform_submission->getOwnerId();
     $data = $webform_submission->getData();
     $title = $data['title'];
-    $description = $data['description'];
+    $description = $data['description_html']['value'];
     $type = $data['category'];
 
     // Only show approved resources.

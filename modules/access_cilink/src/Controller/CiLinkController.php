@@ -214,7 +214,7 @@ class CiLinkController extends ControllerBase {
             <ul class="list-none ps-0">
               {{ links | raw }}
             </ul>
-            <p>{{ description }}</p>
+            <p>{{ description | raw }}</p>
           </div>
           <div>
             <div class="text-dark-teal bg-light-teal p-5 mb-5 not-prose">
@@ -276,7 +276,7 @@ class CiLinkController extends ControllerBase {
               <ul class="list-group list-unstyled py-3">
                 {{ links | raw }}
               </ul>
-              <p>{{ description }}</p>
+              <p>{{ description | raw }}</p>
             </div>
             <div class="col-12 col-md-4">
               <div class="text-dark bg-light p-3 mb-5">
@@ -326,7 +326,7 @@ class CiLinkController extends ControllerBase {
       ';
     }
 
-    $description = $data['description'] ? Xss::filter($data['description']) : '';
+    $description = $data['description_html']['value'] ? Xss::filter($data['description_html']['value']) : '';
     $category = $data['category'] ? Xss::filter($data['category']) : '';
 
     $cilink_page['string'] = [
