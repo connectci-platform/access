@@ -8,8 +8,9 @@ people_directory:
     js/people-directory.js: {}
 collapsiblock_mobile:
   version: 1.x
-  js:
-    js/collapsiblock-mobile.js: {}
+  css:
+    theme:
+      css/collapsiblock.css: {}
 people_menu:
   version: 1.x
   js:

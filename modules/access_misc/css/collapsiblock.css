@@ -1,0 +1,20 @@
+.path-affinity-groups,
+.path-knowledge-base {
+  .collapsiblockTitle button {
+    padding: 0;
+  }
+
+  .block-facet--checkbox:has(.collapsiblockTitle) {
+    display: none;
+  }
+
+  @media screen and (max-width: 767px) {
+    .block-facet--checkbox:not(:has(.collapsiblockTitle)) {
+      display: none;
+    }
+
+    .block-facet--checkbox:has(.collapsiblockTitle) {
+      display: block;
+    }
+  }
+}
