@@ -122,6 +122,8 @@ function access_misc_views_pre_render(ViewExecutable $view) {
   }
   if ($view->id() == 'affinity_group_search' ||
     $view->id() == 'search_ci_links' ||
+    $view->id() == 'events_facet' ||
+    $view->id() == 'cyberteam_people_facets' ||
     $view->id() == 'cssn_directory' ||
     $view->id() == 'mentorship_facet_search' ||
     $view->id() == 'events_facet') {
