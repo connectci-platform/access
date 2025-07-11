@@ -95,7 +95,7 @@ function access_cilink_update_10003() {
 }
 
 /**
- * Delete old skill level in resource webform.
+ * Migrate description field data to new description_html field with basic_html format.
  */
 function access_cilink_update_10004() {
   $query = \Drupal::database()->select('webform_submission_data', 'wsd');
@@ -111,7 +111,6 @@ function access_cilink_update_10004() {
         'sid' => $resource->sid,
         'name' => 'description_html',
         'property' => 'value',
-        'value' => 'value',
         'delta' => 0,
         'value' => $resource->value,
       ])
