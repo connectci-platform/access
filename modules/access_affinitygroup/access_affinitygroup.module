@@ -515,7 +515,10 @@ function subscribeToSimpleLists($flagEntityId, $user, $isSubscribe) {
   }
 
   if (!$ag->get('field_use_ext_email_list')->getValue()[0]['value']) {
-    \Drupal::logger('access_affinitygroup')->error('Missing Affinity group with flag id ' . $flagEntityId . '.');
+    \Drupal::logger('access_affinitygroup')->info('Affinity group @title (flag id @flagEntityId) does not have external email lists enabled. Skipping email list subscription.', [
+      '@title' => $ag->getTitle(),
+      '@flagEntityId' => $flagEntityId
+    ]);
     return;
   }
 
@@ -878,7 +881,7 @@ function makeListMembershipJSON($flagEntityId, $userDetails) {
 
   $aval = array_values($node_ids);
   if (empty($aval)) {
-    \Drupal::logger('cron_affinitygroup')->notice('Missing Affinity group with flag id ' . $flagEntityId . '.');
+    \Drupal::logger('cron_affinitygroup')->warning('No affinity group node found with field_affinity_group referencing taxonomy term ' . $flagEntityId . '. Cannot process Constant Contact membership.');
     return NULL;
   }
   $nid = $aval[0];
