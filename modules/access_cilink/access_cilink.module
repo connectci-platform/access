@@ -114,7 +114,10 @@ function access_cilink_preprocess_views_view_field(&$variables) {
     $uid = $webform_submission->getOwnerId();
     $data = $webform_submission->getData();
     $title = $data['title'];
-    $description = $data['description_html']['value'];
+    $description = '';
+    if ($data['description_html']['value']) {
+      $description = check_markup($data['description_html']['value'], 'basic_html');
+    }
     $type = $data['category'];
 
     // Only show approved resources.
@@ -252,7 +255,7 @@ function access_cilink_preprocess_views_view_field(&$variables) {
                           <div class="grid grid-cols-5 gap-4 p-4">
                             <div class="col-span-5 md--col-span-4">
                               {{ linkToResource | raw }}
-                              {{ description | raw }}
+                              <div class="prose mb-4">{{ description | raw }}</div>
                               <div class="square-tags">{{ tags | raw }}</div>
                             </div>
                             <div class="col-span-5 md--col-span-1 flex flex-row flex-wrap justify-between">
