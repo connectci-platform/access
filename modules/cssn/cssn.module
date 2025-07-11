@@ -310,11 +310,16 @@ function cssn_role_region($role, $checked, $term_id, $enroll_program, $user) {
         ->getStorage('taxonomy_term')
         ->loadByProperties(['tid' => 794]);
       $cssn_affinity_group = reset($cssn_affinity_group);
-      $flag_id = 'affinity_group';
-      $flag = \Drupal::service('cssn.flag');
-      $set_flag = $flag->setFlag($flag_id, $cssn_affinity_group, $user);
-      if ($set_flag) {
-        \Drupal::messenger()->addMessage(t('You have been added to the CSSN Affinity Group.'));
+      
+      if ($cssn_affinity_group) {
+        $flag_id = 'affinity_group';
+        $flag = \Drupal::service('cssn.flag');
+        $set_flag = $flag->setFlag($flag_id, $cssn_affinity_group, $user);
+        if ($set_flag) {
+          \Drupal::messenger()->addMessage(t('You have been added to the CSSN Affinity Group.'));
+        }
+      } else {
+        \Drupal::logger('cssn')->error('Could not load CSSN affinity group with tid 794');
       }
     }
     if ($enroll_program) {
