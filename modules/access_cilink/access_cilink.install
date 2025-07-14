@@ -105,7 +105,7 @@ function access_cilink_update_10004() {
   $resources = $query->execute()->fetchAll();
 
   foreach ($resources as $resource) {
-    $insert = \Drupal::database()->insert('webform_submission_data')
+    \Drupal::database()->insert('webform_submission_data')
       ->fields([
         'webform_id' => 'resource',
         'sid' => $resource->sid,
