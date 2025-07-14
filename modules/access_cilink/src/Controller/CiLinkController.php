@@ -327,7 +327,7 @@ class CiLinkController extends ControllerBase {
     }
 
     $description = '';
-    if ($data['description_html']['value']) {
+    if (isset($data['description_html']['value'])) {
       $description = check_markup($data['description_html']['value'], 'basic_html');
     }
     $category = $data['category'] ? Xss::filter($data['category']) : '';

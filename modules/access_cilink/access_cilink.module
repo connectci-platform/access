@@ -115,7 +115,7 @@ function access_cilink_preprocess_views_view_field(&$variables) {
     $data = $webform_submission->getData();
     $title = $data['title'];
     $description = '';
-    if ($data['description_html']['value']) {
+    if (isset($data['description_html']['value'])) {
       $description = check_markup($data['description_html']['value'], 'basic_html');
     }
     $type = $data['category'];
