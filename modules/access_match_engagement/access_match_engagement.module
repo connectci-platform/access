@@ -71,6 +71,16 @@ function access_match_engagement_block_build_views_block_alter(array &$build, Bl
  */
 function access_match_engagement_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   if ($form_id == 'node_match_engagement_edit_form' || $form_id == 'node_match_engagement_form') {
+    // Only allow MATCH Engagement creation on the ACCESS domain.
+    $domainNegotiator = \Drupal::service('domain.negotiator');
+    $activeDomain = $domainNegotiator->getActiveDomain();
+
+    if (!$activeDomain || $activeDomain->id() != 'amp_cyberinfrastructure_org') {
+      \Drupal::messenger()->addError(t('MATCH Engagements can only be created on the ACCESS Support domain.'));
+      $response = new RedirectResponse('/access-denied');
+      $response->send();
+      return;
+    }
     // Make text boxes stretch full width and give labels bold/width.
     $form['#attributes']['class'][] = 'prose mb-10';
     // Make details top summary text bold.
@@ -187,7 +197,6 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
       $form['field_notes_to_author']['#access'] = FALSE;
       $form['field_match_interested_users']['#access'] = FALSE;
       $form['field_match_steering_committee_m']['#disabled'] = TRUE;
-      $form['field_email_user']['#access'] = FALSE;
       $form['revision']['#access'] = FALSE;
       $form['revision_log']['#access'] = FALSE;
       $form['revision_information']['#access'] = FALSE;
@@ -236,10 +245,6 @@ function access_match_engagement_replace_section_callback(array &$form, FormStat
   $tag_count = count($raw_data['field_tags']);
   $tag_limit = 6;
   $tag_amount = $tag_limit - $tag_count;
-
-  $form['field_tags_replace']['user_message'] = [
-    '#markup' => "",
-  ];
 
   if ($tag_amount <= 0) {
     $form['field_tags_replace']['user_message'] = [
