@@ -65,6 +65,23 @@ FROM node__field_mentee fme
 JOIN node_field_data nfd ON fme.entity_id = nfd.nid
 WHERE nfd.type = 'mentorship_engagement' AND nfd.status = 1
 
+UNION ALL
+
+SELECT 'Unique Participants', COUNT(DISTINCT participant_id)
+FROM (
+  SELECT fm.field_mentor_target_id as participant_id
+  FROM node__field_mentor fm
+  JOIN node_field_data nfd ON fm.entity_id = nfd.nid
+  WHERE nfd.type = 'mentorship_engagement' AND nfd.status = 1
+  
+  UNION
+  
+  SELECT fme.field_mentee_target_id as participant_id
+  FROM node__field_mentee fme
+  JOIN node_field_data nfd ON fme.entity_id = nfd.nid
+  WHERE nfd.type = 'mentorship_engagement' AND nfd.status = 1
+) as participants
+
 ORDER BY 
   CASE Metric
     WHEN 'Total Mentorships' THEN 1
@@ -74,6 +91,7 @@ ORDER BY
     WHEN 'Unique Mentors' THEN 5
     WHEN 'Total Mentees' THEN 6
     WHEN 'Unique Mentees' THEN 7
+    WHEN 'Unique Participants' THEN 8
   END
 "
 
