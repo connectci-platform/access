@@ -473,11 +473,15 @@ function add_ag_taxonomy_term($entity) {
  * (the user hit the Join button on  the AG page.)
  * Audeience for errors is end user; errors also logged.
  *
- * @param affinitygroup
- * @param loaded user
- * @param isSubscribe - true to subscribe, false to leave
+ * @param int $flagEntityId
+ *   The taxonomy term ID for the affinity group.
+ * @param \Drupal\user\Entity\User $user
+ *   The loaded user entity.
+ * @param bool $isSubscribe
+ *   TRUE to subscribe, FALSE to unsubscribe.
  *
- * @return nothing. Error display handled within.
+ * @return void
+ *   Error display handled within.
  */
 function subscribeToSimpleLists($flagEntityId, $user, $isSubscribe) {
   // Get the ag for this flag (that the user joined)
@@ -1013,7 +1017,7 @@ function access_affinitygroup_cron() {
         $options = ['absolute' => FALSE];
         $link_build = Url::fromRoute('entity.node.canonical', ['node' => $nid], $options);
         $url = 'https://ccmnet.org' . $link_build->tostring(TRUE)->getGeneratedUrl();
-        $body .= '<li><a href="' . $node_title . '">' . $url . '</a></li>';
+        $body .= '<li><a href="' . $url . '">' . $node_title . '</a></li>';
       }
       $body .= "</ul>";
       // If there are any mentorship engagements in recruiting state, send email.
@@ -1445,10 +1449,6 @@ function access_affinitygroup_replace_section_callback(array &$form, FormStateIn
   $tag_count = count($raw_data['field_tags']);
   $tag_limit = 6;
   $tag_amount = $tag_limit - $tag_count;
-
-  $form['field_tags_replace']['user_message'] = [
-    '#markup' => "",
-  ];
 
   if ($tag_amount <= 0) {
     $form['field_tags_replace']['user_message'] = [
