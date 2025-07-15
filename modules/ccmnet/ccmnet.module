@@ -289,10 +289,6 @@ function access_mentorship_engagement_replace_section_callback(array &$form, For
   $tag_limit = 6;
   $tag_amount = $tag_limit - $tag_count;
 
-  $form['field_tags_replace']['user_message'] = [
-    '#markup' => "",
-  ];
-
   if ($tag_amount <= 0) {
     $form['field_tags_replace']['user_message'] = [
       '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
@@ -706,7 +702,12 @@ function ccmnet_node_view(array &$build, EntityInterface $entity, EntityViewDisp
         $field_looking = $entity->get('field_me_looking_for')->getValue();
 
         $field_looking = '<span class="pt-2 pl-2 ">Recruiting: ' . $field_looking[0]['value'] . '<span>';
-        $img = '<img src="/modules/custom/access/modules/ccmnet/images/star-o.png" alt="star" />';
+        $module_path = \Drupal::service('extension.list.module')
+          ->getPath('ccmnet');
+        $image_path = $module_path . '/images/star-o.png';
+        $image_url = \Drupal::service('file_url_generator')
+          ->generateAbsoluteString($image_path);
+        $img = '<img src="' . $image_url . '" alt="star" />';
         $text = '<div class="mentorship_pretitle d-flex align-items-center text-uppercase">' . $img . $field_looking . '</div>';
 
         $build['field_mentorship_pretitle'] = [
@@ -741,7 +742,7 @@ function ccmnet_cron() {
       }
       $policy = 'ccmnet';
       $policy_subtype = 'cron_author_update';
-      $interested_links = '';
+      $interested_links = '<ul>';
       // Send email to each author
       foreach ($interested_list as $interested_nid) {
         $node = \Drupal::entityTypeManager()->getStorage('node')->load($interested_nid);
@@ -754,7 +755,8 @@ function ccmnet_cron() {
         $options = ['absolute' => FALSE];
         $here = Url::fromRoute('entity.node.canonical', ['node' => $interested_nid], $options);
         $link = 'https://ccmnet.org' . $here->toString(TRUE)->getGeneratedUrl();
-        $interested_links .= $link . "\n";
+        $node_title = $node->getTitle();
+        $interested_links .= '<li><a href="' . $link . '">' . $node_title . '</a></li>';
         $title = t('click here');
 
         $variables = [
@@ -765,6 +767,7 @@ function ccmnet_cron() {
         \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $author, $variables);
         \Drupal::logger('ccmnet')->info('Sent interested email to @user for node @nid', ['@user' => $author, '@nid' => $interested_nid]);
       }
+      $interested_links .= '</ul>';
       // 2nd email: send collection of request links to all with ccmnet_pm role
       $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
       $policy_subtype = 'cron_role_update';
