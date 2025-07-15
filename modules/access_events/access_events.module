@@ -14,6 +14,8 @@ use Drupal\Core\Render\Markup;
 use Drupal\user\Entity\User;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Drupal\views\ViewExecutable;
+use Drupal\views\Plugin\views\query\QueryPluginBase;
+use Drupal\Component\Utility\Html;
 
 /**
  * Implements hook_form_alter().
@@ -728,6 +730,22 @@ function access_events_entity_insert(EntityInterface $entity) {
         $eventinstance->save();
         $eventinstance->enforceIsNew($original_value);
       }
+    }
+  }
+}
+
+/**
+ * Filter Events for the current domain.
+ *
+ * @param ViewExecutable $view
+ * @param QueryPluginBase $query
+ * @return void
+ */
+function access_events_views_query_alter(ViewExecutable $view, QueryPluginBase $query) {
+  if ($view->id() === 'events_facet' && ($view->current_display === 'page_1' || $view->current_display === 'page_2')) {
+    $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
+    if ($domain_id) {
+      $query->addCondition('domain_access', $domain_id, '=');
     }
   }
 }
