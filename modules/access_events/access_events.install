@@ -212,7 +212,7 @@ function access_events_update_10002() {
 /**
  * Reindex the events search API index after domain access changes.
  */
-function access_events_update_10004() {
+function access_events_update_10003() {
   // Reindex the events search API index to pick up domain access changes
   $events_index = Index::load('events');
   if ($events_index) {
