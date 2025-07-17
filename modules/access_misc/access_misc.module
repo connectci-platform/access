@@ -90,9 +90,7 @@ function access_misc_user_login(UserInterface $account) {
   $_SESSION['cilogon_auth_destination'] = [
     $path,
     [
-      'query' => [
-        'destination' => $destination,
-      ]
+      'query' => $destination,
     ],
   ];
 
