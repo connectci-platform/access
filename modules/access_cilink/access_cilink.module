@@ -627,6 +627,7 @@ function access_cilink_form_alter(&$form, FormStateInterface $form_state, $form_
     ];
 
     $form['#validate'][] = 'access_misc_custom_tags_validate';
+    $form['#validate'][] = 'access_cilink_custom_tags_validate';
 
     $roles = \Drupal::currentUser()->getRoles();
     if (in_array('administrator', $roles) || in_array('kb_pm', $roles)) {
@@ -634,6 +635,18 @@ function access_cilink_form_alter(&$form, FormStateInterface $form_state, $form_
     }
 
     $form['actions']['submit']['#submit'][] = 'access_cilink_webform_submission_resource_submit';
+  }
+}
+
+
+/**
+ * Webform submission validate.
+ */
+function access_cilink_custom_tags_validate($form, FormStateInterface $form_state) {
+  // Validate custom tags.
+  $custom_tags = $form_state->getValue('tags');
+  if (empty($custom_tags)) {
+    $form_state->setErrorByName('custom_tags', t('Please select at least one tag.'));
   }
 }
 
