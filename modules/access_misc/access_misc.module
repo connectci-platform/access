@@ -83,7 +83,8 @@ function access_misc_user_login(UserInterface $account) {
       $url
     );
   }
-  $current_path = $this->currentPath->getPath();
+  $current_path = \Drupal::service('path.current')->getPath();
+
   $path = ($current_path == '/user/login') ? '/user' : $current_path;
 
   $_SESSION['cilogon_auth_destination'] = [
