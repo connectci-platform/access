@@ -90,9 +90,9 @@ class EventWaitlist extends ControllerBase {
    */
   public static function create(ContainerInterface $container): self {
     return new self(
-    $container->get('redirect.destination'),
-    $container->get('database'),
-    $container->get('entity_type.manager')
+      $container->get('redirect.destination'),
+      $container->get('database'),
+      $container->get('entity_type.manager')
     );
   }
 
@@ -204,8 +204,9 @@ class EventWaitlist extends ControllerBase {
     $event_start_time = date('g:iA', strtotime($og_start_date));
     $event_end_time = date('g:iA T', strtotime($end_date));
 
-    // Turn $series_title into a link to the event.
-    $series_title_url = "<a href='/events/$event_instance_id'>$series_title</a>";
+    // Turn $series_title into a link to the event with correct domain.
+    $event_url = _access_misc_get_event_domain_url($event_instance_id);
+    $series_title_url = "<a href='$event_url'>$series_title</a>";
 
     $policy = 'access_misc';
     $policy_subtype = 'registration_approved';
