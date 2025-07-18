@@ -21,8 +21,10 @@ class AccessCiUserLogin extends BlockBase {
    */
   public function build() {
 
-    // Get 'current' from url query parameters.
     $current = \Drupal::request()->query->get('current');
+    $redirect = \Drupal::request()->query->get('redirect');
+
+    $redirect = $redirect ?: $current;
 
     return [
       '#type' => 'inline_template',
@@ -44,7 +46,7 @@ class AccessCiUserLogin extends BlockBase {
         </div>
       </div>',
       '#context' => [
-        'current' => $current,
+        'current' => $redirect,
       ],
     ];
 
