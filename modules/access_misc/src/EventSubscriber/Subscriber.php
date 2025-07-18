@@ -28,16 +28,12 @@ class Subscriber implements EventSubscriberInterface {
     $current_domain_name = Html::getClass($token->replace($domainName));
     $domain_verified = $current_domain_name === 'access-support';
 
-    if (!$domain_verified) {
-      return TRUE;
-    }
-
     // Log user in on the /login page.
     if ($route_name == 'misc.login' && !$user_is_authenticated) {
       $this->doRedirectToCilogon($event);
     }
     // Redirect user.login to Cilogon.
-    if ($route_name == 'user.login' && !$user_is_authenticated) {
+    if ($domain_verified && $route_name == 'user.login' && !$user_is_authenticated) {
       $this->doRedirectToCilogon($event);
     }
 
