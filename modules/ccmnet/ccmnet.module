@@ -75,6 +75,32 @@ function ccmnet_entity_insert(EntityInterface $entity) {
     $message = t('We will notify you by email once your mentorship has been posted on the website.');
     \Drupal::messenger()->addMessage($message);
   }
+
+  // Notify CCMNet PMs when new user is created with CCMNet program.
+  if ($type == 'user') {
+    if (_ccmnet_user_has_ccmnet_region($entity)) {
+      _ccmnet_send_new_user_notification($entity);
+    }
+  }
+}
+
+/**
+ * Implements hook_entity_update().
+ */
+function ccmnet_entity_update(EntityInterface $entity) {
+  // Notify CCMNet PMs when existing user is added to CCMNet program.
+  if ($entity->bundle() == 'user') {
+    // Check if user was previously in CCMNet region.
+    $was_ccmnet = isset($entity->original) ? _ccmnet_user_has_ccmnet_region($entity->original) : FALSE;
+
+    // Check if user is currently in CCMNet region.
+    $is_ccmnet = _ccmnet_user_has_ccmnet_region($entity);
+
+    // Send notification if user was just added to CCMNet.
+    if ($is_ccmnet && !$was_ccmnet) {
+      _ccmnet_send_new_user_notification($entity);
+    }
+  }
 }
 
 /**
@@ -463,56 +489,56 @@ function ccmnet_node_insert(\Drupal\Core\Entity\EntityInterface $entity) {
 }
 
 /**
+ * Check if user has CCMNet region (835).
+ *
+ * @param \Drupal\Core\Entity\EntityInterface $user
+ *   The user entity.
+ *
+ * @return bool
+ *   TRUE if user has CCMNet region, FALSE otherwise.
+ */
+function _ccmnet_user_has_ccmnet_region(\Drupal\Core\Entity\EntityInterface $user) {
+  $region = $user->get('field_region')->getValue();
+  if ($region) {
+    foreach ($region as $region_value) {
+      if ($region_value['target_id'] == "835") {
+        return TRUE;
+      }
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Send CCMNet notification when user is added to CCMNet program.
+ */
+function _ccmnet_send_new_user_notification(\Drupal\Core\Entity\EntityInterface $entity) {
+  $policy = 'ccmnet';
+  $env = getenv('PANTHEON_ENVIRONMENT');
+  $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
+  $ccmnet_emails = \Drupal::service('access_misc.usertools')
+    ->getEmails([$role], []);
+  $uid = $entity->id();
+
+  // Link to /community-persona/uid.
+  $options = ['absolute' => TRUE];
+  $here = Url::fromUri('internal:/community-persona/' . $uid, $options);
+  $link = $here->toString(TRUE)->getGeneratedUrl();
+
+  $policy_subtype = 'ccmnet_new_user';
+  $variables = [
+    'title' => t('Click here to view'),
+    'url' => $link,
+  ];
+
+  \Drupal::service('access_misc.symfony.mail')
+    ->email($policy, $policy_subtype, $ccmnet_emails, $variables);
+}
+
+/**
  * Implements hook_entity_presave().
  */
 function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
-  // Notify CCMNet PMs when new user is added to CCMNet program.
-  if ($entity->bundle() == 'user') {
-    // Mailer Policy type.
-    $policy = 'ccmnet';
-
-    // Check the previous region value.
-    $prev_region_ccmnet = 0;
-    if (isset($entity->original)) {
-      $prev_region = $entity->original->get('field_region')->getValue();
-      if ($prev_region) {
-        foreach ($prev_region as $prev_region_value) {
-          if ($prev_region_value['target_id'] == "835") {
-            $prev_region_ccmnet = 1;
-          }
-        }
-      }
-    }
-    // Check the current region value.
-    $region = $entity->get('field_region')->getValue();
-    $region_ccmnet = 0;
-    if ($region) {
-      foreach ($region as $region_value) {
-        if ($region_value['target_id'] == "835") {
-          $region_ccmnet = 1;
-        }
-      }
-    }
-    // Compare the previous and current region values.
-    if ($region_ccmnet === 1 && $prev_region_ccmnet === 0) {
-
-      $env = getenv('PANTHEON_ENVIRONMENT');
-      $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
-      $ccmnet_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-      $uid = $entity->id();
-      // Link to /community-persona/uid.
-      $options = ['absolute' => TRUE];
-      $here = Url::fromUri('internal:/community-persona/' . $uid, $options);
-      $link = $here->toString(TRUE)->getGeneratedUrl();
-      $policy_subtype = 'ccmnet_new_user';
-      $variables = [
-        'title' => t('Click here to view'),
-        'url' => $link,
-      ];
-
-      \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $ccmnet_emails, $variables);
-    }
-  }
   if ($entity->bundle() == 'mentorship_engagement' && $entity->original) {
     // Give badge to mentor or Mentee.
     $mentor = $entity->get('field_mentor')->getValue();
