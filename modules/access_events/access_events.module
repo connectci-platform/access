@@ -131,10 +131,13 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
           $grantlist = \Drupal::service('access_events.XsedeApi')->getGrantedUsers($allocation);
           $allocation_title = \Drupal::service('access_events.XsedeApi')->getTitle($allocation);
           $resourcename = [];
-          foreach ($grantlist['result'] as $value) {
-            foreach ($value as $key => $resource) {
-              if ($key == 'resourceName') {
-                $resourcename[$resource] = $resource;
+
+          if (isset($grantlist['result']) && is_array($grantlist['result'])) {
+            foreach ($grantlist['result'] as $value) {
+              foreach ($value as $key => $resource) {
+                if ($key == 'resourceName') {
+                  $resourcename[$resource] = $resource;
+                }
               }
             }
           }
@@ -609,29 +612,29 @@ function access_events_preprocess_views_view_field(&$variables) {
       if (isset($row->_entity) && $row->_entity->hasField('date')) {
         $entity = $row->_entity;
         $date_field = $entity->get('date');
-        
+
         if (!$date_field->isEmpty()) {
           $start_date = $date_field->start_date;
           $end_date = $date_field->end_date;
-          
+
           // Convert to user timezone
           $user = \Drupal::currentUser();
           $user_timezone = $user->getTimeZone() ?: date_default_timezone_get();
-          
+
           if ($start_date) {
             $start_date->setTimezone(new \DateTimeZone($user_timezone));
           }
           if ($end_date) {
             $end_date->setTimezone(new \DateTimeZone($user_timezone));
           }
-          
+
           // Create formatted output
           if ($start_date && $end_date) {
             $formatted_date = $start_date->format('l, n/j/Y');
             $start_time = $start_date->format('g:i A');
             $end_time = $end_date->format('g:i A T');
             $formatted_output = $formatted_date . '<br>' . $start_time . ' - ' . $end_time;
-            
+
             $variables['output'] = Markup::create($formatted_output);
           }
         }
