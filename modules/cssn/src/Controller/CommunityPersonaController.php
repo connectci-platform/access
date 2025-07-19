@@ -73,6 +73,9 @@ class CommunityPersonaController extends ControllerBase {
           elseif ($persona_source == 'access' && $domainName != 'access' && $env == 'live') {
             $url = Url::fromUri('https://support.access-ci.org/node/' . $affinity_group_loaded->id());
           }
+          elseif ($persona_source == 'ccmnet' && $domainName != 'ccmnet' && $env == 'live') {
+            $url = Url::fromUri('https://ccmnet.org/node/' . $affinity_group_loaded->id());
+          }
           else {
             $url = Url::fromRoute('entity.node.canonical', ['node' => $affinity_group_loaded->id()]);
           }
