@@ -16,10 +16,14 @@ function bioLess() {
   summary.classList.remove('hidden');
 }
 
-// Add the button to the bio summary on user profile for campus champions.
+// Add the button to the bio summary on user profile.
 setTimeout(function () {
   const summaryElement = document.querySelector('.user-profile-view #bio-summary.more');
-  summaryElement.innerHTML += "<button id='bio-more' onclick='bioMore()' style='border-width: 0 !important;' class='btn btn-primary p-3'aria-hidden='TRUE' type='button'><i class='bi-chevron-down'></i> More</button>";
   const fullBioElement = document.querySelector('.user-profile-view #full-bio');
-  fullBioElement.innerHTML += "<button id='bio-less' onclick='bioLess()' style='border-width: 0 !important;' class='btn btn-primary p-3' aria-hidden='TRUE' type='button'><i class='bi-chevron-up'></i> Less</button>";
+
+  // Only proceed if both elements exist
+  if (summaryElement && fullBioElement) {
+    summaryElement.innerHTML += '<button id=\'bio-more\' onclick=\'bioMore()\' style=\'border-width: 0 !important;\' class=\'btn btn-primary p-3\' aria-hidden=\'TRUE\' type=\'button\'><i class=\'bi-chevron-down\'></i> More</button>';
+    fullBioElement.innerHTML += '<button id=\'bio-less\' onclick=\'bioLess()\' style=\'border-width: 0 !important;\' class=\'btn btn-primary p-3\' aria-hidden=\'TRUE\' type=\'button\'><i class=\'bi-chevron-up\'></i> Less</button>';
+  }
 }, 500);
