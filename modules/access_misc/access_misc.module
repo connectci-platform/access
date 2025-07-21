@@ -628,13 +628,22 @@ function access_misc_replace_section_callback(array &$form, FormStateInterface $
     ];
   }
   elseif (strlen($body_filter) >= 100) {
-    $llm = \Drupal::service('access_llm.ai_references_generator');
-    $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
-    $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
-    $suggested_tag_ids = implode(', ', $suggestions);
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
-    ];
+    try {
+      $llm = \Drupal::service('access_llm.ai_references_generator');
+      $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
+      $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
+      $suggested_tag_ids = implode(', ', $suggestions);
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "",
+      ];
+    }
+    catch (\Throwable $e) {
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "<div class='match-tag-list bg-yellow-200 text-yellow-900 my-5 p-5'>
+        <strong class='text-yellow-900'>AI tag suggestions are not available</strong><br />
+        Please select tags manually from the list below.</div>",
+      ];
+    }
   }
   else {
     $form['field_tags_replace']['user_message'] = [
