@@ -63,29 +63,9 @@ const cAccessEmail = "supportapiaccess@access-ci.org";
  */
 function access_affinitygroup_views_query_alter(ViewExecutable $view, QueryPluginBase $query) {
   if ($view->id() === 'affinity_group_search' && $view->current_display === 'page_1') {
-    $mapping = [
-      "access-support" => "amp_cyberinfrastructure_org",
-      "campus-champions" => "campuschampions_cyberinfrastructure_org",
-      "careers-cyberteam" => "careersct_cyberinfrastucture_org",
-      "ccmnet_org" => "ccmnet_org",
-      "coco" => "coco_cyberinfrastructure_org",
-      "connect-ci" => "connectcidev_wpi_edu",
-      "great-plains-cyberteam" => "greatplains_wpi_edu",
-      "kentucky-cyberteam" => "kycyberteam_cyberinfrastructure_org",
-      "mines-cyberteam" => "mines_cyberinfrastructure_org",
-      "northeast-cyberteam" => "nectd8_wpi_edu",
-      "open-ondemand" => "openondemand_cyberinfrastructure_org",
-      "rmacc-cyberteam" => "rmacc_wpi_edu",
-      "sweeter-cyberteam" => "sweeter_cyberinfrastructure_org",
-      "trecis-cyberteam" => "trecis_cyberinfrastructure_org",
-      "usrse" => "usrse_cyberinfrastructure_org",
-  ];
-
-    $token = \Drupal::token();
-    $domain_name = Html::getClass($token->replace(t('[domain:name]')));
-    if (isset($mapping[$domain_name])) {
-      $domain_name = $mapping[$domain_name];
-      $query->addCondition('field_domain_access', $domain_name, '=');
+    $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
+    if ($domain_id) {
+      $query->addCondition('field_domain_access', $domain_id, '=');
     }
   }
 }
@@ -493,11 +473,15 @@ function add_ag_taxonomy_term($entity) {
  * (the user hit the Join button on  the AG page.)
  * Audeience for errors is end user; errors also logged.
  *
- * @param affinitygroup
- * @param loaded user
- * @param isSubscribe - true to subscribe, false to leave
+ * @param int $flagEntityId
+ *   The taxonomy term ID for the affinity group.
+ * @param \Drupal\user\Entity\User $user
+ *   The loaded user entity.
+ * @param bool $isSubscribe
+ *   TRUE to subscribe, FALSE to unsubscribe.
  *
- * @return nothing. Error display handled within.
+ * @return void
+ *   Error display handled within.
  */
 function subscribeToSimpleLists($flagEntityId, $user, $isSubscribe) {
   // Get the ag for this flag (that the user joined)
@@ -515,7 +499,10 @@ function subscribeToSimpleLists($flagEntityId, $user, $isSubscribe) {
   }
 
   if (!$ag->get('field_use_ext_email_list')->getValue()[0]['value']) {
-    \Drupal::logger('access_affinitygroup')->error('Missing Affinity group with flag id ' . $flagEntityId . '.');
+    \Drupal::logger('access_affinitygroup')->info('Affinity group @title (flag id @flagEntityId) does not have external email lists enabled. Skipping email list subscription.', [
+      '@title' => $ag->getTitle(),
+      '@flagEntityId' => $flagEntityId
+    ]);
     return;
   }
 
@@ -878,7 +865,7 @@ function makeListMembershipJSON($flagEntityId, $userDetails) {
 
   $aval = array_values($node_ids);
   if (empty($aval)) {
-    \Drupal::logger('cron_affinitygroup')->notice('Missing Affinity group with flag id ' . $flagEntityId . '.');
+    \Drupal::logger('cron_affinitygroup')->warning('No affinity group node found with field_affinity_group referencing taxonomy term ' . $flagEntityId . '. Cannot process Constant Contact membership.');
     return NULL;
   }
   $nid = $aval[0];
@@ -1030,7 +1017,7 @@ function access_affinitygroup_cron() {
         $options = ['absolute' => FALSE];
         $link_build = Url::fromRoute('entity.node.canonical', ['node' => $nid], $options);
         $url = 'https://ccmnet.org' . $link_build->tostring(TRUE)->getGeneratedUrl();
-        $body .= '<li><a href="' . $node_title . '">' . $url . '</a></li>';
+        $body .= '<li><a href="' . $url . '">' . $node_title . '</a></li>';
       }
       $body .= "</ul>";
       // If there are any mentorship engagements in recruiting state, send email.
@@ -1462,10 +1449,6 @@ function access_affinitygroup_replace_section_callback(array &$form, FormStateIn
   $tag_count = count($raw_data['field_tags']);
   $tag_limit = 6;
   $tag_amount = $tag_limit - $tag_count;
-
-  $form['field_tags_replace']['user_message'] = [
-    '#markup' => "",
-  ];
 
   if ($tag_amount <= 0) {
     $form['field_tags_replace']['user_message'] = [
