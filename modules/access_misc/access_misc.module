@@ -466,6 +466,9 @@ function access_misc_datalayer_alter(&$data_layer) {
  * Implements hook_form_alter().
  */
 function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  if ($form_id == 'views_exposed_form' && $form['#info']['filter-search_api_fulltext']['value'] == 'search_api_fulltext') {
+    $form['#suffix'] = '<h2 class="md--hidden d-block d-lg-none">' . t('Filters') . '</h2>';
+  }
 
   if ($form_id == 'user_login_form') {
     $form['#title'] = t('Join or Login');
