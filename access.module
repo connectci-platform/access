@@ -75,9 +75,23 @@ function access_page_attachments(array &$attachments) {
 
     $current_uri = \Drupal::request()->getRequestUri();
 
+    // Get current user information
+    $current_user = \Drupal::currentUser();
+    $user_data = [];
+    
+    if ($current_user->isAuthenticated()) {
+      $user = \Drupal\user\Entity\User::load($current_user->id());
+      $user_data['username'] = $current_user->getAccountName();
+      $user_data['email'] = $user->getEmail();
+      $user_data['firstName'] = $user->get('field_user_first_name')->value ?? '';
+      $user_data['lastName'] = $user->get('field_user_last_name')->value ?? '';
+      $user_data['accessId'] = $current_user->id();
+    }
+
     // Adding global library to all pages.
     $attachments['#attached']['drupalSettings']['access']['current_uri'] = $current_uri;
     $attachments['#attached']['drupalSettings']['access']['current_menu'] = $js_menu;
+    $attachments['#attached']['drupalSettings']['access']['user'] = $user_data;
     $attachments['#attached']['library'][] = 'access/header_footer_library';
   }
 }
