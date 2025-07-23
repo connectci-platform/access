@@ -227,9 +227,14 @@ class EventWaitlist extends ControllerBase {
       $email = $registrant->get('email')->getValue();
       $first_name = $registrant->get('field_first_name')->getValue();
       $last_name = $registrant->get('field_last_name')->getValue();
-      $variables['name'] = $first_name[0]['value'] . ' ' . $last_name[0]['value'];
+      
+      $first_name_value = !empty($first_name) && isset($first_name[0]['value']) ? $first_name[0]['value'] : '';
+      $last_name_value = !empty($last_name) && isset($last_name[0]['value']) ? $last_name[0]['value'] : '';
+      $variables['name'] = trim($first_name_value . ' ' . $last_name_value);
 
-      \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $email[0]['value'], $variables);
+      if (!empty($email) && isset($email[0]['value'])) {
+        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $email[0]['value'], $variables);
+      }
     }
 
   }

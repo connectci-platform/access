@@ -394,13 +394,15 @@ function update_removed_ag_leader_roles($entity, $coordinator_ids) {
 
   // Build an array of all removed coordinators.
   $removed_coordinator_ids = [];
-  foreach ($original_coordinators as $original_coordinator) {
-    $original_coordinator_id = $original_coordinator['target_id'];
-    if (!in_array($original_coordinator_id, $coordinator_ids)) {
-      $removed_coordinator_ids[] = $original_coordinator_id;
+  if ($original_coordinators) {
+    foreach ($original_coordinators as $original_coordinator) {
+      $original_coordinator_id = $original_coordinator['target_id'];
+      if (!in_array($original_coordinator_id, $coordinator_ids)) {
+        $removed_coordinator_ids[] = $original_coordinator_id;
 
-      // $msg = "user id $original_coordinator_id removed";
-      // \Drupal::messenger()->addStatus($msg);
+        // $msg = "user id $original_coordinator_id removed";
+        // \Drupal::messenger()->addStatus($msg);
+      }
     }
   }
 
