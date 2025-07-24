@@ -1,0 +1,12 @@
+<?php
+
+/**
+ * @file
+ */
+
+/**
+ * Set initial refresh_token state.
+ */
+function access_affinitygroup_update_10000() {
+  \Drupal::state()->set('refresh_token', 123);
+}
