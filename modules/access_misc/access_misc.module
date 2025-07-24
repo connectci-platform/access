@@ -126,6 +126,7 @@ function access_misc_views_pre_render(ViewExecutable $view) {
     $view->id() == 'cyberteam_people_facets' ||
     $view->id() == 'cssn_directory' ||
     $view->id() == 'mentorship_facet_search' ||
+    $view->id() == 'ccmnet_members' ||
     $view->id() == 'events_facet') {
     $view->element['#attached']['library'][] = 'access_misc/collapsiblock_mobile';
   }
