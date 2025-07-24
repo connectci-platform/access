@@ -86,3 +86,40 @@ function ccmnet_update_10003() {
     \Drupal::logger('ccmnet')->info('The "Campus Champions AI Mentorship" term already exists in the Mentorship Programs taxonomy.');
   }
 }
+
+/**
+ * Set domain source on mentorship.
+ */
+function ccmnet_update_10004() {
+  $query = \Drupal::database()->select('node', 'n');
+  $query->fields('n', ['nid', 'vid']);
+  $query->condition('n.type', 'mentorship_engagement');
+  $nodes = $query->execute()->fetchAll();
+
+  foreach ($nodes as $node) {
+    $nid = $node->nid;
+    $vid = $node->vid;
+
+    $insert = \Drupal::database()->insert('node__field_domain_source')
+    ->fields([
+      'bundle',
+      'deleted',
+      'entity_id',
+      'revision_id',
+      'langcode',
+      'delta',
+      'field_domain_source_target_id',
+    ])
+    ->values([
+      'mentorship_engagement',
+      0,
+      $nid,
+      $vid,
+      'en',
+      0,
+      'ccmnet_org',
+    ])
+    ->execute();
+  }
+}
+
