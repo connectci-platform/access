@@ -1,0 +1,19 @@
+<?php
+
+/**
+ * @file
+ * Install and update functions for the Access Affinity Group module.
+ */
+
+/**
+ * Set initial refresh_token state.
+ */
+function access_affinitygroup_update_10000() {
+  $config = \Drupal::config('access_affinitygroup.settings');
+  $refresh_token = $config->get('refresh_token');
+  if (!empty($refresh_token)) {
+    \Drupal::state()->set('access_affinitygroup.refresh_token', $refresh_token);
+  } else {
+    \Drupal::state()->set('access_affinitygroup.refresh_token', null);
+  }
+}
