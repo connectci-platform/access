@@ -23,6 +23,7 @@ class ConstantContact extends FormBase {
     $allocCronDisable = \Drupal::state()->get('access_affinitygroup.allocCronDisable');
 
     $allocCronSliceSize = \Drupal::state()->get('access_affinitygroup.allocCronSliceSize');
+    $allocCronImportLimit = \Drupal::state()->get('access_affinitygroup.allocCronImportLimit', 0);
     // This will soon be display only:
     $allocCronStartAt = \Drupal::state()->get('access_affinitygroup.allocCronStartAt');
     $allocCronNoCC = \Drupal::state()->get('access_affinitygroup.allocCronNoCC');
@@ -129,6 +130,13 @@ class ConstantContact extends FormBase {
       '#title' => $this->t('Slice Size'),
       '#default_value' => $allocCronSliceSize,
       '#description' => $this->t("Number to process on on each cron run."),
+      '#required' => FALSE,
+    ];
+    $form['alloc_cron_param_importlimit'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Import Limit'),
+      '#default_value' => $allocCronImportLimit,
+      '#description' => $this->t("Maximum number of users to import (0 = no limit)."),
       '#required' => FALSE,
     ];
     /* set this to display-only for normal operations */
