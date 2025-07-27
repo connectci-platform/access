@@ -998,8 +998,9 @@ function access_affinitygroup_cron() {
   $current_time = time();
   $hours_since_last = ($current_time - $last_recruit_run) / 3600;
   
-  // Send if it's been more than 23 hours since last run
-  if ($hours_since_last > 23) {
+  // Send if it's been more than 23 hours since last run (or force for testing on non-live)
+  $env = getenv('PANTHEON_ENVIRONMENT');
+  if ($hours_since_last > 23 || ($env !== 'live' && $hours_since_last > 0.1)) {
     $email_recruit = TRUE;
     \Drupal::state()->set('access_affinitygroup.last_recruit_email', $current_time);
   }
@@ -1017,41 +1018,84 @@ function access_affinitygroup_cron() {
       $term_ids[] = array_keys($in_progress_recruiting_term)[0];
     }
     
-    // EntityQuery to get all mentorship nodes updated in the last 24 hours with
-    // recruiting or "in progress and recruiting" states.
+    // Get all mentorship nodes currently in recruiting states that are approved and published
     $query = \Drupal::entityQuery('node')
       ->condition('type', 'mentorship_engagement')
       ->condition('field_me_state', $term_ids, 'IN')
       ->condition('field_ccmnet_approved', 1)
-      ->condition('changed', strtotime('-1 day'), '>')
+      ->condition('status', 1)
       ->accessCheck(FALSE);
-    $nids = $query->execute();
-    if ($nids) {
-      \Drupal::logger('access_affinitygroup')->info('Found @count mentorship engagements in recruiting states for email notification', ['@count' => count($nids)]);
-      $body = t("New mentorship engagements have been requested on the CCMNet portal") . ": <ul>";
-      foreach ($nids as $nid) {
+    $all_recruiting_nids = $query->execute();
+    
+    // Get list of mentorships we've already notified about
+    $notified_mentorships = \Drupal::state()->get('access_affinitygroup.notified_mentorships', []);
+    
+    // Only include mentorships we haven't notified about yet
+    $new_nids = array_diff($all_recruiting_nids, $notified_mentorships);
+    
+    if ($new_nids) {
+      \Drupal::logger('access_affinitygroup')->info('Found @count NEW mentorship engagements in recruiting states for email notification', ['@count' => count($new_nids)]);
+      
+      // Sort mentorships by whether they're looking for mentors or mentees
+      $seeking_mentors = [];
+      $seeking_mentees = [];
+      
+      foreach ($new_nids as $nid) {
         $node = \Drupal::entityTypeManager()->getStorage('node')->load($nid);
         $node_title = $node->getTitle();
         $options = ['absolute' => FALSE];
         $link_build = Url::fromRoute('entity.node.canonical', ['node' => $nid], $options);
         $url = 'https://ccmnet.org' . $link_build->tostring(TRUE)->getGeneratedUrl();
-        $body .= '<li><a href="' . $url . '">' . $node_title . '</a></li>';
+        $link_item = '<li><a href="' . $url . '">' . $node_title . '</a></li>';
+        
+        // Check what they're looking for
+        $looking_for = $node->get('field_me_looking_for')->getValue();
+        if (!empty($looking_for) && $looking_for[0]['value'] === 'mentor') {
+          $seeking_mentors[] = $link_item;
+        } else {
+          $seeking_mentees[] = $link_item;
+        }
       }
-      $body .= "</ul>";
-      // If there are any mentorship engagements in recruiting state, send email.
-      $title = t('New Mentorship Engagements set to recruiting');
-      // Load 'CCMNet Mentors' AG node.
+      
+      $body = "";
+      
+      if (!empty($seeking_mentors)) {
+        $body .= "<h3>Looking for Mentors:</h3><ul>" . implode('', $seeking_mentors) . "</ul>";
+      }
+      
+      if (!empty($seeking_mentees)) {
+        $body .= "<h3>Looking for Mentees:</h3><ul>" . implode('', $seeking_mentees) . "</ul>";
+      }
+      
+      // Send email notification
+      $title = t('New mentorship engagements are available on the CCMNet portal');
       $node = \Drupal::entityTypeManager()->getStorage('node')->load(5951);
       $ccListIds = [$node->get('field_list_id')->getValue()[0]['value']];
       $agNames = [$node->getTitle()];
       $pubDate = date('m/d/Y');
-      $email_link = 'https://ccmnet.org/node/5951';
+      $email_link = 'https://ccmnet.org/mentorships?f%5B0%5D=state%3A827&f%5B1%5D=state%3A886';
 
       emailToAffinityGroups($body, "$title", $pubDate, $agNames, $email_link, $ccListIds, 1, NULL);
-      \Drupal::logger('access_affinitygroup')->info('Sent CCMNet recruitment email to affinity group: @group', ['@group' => implode(', ', $agNames)]);
+      \Drupal::logger('access_affinitygroup')->info('Sent CCMNet recruitment email to affinity group: @group for @count new mentorships', ['@group' => implode(', ', $agNames), '@count' => count($new_nids)]);
+      
+      // Update our list of notified mentorships (add the new ones)
+      $updated_notified = array_merge($notified_mentorships, $new_nids);
+      \Drupal::state()->set('access_affinitygroup.notified_mentorships', $updated_notified);
     }
     else {
-      \Drupal::logger('access_affinitygroup')->info('No mentorship engagements found in recruiting states for email notification');
+      \Drupal::logger('access_affinitygroup')->info('No NEW mentorship engagements found in recruiting states for email notification (total recruiting: @total, already notified: @notified)', [
+        '@total' => count($all_recruiting_nids),
+        '@notified' => count($notified_mentorships)
+      ]);
+    }
+    
+    // Clean up old notified mentorships that are no longer in recruiting states
+    // This prevents the list from growing indefinitely
+    $current_notified = \Drupal::state()->get('access_affinitygroup.notified_mentorships', []);
+    $still_valid_notified = array_intersect($current_notified, $all_recruiting_nids);
+    if (count($still_valid_notified) != count($current_notified)) {
+      \Drupal::state()->set('access_affinitygroup.notified_mentorships', $still_valid_notified);
+      \Drupal::logger('access_affinitygroup')->info('Cleaned up notified mentorships list: removed @removed items', ['@removed' => count($current_notified) - count($still_valid_notified)]);
     }
   }
 
@@ -1188,7 +1232,6 @@ function isCCEnabled() {
  *             If true, we use community template, otherwise use the access support template.
  */
 function emailToAffinityGroups($emailText, $emailTitle, $pubDate, $agNames, $newsUrl, $ccListIds, $communityTemplate, $logoUrl) {
-
   // For CC, must be unique name for campaign.
   $campaignName = uniqid('Access Announcement: ' . $agNames[0] . '- ' . $pubDate . ' ', FALSE);
 
