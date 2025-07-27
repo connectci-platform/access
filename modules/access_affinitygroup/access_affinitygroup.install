@@ -17,3 +17,41 @@ function access_affinitygroup_update_10000() {
     \Drupal::state()->set('access_affinitygroup.refresh_token', null);
   }
 }
+
+/**
+ * Initialize notified_mentorships state with existing recruiting mentorships (approved and published).
+ */
+function access_affinitygroup_update_10002() {
+  // Get 'state' taxonomy term IDs for recruiting states.
+  $recruiting_term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'recruiting']);
+  $in_progress_recruiting_term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'In Progress and Recruiting']);
+  
+  $term_ids = [];
+  if ($recruiting_term) {
+    $term_ids[] = array_keys($recruiting_term)[0];
+  }
+  if ($in_progress_recruiting_term) {
+    $term_ids[] = array_keys($in_progress_recruiting_term)[0];
+  }
+  
+  if (!empty($term_ids)) {
+    // Get all mentorship nodes currently in recruiting states that are approved and published
+    $query = \Drupal::entityQuery('node')
+      ->condition('type', 'mentorship_engagement')
+      ->condition('field_me_state', $term_ids, 'IN')
+      ->condition('field_ccmnet_approved', 1)
+      ->condition('status', 1)
+      ->accessCheck(FALSE);
+    $existing_recruiting_nids = $query->execute();
+    
+    // Set these as already notified to prevent sending emails for existing mentorships
+    \Drupal::state()->set('access_affinitygroup.notified_mentorships', array_values($existing_recruiting_nids));
+    
+    $count = count($existing_recruiting_nids);
+    \Drupal::logger('access_affinitygroup')->info('Update 10002: Marked @count existing recruiting mentorships (approved and published) as already notified to prevent duplicate emails.', ['@count' => $count]);
+    
+    return "Marked $count existing recruiting mentorships (approved and published) as already notified.";
+  }
+  
+  return 'No recruiting mentorships found to mark as notified.';
+}
