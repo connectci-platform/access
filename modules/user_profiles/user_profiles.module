@@ -88,12 +88,25 @@ function user_profiles_form_alter(&$form, &$form_state, $form_id) {
       }
 
       // Check here for id because case fall-through from user_form case.
-      // Hide some fields.
+      // Hide some fields only on registration forms.
       if ($form_id == 'user_register_form') {
         $form['field_user_bio']['#access'] = FALSE;
-        $form['field_institution']['#access'] = FALSE;
         $form['field_citizenships']['#access'] = FALSE;
         $form['field_user_preferred_pronouns']['#access'] = FALSE;
+      }
+      
+      // Apply institution field visibility logic to both registration and edit forms
+      // This must come after ASP access restrictions to avoid being overridden
+      if (isset($form['field_access_organization']) && isset($form['field_institution'])) {
+        // Initially hide the institution field, show it via JS when "Other" is selected
+        $form['field_institution']['#states'] = [
+          'visible' => [
+            ':input[name="field_access_organization[0][target_id]"]' => ['value' => '3695'],
+          ],
+        ];
+        
+        // Add JS library for organization field behavior
+        $form['#attached']['library'][] = 'user_profiles/organization-toggle';
       }
       break;
   }
