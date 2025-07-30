@@ -10,7 +10,7 @@ import {
   qaBot,
   siteMenus,
   universalMenus,
-} from "/sites/default/files/access-ci-ui/dist/access-ci-ui.js";
+} from "/libraries/access-ci-ui/access-ci-ui.js";
 
 (function (Drupal, drupalSettings) {
 
