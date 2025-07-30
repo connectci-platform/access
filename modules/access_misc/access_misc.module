@@ -5,7 +5,6 @@
  */
 
 use Drupal\access_events\Plugin\Util\EventDateConvert;
-use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityInterface;
@@ -31,9 +30,7 @@ function access_misc_page_attachments(&$variables) {
     $variables['#attached']['library'][] = 'access_misc/nonadmin';
   }
 
-  $token = \Drupal::token();
-  $domainName = t("[domain:name]");
-  $current_domain_name = Html::getClass($token->replace($domainName));
+  $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
 
   $query = \Drupal::database()->select('taxonomy_term__field_region_connected_domain', 't');
   $query->fields('t', ['field_region_connected_domain_value', 'entity_id']);
@@ -42,6 +39,23 @@ function access_misc_page_attachments(&$variables) {
   if (array_key_exists($current_domain_name, $program_id)) {
     $variables['#attached']['drupalSettings']['access_misc']['current_menu'] = $program_id[$current_domain_name];
     $variables['#attached']['library'][] = 'access_misc/people_menu';
+  }
+}
+
+/**
+ * Implements hook_entity_view_mode_alter().
+ */
+function access_misc_entity_view_mode_alter(&$view_mode, Drupal\Core\Entity\EntityInterface $entity, $context) {
+  $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
+
+  // Custom view modes for taxonomy terms per domains.
+  if ($entity->getEntityTypeId() == 'taxonomy_term' && $entity->bundle() == 'tags' && $view_mode == 'full') {
+    if ($current_domain_name == 'access-support') {
+      $view_mode = 'taxonomy_term_page_support';
+    }
+    elseif ($current_domain_name == 'open-ondemand') {
+      $view_mode = 'taxonomy_term_page_open_ondemand';
+    }
   }
 }
 
@@ -165,50 +179,93 @@ function access_misc_views_post_render(ViewExecutable $view) {
 }
 
 /**
- * Implements hook_pre_view() for node templates.
+ * Implements hook_views_pre_view() for node templates.
  */
 function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
+  $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
+
+  $view_element = $view->element;
+
+  // Add domain cache tag to all views.
+  if (array_key_exists('#cache', $view_element)) {
+    if (array_key_exists('tags', $view_element['#cache'])) {
+      // Ensure the domain name is valid before using it as a cache tag
+      if (!empty($current_domain_name) && is_string($current_domain_name)) {
+        $domain_tag = 'domain:' . $current_domain_name;
+        // Avoid duplicate tags
+        if (!in_array($domain_tag, $view_element['#cache']['tags'])) {
+          $view_element['#cache']['tags'][] = $domain_tag;
+        }
+      }
+    }
+  }
+
+  if (
+    ($view->id() == 'people_with_expertise_tags' && $view->getDisplay()->view->element['#display_id'] == 'block_1') ||
+    ($view->id() == 'people_with_expertise_tags' && $view->getDisplay()->view->element['#display_id'] == 'page_1') ||
+    ($view->id() == 'people_with_interest_tags' && $view->getDisplay()->view->element['#display_id'] == 'block_1') ||
+    ($view->id() == 'people_with_interest_tags' && $view->getDisplay()->view->element['#display_id'] == 'page_1')
+  ) {
+    $view_filters = $view->display_handler->getOption('filters');
+    $program = \Drupal::service('access_misc.sitetools')->getProgram();
+
+    if (empty($program)) {
+      // If no program for the domain, set the filter to not match any program.
+      $view_filters['field_region_target_id_1']['operator'] = 'not';
+    }
+    else {
+      $view_filters['field_region_target_id_1']['value'] = $program;
+    }
+
+    $view->display_handler->setOption('filters', $view_filters);
+  }
 
   if ($view->id() == 'affinity_groups_with_tag' && $display_id === 'block_2') {
     $term = term_lookup_from_path();
-
-    $footer = \Drupal::service('access_misc.viewstools');
-    $footer->setFooter($view, 'All Affinity Groups with this tag', '/tags/' . $term['tid'] . '/affinity-groups', 'block_2');
+    if (!empty($term['tid'])) {
+      $footer = \Drupal::service('access_misc.viewstools');
+      $footer->setFooter($view, 'All Affinity Groups with this tag', '/tags/' . $term['tid'] . '/affinity-groups', 'block_2');
+    }
   }
 
   if ($view->id() == 'people_with_expertise_tags' && $display_id === 'block_1') {
     $term = term_lookup_from_path();
-
-    $footer = \Drupal::service('access_misc.viewstools');
-    $footer->setFooter($view, 'more people', '/tags/' . $term['tid'] . '/people-with-expertise', 'block_1');
+    if (!empty($term['tid'])) {
+      $footer = \Drupal::service('access_misc.viewstools');
+      $footer->setFooter($view, 'more people', '/tags/' . $term['tid'] . '/people-with-expertise', 'block_1');
+    }
   }
 
   if ($view->id() == 'people_with_interest_tags' && $display_id === 'block_1') {
     $term = term_lookup_from_path();
-
-    $footer = \Drupal::service('access_misc.viewstools');
-    $footer->setFooter($view, 'more people', '/tags/' . $term['tid'] . '/people-with-interest', 'block_1');
+    if (!empty($term['tid'])) {
+      $footer = \Drupal::service('access_misc.viewstools');
+      $footer->setFooter($view, 'more people', '/tags/' . $term['tid'] . '/people-with-interest', 'block_1');
+    }
   }
 
   if ($view->id() == 'match_engagement_view' && $display_id === 'block_6') {
     $term = term_lookup_from_path();
-
-    $footer = \Drupal::service('access_misc.viewstools');
-    $footer->setFooter($view, 'All Engagements with this tag', '/tag/' . $term['tid'] . '/engagements', 'block_6');
+    if (!empty($term['tid'])) {
+      $footer = \Drupal::service('access_misc.viewstools');
+      $footer->setFooter($view, 'All Engagements with this tag', '/tag/' . $term['tid'] . '/engagements', 'block_6');
+    }
   }
 
   if ($view->id() == 'resources' && $display_id === 'block_1') {
     $term = term_lookup_from_path();
-
-    $footer = \Drupal::service('access_misc.viewstools');
-    $footer->setFooter($view, 'All Resources with this tag', '/tags/' . $term['tid'] . '/resources', 'block_1');
+    if (!empty($term['tid'])) {
+      $footer = \Drupal::service('access_misc.viewstools');
+      $footer->setFooter($view, 'All Resources with this tag', '/tags/' . $term['tid'] . '/resources', 'block_1');
+    }
   }
 
   if ($view->id() == 'tagged_news_block' && $display_id === 'block_1') {
     $term = term_lookup_from_path();
-
-    $footer = \Drupal::service('access_misc.viewstools');
-    $footer->setFooter($view, 'more', '/announcements?tid=' . $term['tid'], 'block_1');
+    if (!empty($term['tid'])) {
+      $footer = \Drupal::service('access_misc.viewstools');
+      $footer->setFooter($view, 'more', '/announcements?tid=' . $term['tid'], 'block_1');
+    }
   }
 }
 
@@ -218,6 +275,9 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
 function term_lookup_from_path() {
   $path = Xss::filter(\Drupal::service('path.current')->getPath());
   $path_args = explode('/', $path);
+  $tid = NULL;
+  $title = NULL;
+
   if (is_numeric($path_args[3])) {
     $tid = $path_args[3];
     // Lookup term by tid.
@@ -402,72 +462,6 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     $form['#title'] = t('Join or Login');
   }
 
-  // Custom tags on /form/ci-link webform.
-  if ($form_id == 'webform_submission_resource_add_form' || $form_id == 'webform_submission_resource_edit_form') {
-    $form['field_tags_replace'] = [
-      '#type' => 'container',
-      '#attributes' => [
-        'id' => 'field-tags-replace',
-        'data-suggest' => '0',
-      ],
-      '#weight' => 2,
-    ];
-
-    $form['field_tags_replace']['field_suggest'] = [
-      '#type' => 'container',
-      '#attributes' => [
-        'class' => [
-          'bg-light-teal',
-          'my-5',
-          'p-5'
-        ]
-      ],
-    ];
-
-    $form['field_tags_replace']['field_suggest']['tag_list'] = [
-      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary. Limited to 6 tags.</div>",
-    ];
-    $form['field_tags_replace']['field_suggest']['replace_button'] = [
-      '#type' => 'button',
-      '#value' => t('Suggest Tags'),
-      '#limit_validation_errors' => array(),
-      '#attributes' => [
-        'class' => [
-          'ml-0'
-        ],
-      ],
-      '#ajax' => [
-        'callback' => 'access_misc_replace_section_callback',
-        'wrapper' => 'field-tags-replace',
-      ],
-    ];
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
-    ];
-
-    $form['#attached']['library'][] = 'access_misc/custom_tags';
-    $add_tags = \Drupal::service('access_misc.addtags');
-    $output = $add_tags->getView();
-    $form['custom_tags'] = [
-      '#markup' => "<div id='tag-suggestions'></div>
-                    <details open class='tags'>
-                     <summary><label class='js-form-required form-required'>Select relevant tags</label></summary>
-                      $output
-                    </details>",
-      '#weight' => 3,
-      '#allowed_tags' => [
-        'button',
-        'details',
-        'summary',
-        'label',
-        'span',
-        'div',
-        'h2',
-      ],
-    ];
-
-    $form['#validate'][] = 'access_misc_custom_tags_validate';
-  }
   if ($form_id == 'user_form') {
     $form['actions']['submit']['#submit'][] = 'access_misc_user_password_change';
   }
@@ -505,8 +499,9 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
   $contact = !empty($series_contact) ? t('In the meantime, if you have any questions or wish to withdraw from the waitlist, please contact us at ') . $series_contact[0]['value']  . '.': '';
   $start_date = $event_instance->get('date')->start_date->__toString();
   $start_date = date('F j, Y', strtotime($start_date));
-  // Turn $series_title into a link to the event.
-  $series_title_url = "<a href='/events/$event_instance_id'>$series_title</a>";
+  // Turn $series_title into a link to the event with correct domain.
+  $event_url = _access_misc_get_event_domain_url($event_instance_id);
+  $series_title_url = "<a href='$event_url'>$series_title</a>";
 
   $registered_person_email = Xss::filter($form_state->getValues()['email'][0]['value']);
   $name = Xss::filter($form_state->getValues()['field_first_name'][0]['value']) . ' ' . Xss::filter($form_state->getValues()['field_last_name'][0]['value']);
@@ -534,16 +529,76 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
   }
 
   // Add to email digest list.
-  $digest = \Drupal::state()->get('access_misc_email_digest');
+  $digest = \Drupal::state()->get('access_misc_email_digest', []);
 
-  $digest[$event_instance_id ] = [
-    'event_title' => $series_title,
-    'event_url' => '/events/' . $event_instance_id,
-    'author_email' => $author_email,
-  ];
+  // Don't overwrite existing entries - just ensure the event is in the digest.
+  if (!isset($digest[$event_instance_id])) {
+    $digest[$event_instance_id] = [
+      'event_title' => $series_title,
+      'event_url' => _access_misc_get_event_domain_url($event_instance_id),
+      'author_email' => $author_email,
+      'registration_count' => 1,
+      'first_registration' => date('Y-m-d H:i:s'),
+    ];
+  }
+  else {
+    // Increment registration count for existing entry.
+    $digest[$event_instance_id]['registration_count']++;
+  }
+
   \Drupal::state()->set('access_misc_email_digest', $digest);
 }
 
+/**
+ * Helper function to get domain-specific URL for an event.
+ */
+function _access_misc_get_event_domain_url($event_instance_id) {
+  try {
+    // Load the event instance.
+    $event_instance = \Drupal::entityTypeManager()
+      ->getStorage('eventinstance')
+      ->load($event_instance_id);
+    if (!$event_instance) {
+      return '/events/' . $event_instance_id; // Fallback to relative URL.
+    }
+
+    // Get associated domains from the event instance.
+    $instance_domains = $event_instance->get('domain_access')->getValue();
+
+    // If instance doesn't have domains, get from the series.
+    if (empty($instance_domains)) {
+      $series = $event_instance->getEventSeries();
+      if ($series) {
+        $instance_domains = $series->get('domain_access')->getValue();
+      }
+    }
+
+    // Generate domain-specific URL if domains are found.
+    if (!empty($instance_domains)) {
+      $domain_id = $instance_domains[0]['target_id'];
+      $domain = \Drupal::entityTypeManager()
+        ->getStorage('domain')
+        ->load($domain_id);
+      if ($domain) {
+        return $domain->buildUrl('/events/' . $event_instance_id);
+      }
+    }
+
+    // Fallback to current domain if no specific domain found.
+    $current_domain = \Drupal::service('domain.negotiator')->getActiveDomain();
+    if ($current_domain) {
+      return $current_domain->buildUrl('/events/' . $event_instance_id);
+    }
+
+    // Final fallback to relative URL.
+    return '/events/' . $event_instance_id;
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('access_misc')
+      ->error('Error generating event domain URL: ' . $e->getMessage());
+    return '/events/' . $event_instance_id;
+  }
+}
 
 /**
  * Custom submit handler for user_form.
@@ -557,23 +612,47 @@ function access_misc_user_password_change($form, FormStateInterface $form_state)
 
 function access_misc_replace_section_callback(array &$form, FormStateInterface $form_state) {
   $raw_data = $form_state->getUserInput();
-  $body_filter = $raw_data['description'] ? Xss::filter($raw_data['description']) : '';
+  $body = $raw_data['description'];
+  $body_filter = $body ? Xss::filter($body) : '';
   $suggested_tag_ids = '0';
-  if (strlen($body_filter) >= 100) {
-    $llm = \Drupal::service('access_llm.ai_references_generator');
-    $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
-    $suggested_tag_ids = implode(', ', $llm->taxonomyIdSuggested());
+  $tagged_tags = array_filter($raw_data['tags']);
+  $tag_count = count($tagged_tags);
+  $tag_limit = 6;
+  $tag_amount = $tag_limit - $tag_count;
+
+  if ($tag_amount <= 0) {
     $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
+      '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
+      <strong class='text-sky-900'>You already have 6 tags</strong><br />
+      You can remove some tags to get more suggestions.</div>",
     ];
+  }
+  elseif (strlen($body_filter) >= 100) {
+    try {
+      $llm = \Drupal::service('access_llm.ai_references_generator');
+      $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
+      $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
+      $suggested_tag_ids = implode(', ', $suggestions);
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "",
+      ];
+    }
+    catch (\Throwable $e) {
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "<div class='match-tag-list bg-yellow-200 text-yellow-900 my-5 p-5'>
+        <strong class='text-yellow-900'>AI tag suggestions are not available</strong><br />
+        Please select tags manually from the list below.</div>",
+      ];
+    }
   }
   else {
     $form['field_tags_replace']['user_message'] = [
       '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
-                    <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
+      <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
                     Your description must be over 100 characters to get a suggestion.</div>",
     ];
   }
+
   $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
 
   // Return the updated section.
@@ -627,22 +706,54 @@ function access_misc_cron() {
   $hour = date('H', $currentTime);
   $min = date('i', $currentTime);
 
-  // Cron runs every 10 minutes
-  if ($hour == 3 && $min < 20) {
+  // Cron runs every 10 minutes. Extended window to 3:00-3:59 AM for better reliability.
+  if ($hour == 3) {
     // Run the ingest of ACCESS organizations.
     \Drupal::service('access_misc.import_access_orgs')->ingest();
 
     // Run registration email digest for authors of event.
-    $digest = \Drupal::state()->get('access_misc_email_digest');
+    $digest = \Drupal::state()->get('access_misc_email_digest', []);
 
-    foreach ($digest as $event_id => $digest_event) {
-      $event_author = $digest_event['author_email'];
-      $policy = 'access_misc';
-      $policy_subtype = 'registrant_digest';
-      \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $event_author, $digest_event);
+    // Only proceed if there are notifications to send.
+    if (!empty($digest)) {
+      $successful_sends = [];
+
+      foreach ($digest as $event_id => $digest_event) {
+        $event_author = $digest_event['author_email'];
+        $policy = 'access_misc';
+        $policy_subtype = 'registrant_digest';
+
+        try {
+          \Drupal::service('access_misc.symfony.mail')
+            ->email($policy, $policy_subtype, $event_author, $digest_event);
+          $successful_sends[] = $event_id;
+          \Drupal::logger('access_misc')
+            ->info('Event registration digest sent for event @event_id to @email', [
+              '@event_id' => $event_id,
+              '@email' => $event_author,
+            ]);
+        }
+        catch (\Exception $e) {
+          \Drupal::logger('access_misc')
+            ->error('Failed to send event registration digest for event @event_id to @email: @error', [
+              '@event_id' => $event_id,
+              '@email' => $event_author,
+              '@error' => $e->getMessage(),
+            ]);
+        }
+      }
+
+      // Only reset digest for successfully sent notifications.
+      if (!empty($successful_sends)) {
+        $remaining_digest = array_diff_key($digest, array_flip($successful_sends));
+        \Drupal::state()->set('access_misc_email_digest', $remaining_digest);
+
+        \Drupal::logger('access_misc')
+          ->info('Event registration digest processed: @sent sent, @remaining remaining', [
+            '@sent' => count($successful_sends),
+            '@remaining' => count($remaining_digest),
+          ]);
+      }
     }
-
-    // Reset digest.
-    \Drupal::state()->set('access_misc_email_digest', []);
   }
 }

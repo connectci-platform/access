@@ -76,7 +76,15 @@ class LoginController extends ControllerBase {
       // Get redirect destination from url.
       $destination = $this->redirectDestination->get() ? Xss::filter($this->redirectDestination->get()) : '';
       if (empty($destination) || str_starts_with($destination, '/login')) {
+        // Get destination url query.
+        $query = \Drupal::request()->query->all();
+        $redirect = $query['redirect'] ?? '';
         $destination = '/';
+
+        if (!empty($redirect)) {
+          // If redirect is set, use it.
+          $destination = Xss::filter($redirect);
+        }
       }
       // Redirect to destination.
       $response = new RedirectResponse($destination);

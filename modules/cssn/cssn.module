@@ -44,10 +44,9 @@ function cssn_preprocess_views_view_field(&$variables) {
     $badges = "";
     foreach ($lines as $key => $line) {
       if ($key == 0) {
-        $lines = explode(', ', $line);
-        if (!empty($lines[0])) {
-          foreach ($lines as $key => $line) {
-            $term_id = $line;
+        $term_ids = explode(', ', $line);
+        if (!empty($term_ids[0])) {
+          foreach ($term_ids as $term_id) {
             $term = Term::load($term_id);
             if ($term->get('field_badge')->entity != NULL) {
               $name = $term->get('name')->value;
@@ -121,6 +120,7 @@ function cssn_block_access(Block $block, $operation, AccountInterface $account) 
     }
     return AccessResult::allowed();
   }
+  return  AccessResult::neutral();
 }
 
 /**
@@ -258,29 +258,22 @@ function cssn_role_form_submit(&$form, FormStateInterface $form_state) {
  */
 function cssn_form_submit(&$form, FormStateInterface $form_state) {
   $elements = $form['elements']['i_am_joining_as_a_'];
-  $general = $elements['General Member']['#checked'];
-  $match_mentor = $elements['MATCH Mentor']['#checked'];
-  $student_facilitator = $elements['Student-Facilitator']['#checked'];
-  $consultant = $elements['MATCH Consultant']['#checked'];
-  $cip = $elements['NSF-funded CIP']['#checked'];
+
+  $general = $elements['General Member']['#checked'] ?? FALSE;
+  $consultant = $elements['MATCH Consultant']['#checked'] ?? FALSE;
+  $cip = $elements['NSF-funded CIP']['#checked'] ?? FALSE;
   // Lookup taxonomy term id by name 'ACCESS CSSN'.
   $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'ACCESS CSSN']);
   $term = reset($term);
   $term_id = $term->id();
   $enroll_program = FALSE;
-  if ($general || $match_mentor || $student_facilitator || $consultant || $cip) {
+  if ($general || $consultant || $cip) {
     $enroll_program = TRUE;
   }
   $user = \Drupal::currentUser();
   cssn_role_region('cssn', $general, $term_id, $enroll_program, $user);
-  cssn_role_region('mentor', $match_mentor, $term_id, $enroll_program, $user);
-  cssn_role_region('student', $student_facilitator, $term_id, $enroll_program, $user);
   cssn_role_region('consultant', $consultant, $term_id, $enroll_program, $user);
   cssn_role_region('cip', $cip, $term_id, $enroll_program, $user);
-
-  if ($student_facilitator) {
-    cssn_update_academic_status($user, $form);
-  }
 }
 
 /**
@@ -317,11 +310,16 @@ function cssn_role_region($role, $checked, $term_id, $enroll_program, $user) {
         ->getStorage('taxonomy_term')
         ->loadByProperties(['tid' => 794]);
       $cssn_affinity_group = reset($cssn_affinity_group);
-      $flag_id = 'affinity_group';
-      $flag = \Drupal::service('cssn.flag');
-      $set_flag = $flag->setFlag($flag_id, $cssn_affinity_group, $user);
-      if ($set_flag) {
-        \Drupal::messenger()->addMessage(t('You have been added to the CSSN Affinity Group.'));
+
+      if ($cssn_affinity_group) {
+        $flag_id = 'affinity_group';
+        $flag = \Drupal::service('cssn.flag');
+        $set_flag = $flag->setFlag($flag_id, $cssn_affinity_group, $user);
+        if ($set_flag) {
+          \Drupal::messenger()->addMessage(t('You have been added to the CSSN Affinity Group.'));
+        }
+      } else {
+        \Drupal::logger('cssn')->error('Could not load CSSN affinity group with tid 794');
       }
     }
     if ($enroll_program) {

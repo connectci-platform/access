@@ -59,8 +59,10 @@ function access_page_attachments(array &$attachments) {
     foreach ($menu as $menu_items) {
       $js_menu .= '{';
       $js_menu .= '"name": "' . $menu_items['name'] . '", "items": [';
-      ksort($menu_items['items']);
-      foreach ($menu_items['items'] as $item) {
+      if (is_array($menu_items['items'])) {
+        ksort($menu_items['items']);
+      }
+      foreach ($menu_items['items'] ?? [] as $item) {
         $js_menu .= '{"name": "' . $item['name'] . '", "href": "' . $item['url'] . '"},';
       }
       // Remove last comma.

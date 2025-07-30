@@ -73,6 +73,9 @@ class CommunityPersonaController extends ControllerBase {
           elseif ($persona_source == 'access' && $domainName != 'access' && $env == 'live') {
             $url = Url::fromUri('https://support.access-ci.org/node/' . $affinity_group_loaded->id());
           }
+          elseif ($persona_source == 'ccmnet' && $domainName != 'ccmnet' && $env == 'live') {
+            $url = Url::fromUri('https://ccmnet.org/node/' . $affinity_group_loaded->id());
+          }
           else {
             $url = Url::fromRoute('entity.node.canonical', ['node' => $affinity_group_loaded->id()]);
           }
@@ -405,13 +408,19 @@ class CommunityPersonaController extends ControllerBase {
     $projects = $this->projectList($current_user);
 
     // Events user is registered for.
-    $view = Views::getView('recurring_events_registrations');
-    $view->setDisplay('user_event_registrations');
-    $view->setArguments([$current_user->id()]);
-    $user_event_registrations = $view->buildRenderable('user_event_registrations');
-    // Get the total items in the view.
-    $view->execute();
-    $total_items = $view->total_rows;
+    $user_event_registrations = '';
+    $total_items = 0;
+
+    // Only show registrations for authenticated users
+    if (!$current_user->isAnonymous()) {
+      $view = Views::getView('recurring_events_registrations');
+      $view->setDisplay('user_event_registrations');
+      $view->setArguments([$current_user->id()]);
+      $user_event_registrations = $view->buildRenderable('user_event_registrations');
+      // Get the total items in the view.
+      $view->execute();
+      $total_items = $view->total_rows;
+    }
 
     $persona_page['string'] = [
       '#type' => 'inline_template',
@@ -524,7 +533,7 @@ class CommunityPersonaController extends ControllerBase {
         'bio_summary' => $bio_summary,
         'bio' => $bio,
         'ag_title' => t('My Affinity Groups'),
-        'ag_intro' => t('Connected with researchers of common interests.'),
+        'ag_intro' => t('Connect with researchers of common interests.'),
         'user_affinity_groups' => $user_affinity_groups,
         'affinity_link' => $build_affinity_link,
         'mi_title' => t('My Interests'),

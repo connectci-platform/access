@@ -2,28 +2,32 @@ services:
   access_misc.subscriber:
     class: '\Drupal\access_misc\EventSubscriber\Subscriber'
     tags:
-      - { name: 'event_subscriber' }
+      - { name: "event_subscriber" }
   access_misc.addtags:
     class: Drupal\access_misc\Plugin\NodeAddTags
-    arguments: ['@renderer']
+    arguments: ["@renderer"]
 
   access_misc.skillLevel:
     class: Drupal\access_misc\Plugin\SkillLevel
 
   access_misc.import_access_orgs:
     class: Drupal\access_misc\Services\ImportAccessOrgs
-    arguments: ['%access_misc.verbose%']
+    arguments: ["%access_misc.verbose%"]
 
   access_misc.symfony.mail:
     class: Drupal\access_misc\Services\SymfonyMail
 
+  access_misc.sitetools:
+    class: Drupal\access_misc\Plugin\Util\SiteTools
+    arguments: ["@entity_type.manager", "@token"]
+
   access_misc.usertools:
     class: Drupal\access_misc\Plugin\Util\UserTools
-    arguments: ['@entity_type.manager']
+    arguments: ["@entity_type.manager"]
 
   access_misc.viewstools:
     class: Drupal\access_misc\Plugin\Util\ViewsTools
-    arguments: ['@entity_type.manager']
+    arguments: ["@entity_type.manager"]
 
 parameters:
   access_misc.verbose: FALSE

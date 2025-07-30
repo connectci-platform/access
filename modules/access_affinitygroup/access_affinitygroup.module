@@ -63,29 +63,9 @@ const cAccessEmail = "supportapiaccess@access-ci.org";
  */
 function access_affinitygroup_views_query_alter(ViewExecutable $view, QueryPluginBase $query) {
   if ($view->id() === 'affinity_group_search' && $view->current_display === 'page_1') {
-    $mapping = [
-      "access-support" => "amp_cyberinfrastructure_org",
-      "campus-champions" => "campuschampions_cyberinfrastructure_org",
-      "careers-cyberteam" => "careersct_cyberinfrastucture_org",
-      "ccmnet_org" => "ccmnet_org",
-      "coco" => "coco_cyberinfrastructure_org",
-      "connect-ci" => "connectcidev_wpi_edu",
-      "great-plains-cyberteam" => "greatplains_wpi_edu",
-      "kentucky-cyberteam" => "kycyberteam_cyberinfrastructure_org",
-      "mines-cyberteam" => "mines_cyberinfrastructure_org",
-      "northeast-cyberteam" => "nectd8_wpi_edu",
-      "open-ondemand" => "openondemand_cyberinfrastructure_org",
-      "rmacc-cyberteam" => "rmacc_wpi_edu",
-      "sweeter-cyberteam" => "sweeter_cyberinfrastructure_org",
-      "trecis-cyberteam" => "trecis_cyberinfrastructure_org",
-      "usrse" => "usrse_cyberinfrastructure_org",
-  ];
-
-    $token = \Drupal::token();
-    $domain_name = Html::getClass($token->replace(t('[domain:name]')));
-    if (isset($mapping[$domain_name])) {
-      $domain_name = $mapping[$domain_name];
-      $query->addCondition('field_domain_access', $domain_name, '=');
+    $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
+    if ($domain_id) {
+      $query->addCondition('field_domain_access', $domain_id, '=');
     }
   }
 }
@@ -307,6 +287,22 @@ function access_affinitygroup_entity_presave(EntityInterface $entity) {
 }
 
 /**
+ * Implements hook_views_pre_view() for node templates.
+ */
+function access_affinitygroup_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
+  if ($view->id() == 'affinity_groups_with_tag' && $view->getDisplay()->view->element['#display_id'] == 'block_2') {
+    $view_filters = $view->display_handler->getOption('filters');
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    $view_filters['field_domain_access_target_id']['value'] = [
+      $domain => $domain
+    ];
+
+    $view->display_handler->setOption('filters', $view_filters);
+  }
+}
+
+/**
  * Implements hook_views_pre_render().
  *
  * Used in this case to add the CiDeR resource titles & descriptions to the view.
@@ -398,13 +394,15 @@ function update_removed_ag_leader_roles($entity, $coordinator_ids) {
 
   // Build an array of all removed coordinators.
   $removed_coordinator_ids = [];
-  foreach ($original_coordinators as $original_coordinator) {
-    $original_coordinator_id = $original_coordinator['target_id'];
-    if (!in_array($original_coordinator_id, $coordinator_ids)) {
-      $removed_coordinator_ids[] = $original_coordinator_id;
+  if ($original_coordinators) {
+    foreach ($original_coordinators as $original_coordinator) {
+      $original_coordinator_id = $original_coordinator['target_id'];
+      if (!in_array($original_coordinator_id, $coordinator_ids)) {
+        $removed_coordinator_ids[] = $original_coordinator_id;
 
-      // $msg = "user id $original_coordinator_id removed";
-      // \Drupal::messenger()->addStatus($msg);
+        // $msg = "user id $original_coordinator_id removed";
+        // \Drupal::messenger()->addStatus($msg);
+      }
     }
   }
 
@@ -477,11 +475,15 @@ function add_ag_taxonomy_term($entity) {
  * (the user hit the Join button on  the AG page.)
  * Audeience for errors is end user; errors also logged.
  *
- * @param affinitygroup
- * @param loaded user
- * @param isSubscribe - true to subscribe, false to leave
+ * @param int $flagEntityId
+ *   The taxonomy term ID for the affinity group.
+ * @param \Drupal\user\Entity\User $user
+ *   The loaded user entity.
+ * @param bool $isSubscribe
+ *   TRUE to subscribe, FALSE to unsubscribe.
  *
- * @return nothing. Error display handled within.
+ * @return void
+ *   Error display handled within.
  */
 function subscribeToSimpleLists($flagEntityId, $user, $isSubscribe) {
   // Get the ag for this flag (that the user joined)
@@ -499,7 +501,10 @@ function subscribeToSimpleLists($flagEntityId, $user, $isSubscribe) {
   }
 
   if (!$ag->get('field_use_ext_email_list')->getValue()[0]['value']) {
-    \Drupal::logger('access_affinitygroup')->error('Missing Affinity group with flag id ' . $flagEntityId . '.');
+    \Drupal::logger('access_affinitygroup')->info('Affinity group @title (flag id @flagEntityId) does not have external email lists enabled. Skipping email list subscription.', [
+      '@title' => $ag->getTitle(),
+      '@flagEntityId' => $flagEntityId
+    ]);
     return;
   }
 
@@ -862,7 +867,7 @@ function makeListMembershipJSON($flagEntityId, $userDetails) {
 
   $aval = array_values($node_ids);
   if (empty($aval)) {
-    \Drupal::logger('cron_affinitygroup')->notice('Missing Affinity group with flag id ' . $flagEntityId . '.');
+    \Drupal::logger('cron_affinitygroup')->warning('No affinity group node found with field_affinity_group referencing taxonomy term ' . $flagEntityId . '. Cannot process Constant Contact membership.');
     return NULL;
   }
   $nid = $aval[0];
@@ -988,45 +993,109 @@ function showStatus($logmsg) {
  */
 function access_affinitygroup_cron() {
   $email_recruit = FALSE;
-  // Adding for logging purposes to check server time.
-  if ((date('G', time()) == 10) && (date('i', time()) < 9)) {
+  // Check if we should send recruitment emails (once per day)
+  $last_recruit_run = \Drupal::state()->get('access_affinitygroup.last_recruit_email', 0);
+  $current_time = time();
+  $hours_since_last = ($current_time - $last_recruit_run) / 3600;
+  
+  // Send if it's been more than 23 hours since last run (or force for testing on non-live)
+  $env = getenv('PANTHEON_ENVIRONMENT');
+  if ($hours_since_last > 23 || ($env !== 'live' && $hours_since_last > 0.1)) {
     $email_recruit = TRUE;
+    \Drupal::state()->set('access_affinitygroup.last_recruit_email', $current_time);
   }
 
   if ($email_recruit) {
-    // Get 'state' taxonomy with term name 'recruiting' tid.
-    $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'recruiting']);
-    $term_id = array_keys($term)[0];
-    // EntityQuery to get all mentorship nodes updated in the last 24 hours with
-    // recruiting.
+    // Get 'state' taxonomy term IDs for recruiting states.
+    $recruiting_term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'recruiting']);
+    $in_progress_recruiting_term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'In Progress and Recruiting']);
+    
+    $term_ids = [];
+    if ($recruiting_term) {
+      $term_ids[] = array_keys($recruiting_term)[0];
+    }
+    if ($in_progress_recruiting_term) {
+      $term_ids[] = array_keys($in_progress_recruiting_term)[0];
+    }
+    
+    // Get all mentorship nodes currently in recruiting states that are approved and published
     $query = \Drupal::entityQuery('node')
       ->condition('type', 'mentorship_engagement')
-      ->condition('field_me_state', $term_id)
+      ->condition('field_me_state', $term_ids, 'IN')
       ->condition('field_ccmnet_approved', 1)
-      ->condition('changed', strtotime('-1 day'), '>')
+      ->condition('status', 1)
       ->accessCheck(FALSE);
-    $nids = $query->execute();
-    if ($nids) {
-      $body = t("New mentorship engagements have been requested on the CCMNet portal") . ": <ul>";
-      foreach ($nids as $nid) {
+    $all_recruiting_nids = $query->execute();
+    
+    // Get list of mentorships we've already notified about
+    $notified_mentorships = \Drupal::state()->get('access_affinitygroup.notified_mentorships', []);
+    
+    // Only include mentorships we haven't notified about yet
+    $new_nids = array_diff($all_recruiting_nids, $notified_mentorships);
+    
+    if ($new_nids) {
+      \Drupal::logger('access_affinitygroup')->info('Found @count NEW mentorship engagements in recruiting states for email notification', ['@count' => count($new_nids)]);
+      
+      // Sort mentorships by whether they're looking for mentors or mentees
+      $seeking_mentors = [];
+      $seeking_mentees = [];
+      
+      foreach ($new_nids as $nid) {
         $node = \Drupal::entityTypeManager()->getStorage('node')->load($nid);
         $node_title = $node->getTitle();
         $options = ['absolute' => FALSE];
         $link_build = Url::fromRoute('entity.node.canonical', ['node' => $nid], $options);
         $url = 'https://ccmnet.org' . $link_build->tostring(TRUE)->getGeneratedUrl();
-        $body .= '<li><a href="' . $node_title . '">' . $url . '</a></li>';
+        $link_item = '<li><a href="' . $url . '">' . $node_title . '</a></li>';
+        
+        // Check what they're looking for
+        $looking_for = $node->get('field_me_looking_for')->getValue();
+        if (!empty($looking_for) && $looking_for[0]['value'] === 'mentor') {
+          $seeking_mentors[] = $link_item;
+        } else {
+          $seeking_mentees[] = $link_item;
+        }
       }
-      $body .= "</ul>";
-      // If there are any mentorship engagements in recruiting state, send email.
-      $title = t('New Mentorship Engagements set to recruiting');
-      // Load 'CCMNet Mentors' AG node.
+      
+      $body = "";
+      
+      if (!empty($seeking_mentors)) {
+        $body .= "<h3>Looking for Mentors:</h3><ul>" . implode('', $seeking_mentors) . "</ul>";
+      }
+      
+      if (!empty($seeking_mentees)) {
+        $body .= "<h3>Looking for Mentees:</h3><ul>" . implode('', $seeking_mentees) . "</ul>";
+      }
+      
+      // Send email notification
+      $title = t('New mentorship engagements are available on the CCMNet portal');
       $node = \Drupal::entityTypeManager()->getStorage('node')->load(5951);
       $ccListIds = [$node->get('field_list_id')->getValue()[0]['value']];
       $agNames = [$node->getTitle()];
       $pubDate = date('m/d/Y');
-      $email_link = 'https://ccmnet.org/node/5951';
+      $email_link = 'https://ccmnet.org/mentorships?f%5B0%5D=state%3A827&f%5B1%5D=state%3A886';
 
       emailToAffinityGroups($body, "$title", $pubDate, $agNames, $email_link, $ccListIds, 1, NULL);
+      \Drupal::logger('access_affinitygroup')->info('Sent CCMNet recruitment email to affinity group: @group for @count new mentorships', ['@group' => implode(', ', $agNames), '@count' => count($new_nids)]);
+      
+      // Update our list of notified mentorships (add the new ones)
+      $updated_notified = array_merge($notified_mentorships, $new_nids);
+      \Drupal::state()->set('access_affinitygroup.notified_mentorships', $updated_notified);
+    }
+    else {
+      \Drupal::logger('access_affinitygroup')->info('No NEW mentorship engagements found in recruiting states for email notification (total recruiting: @total, already notified: @notified)', [
+        '@total' => count($all_recruiting_nids),
+        '@notified' => count($notified_mentorships)
+      ]);
+    }
+    
+    // Clean up old notified mentorships that are no longer in recruiting states
+    // This prevents the list from growing indefinitely
+    $current_notified = \Drupal::state()->get('access_affinitygroup.notified_mentorships', []);
+    $still_valid_notified = array_intersect($current_notified, $all_recruiting_nids);
+    if (count($still_valid_notified) != count($current_notified)) {
+      \Drupal::state()->set('access_affinitygroup.notified_mentorships', $still_valid_notified);
+      \Drupal::logger('access_affinitygroup')->info('Cleaned up notified mentorships list: removed @removed items', ['@removed' => count($current_notified) - count($still_valid_notified)]);
     }
   }
 
@@ -1163,7 +1232,6 @@ function isCCEnabled() {
  *             If true, we use community template, otherwise use the access support template.
  */
 function emailToAffinityGroups($emailText, $emailTitle, $pubDate, $agNames, $newsUrl, $ccListIds, $communityTemplate, $logoUrl) {
-
   // For CC, must be unique name for campaign.
   $campaignName = uniqid('Access Announcement: ' . $agNames[0] . '- ' . $pubDate . ' ', FALSE);
 
@@ -1440,23 +1508,47 @@ function access_affinitygroup_form_alter(&$form, FormStateInterface $form_state,
  */
 function access_affinitygroup_replace_section_callback(array &$form, FormStateInterface $form_state) {
   $raw_data = $form_state->getUserInput();
-  $body_filter = $raw_data['body'][0]['value'] ? Xss::filter($raw_data['body'][0]['value']) : '';
+  $body = $raw_data['body'][0]['value'];
+  $body_filter = $body ? Xss::filter($body) : '';
   $suggested_tag_ids = '0';
-  if (strlen($body_filter) >= 100) {
-    $llm = \Drupal::service('access_llm.ai_references_generator');
-    $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
-    $suggested_tag_ids = implode(', ', $llm->taxonomyIdSuggested());
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
-    ];
-  } else {
+  $tag_count = count($raw_data['field_tags'] ?? []);
+  $tag_limit = 6;
+  $tag_amount = $tag_limit - $tag_count;
+
+  if ($tag_amount <= 0) {
     $form['field_tags_replace']['user_message'] = [
       '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
-                    <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
+      <strong class='text-sky-900'>You already have 6 tags</strong><br />
+      You can remove some tags to get more suggestions.</div>",
+    ];
+  }
+  elseif (strlen($body_filter) >= 100) {
+    try {
+      $llm = \Drupal::service('access_llm.ai_references_generator');
+      $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
+      $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
+      $suggested_tag_ids = implode(', ', $suggestions);
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "",
+      ];
+    }
+    catch (\Throwable $e) {
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "<div class='match-tag-list bg-yellow-200 text-yellow-900 my-5 p-5'>
+        <strong class='text-yellow-900'>AI tag suggestions are not available</strong><br />
+        Please select tags manually from the list below.</div>",
+      ];
+    }
+  }
+  else {
+    $form['field_tags_replace']['user_message'] = [
+      '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
+      <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
                     Your description must be over 100 characters to get a suggestion.</div>",
     ];
   }
-  $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids;
+
+  $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
 
   // Return the updated section.
   return $form['field_tags_replace'];

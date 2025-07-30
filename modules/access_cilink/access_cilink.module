@@ -75,6 +75,19 @@ function access_cilink_views_query_alter($view, $query) {
       $query->addCondition('webform_submission_domain', $domainName, '=');
     }
   }
+
+  // Filter KB Resources on the /tags/ pages
+  // Check if this is the 'resources' view and 'block_1' display.
+  if (($view->id() == 'resources' && $view->current_display == 'block_1') || ($view->id() == 'resources' && $view->current_display == 'page_2')) {
+    if ($query instanceof \Drupal\views\Plugin\views\query\Sql) {
+      $program = \Drupal::service('access_misc.sitetools')->getProgram();
+      $program = reset($program);
+
+      if (!empty($program)) {
+        $query->addWhere('AND', 'webform_submission_field_resource_domain.value', $program, '=');
+      }
+    }
+  }
 }
 
 /**
@@ -101,7 +114,10 @@ function access_cilink_preprocess_views_view_field(&$variables) {
     $uid = $webform_submission->getOwnerId();
     $data = $webform_submission->getData();
     $title = $data['title'];
-    $description = $data['description'];
+    $description = '';
+    if (isset($data['description_html']['value'])) {
+      $description = check_markup($data['description_html']['value'], 'basic_html');
+    }
     $type = $data['category'];
 
     // Only show approved resources.
@@ -239,7 +255,7 @@ function access_cilink_preprocess_views_view_field(&$variables) {
                           <div class="grid grid-cols-5 gap-4 p-4">
                             <div class="col-span-5 md--col-span-4">
                               {{ linkToResource | raw }}
-                              {{ description }}
+                              <div class="prose mb-4">{{ description | raw }}</div>
                               <div class="square-tags">{{ tags | raw }}</div>
                             </div>
                             <div class="col-span-5 md--col-span-1 flex flex-row flex-wrap justify-between">
@@ -492,12 +508,145 @@ function cilink_send($key, $params) {
  */
 function access_cilink_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   if ($form_id == 'webform_submission_resource_add_form' || $form_id == 'webform_submission_resource_edit_form') {
+    $form['elements']['affinity_group_nodes']['#selection_settings']['view']['arguments'] = ['openondemand_cyberinfrastructure_org'];
+
+    $domain_id = \Drupal::service('domain.negotiator')->getActiveDomain()->id();
+
+    // Entity query to get all affinity_group nodes.
+    $query = \Drupal::entityQuery('node')
+      ->condition('type', 'affinity_group')
+      ->condition('field_domain_access', $domain_id)
+      ->accessCheck(FALSE);
+    $nids = $query->execute();
+
+    $form['elements']['field_ag_nodes_select'] = [
+      '#type' => 'select',
+      '#title' => t('Would you like to associate this resource with an Affinity Group?'),
+      '#options' => [],
+      '#description' => t('Select an Affinity Group to associate with this resource.'),
+    ];
+
+    if (array_key_exists('#default_value', $form['elements']['affinity_group'])) {
+      $form['elements']['field_ag_nodes_select']['#default_value'] = $form['elements']['affinity_group']['#default_value'];
+    }
+
+    // Need to force the affinity_group and resource_allowed_on_affinity_group elements to the bottom.
+    $elements = [];
+    foreach ($form['elements'] as $key => $element) {
+      if ($key == 'affinity_group' || $key == 'resource_allowed_on_affinity_group' || $key == 'private') {
+        $elements[$key] = $element;
+        unset($form['elements'][$key]);
+      }
+    }
+
+    $form['elements'] = array_merge($form['elements'], $elements);
+
+    // Set first item.
+    $form['elements']['field_ag_nodes_select']['#options'][''] = '- None -';
+
+    foreach ($nids as $nid) {
+      $node = \Drupal::entityTypeManager()->getStorage('node')->load($nid);
+      if ($node instanceof \Drupal\node\NodeInterface) {
+        $title = $node->getTitle();
+        // Get field field_affinity_group.
+        $field_affinity_group = $node->get('field_affinity_group')->getValue();
+        $ag_tid = !empty($field_affinity_group) ? $field_affinity_group[0]['target_id'] : 0;
+        $form['elements']['field_ag_nodes_select']['#options'][$ag_tid] = $title;
+      }
+    }
+
+    asort($form['elements']['field_ag_nodes_select']['#options']);
+
+    $form['#attached']['library'][] = 'access_misc/add_select';
+    $form['#attached']['library'][] = 'access_cilink/kb_select_ag';
+
+    $form['field_tags_replace'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'id' => 'field-tags-replace',
+        'data-suggest' => '0',
+      ],
+      '#weight' => 2,
+    ];
+
+    $form['field_tags_replace']['field_suggest'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'class' => [
+          'bg-light-teal',
+          'my-5',
+          'p-5'
+        ]
+      ],
+    ];
+
+    $form['field_tags_replace']['field_suggest']['tag_list'] = [
+      '#markup' => "<label for='edit-field-ag-nodes-select'>Tags</label><div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary. Limited to 6 tags.</div>",
+      '#allowed_tags' => [
+        'label',
+        'div',
+      ],
+    ];
+    $form['field_tags_replace']['field_suggest']['replace_button'] = [
+      '#type' => 'button',
+      '#value' => t('Suggest Tags'),
+      '#limit_validation_errors' => array(),
+      '#attributes' => [
+        'class' => [
+          'ml-0'
+        ],
+      ],
+      '#ajax' => [
+        'callback' => 'access_misc_replace_section_callback',
+        'wrapper' => 'field-tags-replace',
+      ],
+    ];
+    $form['field_tags_replace']['user_message'] = [
+      '#markup' => "",
+    ];
+
+    $form['#attached']['library'][] = 'access_misc/custom_tags';
+    $add_tags = \Drupal::service('access_misc.addtags');
+    $output = $add_tags->getView();
+    $form['custom_tags'] = [
+      '#markup' => "<div id='tag-suggestions'></div>
+                    <details open class='tags'>
+                     <summary><label class='js-form-required form-required'>Select relevant tags</label></summary>
+                      $output
+                    </details>",
+      '#weight' => 3,
+      '#allowed_tags' => [
+        'button',
+        'details',
+        'summary',
+        'label',
+        'span',
+        'div',
+        'h2',
+      ],
+    ];
+
+    $form['#validate'][] = 'access_misc_custom_tags_validate';
+    $form['#validate'][] = 'access_cilink_custom_tags_validate';
+
     $roles = \Drupal::currentUser()->getRoles();
     if (in_array('administrator', $roles) || in_array('kb_pm', $roles)) {
       $form['elements']['approved']['#disabled'] = FALSE;
     }
 
     $form['actions']['submit']['#submit'][] = 'access_cilink_webform_submission_resource_submit';
+  }
+}
+
+
+/**
+ * Webform submission validate.
+ */
+function access_cilink_custom_tags_validate($form, FormStateInterface $form_state) {
+  // Validate custom tags.
+  $custom_tags = $form_state->getValue('tags');
+  if (empty($custom_tags)) {
+    $form_state->setErrorByName('custom_tags', t('Please select at least one tag.'));
   }
 }
 

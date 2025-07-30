@@ -21,7 +21,6 @@ class IconBlockShortcode extends ShortcodeBase {
    */
   public function process(array $attributes, $text, $langcode = Language::LANGCODE_NOT_SPECIFIED) {
     $attributes = $this->getAttributes([
-      'icon' => '',
       'img' => '',
       'alt' => '',
       'title' => '',
@@ -34,7 +33,6 @@ class IconBlockShortcode extends ShortcodeBase {
       $attributes
     );
 
-    $icon = $attributes['icon'];
     $img = $attributes['img'];
     $alt = $attributes['alt'];
     $title = $attributes['title'];
@@ -46,7 +44,6 @@ class IconBlockShortcode extends ShortcodeBase {
 
     $output = [
       '#theme' => 'shortcode_icon_block',
-      '#icon' => $icon,
       '#img' => $img,
       '#alt' => $alt,
       '#title' => $title,
@@ -65,9 +62,9 @@ class IconBlockShortcode extends ShortcodeBase {
    */
   public function tips($long = FALSE) {
     $output = [];
-    $output[] = '<p><strong>' . $this->t('[icon_box icon="bi bi-camera-fill" img="optional image url" alt="alt text for image" title="Your title here" text="Your text here" link="Link for icon box" boxed="boxed" btnLink="https://example.com" btnText="Optional button Link"][/icon_box] ') . '</strong> ';
+    $output[] = '<p><strong>' . $this->t('[icon_box img="image url" alt="alt text for image" title="Your title here" text="Your text here" link="Link for icon box" boxed="boxed" btnLink="https://example.com" btnText="Optional button Link"][/icon_box] ') . '</strong> ';
     if ($long) {
-      $output[] = $this->t('Builds an icon box with the Font Awesome icon or image that you specify and the title text.') . '</p>';
+      $output[] = $this->t('Builds an icon box with the image that you specify and the title text.') . '</p>';
     }
     else {
       $output[] = $this->t('Builds an icon box.') . '</p>';
