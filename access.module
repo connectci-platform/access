@@ -75,17 +75,27 @@ function access_page_attachments(array &$attachments) {
 
     $current_uri = \Drupal::request()->getRequestUri();
 
-    // Get current user information
+    // Get current user data for JavaScript.
     $current_user = \Drupal::currentUser();
     $user_data = [];
-    
     if ($current_user->isAuthenticated()) {
-      $user = \Drupal\user\Entity\User::load($current_user->id());
-      $user_data['username'] = $current_user->getAccountName();
-      $user_data['email'] = $user->getEmail();
-      $user_data['firstName'] = $user->get('field_user_first_name')->value ?? '';
-      $user_data['lastName'] = $user->get('field_user_last_name')->value ?? '';
-      $user_data['accessId'] = $current_user->id();
+      $user_entity = \Drupal\user\Entity\User::load($current_user->id());
+      $first_name = $user_entity->get('field_user_first_name')->value ?? '';
+      $last_name = $user_entity->get('field_user_last_name')->value ?? '';
+      $full_name = trim($first_name . ' ' . $last_name);
+      $account_name = $user_entity->getAccountName();
+      
+      // Derive accessId from username by removing @access-ci.org
+      $access_id = '';
+      if (str_ends_with($account_name, '@access-ci.org')) {
+        $access_id = str_replace('@access-ci.org', '', $account_name);
+      }
+      
+      $user_data = [
+        'email' => $user_entity->getEmail(),
+        'name' => $full_name,
+        'accessId' => $access_id,
+      ];
     }
 
     // Adding global library to all pages.
