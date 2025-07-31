@@ -9,7 +9,7 @@ import {
   header,
   siteMenus,
   universalMenus,
-} from "/libraries/access-ci-ui/access-ci-ui.js";
+} from "https://unpkg.com/@access-ci/ui@0.9.0/dist/access-ci-ui.js";
 
 (function (Drupal, drupalSettings) {
 
@@ -106,7 +106,7 @@ async function setMenu(menu, currentUri) {
     currentUri: currentUri,
   });
 
-  // Initialize floating qa-bot if target exists
+  // Initialize floating qa-bot if target exists (using npm version)
   const floatingTarget = document.getElementById("qa-bot");
   if (floatingTarget && !floatingTarget.hasAttribute('data-initialized') && window.qaBot) {
     window.qaBot({
@@ -121,20 +121,20 @@ async function setMenu(menu, currentUri) {
     floatingTarget.setAttribute('data-initialized', 'true');
   }
 
-  // Initialize embedded qa-bot if target exists
-  // const embeddedTarget = document.querySelector(".embedded-qa-bot");
-  // if (embeddedTarget && !embeddedTarget.hasAttribute('data-initialized')) {
-  //   qaBot({
-  //     target: embeddedTarget,
-  //     embedded: true,
-  //     apiKey: apiKey,
-  //     isLoggedIn: isLoggedIn,
-  //     userEmail: email,
-  //     userName: name,
-  //     accessId: accessId,
-  //     loginUrl: "/login?redirect=" + currentUri,
-  //   });
-  //   embeddedTarget.setAttribute('data-initialized', 'true');
-  // }
+  // Initialize embedded qa-bot if target exists (using npm version)
+  const embeddedTarget = document.querySelector(".embedded-qa-bot");
+  if (embeddedTarget && !embeddedTarget.hasAttribute('data-initialized') && window.qaBot) {
+    window.qaBot({
+      target: embeddedTarget,
+      embedded: true,
+      apiKey: apiKey,
+      isLoggedIn: isLoggedIn,
+      userEmail: email,
+      userName: name,
+      accessId: accessId,
+      loginUrl: "/login?redirect=" + currentUri,
+    });
+    embeddedTarget.setAttribute('data-initialized', 'true');
+  }
 
 };
