@@ -1,7 +1,7 @@
 qabot_library:
   header: true
   js:
-    https://unpkg.com/@snf/access-qa-bot@2.4.7-debug.3/dist/access-qa-bot.standalone.js: { type: external, minified: true }
+    https://unpkg.com/@snf/access-qa-bot@2.4.7/dist/access-qa-bot.standalone.js: { type: external, minified: true }
 
 header_footer_library:
   header: true
