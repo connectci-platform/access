@@ -7,7 +7,6 @@ import {
   footer,
   footerMenus,
   header,
-  qaBot,
   siteMenus,
   universalMenus,
 } from "/libraries/access-ci-ui/access-ci-ui.js";
@@ -109,8 +108,8 @@ async function setMenu(menu, currentUri) {
 
   // Initialize floating qa-bot if target exists
   const floatingTarget = document.getElementById("qa-bot");
-  if (floatingTarget && !floatingTarget.hasAttribute('data-initialized')) {
-    qaBot({
+  if (floatingTarget && !floatingTarget.hasAttribute('data-initialized') && window.qaBot) {
+    window.qaBot({
       target: floatingTarget,
       apiKey: apiKey,
       isLoggedIn: isLoggedIn,
