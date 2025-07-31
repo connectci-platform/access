@@ -23,6 +23,11 @@ import {
    */
   Drupal.behaviors.accessMenuData = {
     attach: function (context, settings) {
+      // Only run once on initial page load
+      if (context !== document) {
+        return;
+      }
+
       let currentMenu = drupalSettings.access.current_menu;
       try {
         currentMenu = JSON.parse(currentMenu);
@@ -95,25 +100,42 @@ async function setMenu(menu, currentUri) {
   const { email = '', name = '', accessId = '' } = drupalSettings.access.user || {};
   const apiKey = "4nn5l4T4TnkMdzsK0AwAtnGRcheBDnjawuAT42LaOLc";
 
-  qaBot({
-    target: document.getElementById("qa-bot"),
-    apiKey: apiKey,
+  console.log('QA Bot initialization:', {
+    userFromDrupal: drupalSettings.access.user,
+    extractedValues: { email, name, accessId },
     isLoggedIn: isLoggedIn,
-    userEmail: email,
-    userName: name,
-    accessId: accessId,
-    loginUrl: "/login?redirect=" + currentUri,
+    currentUri: currentUri,
   });
 
-  qaBot({
-    target: document.querySelector(".embedded-qa-bot"),
-    embedded: true,
-    apiKey: apiKey,
-    isLoggedIn: isLoggedIn,
-    userEmail: email,
-    userName: name,
-    accessId: accessId,
-    loginUrl: "/login?redirect=" + currentUri,
-  });
- 
+  // Initialize floating qa-bot if target exists
+  const floatingTarget = document.getElementById("qa-bot");
+  if (floatingTarget && !floatingTarget.hasAttribute('data-initialized')) {
+    qaBot({
+      target: floatingTarget,
+      apiKey: apiKey,
+      isLoggedIn: isLoggedIn,
+      userEmail: email,
+      userName: name,
+      accessId: accessId,
+      loginUrl: "/login?redirect=" + currentUri,
+    });
+    floatingTarget.setAttribute('data-initialized', 'true');
+  }
+
+  // Initialize embedded qa-bot if target exists
+  // const embeddedTarget = document.querySelector(".embedded-qa-bot");
+  // if (embeddedTarget && !embeddedTarget.hasAttribute('data-initialized')) {
+  //   qaBot({
+  //     target: embeddedTarget,
+  //     embedded: true,
+  //     apiKey: apiKey,
+  //     isLoggedIn: isLoggedIn,
+  //     userEmail: email,
+  //     userName: name,
+  //     accessId: accessId,
+  //     loginUrl: "/login?redirect=" + currentUri,
+  //   });
+  //   embeddedTarget.setAttribute('data-initialized', 'true');
+  // }
+
 };
