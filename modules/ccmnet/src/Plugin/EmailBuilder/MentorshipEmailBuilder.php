@@ -29,21 +29,7 @@ use Drupal\symfony_mailer\EmailInterface;
 class MentorshipEmailBuilder extends EmailBuilderBase {
   public function build(EmailInterface $email) {
     $email->setFrom('noreply@ccmnet.org');
-    
-    // Handle HTML content from variables (like 'extra' containing HTML lists)
-    $variables = $email->getVariables();
-    if (isset($variables['extra']) && is_string($variables['extra'])) {
-      // If 'extra' contains HTML, set it as the body
-      $email->setBody($variables['extra']);
-    } else {
-      // Set HTML content type for proper rendering
-      $body = $email->getBody();
-      if (is_array($body)) {
-        $body = implode("\n", $body);
-      }
-      if (!empty($body)) {
-        $email->setBody($body);
-      }
-    }
+    // Let the template system handle the body rendering
+    // The templates already use {{ variable|raw }} for HTML content
   }
 }
