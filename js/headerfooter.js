@@ -95,25 +95,26 @@ async function setMenu(menu, currentUri) {
   const { email = '', name = '', accessId = '' } = drupalSettings.access.user || {};
   const apiKey = "4nn5l4T4TnkMdzsK0AwAtnGRcheBDnjawuAT42LaOLc";
 
-  qaBot({
-    target: document.getElementById("qa-bot"),
-    apiKey: apiKey,
-    isLoggedIn: isLoggedIn,
-    userEmail: email,
-    userName: name,
-    accessId: accessId,
-    loginUrl: "/login?redirect=" + currentUri,
-  });
+  // TEMPORARILY DISABLED: qa-bot causing scrolling issues
+  // qaBot({
+  //   target: document.getElementById("qa-bot"),
+  //   apiKey: apiKey,
+  //   isLoggedIn: isLoggedIn,
+  //   userEmail: email,
+  //   userName: name,
+  //   accessId: accessId,
+  //   loginUrl: "/login?redirect=" + currentUri,
+  // });
 
-  qaBot({
-    target: document.querySelector(".embedded-qa-bot"),
-    embedded: true,
-    apiKey: apiKey,
-    isLoggedIn: isLoggedIn,
-    userEmail: email,
-    userName: name,
-    accessId: accessId,
-    loginUrl: "/login?redirect=" + currentUri,
-  });
+  // qaBot({
+  //   target: document.querySelector(".embedded-qa-bot"),
+  //   embedded: true,
+  //   apiKey: apiKey,
+  //   isLoggedIn: isLoggedIn,
+  //   userEmail: email,
+  //   userName: name,
+  //   accessId: accessId,
+  //   loginUrl: "/login?redirect=" + currentUri,
+  // });
  
 };
