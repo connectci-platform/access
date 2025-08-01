@@ -606,7 +606,7 @@ function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
 
     // If mentor is added or changed, send email to new mentor and liaison.
     if ($field_looking[0]['value'] == 'mentor') {
-      $policy_subtype = 'mentee_changed';
+      $policy_subtype = 'mentor_changed';
       $mentor = $entity->get('field_mentor')->getValue();
       $mentor_update = 0;
       $og_mentor = [];
