@@ -93,6 +93,34 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form' || $form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
     $form['#validate'][] = 'access_news_validate';
   }
+
+  if ($form['#id'] == 'views-exposed-form-access-news-block-1') {
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    $entity_query = \Drupal::entityQuery('node')
+      ->condition('type', 'affinity_group')
+      ->condition('field_domain_access', $domain)
+      ->condition('status', 1)
+      ->accessCheck(FALSE);
+    $ag_ids = $entity_query->execute();
+
+    $ag_list = [];
+    foreach ($ag_ids as $ag_id) {
+      $node = \Drupal::entityTypeManager()->getStorage('node')->load($ag_id);
+      $title = $node->getTitle();
+
+      $ag_list[$ag_id] = $title;
+    }
+
+    asort($ag_list);
+    $ag_list = ['' => t('All Affinity Groups')] + $ag_list;
+
+    $form['field_affinity_group_node_target_id'] = [
+      '#type' => 'select',
+      '#options' => $ag_list,
+      '#default_value' => '',
+    ];
+  }
 }
 
 /**
