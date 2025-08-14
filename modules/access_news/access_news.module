@@ -110,7 +110,10 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
     foreach ($nodes as $ag_id => $node) {
       $title = $node->getTitle();
 
-      $ag_list[$ag_id] = $title;
+      if ($node !== NULL) {
+        $title = $node->getTitle();
+        $ag_list[$ag_id] = $title;
+      }
     }
 
     asort($ag_list);
