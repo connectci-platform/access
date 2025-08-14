@@ -31,7 +31,7 @@ function ccmnet_views_pre_render(ViewExecutable $view) {
  * Implements hook_views_pre_view() for node templates.
  */
 function ccmnet_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
-  if ($view->id() == 'mentorship_status' && $view->getDisplay()->view->element['#display_id'] == 'block_1') {
+  if ($view->id() == 'mentorship_status' && $display_id === 'block_1') {
     $view_filters = $view->display_handler->getOption('filters');
     $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
 
