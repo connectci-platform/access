@@ -106,7 +106,8 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
 
     $ag_list = [];
     foreach ($ag_ids as $ag_id) {
-      $node = \Drupal::entityTypeManager()->getStorage('node')->load($ag_id);
+    $nodes = \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($ag_ids);
+    foreach ($nodes as $ag_id => $node) {
       $title = $node->getTitle();
 
       $ag_list[$ag_id] = $title;
