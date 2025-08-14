@@ -21,8 +21,7 @@ define('ACCESS_SUPPPORT_URL', "https://support.access-ci.org");
  * Implements hook_form_alter().
  */
 function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id) {
-  // For now, only announcements have AI suggested tags.
-  // todo: implement for events.
+  // Suggest tags for announcements.
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form') {
     $form['field_tags_replace'] = [
       '#type' => 'container',
@@ -105,7 +104,6 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
     $ag_ids = $entity_query->execute();
 
     $ag_list = [];
-    foreach ($ag_ids as $ag_id) {
     $nodes = \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($ag_ids);
     foreach ($nodes as $ag_id => $node) {
       $title = $node->getTitle();
