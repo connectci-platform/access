@@ -220,6 +220,15 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
     $view->display_handler->setOption('filters', $view_filters);
   }
 
+  if ($view->id() == 'affinity_group_entity_reference' && $display_id === 'entity_reference_1') {
+    $view_filters = $view->display_handler->getOption('filters');
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    $view_filters['field_domain_access_target_id']['value'] = [];
+    $view_filters['field_domain_access_target_id']['value'][$domain] = $domain;
+    $view->display_handler->setOption('filters', $view_filters);
+  }
+
   if ($view->id() == 'affinity_groups_with_tag' && $display_id === 'block_2') {
     $term = term_lookup_from_path();
     if (!empty($term['tid'])) {
