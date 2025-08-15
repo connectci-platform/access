@@ -268,6 +268,7 @@ function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
       \Drupal::messenger()->addWarning(t('You must be on the CCMNet domain to create a mentorship engagement.'));
       $form['#access'] = FALSE;
     }
+    array_unshift($form['actions']['submit']['#submit'], 'ccmnet_set_domain_submit');
   } else if ($form_id == 'user_register_form' || $form_id == 'user_form') {
     // For forms on ccmnet domain only:
     // Hide region field for both user registration and user edit.
@@ -385,6 +386,36 @@ function ccmnet_add_program_form_submit(array &$form, FormStateInterface $form_s
   $term = reset($term);
   $form_state->setValue('field_region', [['target_id' => $term->id()]]);
 }
+
+/*
+* Submit handler from hook form_alter for node_mentorship_engagement_form.
+* Set domain.
+*/
+function ccmnet_set_domain_submit($form, &$form_state) {
+  $env = getenv('PANTHEON_ENVIRONMENT');
+  $cc = 'campuschampions_cyberinfrastructure_org';
+  $mentor_program = $form_state->getValue('field_mentorship_program');
+  $domain_access = $form_state->getValue('field_domain_access');
+
+  if ($mentor_program[0]['target_id'] == 910) {
+    $set_cc = TRUE;
+    foreach ($domain_access as $key => $value) {
+      if ($value['target_id'] == $cc) {
+        $set_cc = FALSE;
+        break;
+      }
+    }
+    if ($set_cc) {
+      $domain_access[] = ['target_id' => $cc];
+      $form_state->setValue('field_domain_access', $domain_access);
+    }
+  }
+
+  if ($env == 'live') {
+    $form_state->setValue('field_domain_source', [['target_id' => 'ccmnet_org']]);
+  }
+}
+
 /*
 * Submit handler from hook form_alter for user_register_form.
 * Add new user to CCMNet Mentors affinity group.
