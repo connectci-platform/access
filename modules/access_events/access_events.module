@@ -532,6 +532,13 @@ function access_events_user_delete_submit($form, FormStateInterface $form_state)
  */
 function access_events_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
   if ($view->id() == 'recurring_events_event_instances' && $display_id === 'block_3') {
+    // Set block to show only events for the current domain.
+    $view_filters = $view->display_handler->getOption('filters');
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+    $view_filters['domain_access_target_id']['value'] = $domain;
+    $view->display_handler->setOption('filters', $view_filters);
+
+    // Set the footer for the view.
     $term = term_lookup_from_path();
 
     $footer = \Drupal::service('access_misc.viewstools');

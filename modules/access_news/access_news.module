@@ -21,8 +21,7 @@ define('ACCESS_SUPPPORT_URL', "https://support.access-ci.org");
  * Implements hook_form_alter().
  */
 function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id) {
-  // For now, only announcements have AI suggested tags.
-  // todo: implement for events.
+  // Suggest tags for announcements.
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form') {
     $form['field_tags_replace'] = [
       '#type' => 'container',
@@ -92,6 +91,37 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
   // Both announcements and events use the custom validation function.
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form' || $form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
     $form['#validate'][] = 'access_news_validate';
+  }
+
+  if ($form['#id'] == 'views-exposed-form-access-news-block-1') {
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    $entity_query = \Drupal::entityQuery('node')
+      ->condition('type', 'affinity_group')
+      ->condition('field_domain_access', $domain)
+      ->condition('status', 1)
+      ->accessCheck(FALSE);
+    $ag_ids = $entity_query->execute();
+
+    $ag_list = [];
+    $nodes = \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($ag_ids);
+    foreach ($nodes as $ag_id => $node) {
+      $title = $node->getTitle();
+
+      if ($node !== NULL) {
+        $title = $node->getTitle();
+        $ag_list[$ag_id] = $title;
+      }
+    }
+
+    asort($ag_list);
+    $ag_list = ['' => t('All Affinity Groups')] + $ag_list;
+
+    $form['field_affinity_group_node_target_id'] = [
+      '#type' => 'select',
+      '#options' => $ag_list,
+      '#default_value' => '',
+    ];
   }
 }
 

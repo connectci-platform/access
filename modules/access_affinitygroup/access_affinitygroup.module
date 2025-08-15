@@ -493,6 +493,12 @@ function subscribeToSimpleLists($flagEntityId, $user, $isSubscribe) {
     ->accessCheck(FALSE)
     ->execute();
   $aval = array_values($node_ids);
+  if (empty($aval)) {
+    \Drupal::logger('access_affinitygroup')->error('No Affinity Group found for flag id @flagEntityId', [
+      '@flagEntityId' => $flagEntityId
+    ]);
+    return;
+  }
   $nid = $aval[0];
   $ag = Node::load($nid);
 
@@ -997,7 +1003,7 @@ function access_affinitygroup_cron() {
   $last_recruit_run = \Drupal::state()->get('access_affinitygroup.last_recruit_email', 0);
   $current_time = time();
   $hours_since_last = ($current_time - $last_recruit_run) / 3600;
-  
+
   // Send if it's been more than 23 hours since last run (or force for testing on non-live)
   $env = getenv('PANTHEON_ENVIRONMENT');
   if ($hours_since_last > 23 || ($env !== 'live' && $hours_since_last > 0.1)) {
@@ -1009,7 +1015,7 @@ function access_affinitygroup_cron() {
     // Get 'state' taxonomy term IDs for recruiting states.
     $recruiting_term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'recruiting']);
     $in_progress_recruiting_term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'In Progress and Recruiting']);
-    
+
     $term_ids = [];
     if ($recruiting_term) {
       $term_ids[] = array_keys($recruiting_term)[0];
@@ -1017,7 +1023,7 @@ function access_affinitygroup_cron() {
     if ($in_progress_recruiting_term) {
       $term_ids[] = array_keys($in_progress_recruiting_term)[0];
     }
-    
+
     // Get all mentorship nodes currently in recruiting states that are approved and published
     $query = \Drupal::entityQuery('node')
       ->condition('type', 'mentorship_engagement')
@@ -1026,20 +1032,20 @@ function access_affinitygroup_cron() {
       ->condition('status', 1)
       ->accessCheck(FALSE);
     $all_recruiting_nids = $query->execute();
-    
+
     // Get list of mentorships we've already notified about
     $notified_mentorships = \Drupal::state()->get('access_affinitygroup.notified_mentorships', []);
-    
+
     // Only include mentorships we haven't notified about yet
     $new_nids = array_diff($all_recruiting_nids, $notified_mentorships);
-    
+
     if ($new_nids) {
       \Drupal::logger('access_affinitygroup')->info('Found @count NEW mentorship engagements in recruiting states for email notification', ['@count' => count($new_nids)]);
-      
+
       // Sort mentorships by whether they're looking for mentors or mentees
       $seeking_mentors = [];
       $seeking_mentees = [];
-      
+
       foreach ($new_nids as $nid) {
         $node = \Drupal::entityTypeManager()->getStorage('node')->load($nid);
         $node_title = $node->getTitle();
@@ -1047,7 +1053,7 @@ function access_affinitygroup_cron() {
         $link_build = Url::fromRoute('entity.node.canonical', ['node' => $nid], $options);
         $url = 'https://ccmnet.org' . $link_build->tostring(TRUE)->getGeneratedUrl();
         $link_item = '<li><a href="' . $url . '">' . $node_title . '</a></li>';
-        
+
         // Check what they're looking for
         $looking_for = $node->get('field_me_looking_for')->getValue();
         if (!empty($looking_for) && $looking_for[0]['value'] === 'mentor') {
@@ -1056,17 +1062,17 @@ function access_affinitygroup_cron() {
           $seeking_mentees[] = $link_item;
         }
       }
-      
+
       $body = "";
-      
+
       if (!empty($seeking_mentors)) {
         $body .= "<h3>Looking for Mentors:</h3><ul>" . implode('', $seeking_mentors) . "</ul>";
       }
-      
+
       if (!empty($seeking_mentees)) {
         $body .= "<h3>Looking for Mentees:</h3><ul>" . implode('', $seeking_mentees) . "</ul>";
       }
-      
+
       // Send email notification
       $title = t('New mentorship engagements are available on the CCMNet portal');
       $node = \Drupal::entityTypeManager()->getStorage('node')->load(5951);
@@ -1077,7 +1083,7 @@ function access_affinitygroup_cron() {
 
       emailToAffinityGroups($body, "$title", $pubDate, $agNames, $email_link, $ccListIds, 1, NULL);
       \Drupal::logger('access_affinitygroup')->info('Sent CCMNet recruitment email to affinity group: @group for @count new mentorships', ['@group' => implode(', ', $agNames), '@count' => count($new_nids)]);
-      
+
       // Update our list of notified mentorships (add the new ones)
       $updated_notified = array_merge($notified_mentorships, $new_nids);
       \Drupal::state()->set('access_affinitygroup.notified_mentorships', $updated_notified);
@@ -1088,7 +1094,7 @@ function access_affinitygroup_cron() {
         '@notified' => count($notified_mentorships)
       ]);
     }
-    
+
     // Clean up old notified mentorships that are no longer in recruiting states
     // This prevents the list from growing indefinitely
     $current_notified = \Drupal::state()->get('access_affinitygroup.notified_mentorships', []);
