@@ -28,6 +28,20 @@ function ccmnet_views_pre_render(ViewExecutable $view) {
 }
 
 /**
+ * Implements hook_views_pre_view() for node templates.
+ */
+function ccmnet_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
+  if ($view->id() == 'mentorship_status' && $display_id === 'block_1') {
+    $view_filters = $view->display_handler->getOption('filters');
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    $view_filters['field_domain_access_target_id']['value'] = [];
+    $view_filters['field_domain_access_target_id']['value'] = [$domain => $domain];
+    $view->display_handler->setOption('filters', $view_filters);
+  }
+}
+
+/**
  * Implements hook_page_attachments_alter().
  */
 function ccmnet_page_attachments_alter(array &$attachments) {
