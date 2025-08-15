@@ -21,8 +21,7 @@ define('ACCESS_SUPPPORT_URL', "https://support.access-ci.org");
  * Implements hook_form_alter().
  */
 function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id) {
-  // For now, only announcements have AI suggested tags.
-  // todo: implement for events.
+  // Suggest tags for announcements.
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form') {
     $form['field_tags_replace'] = [
       '#type' => 'container',
@@ -93,6 +92,37 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form' || $form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
     $form['#validate'][] = 'access_news_validate';
   }
+
+  if ($form['#id'] == 'views-exposed-form-access-news-block-1') {
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    $entity_query = \Drupal::entityQuery('node')
+      ->condition('type', 'affinity_group')
+      ->condition('field_domain_access', $domain)
+      ->condition('status', 1)
+      ->accessCheck(FALSE);
+    $ag_ids = $entity_query->execute();
+
+    $ag_list = [];
+    $nodes = \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($ag_ids);
+    foreach ($nodes as $ag_id => $node) {
+      $title = $node->getTitle();
+
+      if ($node !== NULL) {
+        $title = $node->getTitle();
+        $ag_list[$ag_id] = $title;
+      }
+    }
+
+    asort($ag_list);
+    $ag_list = ['' => t('All Affinity Groups')] + $ag_list;
+
+    $form['field_affinity_group_node_target_id'] = [
+      '#type' => 'select',
+      '#options' => $ag_list,
+      '#default_value' => '',
+    ];
+  }
 }
 
 /**
@@ -105,7 +135,7 @@ function access_news_replace_section_callback(array &$form, FormStateInterface $
   $body = $raw_data['body'][0]['value'];
   $body_filter = $body ? Xss::filter($body) : '';
   $suggested_tag_ids = '0';
-  $tag_count = count($raw_data['field_tags']);
+  $tag_count = count($raw_data['field_tags'] ?? []);
   $tag_limit = 6;
   $tag_amount = $tag_limit - $tag_count;
 
@@ -121,13 +151,22 @@ function access_news_replace_section_callback(array &$form, FormStateInterface $
     ];
   }
   elseif (strlen($body_filter) >= 100) {
-    $llm = \Drupal::service('access_llm.ai_references_generator');
-    $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
-    $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
-    $suggested_tag_ids = implode(', ', $suggestions);
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
-    ];
+    try {
+      $llm = \Drupal::service('access_llm.ai_references_generator');
+      $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
+      $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
+      $suggested_tag_ids = implode(', ', $suggestions);
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "",
+      ];
+    }
+    catch (\Throwable $e) {
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "<div class='match-tag-list bg-yellow-200 text-yellow-900 my-5 p-5'>
+        <strong class='text-yellow-900'>AI tag suggestions are not available</strong><br />
+        Please select tags manually from the list below.</div>",
+      ];
+    }
   }
   else {
     $form['field_tags_replace']['user_message'] = [

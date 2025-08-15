@@ -131,10 +131,13 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
           $grantlist = \Drupal::service('access_events.XsedeApi')->getGrantedUsers($allocation);
           $allocation_title = \Drupal::service('access_events.XsedeApi')->getTitle($allocation);
           $resourcename = [];
-          foreach ($grantlist['result'] as $value) {
-            foreach ($value as $key => $resource) {
-              if ($key == 'resourceName') {
-                $resourcename[$resource] = $resource;
+
+          if (isset($grantlist['result']) && is_array($grantlist['result'])) {
+            foreach ($grantlist['result'] as $value) {
+              foreach ($value as $key => $resource) {
+                if ($key == 'resourceName') {
+                  $resourcename[$resource] = $resource;
+                }
               }
             }
           }
@@ -410,13 +413,22 @@ function access_events_replace_event_section_callback(array &$form, FormStateInt
     ];
   }
   elseif (strlen($body_filter) >= 100) {
-    $llm = \Drupal::service('access_llm.ai_references_generator');
-    $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
-    $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
-    $suggested_tag_ids = implode(', ', $suggestions);
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
-    ];
+    try {
+      $llm = \Drupal::service('access_llm.ai_references_generator');
+      $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
+      $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
+      $suggested_tag_ids = implode(', ', $suggestions);
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "",
+      ];
+    }
+    catch (\Throwable $e) {
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "<div class='match-tag-list bg-yellow-200 text-yellow-900 my-5 p-5'>
+        <strong class='text-yellow-900'>AI tag suggestions are not available</strong><br />
+        Please select tags manually from the list below.</div>",
+      ];
+    }
   }
   else {
     $form['field_tags_replace']['user_message'] = [
@@ -440,13 +452,22 @@ function access_events_replace_summary_section_callback(array &$form, FormStateI
   $body_filter = $raw_data['body'][0]['value'] ? Xss::filter($raw_data['body'][0]['value']) : '';
   $suggested_tag_ids = '0';
   if (strlen($body_filter) >= 100) {
-    $llm = \Drupal::service('access_llm.ai_references_generator');
-    $llm->generateSummaryPrompt($body_filter);
-    $result = $llm->summarySuggested();
-    $form['field_summary_replace']['field_suggest']['summary_text']['#value'] = $result;
-    $form['field_summary_replace']['user_message'] = [
-      '#markup' => '',
-    ];
+    try {
+      $llm = \Drupal::service('access_llm.ai_references_generator');
+      $llm->generateSummaryPrompt($body_filter);
+      $result = $llm->summarySuggested();
+      $form['field_summary_replace']['field_suggest']['summary_text']['#value'] = $result;
+      $form['field_summary_replace']['user_message'] = [
+        '#markup' => '',
+      ];
+    }
+    catch (\Throwable $e) {
+      $form['field_summary_replace']['user_message'] = [
+        '#markup' => "<div class='match-tag-list bg-yellow-200 text-yellow-900 my-5 p-5'>
+        <strong class='text-yellow-900'>AI summary generation is currently unavailable</strong><br />
+        Please write your summary in the text field above.</div>",
+      ];
+    }
   }
   else {
     $form['field_summary_replace']['user_message'] = [
@@ -511,6 +532,13 @@ function access_events_user_delete_submit($form, FormStateInterface $form_state)
  */
 function access_events_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
   if ($view->id() == 'recurring_events_event_instances' && $display_id === 'block_3') {
+    // Set block to show only events for the current domain.
+    $view_filters = $view->display_handler->getOption('filters');
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+    $view_filters['domain_access_target_id']['value'] = $domain;
+    $view->display_handler->setOption('filters', $view_filters);
+
+    // Set the footer for the view.
     $term = term_lookup_from_path();
 
     $footer = \Drupal::service('access_misc.viewstools');
@@ -609,29 +637,29 @@ function access_events_preprocess_views_view_field(&$variables) {
       if (isset($row->_entity) && $row->_entity->hasField('date')) {
         $entity = $row->_entity;
         $date_field = $entity->get('date');
-        
+
         if (!$date_field->isEmpty()) {
           $start_date = $date_field->start_date;
           $end_date = $date_field->end_date;
-          
+
           // Convert to user timezone
           $user = \Drupal::currentUser();
           $user_timezone = $user->getTimeZone() ?: date_default_timezone_get();
-          
+
           if ($start_date) {
             $start_date->setTimezone(new \DateTimeZone($user_timezone));
           }
           if ($end_date) {
             $end_date->setTimezone(new \DateTimeZone($user_timezone));
           }
-          
+
           // Create formatted output
           if ($start_date && $end_date) {
             $formatted_date = $start_date->format('l, n/j/Y');
             $start_time = $start_date->format('g:i A');
             $end_time = $end_date->format('g:i A T');
             $formatted_output = $formatted_date . '<br>' . $start_time . ' - ' . $end_time;
-            
+
             $variables['output'] = Markup::create($formatted_output);
           }
         }
@@ -742,7 +770,7 @@ function access_events_entity_insert(EntityInterface $entity) {
  * @return void
  */
 function access_events_views_query_alter(ViewExecutable $view, QueryPluginBase $query) {
-  if ($view->id() === 'events_facet' && ($view->current_display === 'page_1' || $view->current_display === 'page_2')) {
+  if ($view->id() === 'events_facet' && ($view->current_display === 'page_1' || $view->current_display === 'page_2' || $view->current_display === 'block_1')) {
     $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
     if ($domain_id) {
       $query->addCondition('domain_access', $domain_id, '=');
@@ -770,5 +798,7 @@ function access_events_entity_access(EntityInterface $entity, $operation, Accoun
     }
   }
 
+  // Return neutral for all other cases.
+  return AccessResult::neutral();
 }
 

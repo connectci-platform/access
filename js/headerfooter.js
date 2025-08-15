@@ -7,21 +7,23 @@ import {
   footer,
   footerMenus,
   header,
+  qaBot,
   siteMenus,
   universalMenus,
-} from "https://esm.sh/@access-ci/ui@0.8.0-beta2";
+} from "/libraries/access-ci-ui/access-ci-ui.js";
 
 (function (Drupal, drupalSettings) {
 
   'use strict';
+
+  let currentUri = drupalSettings.access.current_uri;
 
   /**
    * Attaches the JS test behavior to weight div.
    */
   Drupal.behaviors.accessMenuData = {
     attach: function (context, settings) {
-      var currentMenu = drupalSettings.access.current_menu;
-      var currentUri = drupalSettings.access.current_uri;
+      let currentMenu = drupalSettings.access.current_menu;
       try {
         currentMenu = JSON.parse(currentMenu);
       } catch (e) {
@@ -90,4 +92,29 @@ async function setMenu(menu, currentUri) {
     target: document.getElementById("footer")
   });
 
+  const { email = '', name = '', accessId = '' } = drupalSettings.access.user || {};
+  const apiKey = "4nn5l4T4TnkMdzsK0AwAtnGRcheBDnjawuAT42LaOLc";
+
+  // TEMPORARILY DISABLED: qa-bot causing scrolling issues
+  // qaBot({
+  //   target: document.getElementById("qa-bot"),
+  //   apiKey: apiKey,
+  //   isLoggedIn: isLoggedIn,
+  //   userEmail: email,
+  //   userName: name,
+  //   accessId: accessId,
+  //   loginUrl: "/login?redirect=" + currentUri,
+  // });
+
+  // qaBot({
+  //   target: document.querySelector(".embedded-qa-bot"),
+  //   embedded: true,
+  //   apiKey: apiKey,
+  //   isLoggedIn: isLoggedIn,
+  //   userEmail: email,
+  //   userName: name,
+  //   accessId: accessId,
+  //   loginUrl: "/login?redirect=" + currentUri,
+  // });
+ 
 };

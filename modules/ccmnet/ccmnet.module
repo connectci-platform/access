@@ -28,6 +28,20 @@ function ccmnet_views_pre_render(ViewExecutable $view) {
 }
 
 /**
+ * Implements hook_views_pre_view() for node templates.
+ */
+function ccmnet_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
+  if ($view->id() == 'mentorship_status' && $display_id === 'block_1') {
+    $view_filters = $view->display_handler->getOption('filters');
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    $view_filters['field_domain_access_target_id']['value'] = [];
+    $view_filters['field_domain_access_target_id']['value'] = [$domain => $domain];
+    $view->display_handler->setOption('filters', $view_filters);
+  }
+}
+
+/**
  * Implements hook_page_attachments_alter().
  */
 function ccmnet_page_attachments_alter(array &$attachments) {
@@ -75,6 +89,32 @@ function ccmnet_entity_insert(EntityInterface $entity) {
     $message = t('We will notify you by email once your mentorship has been posted on the website.');
     \Drupal::messenger()->addMessage($message);
   }
+
+  // Notify CCMNet PMs when new user is created with CCMNet program.
+  if ($type == 'user') {
+    if (_ccmnet_user_has_ccmnet_region($entity)) {
+      _ccmnet_send_new_user_notification($entity);
+    }
+  }
+}
+
+/**
+ * Implements hook_entity_update().
+ */
+function ccmnet_entity_update(EntityInterface $entity) {
+  // Notify CCMNet PMs when existing user is added to CCMNet program.
+  if ($entity->bundle() == 'user') {
+    // Check if user was previously in CCMNet region.
+    $was_ccmnet = isset($entity->original) ? _ccmnet_user_has_ccmnet_region($entity->original) : FALSE;
+
+    // Check if user is currently in CCMNet region.
+    $is_ccmnet = _ccmnet_user_has_ccmnet_region($entity);
+
+    // Send notification if user was just added to CCMNet.
+    if ($is_ccmnet && !$was_ccmnet) {
+      _ccmnet_send_new_user_notification($entity);
+    }
+  }
 }
 
 /**
@@ -89,8 +129,11 @@ function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
     $form['body']['widget'][0]['summary']['#description'] = t('No html tags allowed in summary. Limit to 275 characters.');
     $form['body']['widget'][0]['summary']['#maxlength'] = 275;
 
-    // Hide the Goals if the mentorship has not been approved.
+    // Hide the Goals and Deliverables if the mentorship has not been approved.
     if (!$form['field_ccmnet_approved']['widget']['value']['#default_value']) {
+      // Hide the entire goals and deliverables fieldsets
+      $form['group_goals']['#access'] = FALSE;
+      $form['group_deliverables']['#access'] = FALSE;
       $form['field_milestone_description']['#access'] = FALSE;
       $form['field_milestone_completion_date']['#access'] = FALSE;
       $form['field_milestone_actual_date']['#access'] = FALSE;
@@ -166,9 +209,6 @@ function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
       ],
     ];
 
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
-    ];
 
     $add_tags = \Drupal::service('access_misc.addtags');
     $output = $add_tags->getView();
@@ -285,9 +325,10 @@ function access_mentorship_engagement_replace_section_callback(array &$form, For
   $body = $raw_data['body'][0]['value'];
   $body_filter = $body ? Xss::filter($body) : '';
   $suggested_tag_ids = '0';
-  $tag_count = count($raw_data['field_tags']);
+  $tag_count = count($raw_data['field_tags'] ?? []);
   $tag_limit = 6;
   $tag_amount = $tag_limit - $tag_count;
+
 
   if ($tag_amount <= 0) {
     $form['field_tags_replace']['user_message'] = [
@@ -297,13 +338,22 @@ function access_mentorship_engagement_replace_section_callback(array &$form, For
     ];
   }
   elseif (strlen($body_filter) >= 100) {
-    $llm = \Drupal::service('access_llm.ai_references_generator');
-    $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
-    $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
-    $suggested_tag_ids = implode(', ', $suggestions);
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
-    ];
+    try {
+      $llm = \Drupal::service('access_llm.ai_references_generator');
+      $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
+      $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
+      $suggested_tag_ids = implode(', ', $suggestions);
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "",
+      ];
+    }
+    catch (\Throwable $e) {
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "<div class='match-tag-list bg-yellow-200 text-yellow-900 my-5 p-5'>
+        <strong class='text-yellow-900'>AI tag suggestions are not available</strong><br />
+        Please select tags manually from the list below.</div>",
+      ];
+    }
   }
   else {
     $form['field_tags_replace']['user_message'] = [
@@ -463,56 +513,56 @@ function ccmnet_node_insert(\Drupal\Core\Entity\EntityInterface $entity) {
 }
 
 /**
+ * Check if user has CCMNet region (835).
+ *
+ * @param \Drupal\Core\Entity\EntityInterface $user
+ *   The user entity.
+ *
+ * @return bool
+ *   TRUE if user has CCMNet region, FALSE otherwise.
+ */
+function _ccmnet_user_has_ccmnet_region(\Drupal\Core\Entity\EntityInterface $user) {
+  $region = $user->get('field_region')->getValue();
+  if ($region) {
+    foreach ($region as $region_value) {
+      if ($region_value['target_id'] == "835") {
+        return TRUE;
+      }
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Send CCMNet notification when user is added to CCMNet program.
+ */
+function _ccmnet_send_new_user_notification(\Drupal\Core\Entity\EntityInterface $entity) {
+  $policy = 'ccmnet';
+  $env = getenv('PANTHEON_ENVIRONMENT');
+  $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
+  $ccmnet_emails = \Drupal::service('access_misc.usertools')
+    ->getEmails([$role], []);
+  $uid = $entity->id();
+
+  // Link to /community-persona/uid.
+  $options = ['absolute' => TRUE];
+  $here = Url::fromUri('internal:/community-persona/' . $uid, $options);
+  $link = $here->toString(TRUE)->getGeneratedUrl();
+
+  $policy_subtype = 'ccmnet_new_user';
+  $variables = [
+    'title' => t('Click here to view'),
+    'url' => $link,
+  ];
+
+  \Drupal::service('access_misc.symfony.mail')
+    ->email($policy, $policy_subtype, $ccmnet_emails, $variables);
+}
+
+/**
  * Implements hook_entity_presave().
  */
 function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
-  // Notify CCMNet PMs when new user is added to CCMNet program.
-  if ($entity->bundle() == 'user') {
-    // Mailer Policy type.
-    $policy = 'ccmnet';
-
-    // Check the previous region value.
-    $prev_region_ccmnet = 0;
-    if (isset($entity->original)) {
-      $prev_region = $entity->original->get('field_region')->getValue();
-      if ($prev_region) {
-        foreach ($prev_region as $prev_region_value) {
-          if ($prev_region_value['target_id'] == "835") {
-            $prev_region_ccmnet = 1;
-          }
-        }
-      }
-    }
-    // Check the current region value.
-    $region = $entity->get('field_region')->getValue();
-    $region_ccmnet = 0;
-    if ($region) {
-      foreach ($region as $region_value) {
-        if ($region_value['target_id'] == "835") {
-          $region_ccmnet = 1;
-        }
-      }
-    }
-    // Compare the previous and current region values.
-    if ($region_ccmnet === 1 && $prev_region_ccmnet === 0) {
-
-      $env = getenv('PANTHEON_ENVIRONMENT');
-      $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
-      $ccmnet_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-      $uid = $entity->id();
-      // Link to /community-persona/uid.
-      $options = ['absolute' => TRUE];
-      $here = Url::fromUri('internal:/community-persona/' . $uid, $options);
-      $link = $here->toString(TRUE)->getGeneratedUrl();
-      $policy_subtype = 'ccmnet_new_user';
-      $variables = [
-        'title' => t('Click here to view'),
-        'url' => $link,
-      ];
-
-      \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $ccmnet_emails, $variables);
-    }
-  }
   if ($entity->bundle() == 'mentorship_engagement' && $entity->original) {
     // Give badge to mentor or Mentee.
     $mentor = $entity->get('field_mentor')->getValue();
@@ -570,7 +620,7 @@ function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
 
     // If mentor is added or changed, send email to new mentor and liaison.
     if ($field_looking[0]['value'] == 'mentor') {
-      $policy_subtype = 'mentee_changed';
+      $policy_subtype = 'mentor_changed';
       $mentor = $entity->get('field_mentor')->getValue();
       $mentor_update = 0;
       $og_mentor = [];
@@ -731,9 +781,12 @@ function ccmnet_node_view(array &$build, EntityInterface $entity, EntityViewDisp
  */
 function ccmnet_cron() {
   $env = getenv('PANTHEON_ENVIRONMENT');
-  if ($env == 'live') {
-    // Send interested email between 1:00 am and 1:59 am.
-    if (date('G', time()) == 01) {
+  $cypress_test = getenv('CYPRESS_TEST_MODE');
+  
+  // Allow testing mode to bypass environment and time restrictions
+  if ($env == 'live' || $cypress_test == 'true') {
+    // Send interested email between 1:00 am and 1:59 am (or anytime in test mode).
+    if (date('G', time()) == 01 || $cypress_test == 'true') {
       $interested_status = \Drupal::state()->get('access_mentorship_interested');
       $interested_list = json_decode($interested_status, TRUE);
       if (empty($interested_list) || !is_array($interested_list)) {

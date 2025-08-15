@@ -82,15 +82,23 @@ class PersonaBlock extends BlockBase {
       $last_name = $user_entity->get('field_user_last_name')->value;
       $pronouns = $user_entity->get('field_user_preferred_pronouns')->value;
 
-      // Show access organization if set; otherwise, use institution field.
+      // Show access organization if set; use institution field if organization is "Other" (3695) or not set.
       $orgArray = $user_entity->get('field_access_organization')->getValue();
+      $institution = $user_entity->get('field_institution')->value;
+      
       if (!empty($orgArray) && !empty($orgArray[0])) {
         $nodeId = $orgArray[0]['target_id'];
-        if (!empty($nodeId)) {
+        // If organization is "Other" (node ID 3695), use institution field instead
+        if ($nodeId == 3695) {
+          $institution = $user_entity->get('field_institution')->value;
+        } else if (!empty($nodeId)) {
           $orgNode = \Drupal::entityTypeManager()->getStorage('node')->load($nodeId);
+          if ($orgNode) {
+            $institution = $orgNode->getTitle();
+          }
         }
       }
-      $institution = isset($orgNode) ? $orgNode->getTitle() : $user_entity->get('field_institution')->value;
+      // If no organization is set, use institution field (this is already handled above)
 
       $roles = $user_entity->getRoles();
       $is_student = array_search('student', $roles) !== FALSE;

@@ -26,6 +26,12 @@ class EventInstanceSidebar extends BlockBase {
     $url = explode('/', $current_path);
     $event_instance_id = is_numeric($url[2]) ? $url[2] : '';
     $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
+    
+    // Check if event instance exists before trying to get the series
+    if (!$event_instance) {
+      return [];
+    }
+    
     $series = $event_instance->getEventSeries();
     $author = $series->getOwner();
     $current_user = \Drupal::currentUser();
