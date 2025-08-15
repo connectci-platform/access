@@ -397,18 +397,42 @@ function ccmnet_set_domain_submit($form, &$form_state) {
   $mentor_program = $form_state->getValue('field_mentorship_program');
   $domain_access = $form_state->getValue('field_domain_access');
 
-  if ($mentor_program[0]['target_id'] == 910) {
-    $set_cc = TRUE;
-    foreach ($domain_access as $key => $value) {
-      if ($value['target_id'] == $cc) {
-        $set_cc = FALSE;
-        break;
+  $set_cc = TRUE;
+  foreach ($domain_access as $key => $value) {
+    if ($value['target_id'] == $cc) {
+      $set_cc = FALSE;
+      break;
+    }
+  }
+
+  if ($mentor_program) {
+    // Add campuschampions_cyberinfrastructure_org to domain access when CC Ai mentorship program is selected.
+    if ($mentor_program[0]['target_id'] == 910) {
+      if ($set_cc) {
+        $domain_access[] = ['target_id' => $cc];
+        $form_state->setValue('field_domain_access', $domain_access);
       }
     }
-    if ($set_cc) {
-      $domain_access[] = ['target_id' => $cc];
-      $form_state->setValue('field_domain_access', $domain_access);
+    // Remove campuschampions_cyberinfrastructure_org from domain access when no program is selected.
+    if ($mentor_program[0]['target_id'] == NULL) {
+      $da = $form_state->getValue('field_domain_access');
+      foreach ($da as $key => $value) {
+        if ($value['target_id'] == $cc) {
+          unset($da[$key]);
+        }
+      }
+      $form_state->setValue('field_domain_access', $da);
     }
+  }
+  elseif (!$set_cc) {
+    // Remove campuschampions_cyberinfrastructure_org from domain access when n/a program is selected.
+    $da = $form_state->getValue('field_domain_access');
+    foreach ($da as $key => $value) {
+      if ($value['target_id'] == $cc) {
+        unset($da[$key]);
+      }
+    }
+    $form_state->setValue('field_domain_access', $da);
   }
 
   if ($env == 'live') {
