@@ -1,15 +1,10 @@
+includes:
+  - phpstan-baseline.neon
 parameters:
-  level: 5
+  level: 0
   paths:
     - .
   excludePaths:
     - tests/*
     - */tests/*
     - vendor/*
-  # Point to parent Drupal installation for context
-  scanDirectories:
-    - ../../../../core
-    - ../../../../modules/contrib
-  ignoreErrors:
-    - identifier: missingType.iterableValue
-    - identifier: missingType.generics

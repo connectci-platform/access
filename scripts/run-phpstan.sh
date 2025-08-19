@@ -9,27 +9,9 @@ cd "$SCRIPT_DIR/.."
 # Get the absolute path to the parent Drupal installation  
 DRUPAL_ROOT="$(cd ../../../.. && pwd)"
 
-# Create a temporary phpstan config with absolute paths
-cat > phpstan-tmp.neon << EOF
-includes:
-  - phpstan-baseline.neon
-parameters:
-  level: 0
-  paths:
-    - .
-  excludePaths:
-    - tests/*
-    - */tests/*
-    - vendor/*
-  bootstrapFiles:
-    - $DRUPAL_ROOT/vendor/autoload.php
-EOF
-
-# Run PHPStan with absolute paths
+# Run PHPStan with explicit autoload file instead of using config bootstrap
 "$DRUPAL_ROOT/vendor/bin/phpstan" analyse \
-  --configuration=phpstan-tmp.neon \
+  --configuration=phpstan.neon \
+  --autoload-file="$DRUPAL_ROOT/vendor/autoload.php" \
   --memory-limit=512M \
   --no-progress
-
-# Clean up temp config
-rm -f phpstan-tmp.neon
