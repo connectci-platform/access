@@ -14,8 +14,29 @@ use Drupal\datetime\Plugin\Field\FieldType\DateTimeItemInterface;
 use Drupal\node\Entity\Node;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\user\Entity\User;
+use Drupal\views\ViewExecutable;
 
 define('ACCESS_SUPPPORT_URL', "https://support.access-ci.org");
+
+/**
+ * Implements hook_views_pre_view() for node templates.
+ */
+function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
+  if ($view->id() == 'access_news' && $view->getDisplay()->view->element['#display_id'] == 'block_1') {
+    $view_filters = $view->display_handler->getOption('filters');
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    $view_filters['field_domain_access_target_id']['value'] = [$domain => $domain];
+    $view->display_handler->setOption('filters', $view_filters);
+  }
+  if ($view->id() == 'access_news' && $view->getDisplay()->view->element['#display_id'] == 'latest_news_block') {
+    $view_filters = $view->display_handler->getOption('filters');
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    $view_filters['field_domain_access_target_id']['value'] = [$domain => $domain];
+    $view->display_handler->setOption('filters', $view_filters);
+  }
+}
 
 /**
  * Implements hook_form_alter().
