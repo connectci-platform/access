@@ -1,0 +1,15 @@
+parameters:
+  level: 5
+  paths:
+    - .
+  excludePaths:
+    - tests/*
+    - */tests/*
+    - vendor/*
+  # Point to parent Drupal installation for context
+  scanDirectories:
+    - ../../../../core
+    - ../../../../modules/contrib
+  ignoreErrors:
+    - identifier: missingType.iterableValue
+    - identifier: missingType.generics
