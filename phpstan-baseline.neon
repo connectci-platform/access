@@ -1,0 +1,435 @@
+parameters:
+	ignoreErrors:
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 13
+			path: modules/access_affinitygroup/src/Commands/AffinityGroupCommands.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: modules/access_affinitygroup/src/Controller/SimpleListController.php
+
+		-
+			message: "#^Cannot call abstract method Drupal\\\\Core\\\\Form\\\\FormInterface\\:\\:submitForm\\(\\)\\.$#"
+			count: 1
+			path: modules/access_affinitygroup/src/Form/ConstantContact.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 19
+			path: modules/access_affinitygroup/src/Form/ConstantContact.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 35
+			path: modules/access_affinitygroup/src/Plugin/AllocationsUsersImport.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 7
+			path: modules/access_affinitygroup/src/Plugin/Block/AffinityBottomLeft.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: modules/access_affinitygroup/src/Plugin/Block/AffinityContactGroup.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: modules/access_affinitygroup/src/Plugin/Block/AffinityCoordinatorDocumentation.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 12
+			path: modules/access_affinitygroup/src/Plugin/Block/ResourcesForAffinityGroup.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 6
+			path: modules/access_affinitygroup/src/Plugin/Block/SimpleListMember.php
+
+		-
+			message: "#^Undefined variable\\: \\$set_email$#"
+			count: 2
+			path: modules/access_affinitygroup/src/Plugin/ConstantContactApi.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 28
+			path: modules/access_affinitygroup/src/Plugin/ConstantContactApi.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/access_affinitygroup/src/Plugin/EmailWrapper.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 9
+			path: modules/access_affinitygroup/src/Plugin/SimpleListsApi.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/access_affinitygroup/src/Plugin/views/access/ViewsCustomAccess.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 10
+			path: modules/access_badges/src/Plugin/BadgeTools.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 19
+			path: modules/access_cilink/src/Controller/CiLinkController.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 4
+			path: modules/access_cilink/src/EventSubscriber/FlagSubscriber.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 9
+			path: modules/access_events/src/Controller/EventWaitlist.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 7
+			path: modules/access_events/src/Plugin/Block/EventInstanceSidebar.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: modules/access_events/src/Plugin/XsedeApi.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/access_llm/src/AiReferenceGenerator.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 11
+			path: modules/access_match_engagement/src/Controller/MatchController.php
+
+		-
+			message: "#^Unsafe usage of new static\\(\\)\\.$#"
+			count: 1
+			path: modules/access_match_engagement/src/Plugin/Block/MatchNodeBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: modules/access_match_engagement/src/Plugin/Block/MatchNodeBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: modules/access_misc/src/AccessRegistrantAccessControlHandler.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/access_misc/src/Controller/LoginController.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 14
+			path: modules/access_misc/src/EventSubscriber/Subscriber.php
+
+		-
+			message: """
+				#^Fetching deprecated class constant EXISTS_REPLACE of interface Drupal\\\\Core\\\\File\\\\FileSystemInterface\\:
+				in drupal\\:10\\.3\\.0 and is removed from drupal\\:12\\.0\\.0\\. Use
+				\\\\Drupal\\\\Core\\\\File\\\\FileExists\\:\\:Replace instead\\.$#
+			"""
+			count: 1
+			path: modules/access_misc/src/Form/FilterPeopleByTags.php
+
+		-
+			message: "#^Method Drupal\\\\access_misc\\\\Form\\\\FilterPeopleByTags\\:\\:createTable\\(\\) invoked with 6 parameters, 7 required\\.$#"
+			count: 1
+			path: modules/access_misc/src/Form/FilterPeopleByTags.php
+
+		-
+			message: "#^Undefined variable\\: \\$fourth_tags$#"
+			count: 1
+			path: modules/access_misc/src/Form/FilterPeopleByTags.php
+
+		-
+			message: "#^Undefined variable\\: \\$third_tags$#"
+			count: 1
+			path: modules/access_misc/src/Form/FilterPeopleByTags.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/access_misc/src/Form/FilterPeopleByTags.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: modules/access_misc/src/Plugin/Block/AccessCiUserLogin.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/access_misc/src/Plugin/Block/CreateSecurityTicket.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/access_misc/src/Plugin/Block/CreateTicket.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: modules/access_misc/src/Plugin/JiraLink.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: modules/access_misc/src/Plugin/Util/RolesLabelLookup.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/access_misc/src/Plugin/Util/SiteTools.php
+
+		-
+			message: "#^Deprecated in PHP 8\\.4\\: Parameter \\#1 \\$datasource \\(Drupal\\\\search_api\\\\Datasource\\\\DatasourceInterface\\) is implicitly nullable via default value null\\.$#"
+			count: 1
+			path: modules/access_misc/src/Plugin/search_api/processor/EventAffiliation.php
+
+		-
+			message: "#^Deprecated in PHP 8\\.4\\: Parameter \\#1 \\$datasource \\(Drupal\\\\search_api\\\\Datasource\\\\DatasourceInterface\\) is implicitly nullable via default value null\\.$#"
+			count: 1
+			path: modules/access_misc/src/Plugin/search_api/processor/EventNoShow.php
+
+		-
+			message: "#^Deprecated in PHP 8\\.4\\: Parameter \\#1 \\$datasource \\(Drupal\\\\search_api\\\\Datasource\\\\DatasourceInterface\\) is implicitly nullable via default value null\\.$#"
+			count: 1
+			path: modules/access_misc/src/Plugin/search_api/processor/EventSkillLevel.php
+
+		-
+			message: "#^Deprecated in PHP 8\\.4\\: Parameter \\#1 \\$datasource \\(Drupal\\\\search_api\\\\Datasource\\\\DatasourceInterface\\) is implicitly nullable via default value null\\.$#"
+			count: 1
+			path: modules/access_misc/src/Plugin/search_api/processor/EventTags.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/access_misc/src/Plugin/search_api/processor/EventTags.php
+
+		-
+			message: "#^Deprecated in PHP 8\\.4\\: Parameter \\#1 \\$datasource \\(Drupal\\\\search_api\\\\Datasource\\\\DatasourceInterface\\) is implicitly nullable via default value null\\.$#"
+			count: 1
+			path: modules/access_misc/src/Plugin/search_api/processor/EventTitle.php
+
+		-
+			message: "#^Deprecated in PHP 8\\.4\\: Parameter \\#1 \\$datasource \\(Drupal\\\\search_api\\\\Datasource\\\\DatasourceInterface\\) is implicitly nullable via default value null\\.$#"
+			count: 1
+			path: modules/access_misc/src/Plugin/search_api/processor/EventType.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: modules/access_misc/src/Plugin/views/access/ViewsRegistrationCustomAccess.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/access_misc/src/Plugin/views/access/ViewsUserRegistrationCustomAccess.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 26
+			path: modules/access_misc/src/Services/ImportAccessOrgs.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/access_misc/src/Services/SymfonyMail.php
+
+		-
+			message: "#^Unsafe usage of new static\\(\\)\\.$#"
+			count: 1
+			path: modules/ccmnet/src/Plugin/Block/MentorshipNodeBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 7
+			path: modules/ccmnet/src/Plugin/Block/MentorshipNodeBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 4
+			path: modules/ccmnet/src/Plugin/Block/MentorshipPersonBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/ccmnet/src/Plugin/Block/UserRegisterRedirectBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 5
+			path: modules/ccmnet/src/Plugin/Util/MentorshipLookup.php
+
+		-
+			message: "#^Deprecated in PHP 8\\.4\\: Parameter \\#1 \\$datasource \\(Drupal\\\\search_api\\\\Datasource\\\\DatasourceInterface\\) is implicitly nullable via default value null\\.$#"
+			count: 1
+			path: modules/ccmnet/src/Plugin/search_api/processor/MenteeName.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/ccmnet/src/Plugin/search_api/processor/MenteeName.php
+
+		-
+			message: "#^Method Drupal\\\\cssn\\\\Controller\\\\CommunityPersonaController\\:\\:titleCallback\\(\\) should return string but return statement is missing\\.$#"
+			count: 1
+			path: modules/cssn/src/Controller/CommunityPersonaController.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 12
+			path: modules/cssn/src/Controller/CommunityPersonaController.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: modules/cssn/src/Plugin/Block/CssnJoinForm.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 7
+			path: modules/cssn/src/Plugin/Block/PersonaBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: modules/cssn/src/Plugin/Util/CssnSubmissionsSort.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 4
+			path: modules/cssn/src/Plugin/Util/MatchLookup.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: modules/cssn/src/Plugin/Util/ProjectLookup.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: modules/cssn/src/Plugin/Util/RoleProgramSorter.php
+
+		-
+			message: "#^Deprecated in PHP 8\\.4\\: Parameter \\#1 \\$datasource \\(Drupal\\\\search_api\\\\Datasource\\\\DatasourceInterface\\) is implicitly nullable via default value null\\.$#"
+			count: 1
+			path: modules/cssn/src/Plugin/search_api/processor/UserBadges.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/cssn/src/Plugin/search_api/processor/UserBadges.php
+
+		-
+			message: "#^Deprecated in PHP 8\\.4\\: Parameter \\#1 \\$datasource \\(Drupal\\\\search_api\\\\Datasource\\\\DatasourceInterface\\) is implicitly nullable via default value null\\.$#"
+			count: 1
+			path: modules/cssn/src/Plugin/search_api/processor/UserInterests.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/cssn/src/Plugin/search_api/processor/UserInterests.php
+
+		-
+			message: "#^Deprecated in PHP 8\\.4\\: Parameter \\#1 \\$datasource \\(Drupal\\\\search_api\\\\Datasource\\\\DatasourceInterface\\) is implicitly nullable via default value null\\.$#"
+			count: 1
+			path: modules/cssn/src/Plugin/search_api/processor/UserSkills.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/cssn/src/Plugin/search_api/processor/UserSkills.php
+
+		-
+			message: "#^Deprecated in PHP 8\\.4\\: Parameter \\#1 \\$datasource \\(Drupal\\\\search_api\\\\Datasource\\\\DatasourceInterface\\) is implicitly nullable via default value null\\.$#"
+			count: 1
+			path: modules/cssn/src/Plugin/search_api/processor/UserSkillsId.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/cssn/src/Plugin/search_api/processor/UserSkillsId.php
+
+		-
+			message: "#^Deprecated in PHP 8\\.4\\: Parameter \\#1 \\$datasource \\(Drupal\\\\search_api\\\\Datasource\\\\DatasourceInterface\\) is implicitly nullable via default value null\\.$#"
+			count: 1
+			path: modules/cssn/src/Plugin/search_api/processor/userAffinityGroups.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/cssn/src/Plugin/search_api/processor/userAffinityGroups.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: modules/ticketing/src/Controller/TicketingController.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: modules/ticketing/src/Plugin/Block/TicketingBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 7
+			path: modules/ticketing/src/Plugin/WebformHandler/AccountSupportHandler.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 7
+			path: modules/ticketing/src/Plugin/WebformHandler/RequestOrgsListAddHandler.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 14
+			path: modules/ticketing/src/Plugin/WebformHandler/TicketingSendEmailHandler.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 5
+			path: modules/user_profiles/src/Commands/UserProfilesCommands.php
+
+		-
+			message: "#^Instantiated class Drupal\\\\access_misc\\\\Plugin\\\\Util\\\\FindAccessOrg not found\\.$#"
+			count: 1
+			path: modules/user_profiles/user_profiles.module
+
+		-
+			message: "#^Undefined variable\\: \\$aUser$#"
+			count: 1
+			path: modules/user_profiles/user_profiles.module
+
+		-
+			message: "#^Result of function var_dump \\(void\\) is used\\.$#"
+			count: 1
+			path: scripts/reportNewUsersPerMonth.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: src/Commands/AccessCommands.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: src/Controller/JsonApiAccessController.php

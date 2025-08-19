@@ -17,5 +17,19 @@
     "support": {
         "issues": "https://github.com/necyberteam/access/issues",
         "source": "https://github.com/necyberteam/access"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "*",
+        "mglaman/phpstan-drupal": "*",
+        "phpstan/extension-installer": "*"
+    },
+    "config": {
+        "allow-plugins": {
+            "phpstan/extension-installer": true
+        }
+    },
+    "scripts": {
+        "lint": "../../../../vendor/bin/phpstan analyse --configuration=phpstan.neon --memory-limit=512M",
+        "lint:baseline": "../../../../vendor/bin/phpstan analyse --configuration=phpstan.neon --memory-limit=512M --generate-baseline"
     }
 }

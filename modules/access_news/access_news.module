@@ -463,7 +463,7 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
           // Body set using a custom view mode: ccemail.
           $view_builder = \Drupal::entityTypeManager()->getViewBuilder('eventseries');
           $renderArray = $view_builder->view($node, 'ccemail');
-          $body = \Drupal::service('renderer')->renderPlain($renderArray);
+          $body = \Drupal::service('renderer')->renderInIsolation($renderArray);
 
           $body = str_replace('Event Instances', 'Event Date & Time', $body);
           $body = Html::transformRootRelativeUrlsToAbsolute($body, \Drupal::request()->getSchemeAndHttpHost());
@@ -581,7 +581,7 @@ function officeHours($ids, $utmCampaign = NULL) {
     if ($body == NULL) {
       $body = $entity->get('body')->view('list');
       $body = $body[0] != NULL ? $body[0] : '';
-      $body = \Drupal::service('renderer')->renderPlain($body);
+      $body = \Drupal::service('renderer')->renderInIsolation($body);
     }
 
     $n = 0;
@@ -662,7 +662,7 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
 
         // Gets format Apr 03, 2023; want 4/3/2023.
         $pubDate = $node->field_published_date[0]->view('alt_teaser');
-        $pubDateDisp = \Drupal::service('renderer')->renderPlain($pubDate);
+        $pubDateDisp = \Drupal::service('renderer')->renderInIsolation($pubDate);
         $pubDate = date_create_from_format('M d, Y', $pubDateDisp);
         $pubDateDisp = $pubDate->format('n/j/Y');
 
@@ -675,7 +675,7 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
         //  will have different spacing in the digest.  Or do something with css)
         if ($node->body[0] != NULL) {
           $body = $node->body[0]->view('teaser');
-          $bodyDisp = \Drupal::service('renderer')->renderPlain($body);
+          $bodyDisp = \Drupal::service('renderer')->renderInIsolation($body);
         }
         else {
           $bodyDisp = '<p></p>';
@@ -776,10 +776,10 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
           . ' - ' . $endDisplay . " " . $tz;
 
         $body = empty($enode->description[0]) ? '' : $enode->description[0]->view('rollup_list');
-        $bodyDisp = \Drupal::service('renderer')->renderPlain($body);
+        $bodyDisp = \Drupal::service('renderer')->renderInIsolation($body);
 
         // $location = empty($enode->location[0]) ? '' : $enode->location[0]->view('rollup_list');
-        // $locationDisp = \Drupal::service('renderer')->renderPlain($location);
+        // $locationDisp = \Drupal::service('renderer')->renderInIsolation($location);
         if ($eCount > 1) {
           $listDisplay = $listDisplay;
         }

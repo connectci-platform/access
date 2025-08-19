@@ -1,0 +1,15 @@
+# Composer dependencies
+vendor/
+
+# PHPStan temporary files
+phpstan-tmp.neon
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

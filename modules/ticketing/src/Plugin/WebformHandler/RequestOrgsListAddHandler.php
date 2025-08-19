@@ -72,7 +72,8 @@ class RequestOrgsListAddHandler extends WebformHandlerBase {
    */
   public function getMailMessageBody($data) {
     $ticketing_module_path = \Drupal::service('extension.list.module')->getPath('ticketing');
-    return twig_render_template(
+    $twig = \Drupal::service('twig');
+    return $twig->render(
           $ticketing_module_path . '/templates/request-orgs-list-add-mail.html.twig',
           [
             'theme_hook_original' => 'not-applicable',

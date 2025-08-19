@@ -97,7 +97,13 @@ class UserProfilesCommands extends DrushCommands {
       $this->output()->writeln("    " . $node->getTitle());
     }
 
-    node_mass_update($nodes, ['uid' => $user_to->id()], NULL, TRUE);
+    foreach ($nodes as $nid) {
+      $node = Node::load($nid);
+      if ($node) {
+        $node->set('uid', $user_to->id());
+        $node->save();
+      }
+    }
   }
 
   /**

@@ -286,7 +286,7 @@ class AffinityGroupCommands extends DrushCommands {
       $view_builder = \Drupal::entityTypeManager()->getViewBuilder('node');
       $renderArray = $view_builder->view($node, 'newsBody');
       // $renderArray = $view_builder->view($node);
-      $display = \Drupal::service('renderer')->renderPlain($renderArray);
+      $display = \Drupal::service('renderer')->renderInIsolation($renderArray);
       $this->output()->writeln($display);
 
       $this->output()->writeln('---');
@@ -352,7 +352,7 @@ class AffinityGroupCommands extends DrushCommands {
       // Get the custom view display eventinstance.email_summary
       $view_builder = \Drupal::entityTypeManager()->getViewBuilder('eventinstance');
       $renderArray = $view_builder->view($enode, 'rollup_list');
-      $display = \Drupal::service('renderer')->renderPlain($renderArray);
+      $display = \Drupal::service('renderer')->renderInIsolation($renderArray);
 
       // $this->output()->writeln($display);
       // TEMP
@@ -393,7 +393,7 @@ class AffinityGroupCommands extends DrushCommands {
       // $renderArray = $view_builder->view($node);
       // $this->output()->writeln('c-----------');
       $body = '';
-      // $body = \Drupal::service('renderer')->renderPlain($renderArray);
+      // $body = \Drupal::service('renderer')->renderInIsolation($renderArray);
       // $this->output()->writeln('d-----------');
       // $this->output()->writeln($body);
       // $this->output()->writeln('e-----------');

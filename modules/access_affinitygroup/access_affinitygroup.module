@@ -109,7 +109,7 @@ function access_affinitygroup_preprocess_views_view_field(&$variables) {
 
     $flag_ag = \Drupal::service('flag.link_builder')->build('taxonomy_term', $tid, 'affinity_group', 'full');
     $flag_ag['#attributes']['class'][] = 'btn-sm btn-small btn-secondary-outline py-0 px-4';
-    $flag_ag = \Drupal::service('renderer')->renderPlain($flag_ag);
+    $flag_ag = \Drupal::service('renderer')->renderInIsolation($flag_ag);
 
     // Attach a custom cache tag to the output.
     $variables['#cache']['tags'][] = 'affinity_group_field_' . $tid;
