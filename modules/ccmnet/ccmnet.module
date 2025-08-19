@@ -548,6 +548,9 @@ function _ccmnet_send_new_user_notification(\Drupal\Core\Entity\EntityInterface 
   $policy = 'ccmnet';
   $env = getenv('PANTHEON_ENVIRONMENT');
 
+  // Get the current domain to determine which role to use
+  $domain = \Drupal::service('domain.negotiator')->getActiveDomain()->id();
+
   $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
 
   if ($domain == 'campuschampions_cyberinfrastructure_org') {
@@ -810,7 +813,7 @@ function ccmnet_node_view(array &$build, EntityInterface $entity, EntityViewDisp
 function ccmnet_cron() {
   $env = getenv('PANTHEON_ENVIRONMENT');
   $cypress_test = getenv('CYPRESS_TEST_MODE');
-
+  
   // Allow testing mode to bypass environment and time restrictions
   if ($env == 'live' || $cypress_test == 'true') {
     // Send interested email between 1:00 am and 1:59 am (or anytime in test mode).
