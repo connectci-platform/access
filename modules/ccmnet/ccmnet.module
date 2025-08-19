@@ -817,7 +817,8 @@ function ccmnet_cron() {
       }
       $policy = 'ccmnet';
       $policy_subtype = 'cron_author_update';
-      $interested_links = '<ul>';
+      $interested_links['ccmnet'] = '<ul>';
+      $interested_links['cc'] = '<ul>';
       // Send email to each author
       foreach ($interested_list as $interested_nid) {
         $node = \Drupal::entityTypeManager()->getStorage('node')->load($interested_nid);
@@ -831,7 +832,13 @@ function ccmnet_cron() {
         $here = Url::fromRoute('entity.node.canonical', ['node' => $interested_nid], $options);
         $link = 'https://ccmnet.org' . $here->toString(TRUE)->getGeneratedUrl();
         $node_title = $node->getTitle();
-        $interested_links .= '<li><a href="' . $link . '">' . $node_title . '</a></li>';
+        $mentorship_program = $node->get('field_mentorship_program')->getString();
+        if ($mentorship_program == 910) {
+          $interested_links['cc'] .= '<li><a href="' . $link . '">' . $node_title . '</a></li>';
+        }
+        else {
+          $interested_links['ccmnet'] .= '<li><a href="' . $link . '">' . $node_title . '</a></li>';
+        }
         $title = t('click here');
 
         $variables = [
@@ -842,22 +849,31 @@ function ccmnet_cron() {
         \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $author, $variables);
         \Drupal::logger('ccmnet')->info('Sent interested email to @user for node @nid', ['@user' => $author, '@nid' => $interested_nid]);
       }
-      $interested_links .= '</ul>';
+      $interested_links['cc'] .= '</ul>';
+      $interested_links['ccmnet'] .= '</ul>';
       // 2nd email: send collection of request links to all with ccmnet_pm role
-      $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
-
-      if ($domain == 'campuschampions_cyberinfrastructure_org') {
-        $role = $env == 'live' ? 'champions_mentorship_admin' : 'site_developer';
-      }
 
       $policy_subtype = 'cron_role_update';
 
-      $ccmnet_admin_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-      $variables = [
-        'extra' => $interested_links,
-      ];
-      \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $ccmnet_admin_emails, $variables);
-      \Drupal::logger('ccmnet')->info('Sent interested summary email to @role', ['@role' => $role]);
+      if ($interested_links['cc'] != '<ul></ul>') {
+        $cc_role = $env == 'live' ? 'champions_mentorship_admin' : 'site_developer';
+        $cc_admin_emails = \Drupal::service('access_misc.usertools')->getEmails([$cc_role], []);
+        $cc_variables = [
+          'extra' => $interested_links['cc'],
+        ];
+        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $cc_admin_emails, $cc_variables);
+        \Drupal::logger('ccmnet')->info('Sent interested summary email to @role', ['@role' => $cc_role]);
+      }
+      if ($interested_links['ccmnet'] != '<ul></ul>') {
+        $ccmnet_role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
+        $ccmnet_admin_emails = \Drupal::service('access_misc.usertools')->getEmails([$ccmnet_role], []);
+        $variables = [
+          'extra' => $interested_links['ccmnet'],
+        ];
+        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $ccmnet_admin_emails, $variables);
+        \Drupal::logger('ccmnet')->info('Sent interested summary email to @role', ['@role' => $ccmnet_role]);
+      }
+
       \Drupal::state()->set('access_mentorship_interested', 0);
     }
   }
