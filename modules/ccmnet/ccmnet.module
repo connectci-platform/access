@@ -481,6 +481,7 @@ function ccmnet_node_insert(\Drupal\Core\Entity\EntityInterface $entity) {
   if ($entity->bundle() == 'mentorship_engagement') {
     $options = ['absolute' => TRUE];
     $nid = $entity->id();
+    $program = $entity->get('field_mentorship_program')->getValue();
     $policy = 'ccmnet';
     $here = Url::fromRoute('entity.node.canonical', ['node' => $nid], $options);
     $link = $here->toString(TRUE)->getGeneratedUrl();
@@ -504,12 +505,12 @@ function ccmnet_node_insert(\Drupal\Core\Entity\EntityInterface $entity) {
 
     // Send email to CCMNet admin.
     // mentorship_created_admin
-    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
-
     $role = $env == 'live' ? 'ccmnet_admin' : 'site_developer';
 
-    if ($domain == 'campuschampions_cyberinfrastructure_org') {
-      $role = $env == 'live' ? 'champions_mentorship_admin' : 'site_developer';
+    if ($program) {
+      if ($program[0]['target_id'] == 910 && $env == 'live') {
+        $role = 'champions_mentorship_admin';
+      }
     }
 
     $ccmnet_admin_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
@@ -580,6 +581,7 @@ function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
     // Give badge to mentor or Mentee.
     $mentor = $entity->get('field_mentor')->getValue();
     $mentee = $entity->get('field_mentee')->getValue();
+    $program = $entity->get('field_mentorship_program')->getValue();
 
     $badge_tools = \Drupal::service('access_badges.badgeTools');
 
@@ -622,8 +624,10 @@ function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
     if ($approved_state == 1 && $prev_approved_state != $approved_state) {
       $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
 
-      if ($domain == 'campuschampions_cyberinfrastructure_org') {
-        $role = $env == 'live' ? 'champions_mentorship_admin' : 'site_developer';
+      if ($program) {
+        if ($program[0]['target_id'] == 910 && $env == 'live') {
+          $role = 'champions_mentorship_admin';
+        }
       }
 
       $ccmnet_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
@@ -723,8 +727,10 @@ function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
 
       $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
 
-      if ($domain == 'campuschampions_cyberinfrastructure_org') {
-        $role = $env == 'live' ? 'champions_mentorship_admin' : 'site_developer';
+      if ($program) {
+        if ($program[0]['target_id'] == 910 && $env == 'live') {
+          $role = 'champions_mentorship_admin';
+        }
       }
 
       // Get list of unique emails.
