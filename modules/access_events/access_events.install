@@ -1,0 +1,230 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the access_events module.
+ */
+
+use Drupal\Core\Database\Database;
+use Drupal\search_api\Entity\Index;
+
+/**
+ * Set domain access for Event Series content items.
+ */
+function access_events_update_10001() {
+  $database = Database::getConnection();
+
+  // Define the specific event series that should have openondemand domain
+  $openondemand_series = [
+    515, // ACCESS and NAIRR Pilot Office Hours
+    516, // ACCESS and NAIRR Pilot Office Hours
+    477, // Open OnDemand Office Hours
+    252, // Open OnDemand Tips and Tricks Call
+  ];
+
+  // Define domain IDs
+  $access_support_domain = 'amp_cyberinfrastructure_org';
+  $openondemand_domain = 'openondemand_cyberinfrastructure_org';
+
+  // Get all event series IDs
+  $event_series_ids = $database->query("SELECT id FROM eventseries")->fetchCol();
+
+  if (empty($event_series_ids)) {
+    return 'No event series found.';
+  }
+
+  // Clear existing domain access entries for event series
+  $database->delete('eventseries__domain_access')
+    ->condition('entity_id', $event_series_ids, 'IN')
+    ->execute();
+
+  // Also clear revision table
+  $database->delete('eventseries_revision__domain_access')
+    ->condition('entity_id', $event_series_ids, 'IN')
+    ->execute();
+
+  $batch_size = 50;
+  $processed = 0;
+
+  foreach (array_chunk($event_series_ids, $batch_size) as $batch) {
+    foreach ($batch as $series_id) {
+      // Get the current revision ID for this event series
+      $revision_id = $database->query("SELECT vid FROM eventseries WHERE id = :id", [':id' => $series_id])->fetchField();
+
+      if (!$revision_id) {
+        continue;
+      }
+
+      // Determine which domain(s) to set
+      $domains_to_set = [];
+
+      if (in_array($series_id, $openondemand_series)) {
+        // OnDemand series get both domains
+        $domains_to_set = [$access_support_domain, $openondemand_domain];
+      } else {
+        // All other series get ACCESS Support domain
+        $domains_to_set = [$access_support_domain];
+      }
+
+      // Insert domain access records for each domain
+      foreach ($domains_to_set as $domain_id) {
+        // Insert into main field table
+        $database->insert('eventseries__domain_access')
+          ->fields([
+            'bundle' => 'default',
+            'deleted' => 0,
+            'entity_id' => $series_id,
+            'revision_id' => $revision_id,
+            'langcode' => 'en',
+            'delta' => array_search($domain_id, $domains_to_set),
+            'domain_access_target_id' => $domain_id,
+          ])
+          ->execute();
+
+        // Insert into revision table
+        $database->insert('eventseries_revision__domain_access')
+          ->fields([
+            'bundle' => 'default',
+            'deleted' => 0,
+            'entity_id' => $series_id,
+            'revision_id' => $revision_id,
+            'langcode' => 'en',
+            'delta' => array_search($domain_id, $domains_to_set),
+            'domain_access_target_id' => $domain_id,
+          ])
+          ->execute();
+      }
+
+      $processed++;
+    }
+  }
+
+  return t('Updated domain access for @count event series. OnDemand series (@ondemand_count) have both ACCESS Support and OnDemand domains, others have ACCESS Support domain only.', [
+    '@count' => $processed,
+    '@ondemand_count' => count($openondemand_series),
+  ]);
+}
+
+/**
+ * Set domain access for Event Instance content items based on their Event Series.
+ */
+function access_events_update_10002() {
+  $database = Database::getConnection();
+
+  // Define the specific event series that should have openondemand domain
+  $openondemand_series = [
+    515, // ACCESS and NAIRR Pilot Office Hours
+    516, // ACCESS and NAIRR Pilot Office Hours
+    477, // Open OnDemand Office Hours
+    252, // Open OnDemand Tips and Tricks Call
+  ];
+
+  // Define domain IDs
+  $access_support_domain = 'amp_cyberinfrastructure_org';
+  $openondemand_domain = 'openondemand_cyberinfrastructure_org';
+
+  // Get all event instances with their series IDs
+  $event_instances = $database->query("
+    SELECT ei.id, ei.vid, efd.eventseries_id
+    FROM eventinstance ei
+    JOIN eventinstance_field_data efd ON ei.id = efd.id
+    WHERE efd.eventseries_id IS NOT NULL
+  ")->fetchAll();
+
+  if (empty($event_instances)) {
+    return 'No event instances found.';
+  }
+
+  // Get all event instance IDs for clearing existing data
+  $event_instance_ids = array_column($event_instances, 'id');
+
+  // Clear existing domain access entries for event instances
+  $database->delete('eventinstance__domain_access')
+    ->condition('entity_id', $event_instance_ids, 'IN')
+    ->execute();
+
+  // Also clear revision table
+  $database->delete('eventinstance_revision__domain_access')
+    ->condition('entity_id', $event_instance_ids, 'IN')
+    ->execute();
+
+  $batch_size = 50;
+  $processed = 0;
+  $ondemand_instances = 0;
+
+  foreach (array_chunk($event_instances, $batch_size) as $batch) {
+    foreach ($batch as $instance) {
+      $instance_id = $instance->id;
+      $revision_id = $instance->vid;
+      $series_id = $instance->eventseries_id;
+
+      // Determine which domain(s) to set based on the event series
+      $domains_to_set = [];
+
+      if (in_array($series_id, $openondemand_series)) {
+        // OnDemand series instances get both domains
+        $domains_to_set = [$access_support_domain, $openondemand_domain];
+        $ondemand_instances++;
+      } else {
+        // All other series instances get ACCESS Support domain
+        $domains_to_set = [$access_support_domain];
+      }
+
+      // Insert domain access records for each domain
+      foreach ($domains_to_set as $domain_id) {
+        // Insert into main field table
+        $database->insert('eventinstance__domain_access')
+          ->fields([
+            'bundle' => 'default',
+            'deleted' => 0,
+            'entity_id' => $instance_id,
+            'revision_id' => $revision_id,
+            'langcode' => 'en',
+            'delta' => array_search($domain_id, $domains_to_set),
+            'domain_access_target_id' => $domain_id,
+          ])
+          ->execute();
+
+        // Insert into revision table
+        $database->insert('eventinstance_revision__domain_access')
+          ->fields([
+            'bundle' => 'default',
+            'deleted' => 0,
+            'entity_id' => $instance_id,
+            'revision_id' => $revision_id,
+            'langcode' => 'en',
+            'delta' => array_search($domain_id, $domains_to_set),
+            'domain_access_target_id' => $domain_id,
+          ])
+          ->execute();
+      }
+
+      $processed++;
+    }
+  }
+
+  return t('Updated domain access for @count event instances. OnDemand instances (@ondemand_count) have both ACCESS Support and OnDemand domains, others have ACCESS Support domain only.', [
+    '@count' => $processed,
+    '@ondemand_count' => $ondemand_instances,
+  ]);
+}
+
+/**
+ * Reindex the events search API index after domain access changes.
+ */
+function access_events_update_10003() {
+  // Reindex the events search API index to pick up domain access changes
+  $events_index = Index::load('events');
+  if ($events_index) {
+    $events_index->reindex();
+
+    // Process the indexing immediately
+    $indexed_count = $events_index->indexItems();
+
+    return t('Events search index has been reindexed. Processed @count items to pick up domain access changes.', [
+      '@count' => $indexed_count,
+    ]);
+  } else {
+    return t('Warning: Events search index not found. Manual reindexing may be required.');
+  }
+}

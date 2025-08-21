@@ -2,6 +2,8 @@
 
 namespace Drupal\cssn\Controller;
 
+use Drupal\webform\Entity\WebformSubmission;
+use Drupal\views\Views;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Link;
@@ -12,7 +14,6 @@ use Drupal\cssn\Plugin\Util\MatchLookup;
 use Drupal\cssn\Plugin\Util\ProjectLookup;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\user\Entity\User;
-use Drupal\webform\Entity\WebformSubmission;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
 /**
@@ -69,8 +70,11 @@ class CommunityPersonaController extends ControllerBase {
           if ($persona_source == 'openondemand' && $domainName != 'open-ondemand' && $env == 'live') {
             $url = Url::fromUri('https://ondemand.connectci.org/node/' . $affinity_group_loaded->id());
           }
-          elseif ($persona_source == 'access' && $domainName == 'open-ondemand' && $env == 'live') {
+          elseif ($persona_source == 'access' && $domainName != 'access' && $env == 'live') {
             $url = Url::fromUri('https://support.access-ci.org/node/' . $affinity_group_loaded->id());
+          }
+          elseif ($persona_source == 'ccmnet' && $domainName != 'ccmnet' && $env == 'live') {
+            $url = Url::fromUri('https://ccmnet.org/node/' . $affinity_group_loaded->id());
           }
           else {
             $url = Url::fromRoute('entity.node.canonical', ['node' => $affinity_group_loaded->id()]);
@@ -156,7 +160,7 @@ class CommunityPersonaController extends ControllerBase {
       foreach ($ws_results as $ws_result) {
         $stripe_class = $n % 2 == 0 ? 'bg-light bg-light-teal' : '';
         $ws = WebformSubmission::load($ws_result);
-        $url = $ws->toUrl()->toString();
+        $url = '/knowledge-base/resources/' . $ws->id();
         $ws_data = $ws->getData();
         $ws_link .= '<li class="p-3 ' . $stripe_class . '"><a href=' . $url . ' class="font-bold underline hover--no-underline hover--text-dark-teal">' . $ws_data['title'] . '</a></li>';
         $n++;
@@ -393,7 +397,7 @@ class CommunityPersonaController extends ControllerBase {
     // My Match Engagements.
     $match_link = $this->matchList($current_user);
     // Link to see all Match Engagements.
-    $match_engage_url = Url::fromUri('internal:/engagements');
+    $match_engage_url = Url::fromUri('https://support.access-ci.org/engagements');
     $match_engage_link = Link::fromTextAndUrl('See engagements', $match_engage_url);
     $match_engage_renderable = $match_engage_link->toRenderable();
     $build_match_engage_link = $match_engage_renderable;
@@ -404,13 +408,19 @@ class CommunityPersonaController extends ControllerBase {
     $projects = $this->projectList($current_user);
 
     // Events user is registered for.
-    $view = \Drupal\views\Views::getView('recurring_events_registrations');
-    $view->setDisplay('user_event_registrations');
-    $view->setArguments([$current_user->id()]);
-    $user_event_registrations = $view->buildRenderable('user_event_registrations');
-    // Get the total items in the view.
-    $view->execute();
-    $total_items = $view->total_rows;
+    $user_event_registrations = '';
+    $total_items = 0;
+
+    // Only show registrations for authenticated users
+    if (!$current_user->isAnonymous()) {
+      $view = Views::getView('recurring_events_registrations');
+      $view->setDisplay('user_event_registrations');
+      $view->setArguments([$current_user->id()]);
+      $user_event_registrations = $view->buildRenderable('user_event_registrations');
+      // Get the total items in the view.
+      $view->execute();
+      $total_items = $view->total_rows;
+    }
 
     $persona_page['string'] = [
       '#type' => 'inline_template',
@@ -523,7 +533,7 @@ class CommunityPersonaController extends ControllerBase {
         'bio_summary' => $bio_summary,
         'bio' => $bio,
         'ag_title' => t('My Affinity Groups'),
-        'ag_intro' => t('Connected with researchers of common interests.'),
+        'ag_intro' => t('Connect with researchers of common interests.'),
         'user_affinity_groups' => $user_affinity_groups,
         'affinity_link' => $build_affinity_link,
         'mi_title' => t('My Interests'),

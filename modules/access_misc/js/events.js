@@ -35,7 +35,6 @@ title.innerHTML = 'The title of your event. Please do not include date or locati
 
 // Overwrite text in # to 'Event Title'.
 let virtualTitle = document.querySelector('#edit-field-event-virtual-meeting-link-wrapper label');
-console.log(virtualTitle.textContent);
 virtualTitle.insertAdjacentHTML('afterend', '<div class="form-item__description description form-item__description--label-help">Provide link to virtual meeting. If there is one.</div>');
 
 let registration = document.querySelector('#edit-event-registration-0-registration');

@@ -4,7 +4,6 @@
  * Default theme implementation for the icon_block shortcode.
  *
  * Available variables:
- * - icon: Font Awesome class string.
  * - img: url for image to display.
  * - alt: alt text for image.
  * - title: The heading text.
@@ -17,9 +16,6 @@
 <a href="{{ link }}" class="d-flex align-items-stretch">
 {% endif %}
 <div class="icon-box d-flex flex-column align-items-center justify-content-{{ boxed ? "center" : "start" }} {{ boxed }}">
-    {% if icon %}
-        <i class="fa-solid {{ icon }}"></i>
-    {% endif %}
     {% if img %}
         <img src="{{ img }}" alt="{{ alt }}"/>
     {% endif %}

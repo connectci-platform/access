@@ -101,7 +101,7 @@ function getOutageHtml(outage) {
     <a style="text-decoration: none" href="/outages?outageID=` + outage['URN'] + `">
       <span class="outage-span">
         <span style="color: #f07537; font-size: 170%"> &bull; </span>
-        Current Outage
+        Status Alert
       </span>
     </a>
     &nbsp;

@@ -1,0 +1,6 @@
+organization-toggle:
+  js:
+    js/organization-toggle.js: {}
+  dependencies:
+    - core/jquery
+    - core/once

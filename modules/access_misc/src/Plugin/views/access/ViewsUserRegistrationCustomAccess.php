@@ -37,7 +37,7 @@ class ViewsUserRegistrationCustomAccess extends AccessPluginBase {
     $current_uri = \Drupal::service('path.current')->getPath();
     $url_bits = explode('/', $current_uri);
 
-    $profile_uid = is_numeric($url_bits[2]) ? $url_bits[2] : 0;
+    $profile_uid = (isset($url_bits[2]) && is_numeric($url_bits[2])) ? $url_bits[2] : 0;
 
     $current_user_id = $account->id();
 

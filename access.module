@@ -48,9 +48,6 @@ function access_page_attachments(array &$attachments) {
         $roles = $user->getRoles();
 
         if (in_array('match_pm', $roles) || in_array('match_sc', $roles) || in_array('administrator', $roles)) {
-          $menu[$weight]['items'][300]['name'] = 'MATCH Interested Users';
-          $menu[$weight]['items'][300]['url'] = '/match-interested-users';
-
           $menu[$weight]['items'][301]['name'] = 'MATCH Engagement Submissions';
           $menu[$weight]['items'][301]['url'] = '/match-engagements-submissions';
         }
@@ -62,8 +59,10 @@ function access_page_attachments(array &$attachments) {
     foreach ($menu as $menu_items) {
       $js_menu .= '{';
       $js_menu .= '"name": "' . $menu_items['name'] . '", "items": [';
-      ksort($menu_items['items']);
-      foreach ($menu_items['items'] as $item) {
+      if (is_array($menu_items['items'])) {
+        ksort($menu_items['items']);
+      }
+      foreach ($menu_items['items'] ?? [] as $item) {
         $js_menu .= '{"name": "' . $item['name'] . '", "href": "' . $item['url'] . '"},';
       }
       // Remove last comma.
@@ -76,9 +75,33 @@ function access_page_attachments(array &$attachments) {
 
     $current_uri = \Drupal::request()->getRequestUri();
 
+    // Get current user data for JavaScript.
+    $current_user = \Drupal::currentUser();
+    $user_data = [];
+    if ($current_user->isAuthenticated()) {
+      $user_entity = \Drupal\user\Entity\User::load($current_user->id());
+      $first_name = $user_entity->get('field_user_first_name')->value ?? '';
+      $last_name = $user_entity->get('field_user_last_name')->value ?? '';
+      $full_name = trim($first_name . ' ' . $last_name);
+      $account_name = $user_entity->getAccountName();
+      
+      // Derive accessId from username by removing @access-ci.org
+      $access_id = '';
+      if (str_ends_with($account_name, '@access-ci.org')) {
+        $access_id = str_replace('@access-ci.org', '', $account_name);
+      }
+      
+      $user_data = [
+        'email' => $user_entity->getEmail(),
+        'name' => $full_name,
+        'accessId' => $access_id,
+      ];
+    }
+
     // Adding global library to all pages.
     $attachments['#attached']['drupalSettings']['access']['current_uri'] = $current_uri;
     $attachments['#attached']['drupalSettings']['access']['current_menu'] = $js_menu;
+    $attachments['#attached']['drupalSettings']['access']['user'] = $user_data;
     $attachments['#attached']['library'][] = 'access/header_footer_library';
   }
 }

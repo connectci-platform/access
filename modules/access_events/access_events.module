@@ -7,11 +7,15 @@
 use Drupal\access_events\Plugin\Util\EventDateConvert;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Session\AccountInterface;
+use Drupal\Core\Access\AccessResult;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Render\Markup;
 use Drupal\user\Entity\User;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Drupal\views\ViewExecutable;
+use Drupal\views\Plugin\views\query\QueryPluginBase;
+use Drupal\Component\Utility\Html;
 
 /**
  * Implements hook_form_alter().
@@ -20,7 +24,21 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   if ($form_id == 'registrant_default_delete_form') {
     $form['actions']['submit']['#submit'][] = 'access_events_user_delete_submit';
   }
-  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
+  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
+    $set_tz = $form['custom_date']['widget'][0]['value']['#date_timezone'];
+    $suffix = '<div class="form-text">' . t('Your time zone is set to ') . "<strong>$set_tz</strong>. " . t('If your event is in a different time zone, calculate the time difference accordingly.') . '</div>';
+
+    foreach ($form['custom_date']['widget'] as $key => $value) {
+      if (is_numeric($key)) {
+        $form['custom_date']['widget'][$key]['day_occurance']['#suffix'] = $suffix;
+      }
+    }
+
+    $form['monthly_recurring_date']['widget'][0]['day_occurrence']['#suffix'] = $suffix;
+
+    $form['weekly_recurring_date']['widget'][0]['days']['#suffix'] = $suffix;
+    $form['daily_recurring_date']['widget'][0]['duration']['#suffix'] = $suffix;
+
     $current_user = \Drupal::currentUser();
     $username = $current_user->getAccountName();
     $username = str_replace('@access-ci.org', '', $username);
@@ -44,9 +62,6 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
 
-    if (!in_array('administrator', $roles)) {
-      $form['domain_access']['#access'] = FALSE;
-    }
 
   }
 
@@ -116,10 +131,13 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
           $grantlist = \Drupal::service('access_events.XsedeApi')->getGrantedUsers($allocation);
           $allocation_title = \Drupal::service('access_events.XsedeApi')->getTitle($allocation);
           $resourcename = [];
-          foreach ($grantlist['result'] as $value) {
-            foreach ($value as $key => $resource) {
-              if ($key == 'resourceName') {
-                $resourcename[$resource] = $resource;
+
+          if (isset($grantlist['result']) && is_array($grantlist['result'])) {
+            foreach ($grantlist['result'] as $value) {
+              foreach ($value as $key => $resource) {
+                if ($key == 'resourceName') {
+                  $resourcename[$resource] = $resource;
+                }
               }
             }
           }
@@ -169,7 +187,15 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   }
 
   // Custom tags on /events/add
-  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
+  if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
+
+    // If user is not administrator, hide the field 'domain_access'.
+    $current_user = \Drupal::currentUser();
+    $roles = $current_user->getRoles();
+    if (!in_array('administrator', $roles)) {
+      $form['domain_access']['#access'] = FALSE;
+    }
+
     $form['body']['widget'][0]['#required'] = TRUE;
 
     $form['event_registration']['widget'][0]['#description'] = "<strong>Event registration is a new feature. If you encounter any issues or unexpected behavior, please submit a ticket to let us know.</strong>";
@@ -325,6 +351,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   }
 }
 
+
 /**
  * Custom validation handler for webform_submission_resource_add_form.
  */
@@ -367,23 +394,50 @@ function access_events_eventseries_validate($form, FormStateInterface $form_stat
  */
 function access_events_replace_event_section_callback(array &$form, FormStateInterface $form_state) {
   $raw_data = $form_state->getUserInput();
-  $body_filter = $raw_data['body'][0]['value'] ? Xss::filter($raw_data['body'][0]['value']) : '';
+  $body = $raw_data['body'][0]['value'];
+  $body_filter = $body ? Xss::filter($body) : '';
   $suggested_tag_ids = '0';
-  if (strlen($body_filter) >= 100) {
-    $llm = \Drupal::service('access_llm.ai_references_generator');
-    $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
-    $suggested_tag_ids = implode(', ', $llm->taxonomyIdSuggested());
+  $tag_count = count($raw_data['field_tags'] ?? []);
+  $tag_limit = 6;
+  $tag_amount = $tag_limit - $tag_count;
+
+  $form['field_tags_replace']['user_message'] = [
+    '#markup' => "",
+  ];
+
+  if ($tag_amount <= 0) {
     $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
+      '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
+      <strong class='text-sky-900'>You already have 6 tags</strong><br />
+      You can remove some tags to get more suggestions.</div>",
     ];
+  }
+  elseif (strlen($body_filter) >= 100) {
+    try {
+      $llm = \Drupal::service('access_llm.ai_references_generator');
+      $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
+      $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
+      $suggested_tag_ids = implode(', ', $suggestions);
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "",
+      ];
+    }
+    catch (\Throwable $e) {
+      $form['field_tags_replace']['user_message'] = [
+        '#markup' => "<div class='match-tag-list bg-yellow-200 text-yellow-900 my-5 p-5'>
+        <strong class='text-yellow-900'>AI tag suggestions are not available</strong><br />
+        Please select tags manually from the list below.</div>",
+      ];
+    }
   }
   else {
     $form['field_tags_replace']['user_message'] = [
       '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
-                    <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
+      <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
                     Your description must be over 100 characters to get a suggestion.</div>",
     ];
   }
+
   $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
 
   // Return the updated section.
@@ -398,13 +452,22 @@ function access_events_replace_summary_section_callback(array &$form, FormStateI
   $body_filter = $raw_data['body'][0]['value'] ? Xss::filter($raw_data['body'][0]['value']) : '';
   $suggested_tag_ids = '0';
   if (strlen($body_filter) >= 100) {
-    $llm = \Drupal::service('access_llm.ai_references_generator');
-    $llm->generateSummaryPrompt($body_filter);
-    $result = $llm->summarySuggested();
-    $form['field_summary_replace']['field_suggest']['summary_text']['#value'] = $result;
-    $form['field_summary_replace']['user_message'] = [
-      '#markup' => '',
-    ];
+    try {
+      $llm = \Drupal::service('access_llm.ai_references_generator');
+      $llm->generateSummaryPrompt($body_filter);
+      $result = $llm->summarySuggested();
+      $form['field_summary_replace']['field_suggest']['summary_text']['#value'] = $result;
+      $form['field_summary_replace']['user_message'] = [
+        '#markup' => '',
+      ];
+    }
+    catch (\Throwable $e) {
+      $form['field_summary_replace']['user_message'] = [
+        '#markup' => "<div class='match-tag-list bg-yellow-200 text-yellow-900 my-5 p-5'>
+        <strong class='text-yellow-900'>AI summary generation is currently unavailable</strong><br />
+        Please write your summary in the text field above.</div>",
+      ];
+    }
   }
   else {
     $form['field_summary_replace']['user_message'] = [
@@ -469,6 +532,13 @@ function access_events_user_delete_submit($form, FormStateInterface $form_state)
  */
 function access_events_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
   if ($view->id() == 'recurring_events_event_instances' && $display_id === 'block_3') {
+    // Set block to show only events for the current domain.
+    $view_filters = $view->display_handler->getOption('filters');
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+    $view_filters['domain_access_target_id']['value'] = $domain;
+    $view->display_handler->setOption('filters', $view_filters);
+
+    // Set the footer for the view.
     $term = term_lookup_from_path();
 
     $footer = \Drupal::service('access_misc.viewstools');
@@ -535,7 +605,7 @@ function access_events_preprocess_views_view_field(&$variables) {
 
       $link_url = $link[0]['uri'];
 
-      $meeting_link = "<a href='$link_url' class='btn-sm btn-small btn-secondary-outline py-0 px-4 btn btn-md-teal ms-auto'> Join meeting</a>";
+      $meeting_link = "<a href='$link_url' class='btn-sm btn-small btn-secondary-outline py-0 px-4 btn btn-md-teal ms-auto'>Join meeting</a>";
 
       if ($registration_status) {
         // Entity Query 'registrant' to get all registrants for the event instance.
@@ -561,17 +631,51 @@ function access_events_preprocess_views_view_field(&$variables) {
 
   // Display event instance date in the right format.
   if ($view->id() == 'recurring_events_event_instances' && ($view->current_display == 'block_1' || $view->current_display == 'block_2')) {
-    if ($field->field == 'date__value') {
-      // Default separator between start and end dates is ' - '.
-      $output = explode(' - ', $variables['output']);
-      if (count($output) == 2) {
-        $start_date = $output[0];
-        $end_date = $output[1];
-        $date = new EventDateConvert($start_date, $end_date);
-        if ($date->sameDay ) {
-          $variables['output'] = Markup::create($date->getStart() . " - " . $date->getEnd());
-        } else {
-          $variables['output'] = Markup::create($date->getStart() . " to " . $date->getEnd());
+    if ($field->field == 'date__value' || $field->field == 'date__end_value') {
+      // Handle custom Twig rewrite by getting dates from the entity directly
+      $row = $variables['row'];
+      if (isset($row->_entity) && $row->_entity->hasField('date')) {
+        $entity = $row->_entity;
+        $date_field = $entity->get('date');
+
+        if (!$date_field->isEmpty()) {
+          $start_date = $date_field->start_date;
+          $end_date = $date_field->end_date;
+
+          // Convert to user timezone
+          $user = \Drupal::currentUser();
+          $user_timezone = $user->getTimeZone() ?: date_default_timezone_get();
+
+          if ($start_date) {
+            $start_date->setTimezone(new \DateTimeZone($user_timezone));
+          }
+          if ($end_date) {
+            $end_date->setTimezone(new \DateTimeZone($user_timezone));
+          }
+
+          // Create formatted output
+          if ($start_date && $end_date) {
+            $formatted_date = $start_date->format('l, n/j/Y');
+            $start_time = $start_date->format('g:i A');
+            $end_time = $end_date->format('g:i A T');
+            $formatted_output = $formatted_date . '<br>' . $start_time . ' - ' . $end_time;
+
+            $variables['output'] = Markup::create($formatted_output);
+          }
+        }
+      }
+      else {
+        // Fallback to original logic for non-custom rewrite cases
+        $output = explode(' - ', $variables['output']);
+        if (count($output) == 2) {
+          $start_date = $output[0];
+          $end_date = $output[1];
+          $date = new EventDateConvert($start_date, $end_date);
+          if ($date->sameDay ) {
+            $variables['output'] = Markup::create($date->getStart() . " - " . $date->getEnd());
+          } else {
+            $variables['output'] = Markup::create($date->getStart() . " to " . $date->getEnd());
+          }
         }
       }
     }
@@ -595,6 +699,7 @@ function access_events_preprocess_views_view_field(&$variables) {
       }
     }
   }
+
 
   // Overwrite location field into /events page on
   // /admin/structure/views/view/events_facet/edit/page_1
@@ -655,5 +760,45 @@ function access_events_entity_insert(EntityInterface $entity) {
       }
     }
   }
+}
+
+/**
+ * Filter Events for the current domain.
+ *
+ * @param ViewExecutable $view
+ * @param QueryPluginBase $query
+ * @return void
+ */
+function access_events_views_query_alter(ViewExecutable $view, QueryPluginBase $query) {
+  if ($view->id() === 'events_facet' && ($view->current_display === 'page_1' || $view->current_display === 'page_2' || $view->current_display === 'block_1')) {
+    $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
+    if ($domain_id) {
+      $query->addCondition('domain_access', $domain_id, '=');
+    }
+  }
+}
+
+/**
+ * Implements hook_entity_access().
+ */
+function access_events_entity_access(EntityInterface $entity, $operation, AccountInterface $account) {
+  if (($entity->getEntityTypeId() == 'eventinstance' || $entity->getEntityTypeId() == 'eventseries') && $entity->bundle() == 'default') {
+    $author = $entity->getOwner();
+    $author_id = $author->id();
+    $current_user = \Drupal::currentUser();
+    $current_user_id = $current_user->id();
+
+    if ($author_id == $current_user_id) {
+      // Allow access if the user is the author of the event instance.
+      return AccessResult::allowed();
+    }
+    else {
+      // Return neutral if not author.
+      return AccessResult::neutral();
+    }
+  }
+
+  // Return neutral for all other cases.
+  return AccessResult::neutral();
 }
 

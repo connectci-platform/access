@@ -254,7 +254,16 @@ class XsedeApi {
    */
   public function getTitle($grantId) {
     $this->apiCall('/acdb/usermanagement/v1/requests/request/' . $grantId);
-    return $this->apiResults['result']['masters'][0]['requests'][0]['projectTitle'];
+
+    if (isset($this->apiResults['result']['masters'][0]['requests'][0]['projectTitle'])) {
+      return $this->apiResults['result']['masters'][0]['requests'][0]['projectTitle'];
+    }
+
+    \Drupal::logger('access_events')
+      ->warning('XSEDE API getTitle() failed to retrieve title for grant @grant_id', [
+        '@grant_id' => $grantId,
+      ]);
+    return NULL;
   }
 
   /**

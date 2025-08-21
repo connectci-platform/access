@@ -58,7 +58,7 @@ class ConstantContactApi {
       $config_factory = \Drupal::configFactory();
       $this->configSettings = $config_factory->getEditable('access_affinitygroup.settings');
       $this->accessToken = $this->configSettings->get('access_token');
-      $this->refreshToken = $this->configSettings->get('refresh_token');
+      $this->refreshToken = \Drupal::state()->get('access_affinitygroup.refresh_token');
       $this->getKey();
 
       $cc_key = $this->cc_key;
@@ -516,8 +516,8 @@ class ConstantContactApi {
    */
   private function setRefreshToken($refresh_token) {
     $this->refreshToken = $refresh_token;
-    $this->configSettings->set('refresh_token', $refresh_token);
-    $this->configSettings->save();
+    \Drupal::state()->set('access_affinitygroup.refresh_token', $refresh_token);
+
   }
 
   /*

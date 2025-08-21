@@ -90,9 +90,9 @@ class EventWaitlist extends ControllerBase {
    */
   public static function create(ContainerInterface $container): self {
     return new self(
-    $container->get('redirect.destination'),
-    $container->get('database'),
-    $container->get('entity_type.manager')
+      $container->get('redirect.destination'),
+      $container->get('database'),
+      $container->get('entity_type.manager')
     );
   }
 
@@ -204,8 +204,9 @@ class EventWaitlist extends ControllerBase {
     $event_start_time = date('g:iA', strtotime($og_start_date));
     $event_end_time = date('g:iA T', strtotime($end_date));
 
-    // Turn $series_title into a link to the event.
-    $series_title_url = "<a href='/events/$event_instance_id'>$series_title</a>";
+    // Turn $series_title into a link to the event with correct domain.
+    $event_url = _access_misc_get_event_domain_url($event_instance_id);
+    $series_title_url = "<a href='$event_url'>$series_title</a>";
 
     $policy = 'access_misc';
     $policy_subtype = 'registration_approved';
@@ -226,9 +227,14 @@ class EventWaitlist extends ControllerBase {
       $email = $registrant->get('email')->getValue();
       $first_name = $registrant->get('field_first_name')->getValue();
       $last_name = $registrant->get('field_last_name')->getValue();
-      $variables['name'] = $first_name[0]['value'] . ' ' . $last_name[0]['value'];
+      
+      $first_name_value = !empty($first_name) && isset($first_name[0]['value']) ? $first_name[0]['value'] : '';
+      $last_name_value = !empty($last_name) && isset($last_name[0]['value']) ? $last_name[0]['value'] : '';
+      $variables['name'] = trim($first_name_value . ' ' . $last_name_value);
 
-      \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $email[0]['value'], $variables);
+      if (!empty($email) && isset($email[0]['value'])) {
+        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $email[0]['value'], $variables);
+      }
     }
 
   }

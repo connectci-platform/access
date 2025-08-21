@@ -62,15 +62,30 @@ class MentorshipPersonBlock extends BlockBase {
         }
         $userImage = '<img src="' . $userImage . '" />';
 
-        // Show access organization if set; otherwise, use institution field.
+        // Show access organization if set and not "Other"; otherwise, use institution field.
         $orgArray = $user->get('field_access_organization')->getValue();
+        $institution = '';
+        
         if (!empty($orgArray) && !empty($orgArray[0])) {
           $nodeId = $orgArray[0]['target_id'];
           if (!empty($nodeId)) {
             $orgNode = \Drupal::entityTypeManager()->getStorage('node')->load($nodeId);
+            if ($orgNode) {
+              $orgTitle = $orgNode->getTitle();
+              // If organization is "Other", use the institution field instead
+              if ($orgTitle === 'Other') {
+                $institution = $user->get('field_institution')->value;
+              } else {
+                $institution = $orgTitle;
+              }
+            }
           }
         }
-        $institution = isset($orgNode) ? $orgNode->getTitle() : $user->get('field_institution')->value;
+        
+        // Fallback to institution field if no organization or if organization loading failed
+        if (empty($institution)) {
+          $institution = $user->get('field_institution')->value;
+        }
         $userName = $user->getDisplayName();
         $userUrl = "/community-persona/$personId";
 
