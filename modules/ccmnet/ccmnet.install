@@ -123,3 +123,17 @@ function ccmnet_update_10004() {
   }
 }
 
+/**
+ * Rebuild mentorship engagement search index to ensure proper display.
+ */
+function ccmnet_update_10005() {
+  $index_storage = \Drupal::entityTypeManager()->getStorage('search_api_index');
+  $index = $index_storage->load('mentorship_engagement');
+  
+  if ($index) {
+    $index->clear();
+    $index->indexItems();
+    \Drupal::logger('ccmnet')->info('Rebuilt mentorship engagement search index.');
+  }
+}
+
