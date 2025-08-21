@@ -669,6 +669,7 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
       ->condition('field_published_date.value', $fromDate, '>=')
       ->condition('field_published_date.value', $toDate, '<=')
       ->condition('type', 'access_news')
+      ->condition('field_domain_source', 'amp_cyberinfrastructure_org')
       ->accessCheck(FALSE)
       ->execute();
 
@@ -744,6 +745,7 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
       ->condition('status', 1)
       ->condition('date.value', $fromDate, '>=')
       ->condition('date.value', $toDate, '<')
+      ->condition('domain_access', 'amp_cyberinfrastructure_org')
       ->sort('date.value', 'ASC')
       ->accessCheck(TRUE)
       ->execute();
