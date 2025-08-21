@@ -12,7 +12,6 @@ use Drupal\Core\Menu\MenuTreeParameters;
  */
 function access_page_attachments(array &$attachments) {
   $token = \Drupal::token();
-  $test = $new_var;
   $domain_name = Html::getClass($token->replace(t('[domain:name]')));
 
   if ($domain_name == "access-support") {
