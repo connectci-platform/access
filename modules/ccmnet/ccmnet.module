@@ -13,6 +13,7 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\views\ViewExecutable;
 use Drupal\Core\Url;
 use Drupal\user\Entity\User;
+use Drupal\access_misc\Plugin\Util\SiteTools;
 
 /**
  * Implements hook_views_pre_render().
@@ -393,7 +394,7 @@ function ccmnet_add_program_form_submit(array &$form, FormStateInterface $form_s
 */
 function ccmnet_set_domain_submit($form, &$form_state) {
   $env = getenv('PANTHEON_ENVIRONMENT');
-  $cc = 'campuschampions_cyberinfrastructure_org';
+  $cc = SiteTools::DOMAIN_CAMPUS_CHAMPIONS;
   $mentor_program = $form_state->getValue('field_mentorship_program');
   $domain_access = $form_state->getValue('field_domain_access');
 
@@ -436,7 +437,7 @@ function ccmnet_set_domain_submit($form, &$form_state) {
   }
 
   if ($env == 'live') {
-    $form_state->setValue('field_domain_source', [['target_id' => 'ccmnet_org']]);
+    $form_state->setValue('field_domain_source', [['target_id' => SiteTools::DOMAIN_CCMNET]]);
   }
 }
 

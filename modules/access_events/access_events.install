@@ -7,6 +7,7 @@
 
 use Drupal\Core\Database\Database;
 use Drupal\search_api\Entity\Index;
+use Drupal\access_misc\Plugin\Util\SiteTools;
 
 /**
  * Set domain access for Event Series content items.
@@ -21,10 +22,6 @@ function access_events_update_10001() {
     477, // Open OnDemand Office Hours
     252, // Open OnDemand Tips and Tricks Call
   ];
-
-  // Define domain IDs
-  $access_support_domain = 'amp_cyberinfrastructure_org';
-  $openondemand_domain = 'openondemand_cyberinfrastructure_org';
 
   // Get all event series IDs
   $event_series_ids = $database->query("SELECT id FROM eventseries")->fetchCol();
@@ -60,10 +57,10 @@ function access_events_update_10001() {
 
       if (in_array($series_id, $openondemand_series)) {
         // OnDemand series get both domains
-        $domains_to_set = [$access_support_domain, $openondemand_domain];
+        $domains_to_set = [SiteTools::DOMAIN_ACCESS_SUPPORT, SiteTools::DOMAIN_OPENONDEMAND];
       } else {
         // All other series get ACCESS Support domain
-        $domains_to_set = [$access_support_domain];
+        $domains_to_set = [SiteTools::DOMAIN_ACCESS_SUPPORT];
       }
 
       // Insert domain access records for each domain
@@ -119,10 +116,6 @@ function access_events_update_10002() {
     252, // Open OnDemand Tips and Tricks Call
   ];
 
-  // Define domain IDs
-  $access_support_domain = 'amp_cyberinfrastructure_org';
-  $openondemand_domain = 'openondemand_cyberinfrastructure_org';
-
   // Get all event instances with their series IDs
   $event_instances = $database->query("
     SELECT ei.id, ei.vid, efd.eventseries_id
@@ -163,11 +156,11 @@ function access_events_update_10002() {
 
       if (in_array($series_id, $openondemand_series)) {
         // OnDemand series instances get both domains
-        $domains_to_set = [$access_support_domain, $openondemand_domain];
+        $domains_to_set = [SiteTools::DOMAIN_ACCESS_SUPPORT, SiteTools::DOMAIN_OPENONDEMAND];
         $ondemand_instances++;
       } else {
         // All other series instances get ACCESS Support domain
-        $domains_to_set = [$access_support_domain];
+        $domains_to_set = [SiteTools::DOMAIN_ACCESS_SUPPORT];
       }
 
       // Insert domain access records for each domain

@@ -11,6 +11,7 @@ use Drupal\path_alias\Entity\PathAlias;
 use Drupal\redirect\Entity\Redirect;
 use Drupal\webform\Entity\Webform;
 use Drupal\webform\Entity\WebformSubmission;
+use Drupal\access_misc\Plugin\Util\SiteTools;
 
 /**
  * Update Resource webform submissions.
@@ -1489,7 +1490,7 @@ function access_misc_update_10016() {
   $connection = \Drupal::database();
   $query = $connection->select('node__field_domain_access', 'nfa');
   $query->fields('nfa', ['entity_id']);
-  $query->condition('nfa.field_domain_access_target_id', 'amp_cyberinfrastructure_org');
+  $query->condition('nfa.field_domain_access_target_id', SiteTools::DOMAIN_ACCESS_SUPPORT);
   $result = $query->execute()->fetchCol();
   foreach ($result as $row) {
     $connection->delete('node__field_domain_access')
@@ -1530,7 +1531,7 @@ function access_misc_update_10017() {
         'revision_id' => $revision_id,
         'langcode' => 'en',
         'delta' => 0,
-        'field_domain_access_target_id' => 'amp_cyberinfrastructure_org',
+        'field_domain_access_target_id' => SiteTools::DOMAIN_ACCESS_SUPPORT,
       ])
       ->execute();
   }
@@ -1548,7 +1549,7 @@ function access_misc_update_10017() {
         'revision_id' => $revision_id,
         'langcode' => 'en',
         'delta' => 0,
-        'field_domain_access_target_id' => 'amp_cyberinfrastructure_org',
+        'field_domain_access_target_id' => SiteTools::DOMAIN_ACCESS_SUPPORT,
       ])
       ->execute();
   }
@@ -1599,7 +1600,7 @@ function access_misc_update_10020() {
         'revision_id' => $revision_id,
         'langcode' => 'en',
         'delta' => 0,
-        'field_domain_access_target_id' => 'amp_cyberinfrastructure_org',
+        'field_domain_access_target_id' => SiteTools::DOMAIN_ACCESS_SUPPORT,
       ])
       ->execute();
   }
