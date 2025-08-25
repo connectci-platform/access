@@ -7,9 +7,10 @@ import {
   footer,
   footerMenus,
   header,
+  qaBot,
   siteMenus,
   universalMenus,
-} from "https://unpkg.com/@access-ci/ui@0.9.0/dist/access-ci-ui.js";
+} from "https://unpkg.com/@access-ci/ui@0.10.0/dist/access-ci-ui.js";
 
 (function (Drupal, drupalSettings) {
 
@@ -108,8 +109,8 @@ async function setMenu(menu, currentUri) {
 
   // Initialize floating qa-bot if target exists (using npm version)
   const floatingTarget = document.getElementById("qa-bot");
-  if (floatingTarget && !floatingTarget.hasAttribute('data-initialized') && window.qaBot) {
-    window.qaBot({
+  if (floatingTarget && !floatingTarget.hasAttribute('data-initialized')) {
+    qaBot({
       target: floatingTarget,
       apiKey: apiKey,
       isLoggedIn: isLoggedIn,
@@ -123,8 +124,8 @@ async function setMenu(menu, currentUri) {
 
   // Initialize embedded qa-bot if target exists (using npm version)
   const embeddedTarget = document.querySelector(".embedded-qa-bot");
-  if (embeddedTarget && !embeddedTarget.hasAttribute('data-initialized') && window.qaBot) {
-    window.qaBot({
+  if (embeddedTarget && !embeddedTarget.hasAttribute('data-initialized')) {
+    qaBot({
       target: embeddedTarget,
       embedded: true,
       apiKey: apiKey,
