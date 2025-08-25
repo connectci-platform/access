@@ -118,6 +118,26 @@ function ccmnet_entity_update(EntityInterface $entity) {
 }
 
 /**
+ * Implements hook_entity_field_access().
+ */
+function ccmnet_entity_field_access($operation, \Drupal\Core\Field\FieldDefinitionInterface $field_definition, \Drupal\Core\Session\AccountInterface $account, \Drupal\Core\Field\FieldItemListInterface $items = NULL) {
+  // Restrict access to field_admin_notes on mentorship_engagement nodes
+  if ($field_definition->getName() == 'field_admin_notes' && $field_definition->getTargetEntityTypeId() == 'node') {
+    if ($items && $items->getEntity() && $items->getEntity()->bundle() == 'mentorship_engagement') {
+      $allowed_roles = ['administrator', 'ccmnet_pm', 'champions_mentorship_admin'];
+      $user_roles = $account->getRoles();
+      $has_access = !empty(array_intersect($allowed_roles, $user_roles));
+      
+      if (!$has_access) {
+        return \Drupal\Core\Access\AccessResult::forbidden()->addCacheContexts(['user.roles']);
+      }
+    }
+  }
+  
+  return \Drupal\Core\Access\AccessResult::neutral();
+}
+
+/**
  * Implements hook_form_alter().
  */
 function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
