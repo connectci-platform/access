@@ -18,6 +18,7 @@ use Drupal\Core\Url;
 use Drupal\user\Entity\User;
 use Drupal\views\ViewExecutable;
 use Symfony\Component\HttpFoundation\RedirectResponse;
+use Drupal\access_misc\Plugin\Util\SiteTools;
 
 /**
  * Implements hook_views_pre_render().
@@ -72,10 +73,10 @@ function access_match_engagement_block_build_views_block_alter(array &$build, Bl
 function access_match_engagement_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   if ($form_id == 'node_match_engagement_edit_form' || $form_id == 'node_match_engagement_form') {
     // Only allow MATCH Engagement creation on the ACCESS domain.
-    $domainNegotiator = \Drupal::service('domain.negotiator');
-    $activeDomain = $domainNegotiator->getActiveDomain();
+    $siteTools = \Drupal::service('access_misc.sitetools');
+    $currentDomainId = $siteTools->getDomainId();
 
-    if (!$activeDomain || $activeDomain->id() != 'amp_cyberinfrastructure_org') {
+    if (!$currentDomainId || $currentDomainId != SiteTools::DOMAIN_ACCESS_SUPPORT) {
       \Drupal::messenger()->addError(t('MATCH Engagements can only be created on the ACCESS Support domain.'));
       $response = new RedirectResponse('/access-denied');
       $response->send();

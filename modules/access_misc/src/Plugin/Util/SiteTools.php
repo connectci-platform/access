@@ -12,6 +12,16 @@ use Drupal\Core\Utility\Token;
 class SiteTools {
 
   /**
+   * Domain ID constants for consistent reference across modules.
+   */
+  const DOMAIN_ACCESS_SUPPORT = 'amp_cyberinfrastructure_org';
+  const DOMAIN_CAMPUS_CHAMPIONS = 'campuschampions_cyberinfrastructure_org';
+  const DOMAIN_CCMNET = 'ccmnet_org';
+  const DOMAIN_COCO = 'coco_cyberinfrastructure_org';
+  const DOMAIN_OPENONDEMAND = 'openondemand_cyberinfrastructure_org';
+  const DOMAIN_CURRENT = 'current'; // Special value to use current domain
+
+  /**
    * Run Entity Query.
    *
    * @var \Drupal\Core\Entity\EntityTypeManagerInterface
