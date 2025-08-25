@@ -43,11 +43,16 @@ class MatchController extends ControllerBase {
         }
         if ($node->getType() == 'mentorship_engagement') {
           $interested_list = \Drupal::state()->get('access_mentorship_interested');
-          $create_list = new \stdClass();
-          if ($interested_list != 0) {
-            $create_list = json_decode($interested_list);
+          $create_list = [];
+          if (!empty($interested_list) && $interested_list !== '0') {
+            $decoded = json_decode($interested_list, TRUE);
+            if ($decoded !== null && is_array($decoded)) {
+              $create_list = $decoded;
+            }
           }
-          $create_list->$nid = $nid;
+          if (!in_array($nid, $create_list)) {
+            $create_list[] = $nid;
+          }
           $interested_list = json_encode($create_list);
           \Drupal::state()->set('access_mentorship_interested', $interested_list);
         }

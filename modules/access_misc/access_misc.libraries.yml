@@ -6,6 +6,11 @@ people_directory:
   version: 1.x
   js:
     js/people-directory.js: {}
+collapsiblock_mobile:
+  version: 1.x
+  css:
+    theme:
+      css/collapsiblock.css: {}
 people_menu:
   version: 1.x
   js:

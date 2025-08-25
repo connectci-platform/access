@@ -120,6 +120,16 @@ function access_misc_views_pre_render(ViewExecutable $view) {
   if ($view->id() == 'cyberteam_people_facets') {
     $view->element['#attached']['library'][] = 'access_misc/people_directory';
   }
+  if ($view->id() == 'affinity_group_search' ||
+    $view->id() == 'search_ci_links' ||
+    $view->id() == 'events_facet' ||
+    $view->id() == 'cyberteam_people_facets' ||
+    $view->id() == 'cssn_directory' ||
+    $view->id() == 'mentorship_facet_search' ||
+    $view->id() == 'ccmnet_members' ||
+    $view->id() == 'events_facet') {
+    $view->element['#attached']['library'][] = 'access_misc/collapsiblock_mobile';
+  }
 }
 
 /**
@@ -220,11 +230,28 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
     $view->display_handler->setOption('filters', $view_filters);
   }
 
+  if ($view->id() == 'affinity_group_entity_reference' && $display_id === 'entity_reference_1') {
+    $view_filters = $view->display_handler->getOption('filters');
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    $view_filters['field_domain_access_target_id']['value'] = [];
+    $view_filters['field_domain_access_target_id']['value'][$domain] = $domain;
+    $view->display_handler->setOption('filters', $view_filters);
+  }
+
   if ($view->id() == 'affinity_groups_with_tag' && $display_id === 'block_2') {
     $term = term_lookup_from_path();
     if (!empty($term['tid'])) {
       $footer = \Drupal::service('access_misc.viewstools');
       $footer->setFooter($view, 'All Affinity Groups with this tag', '/tags/' . $term['tid'] . '/affinity-groups', 'block_2');
+    }
+  }
+
+  if ($view->id() == 'mentorship_status' && $display_id === 'block_1') {
+    $term = term_lookup_from_path();
+    if (!empty($term['tid'])) {
+      $footer = \Drupal::service('access_misc.viewstools');
+      $footer->setFooter($view, 'All Mentorships with this tag', 'https://ccmnet.org/mentorships?f[0]=me_tags%3A' . $term['tid'], 'block_1');
     }
   }
 
@@ -457,6 +484,17 @@ function access_misc_datalayer_alter(&$data_layer) {
  * Implements hook_form_alter().
  */
 function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  if ($form_id == 'views_exposed_form' && array_key_exists('filter-search_api_fulltext', $form['#info'])) {
+    if ($form['#info']['filter-search_api_fulltext']['value'] == 'search_api_fulltext') {
+      $form['#suffix'] = '<h2 class="md--hidden d-block d-lg-none">' . t('Filters') . '</h2>';
+    }
+  }
+  
+  $domain = \Drupal::service('access_misc.sitetools')->getDomain();
+
+  if ($domain != 'access-support' && ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form')) {
+    $form['field_affiliation']['#access'] = FALSE;
+  }
 
   if ($form_id == 'user_login_form') {
     $form['#title'] = t('Join or Login');

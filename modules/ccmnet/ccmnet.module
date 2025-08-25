@@ -13,6 +13,7 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\views\ViewExecutable;
 use Drupal\Core\Url;
 use Drupal\user\Entity\User;
+use Drupal\access_misc\Plugin\Util\SiteTools;
 
 /**
  * Implements hook_views_pre_render().
@@ -24,6 +25,26 @@ function ccmnet_views_pre_render(ViewExecutable $view) {
   $display = $view->getDisplay();
   if ($view->id() == 'mentorship_facet_search' && $display->display['id'] == 'block_1') {
     $view->element['#attached']['library'][] = 'ccmnet/mentorship_front_more';
+  }
+}
+
+/**
+ * Implements hook_views_pre_view() for node templates.
+ */
+function ccmnet_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
+  if ($view->id() == 'mentorship_status' && $display_id === 'block_1') {
+    $view_filters = $view->display_handler->getOption('filters');
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    $view_filters['field_domain_access_target_id']['value'] = [];
+    $view_filters['field_domain_access_target_id']['value'] = [$domain => $domain];
+    $view->display_handler->setOption('filters', $view_filters);
+  }
+  if ($view->id() == 'mentorship_facet_search' && $display_id === 'block_1') {
+    $view_filters = $view->display_handler->getOption('filters');
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+    $view_filters['field_domain_access']['value']['value'] = $domain;
+    $view->display_handler->setOption('filters', $view_filters);
   }
 }
 
@@ -101,6 +122,26 @@ function ccmnet_entity_update(EntityInterface $entity) {
       _ccmnet_send_new_user_notification($entity);
     }
   }
+}
+
+/**
+ * Implements hook_entity_field_access().
+ */
+function ccmnet_entity_field_access($operation, \Drupal\Core\Field\FieldDefinitionInterface $field_definition, \Drupal\Core\Session\AccountInterface $account, \Drupal\Core\Field\FieldItemListInterface $items = NULL) {
+  // Restrict access to field_admin_notes on mentorship_engagement nodes
+  if ($field_definition->getName() == 'field_admin_notes' && $field_definition->getTargetEntityTypeId() == 'node') {
+    if ($items && $items->getEntity() && $items->getEntity()->bundle() == 'mentorship_engagement') {
+      $allowed_roles = ['administrator', 'ccmnet_pm', 'champions_mentorship_admin'];
+      $user_roles = $account->getRoles();
+      $has_access = !empty(array_intersect($allowed_roles, $user_roles));
+      
+      if (!$has_access) {
+        return \Drupal\Core\Access\AccessResult::forbidden()->addCacheContexts(['user.roles']);
+      }
+    }
+  }
+  
+  return \Drupal\Core\Access\AccessResult::neutral();
 }
 
 /**
@@ -248,6 +289,7 @@ function ccmnet_form_alter(&$form, FormStateInterface $form_state, $form_id) {
       \Drupal::messenger()->addWarning(t('You must be on the CCMNet domain to create a mentorship engagement.'));
       $form['#access'] = FALSE;
     }
+    array_unshift($form['actions']['submit']['#submit'], 'ccmnet_set_domain_submit');
   } else if ($form_id == 'user_register_form' || $form_id == 'user_form') {
     // For forms on ccmnet domain only:
     // Hide region field for both user registration and user edit.
@@ -365,6 +407,60 @@ function ccmnet_add_program_form_submit(array &$form, FormStateInterface $form_s
   $term = reset($term);
   $form_state->setValue('field_region', [['target_id' => $term->id()]]);
 }
+
+/*
+* Submit handler from hook form_alter for node_mentorship_engagement_form.
+* Set domain.
+*/
+function ccmnet_set_domain_submit($form, &$form_state) {
+  $env = getenv('PANTHEON_ENVIRONMENT');
+  $cc = SiteTools::DOMAIN_CAMPUS_CHAMPIONS;
+  $mentor_program = $form_state->getValue('field_mentorship_program');
+  $domain_access = $form_state->getValue('field_domain_access');
+
+  $set_cc = TRUE;
+  foreach ($domain_access as $key => $value) {
+    if ($value['target_id'] == $cc) {
+      $set_cc = FALSE;
+      break;
+    }
+  }
+
+  if ($mentor_program) {
+    // Add campuschampions_cyberinfrastructure_org to domain access when CC Ai mentorship program is selected.
+    if ($mentor_program[0]['target_id'] == 910) {
+      if ($set_cc) {
+        $domain_access[] = ['target_id' => $cc];
+        $form_state->setValue('field_domain_access', $domain_access);
+      }
+    }
+    // Remove campuschampions_cyberinfrastructure_org from domain access when no program is selected.
+    if ($mentor_program[0]['target_id'] == NULL) {
+      $da = $form_state->getValue('field_domain_access');
+      foreach ($da as $key => $value) {
+        if ($value['target_id'] == $cc) {
+          unset($da[$key]);
+        }
+      }
+      $form_state->setValue('field_domain_access', $da);
+    }
+  }
+  elseif (!$set_cc) {
+    // Remove campuschampions_cyberinfrastructure_org from domain access when n/a program is selected.
+    $da = $form_state->getValue('field_domain_access');
+    foreach ($da as $key => $value) {
+      if ($value['target_id'] == $cc) {
+        unset($da[$key]);
+      }
+    }
+    $form_state->setValue('field_domain_access', $da);
+  }
+
+  if ($env == 'live') {
+    $form_state->setValue('field_domain_source', [['target_id' => SiteTools::DOMAIN_CCMNET]]);
+  }
+}
+
 /*
 * Submit handler from hook form_alter for user_register_form.
 * Add new user to CCMNet Mentors affinity group.
@@ -467,6 +563,7 @@ function ccmnet_node_insert(\Drupal\Core\Entity\EntityInterface $entity) {
   if ($entity->bundle() == 'mentorship_engagement') {
     $options = ['absolute' => TRUE];
     $nid = $entity->id();
+    $program = $entity->get('field_mentorship_program')->getValue();
     $policy = 'ccmnet';
     $here = Url::fromRoute('entity.node.canonical', ['node' => $nid], $options);
     $link = $here->toString(TRUE)->getGeneratedUrl();
@@ -491,6 +588,13 @@ function ccmnet_node_insert(\Drupal\Core\Entity\EntityInterface $entity) {
     // Send email to CCMNet admin.
     // mentorship_created_admin
     $role = $env == 'live' ? 'ccmnet_admin' : 'site_developer';
+
+    if ($program) {
+      if ($program[0]['target_id'] == 910 && $env == 'live') {
+        $role = 'champions_mentorship_admin';
+      }
+    }
+
     $ccmnet_admin_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
     $policy_subtype = 'mentorship_created_admin';
 
@@ -525,7 +629,16 @@ function _ccmnet_user_has_ccmnet_region(\Drupal\Core\Entity\EntityInterface $use
 function _ccmnet_send_new_user_notification(\Drupal\Core\Entity\EntityInterface $entity) {
   $policy = 'ccmnet';
   $env = getenv('PANTHEON_ENVIRONMENT');
+
+  // Get the current domain to determine which role to use
+  $domain = \Drupal::service('domain.negotiator')->getActiveDomain()->id();
+
   $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
+
+  if ($domain == 'campuschampions_cyberinfrastructure_org') {
+    $role = $env == 'live' ? 'champions_mentorship_admin' : 'site_developer';
+  }
+
   $ccmnet_emails = \Drupal::service('access_misc.usertools')
     ->getEmails([$role], []);
   $uid = $entity->id();
@@ -553,6 +666,7 @@ function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
     // Give badge to mentor or Mentee.
     $mentor = $entity->get('field_mentor')->getValue();
     $mentee = $entity->get('field_mentee')->getValue();
+    $program = $entity->get('field_mentorship_program')->getValue();
 
     $badge_tools = \Drupal::service('access_badges.badgeTools');
 
@@ -594,6 +708,13 @@ function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
     // If state is changed to 'Approved', send email to ccmnet pm.
     if ($approved_state == 1 && $prev_approved_state != $approved_state) {
       $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
+
+      if ($program) {
+        if ($program[0]['target_id'] == 910 && $env == 'live') {
+          $role = 'champions_mentorship_admin';
+        }
+      }
+
       $ccmnet_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
       $policy_subtype = 'mentorship_approved_ccmnet_pm';
       $variables = [
@@ -606,7 +727,7 @@ function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
 
     // If mentor is added or changed, send email to new mentor and liaison.
     if ($field_looking[0]['value'] == 'mentor') {
-      $policy_subtype = 'mentee_changed';
+      $policy_subtype = 'mentor_changed';
       $mentor = $entity->get('field_mentor')->getValue();
       $mentor_update = 0;
       $og_mentor = [];
@@ -691,6 +812,12 @@ function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
 
       $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
 
+      if ($program) {
+        if ($program[0]['target_id'] == 910 && $env == 'live') {
+          $role = 'champions_mentorship_admin';
+        }
+      }
+
       // Get list of unique emails.
       $progress_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], [$liaison_email]);
       $variables = [
@@ -767,9 +894,12 @@ function ccmnet_node_view(array &$build, EntityInterface $entity, EntityViewDisp
  */
 function ccmnet_cron() {
   $env = getenv('PANTHEON_ENVIRONMENT');
-  if ($env == 'live') {
-    // Send interested email between 1:00 am and 1:59 am.
-    if (date('G', time()) == 01) {
+  $cypress_test = getenv('CYPRESS_TEST_MODE');
+
+  // Allow testing mode to bypass environment and time restrictions
+  if ($env == 'live' || $cypress_test == 'true') {
+    // Send interested email between 1:00 am and 1:59 am (or anytime in test mode).
+    if (date('G', time()) == 01 || $cypress_test == 'true') {
       $interested_status = \Drupal::state()->get('access_mentorship_interested');
       $interested_list = json_decode($interested_status, TRUE);
       if (empty($interested_list) || !is_array($interested_list)) {
@@ -778,7 +908,8 @@ function ccmnet_cron() {
       }
       $policy = 'ccmnet';
       $policy_subtype = 'cron_author_update';
-      $interested_links = '<ul>';
+      $interested_links['ccmnet'] = '<ul>';
+      $interested_links['cc'] = '<ul>';
       // Send email to each author
       foreach ($interested_list as $interested_nid) {
         $node = \Drupal::entityTypeManager()->getStorage('node')->load($interested_nid);
@@ -792,7 +923,13 @@ function ccmnet_cron() {
         $here = Url::fromRoute('entity.node.canonical', ['node' => $interested_nid], $options);
         $link = 'https://ccmnet.org' . $here->toString(TRUE)->getGeneratedUrl();
         $node_title = $node->getTitle();
-        $interested_links .= '<li><a href="' . $link . '">' . $node_title . '</a></li>';
+        $mentorship_program = $node->get('field_mentorship_program')->getString();
+        if ($mentorship_program == 910) {
+          $interested_links['cc'] .= '<li><a href="' . $link . '">' . $node_title . '</a></li>';
+        }
+        else {
+          $interested_links['ccmnet'] .= '<li><a href="' . $link . '">' . $node_title . '</a></li>';
+        }
         $title = t('click here');
 
         $variables = [
@@ -803,17 +940,31 @@ function ccmnet_cron() {
         \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $author, $variables);
         \Drupal::logger('ccmnet')->info('Sent interested email to @user for node @nid', ['@user' => $author, '@nid' => $interested_nid]);
       }
-      $interested_links .= '</ul>';
+      $interested_links['cc'] .= '</ul>';
+      $interested_links['ccmnet'] .= '</ul>';
       // 2nd email: send collection of request links to all with ccmnet_pm role
-      $role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
+
       $policy_subtype = 'cron_role_update';
 
-      $ccmnet_admin_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-      $variables = [
-        'extra' => $interested_links,
-      ];
-      \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $ccmnet_admin_emails, $variables);
-      \Drupal::logger('ccmnet')->info('Sent interested summary email to @role', ['@role' => $role]);
+      if ($interested_links['cc'] != '<ul></ul>') {
+        $cc_role = $env == 'live' ? 'champions_mentorship_admin' : 'site_developer';
+        $cc_admin_emails = \Drupal::service('access_misc.usertools')->getEmails([$cc_role], []);
+        $cc_variables = [
+          'extra' => $interested_links['cc'],
+        ];
+        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $cc_admin_emails, $cc_variables);
+        \Drupal::logger('ccmnet')->info('Sent interested summary email to @role', ['@role' => $cc_role]);
+      }
+      if ($interested_links['ccmnet'] != '<ul></ul>') {
+        $ccmnet_role = $env == 'live' ? 'ccmnet_pm' : 'site_developer';
+        $ccmnet_admin_emails = \Drupal::service('access_misc.usertools')->getEmails([$ccmnet_role], []);
+        $variables = [
+          'extra' => $interested_links['ccmnet'],
+        ];
+        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $ccmnet_admin_emails, $variables);
+        \Drupal::logger('ccmnet')->info('Sent interested summary email to @role', ['@role' => $ccmnet_role]);
+      }
+
       \Drupal::state()->set('access_mentorship_interested', 0);
     }
   }

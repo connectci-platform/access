@@ -14,15 +14,48 @@ use Drupal\datetime\Plugin\Field\FieldType\DateTimeItemInterface;
 use Drupal\node\Entity\Node;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\user\Entity\User;
+use Drupal\views\ViewExecutable;
+use Drupal\access_misc\Plugin\Util\SiteTools;
 
 define('ACCESS_SUPPPORT_URL', "https://support.access-ci.org");
+
+/**
+ * Implements hook_views_pre_view() for node templates.
+ */
+function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
+  // Only process access_news view
+  if ($view->id() != 'access_news') {
+    return;
+  }
+  
+  $current_display = $view->getDisplay()->view->element['#display_id'];
+  
+  // Define which displays need domain filtering
+  $domain_filtered_displays = [
+    'block_1' => SiteTools::DOMAIN_CURRENT,
+    'latest_news_block' => SiteTools::DOMAIN_CURRENT,
+    'mrollup_list_block' => SiteTools::DOMAIN_ACCESS_SUPPORT,
+  ];
+  
+  // Apply domain filtering if this display is in our list
+  if (isset($domain_filtered_displays[$current_display])) {
+    $view_filters = $view->display_handler->getOption('filters');
+    
+    // Determine which domain to use
+    $domain = ($domain_filtered_displays[$current_display] === SiteTools::DOMAIN_CURRENT)
+      ? \Drupal::service('access_misc.sitetools')->getDomainId()
+      : $domain_filtered_displays[$current_display];
+    
+    $view_filters['field_domain_access_target_id']['value'] = [$domain => $domain];
+    $view->display_handler->setOption('filters', $view_filters);
+  }
+}
 
 /**
  * Implements hook_form_alter().
  */
 function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id) {
-  // For now, only announcements have AI suggested tags.
-  // todo: implement for events.
+  // Suggest tags for announcements.
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form') {
     $form['field_tags_replace'] = [
       '#type' => 'container',
@@ -92,6 +125,37 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
   // Both announcements and events use the custom validation function.
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form' || $form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
     $form['#validate'][] = 'access_news_validate';
+  }
+
+  if ($form['#id'] == 'views-exposed-form-access-news-block-1') {
+    $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    $entity_query = \Drupal::entityQuery('node')
+      ->condition('type', 'affinity_group')
+      ->condition('field_domain_access', $domain)
+      ->condition('status', 1)
+      ->accessCheck(FALSE);
+    $ag_ids = $entity_query->execute();
+
+    $ag_list = [];
+    $nodes = \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($ag_ids);
+    foreach ($nodes as $ag_id => $node) {
+      $title = $node->getTitle();
+
+      if ($node !== NULL) {
+        $title = $node->getTitle();
+        $ag_list[$ag_id] = $title;
+      }
+    }
+
+    asort($ag_list);
+    $ag_list = ['' => t('All Affinity Groups')] + $ag_list;
+
+    $form['field_affinity_group_node_target_id'] = [
+      '#type' => 'select',
+      '#options' => $ag_list,
+      '#default_value' => '',
+    ];
   }
 }
 
@@ -618,6 +682,7 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
       ->condition('field_published_date.value', $fromDate, '>=')
       ->condition('field_published_date.value', $toDate, '<=')
       ->condition('type', 'access_news')
+      ->condition('field_domain_source', SiteTools::DOMAIN_ACCESS_SUPPORT)
       ->accessCheck(FALSE)
       ->execute();
 
@@ -693,6 +758,7 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
       ->condition('status', 1)
       ->condition('date.value', $fromDate, '>=')
       ->condition('date.value', $toDate, '<')
+      ->condition('domain_access', SiteTools::DOMAIN_ACCESS_SUPPORT)
       ->sort('date.value', 'ASC')
       ->accessCheck(TRUE)
       ->execute();
