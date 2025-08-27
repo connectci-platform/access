@@ -528,6 +528,60 @@ function access_events_user_delete_submit($form, FormStateInterface $form_state)
 }
 
 /**
+ * Implements hook_views_pre_build().
+ * Handle timezone parameter for API endpoints.
+ */
+function access_events_views_pre_build(ViewExecutable $view) {
+  // Handle timezone parameter for Events API v2.1
+  if ($view->id() == 'events_facet' && ($view->current_display == 'data_export_1' || $view->current_display == 'data_export_2')) {
+    $request = \Drupal::request();
+    $timezone = $request->query->get('timezone', 'UTC');
+    
+    // Validate timezone
+    $valid_timezones = timezone_identifiers_list();
+    if (!in_array($timezone, $valid_timezones)) {
+      $timezone = 'UTC';
+    }
+    
+    // Store timezone in view for use in date calculations
+    $view->timezone = $timezone;
+    
+    // Process exposed filters from URL parameters with timezone
+    $exposed_input = $view->getExposedInput();
+    $updated_input = [];
+    
+    foreach ($exposed_input as $key => $value) {
+      if (in_array($key, ['beginning_date_relative', 'end_date_relative']) && !empty($value)) {
+        // Calculate the actual date based on timezone
+        $date = new \DateTime('now', new \DateTimeZone($timezone));
+        
+        // Apply relative offset
+        if ($value == 'today') {
+          $date->setTime(0, 0, 0);
+        } elseif (strpos($value, '+') === 0 || strpos($value, '-') === 0) {
+          $date->modify($value);
+        }
+        
+        // Convert to UTC for database query
+        $date->setTimezone(new \DateTimeZone('UTC'));
+        
+        // Convert to absolute date
+        $absolute_key = str_replace('_relative', '', $key);
+        $updated_input[$absolute_key] = $date->format('Y-m-d H:i:s');
+        // Remove the relative parameter
+        unset($updated_input[$key]);
+      } else {
+        $updated_input[$key] = $value;
+      }
+    }
+    
+    if (!empty($updated_input)) {
+      $view->setExposedInput($updated_input);
+    }
+  }
+}
+
+/**
  * Implements hook_pre_view() for node templates.
  */
 function access_events_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
