@@ -736,7 +736,7 @@ function access_events_preprocess_views_view_field(&$variables) {
   }
 
   // Display event instance date in the right format.
-  if ($view->id() == 'events_facet') {
+  if ($view->id() == 'events_facet' && $view->current_display != 'upcoming_webinars') {
     if ($field->field == 'date') {
       // Default separator between start and end dates is ' - '.
       $output = strip_tags($variables['output']);
@@ -749,6 +749,26 @@ function access_events_preprocess_views_view_field(&$variables) {
           $variables['output'] = Markup::create($date->getStartTime() . " - " . $date->getEndTime());
         } else {
           $variables['output'] = Markup::create($date->getStart() . " to " . $date->getEnd());
+        }
+      }
+    }
+  }
+
+  if ($view->id() == 'events_facet' && $view->current_display == 'upcoming_webinars') {
+    if ($field->field == 'date') {
+      // Default separator between start and end dates is ' - '.
+      $output = strip_tags($variables['output']);
+      $output = explode('::', $output);
+      if (count($output) == 2) {
+        $start_date = $output[0];
+        $end_date = $output[1];
+        $date = new EventDateConvert($start_date, $end_date);
+        $start_date = date('l n/j/Y', strtotime($start_date));
+
+        if ($date->sameDay ) {
+          $variables['output'] = Markup::create($start_date . " | " . $date->getStartTime() . " - " . $date->getEndTime());
+        } else {
+          $variables['output'] = Markup::create($start_date . " | " . $date->getStart() . " to " . $date->getEnd());
         }
       }
     }
