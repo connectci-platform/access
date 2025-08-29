@@ -25,6 +25,16 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['actions']['submit']['#submit'][] = 'access_events_user_delete_submit';
   }
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
+    // Get user role.
+    $current_user = \Drupal::currentUser();
+    $roles = $current_user->getRoles();
+
+    // If user is not administrator, hide the field 'domain_access'.
+    if (!in_array('administrator', $roles) && !in_array('match_pm', $roles)) {
+      unset($form['field_affiliation']['widget']['#options']['access_nairr_office_hours']);
+      unset($form['field_affiliation']['widget']['#options']['nairr_pilot_partner_series']);
+      unset($form['field_affiliation']['widget']['#options']['cu_rmacc_webinars']);
+    }
     $set_tz = $form['custom_date']['widget'][0]['value']['#date_timezone'];
     $suffix = '<div class="form-text">' . t('Your time zone is set to ') . "<strong>$set_tz</strong>. " . t('If your event is in a different time zone, calculate the time difference accordingly.') . '</div>';
 
@@ -536,35 +546,35 @@ function access_events_views_pre_build(ViewExecutable $view) {
   if ($view->id() == 'events_facet' && ($view->current_display == 'data_export_1' || $view->current_display == 'data_export_2')) {
     $request = \Drupal::request();
     $timezone = $request->query->get('timezone', 'UTC');
-    
+
     // Validate timezone
     $valid_timezones = timezone_identifiers_list();
     if (!in_array($timezone, $valid_timezones)) {
       $timezone = 'UTC';
     }
-    
+
     // Store timezone in view for use in date calculations
     $view->timezone = $timezone;
-    
+
     // Process exposed filters from URL parameters with timezone
     $exposed_input = $view->getExposedInput();
     $updated_input = [];
-    
+
     foreach ($exposed_input as $key => $value) {
       if (in_array($key, ['beginning_date_relative', 'end_date_relative']) && !empty($value)) {
         // Calculate the actual date based on timezone
         $date = new \DateTime('now', new \DateTimeZone($timezone));
-        
+
         // Apply relative offset
         if ($value == 'today') {
           $date->setTime(0, 0, 0);
         } elseif (strpos($value, '+') === 0 || strpos($value, '-') === 0) {
           $date->modify($value);
         }
-        
+
         // Convert to UTC for database query
         $date->setTimezone(new \DateTimeZone('UTC'));
-        
+
         // Convert to absolute date
         $absolute_key = str_replace('_relative', '', $key);
         $updated_input[$absolute_key] = $date->format('Y-m-d H:i:s');
@@ -574,7 +584,7 @@ function access_events_views_pre_build(ViewExecutable $view) {
         $updated_input[$key] = $value;
       }
     }
-    
+
     if (!empty($updated_input)) {
       $view->setExposedInput($updated_input);
     }
