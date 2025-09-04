@@ -127,6 +127,7 @@ function access_misc_views_pre_render(ViewExecutable $view) {
     $view->id() == 'cssn_directory' ||
     $view->id() == 'mentorship_facet_search' ||
     $view->id() == 'ccmnet_members' ||
+    $view->id() == 'campus_champions_members' ||
     $view->id() == 'events_facet') {
     $view->element['#attached']['library'][] = 'access_misc/collapsiblock_mobile';
   }
@@ -489,7 +490,7 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
       $form['#suffix'] = '<h2 class="md--hidden d-block d-lg-none">' . t('Filters') . '</h2>';
     }
   }
-  
+
   $domain = \Drupal::service('access_misc.sitetools')->getDomain();
 
   if ($domain != 'access-support' && ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form')) {
