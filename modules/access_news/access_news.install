@@ -23,13 +23,6 @@ function access_news_update_9001() {
 }
 
 /**
- * Rebuild and index the announcements search API index (post-update).
- */
-function access_news_post_update_rebuild_announcements_index() {
-  _access_news_index_announcements();
-}
-
-/**
  * Helper function to rebuild and index the announcements search API index.
  */
 function _access_news_index_announcements() {
@@ -39,10 +32,13 @@ function _access_news_index_announcements() {
       // Clear the index first to ensure clean rebuild
       $index->clear();
       
-      // Queue all items for indexing
-      $index->indexItems();
+      // Reindex all items (queues them)
+      $index->reindex();
       
-      \Drupal::logger('access_news')->info('Successfully rebuilt and indexed the announcements search API index.');
+      // Process the indexing queue immediately (don't wait for cron)
+      $indexed = $index->indexItems(-1); // -1 means index all queued items
+      
+      \Drupal::logger('access_news')->info('Successfully rebuilt and indexed @count announcements in search API.', ['@count' => $indexed]);
     } else {
       \Drupal::logger('access_news')->warning('Announcements search API index not found.');
     }
