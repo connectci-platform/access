@@ -23,6 +23,13 @@ function access_news_update_9001() {
 }
 
 /**
+ * Rebuild and index the announcements search API index (post-update).
+ */
+function access_news_post_update_rebuild_announcements_index() {
+  _access_news_index_announcements();
+}
+
+/**
  * Helper function to rebuild and index the announcements search API index.
  */
 function _access_news_index_announcements() {
