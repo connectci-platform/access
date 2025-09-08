@@ -5,8 +5,6 @@
  * Install, update and uninstall functions for the ACCESS News module.
  */
 
-use Drupal\search_api\Entity\Index;
-
 /**
  * Implements hook_install().
  */
@@ -18,7 +16,7 @@ function access_news_install() {
 /**
  * Rebuild and index the announcements search API index.
  */
-function access_news_update_9001() {
+function access_news_update_10000() {
   _access_news_index_announcements();
 }
 
@@ -27,7 +25,8 @@ function access_news_update_9001() {
  */
 function _access_news_index_announcements() {
   try {
-    $index = Index::load('announcements');
+    // Load the index using entity type manager (following Drupal patterns)
+    $index = \Drupal::entityTypeManager()->getStorage('search_api_index')->load('announcements');
     if ($index) {
       // Clear the index first to ensure clean rebuild
       $index->clear();
