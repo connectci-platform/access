@@ -27,25 +27,25 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
   if ($view->id() != 'access_news') {
     return;
   }
-  
+
   $current_display = $view->getDisplay()->view->element['#display_id'];
-  
+
   // Define which displays need domain filtering
   $domain_filtered_displays = [
     'block_1' => SiteTools::DOMAIN_CURRENT,
     'latest_news_block' => SiteTools::DOMAIN_CURRENT,
     'mrollup_list_block' => SiteTools::DOMAIN_ACCESS_SUPPORT,
   ];
-  
+
   // Apply domain filtering if this display is in our list
   if (isset($domain_filtered_displays[$current_display])) {
     $view_filters = $view->display_handler->getOption('filters');
-    
+
     // Determine which domain to use
     $domain = ($domain_filtered_displays[$current_display] === SiteTools::DOMAIN_CURRENT)
       ? \Drupal::service('access_misc.sitetools')->getDomainId()
       : $domain_filtered_displays[$current_display];
-    
+
     $view_filters['field_domain_access_target_id']['value'] = [$domain => $domain];
     $view->display_handler->setOption('filters', $view_filters);
   }
@@ -55,8 +55,24 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
  * Implements hook_form_alter().
  */
 function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+
+  $domain = \Drupal::service('access_misc.sitetools')->getDomain();
+
+  if ($domain != 'access-support' && ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form')) {
+    $form['field_affiliation']['#access'] = FALSE;
+    unset($form['field_choose_where_to_share_this']['widget']['#options']['in_the_access_support_bi_weekly_digest']);
+  }
+
   // Suggest tags for announcements.
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form') {
+    $el_title = t('External Link');
+    $form['field_news_external_link']['widget'][0]['#prefix'] = "<h4>$el_title</h4>";
+    $form['field_news_external_link']['widget'][0]['#title'] = "<span class='hidden'>$el_title</span>";
+
+    $aff_title = t('Affiliation');
+    $form['field_affiliation']['widget']['#prefix'] = "<h4>$aff_title</h4>";
+    $form['field_affiliation']['widget']['#title'] = "<span class='hidden'>$aff_title</span>";
+
     $form['field_tags_replace'] = [
       '#type' => 'container',
       '#attributes' => [
@@ -415,8 +431,15 @@ function access_news_entity_update(EntityInterface $node) {
 function affinityGroupBroadcast(EntityInterface $node, $newsType) {
 
   $getFields = $node->getFields();
-  $broadcastArray = $getFields['field_broadcast_affinity_groups']->getValue();
-  if (!count($broadcastArray)) {
+  $broadcastArray = $getFields['field_choose_where_to_share_this']->getValue();
+  $broadcast = 0;
+  foreach ($broadcastArray as $key => $value) {
+    if ($value['value'] == 'email_to_your_affinity_group') {
+      $broadcast = 1;
+      unset($broadcastArray[$key]);
+    }
+  }
+  if (!$broadcast) {
     return;
   }
   $broadcastToAGs = $broadcastArray[0]['value'];
@@ -506,7 +529,7 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
 
         // Now emailing the group; set option broadcast off. If user wants to email again after
         // and edit, they will need to check the box again.
-        $node->set('field_broadcast_affinity_groups', [0]);
+        $node->set('field_choose_where_to_share_this', $broadcastArray);
         $node->save();
 
         emailToAffinityGroups(
