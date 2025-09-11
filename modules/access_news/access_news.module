@@ -705,7 +705,8 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
       ->condition('field_published_date.value', $fromDate, '>=')
       ->condition('field_published_date.value', $toDate, '<=')
       ->condition('type', 'access_news')
-      ->condition('field_domain_source', SiteTools::DOMAIN_ACCESS_SUPPORT)
+      ->condition('field_domain_access', 'amp_cyberinfrastructure_org')
+      ->condition('field_choose_where_to_share_this', 'in_the_access_support_bi_weekly_digest')
       ->accessCheck(FALSE)
       ->execute();
 
