@@ -157,3 +157,124 @@ function access_misc_deploy_10004() {
   // $cron = Drupal::service('cron');
   // $cron->run();
 }
+
+/**
+ * Update Resource webform submissions.
+ */
+function access_misc_deploy_10005() {
+  $connection = \Drupal::database();
+
+  $ann_query = \Drupal::entityQuery('node')
+    ->condition('type', 'access_news')
+    ->accessCheck(TRUE);
+  $announcements = $ann_query->execute();
+
+  $ann_ag_query = \Drupal::entityQuery('node')
+    ->condition('type', 'access_news')
+    ->condition('field_affinity_group', NULL, 'IS NOT NULL')
+    ->accessCheck(TRUE);
+  $announcements_ag = $ann_ag_query->execute();
+
+  foreach ($announcements as $nid) {
+    $revision_id = $connection->select('node', 'n')
+      ->fields('n', ['vid'])
+      ->condition('n.nid', $nid)
+      ->orderBy('vid', 'DESC')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    $connection->insert('node_revision__field_choose_where_to_share_this')
+      ->fields([
+        'bundle' => 'access_news',
+        'deleted' => 0,
+        'entity_id' => $nid,
+        'revision_id' => $revision_id,
+        'langcode' => 'en',
+        'delta' => 0,
+        'field_choose_where_to_share_this_value' => 'on_the_announcements_page',
+      ])
+      ->execute();
+
+    $connection->insert('node__field_choose_where_to_share_this')
+      ->fields([
+        'bundle' => 'access_news',
+        'deleted' => 0,
+        'entity_id' => $nid,
+        'revision_id' => $revision_id,
+        'langcode' => 'en',
+        'delta' => 0,
+        'field_choose_where_to_share_this_value' => 'on_the_announcements_page',
+      ])
+      ->execute();
+
+    $connection->insert('node_revision__field_choose_where_to_share_this')
+      ->fields([
+        'bundle' => 'access_news',
+        'deleted' => 0,
+        'entity_id' => $nid,
+        'revision_id' => $revision_id,
+        'langcode' => 'en',
+        'delta' => 1,
+        'field_choose_where_to_share_this_value' => 'in_the_access_support_bi_weekly_digest',
+      ])
+      ->execute();
+
+    $connection->insert('node__field_choose_where_to_share_this')
+      ->fields([
+        'bundle' => 'access_news',
+        'deleted' => 0,
+        'entity_id' => $nid,
+        'revision_id' => $revision_id,
+        'langcode' => 'en',
+        'delta' => 1,
+        'field_choose_where_to_share_this_value' => 'in_the_access_support_bi_weekly_digest',
+      ])
+      ->execute();
+
+
+    if (in_array($nid, $announcements_ag)) {
+      $connection->insert('node_revision__field_choose_where_to_share_this')
+        ->fields([
+          'bundle' => 'access_news',
+          'deleted' => 0,
+          'entity_id' => $nid,
+          'revision_id' => $revision_id,
+          'langcode' => 'en',
+          'delta' => 2,
+          'field_choose_where_to_share_this_value' => 'on_your_affinity_group_page',
+        ])
+      ->execute();
+
+      $connection->insert('node__field_choose_where_to_share_this')
+        ->fields([
+          'bundle' => 'access_news',
+          'deleted' => 0,
+          'entity_id' => $nid,
+          'revision_id' => $revision_id,
+          'langcode' => 'en',
+          'delta' => 2,
+          'field_choose_where_to_share_this_value' => 'on_your_affinity_group_page',
+        ])
+      ->execute();
+    }
+
+  }
+
+  drupal_flush_all_caches();
+
+  // Reindex the announcements search API index to pick up domain access changes
+  $events_index = Index::load('announcements');
+  if ($events_index) {
+    $events_index->reindex();
+
+    // Process the indexing immediately
+    $indexed_count = $events_index->indexItems();
+
+    return t('Announcments search index has been reindexed. Processed @count items to pick up new field.', [
+      '@count' => $indexed_count,
+    ]);
+  } else {
+    return t('Warning: Announcments search index not found. Manual reindexing may be required.');
+  }
+}
