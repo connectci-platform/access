@@ -65,13 +65,19 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
 
   // Suggest tags for announcements.
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form') {
-    $el_title = t('External Link');
+    // Replace title of 'Affiliation' and 'Choose where to share this Announcment' with h4
+    $fields = ['field_affiliation', 'field_choose_where_to_share_this'];
+
+    foreach ($fields as $field) {
+      $title = $form[$field]['widget']['#title'];
+      $form[$field]['widget']['#prefix'] = "<h4>$title</h4>";
+      $form[$field]['widget']['#title'] = "<span class='hidden'>$title</span>";
+    }
+
+    // Replace title of 'External Link' with h4
+    $el_title = $form['field_news_external_link']['widget'][0]['#title'];
     $form['field_news_external_link']['widget'][0]['#prefix'] = "<h4>$el_title</h4>";
     $form['field_news_external_link']['widget'][0]['#title'] = "<span class='hidden'>$el_title</span>";
-
-    $aff_title = t('Affiliation');
-    $form['field_affiliation']['widget']['#prefix'] = "<h4>$aff_title</h4>";
-    $form['field_affiliation']['widget']['#title'] = "<span class='hidden'>$aff_title</span>";
 
     $form['field_tags_replace'] = [
       '#type' => 'container',
