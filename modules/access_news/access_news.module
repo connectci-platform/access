@@ -741,7 +741,7 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
       ->condition('field_published_date.value', $fromDate, '>=')
       ->condition('field_published_date.value', $toDate, '<=')
       ->condition('type', 'access_news')
-      ->condition('field_domain_access', 'amp_cyberinfrastructure_org')
+      ->condition('field_domain_access', SiteTools::DOMAIN_ACCESS_SUPPORT)
       ->condition('field_choose_where_to_share_this', 'in_the_access_support_bi_weekly_digest')
       ->accessCheck(FALSE)
       ->execute();
@@ -871,8 +871,15 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
         $dateTimeDisp = $startEvent->format('n/j/Y g:i a')
           . ' - ' . $endDisplay . " " . $tz;
 
-        $body = empty($enode->description[0]) ? '' : $enode->description[0]->view('rollup_list');
-        $bodyDisp = \Drupal::service('renderer')->renderPlain($body);
+        $summary = $series->get('field_summary')->value;
+        if ($summary == NULL) {
+          $body = empty($enode->description[0]) ? '' : $enode->description[0]->view('rollup_list');
+          $body = \Drupal::service('renderer')->renderPlain($body);
+        }
+        else {
+          $body = '<p>' . $summary . '</p>';
+        }
+        $bodyDisp = $body;
 
         // $location = empty($enode->location[0]) ? '' : $enode->location[0]->view('rollup_list');
         // $locationDisp = \Drupal::service('renderer')->renderPlain($location);
