@@ -21,10 +21,23 @@ use Drupal\Component\Utility\Html;
  * Implements hook_form_alter().
  */
 function access_events_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  if ($form['#id'] == 'views-exposed-form-events-facet-recorded-webinars-block') {
+    $form['search_api_fulltext']['#attributes']['placeholder'] = t('Search this collection');
+  }
   if ($form_id == 'registrant_default_delete_form') {
     $form['actions']['submit']['#submit'][] = 'access_events_user_delete_submit';
   }
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
+    // Get user role.
+    $current_user = \Drupal::currentUser();
+    $roles = $current_user->getRoles();
+
+    // Some affiliations can only be set by match_pms or administrators.
+    if (!in_array('administrator', $roles) && !in_array('match_pm', $roles)) {
+      unset($form['field_affiliation']['widget']['#options']['access_nairr_office_hours']);
+      unset($form['field_affiliation']['widget']['#options']['nairr_pilot_partner_series']);
+      unset($form['field_affiliation']['widget']['#options']['cu_rmacc_webinars']);
+    }
     $set_tz = $form['custom_date']['widget'][0]['value']['#date_timezone'];
     $suffix = '<div class="form-text">' . t('Your time zone is set to ') . "<strong>$set_tz</strong>. " . t('If your event is in a different time zone, calculate the time difference accordingly.') . '</div>';
 
@@ -536,35 +549,35 @@ function access_events_views_pre_build(ViewExecutable $view) {
   if ($view->id() == 'events_facet' && ($view->current_display == 'data_export_1' || $view->current_display == 'data_export_2')) {
     $request = \Drupal::request();
     $timezone = $request->query->get('timezone', 'UTC');
-    
+
     // Validate timezone
     $valid_timezones = timezone_identifiers_list();
     if (!in_array($timezone, $valid_timezones)) {
       $timezone = 'UTC';
     }
-    
+
     // Store timezone in view for use in date calculations
     $view->timezone = $timezone;
-    
+
     // Process exposed filters from URL parameters with timezone
     $exposed_input = $view->getExposedInput();
     $updated_input = [];
-    
+
     foreach ($exposed_input as $key => $value) {
       if (in_array($key, ['beginning_date_relative', 'end_date_relative']) && !empty($value)) {
         // Calculate the actual date based on timezone
         $date = new \DateTime('now', new \DateTimeZone($timezone));
-        
+
         // Apply relative offset
         if ($value == 'today') {
           $date->setTime(0, 0, 0);
         } elseif (strpos($value, '+') === 0 || strpos($value, '-') === 0) {
           $date->modify($value);
         }
-        
+
         // Convert to UTC for database query
         $date->setTimezone(new \DateTimeZone('UTC'));
-        
+
         // Convert to absolute date
         $absolute_key = str_replace('_relative', '', $key);
         $updated_input[$absolute_key] = $date->format('Y-m-d H:i:s');
@@ -574,7 +587,7 @@ function access_events_views_pre_build(ViewExecutable $view) {
         $updated_input[$key] = $value;
       }
     }
-    
+
     if (!empty($updated_input)) {
       $view->setExposedInput($updated_input);
     }
@@ -736,7 +749,7 @@ function access_events_preprocess_views_view_field(&$variables) {
   }
 
   // Display event instance date in the right format.
-  if ($view->id() == 'events_facet') {
+  if ($view->id() == 'events_facet' && $view->current_display != 'upcoming_webinars') {
     if ($field->field == 'date') {
       // Default separator between start and end dates is ' - '.
       $output = strip_tags($variables['output']);
@@ -749,6 +762,26 @@ function access_events_preprocess_views_view_field(&$variables) {
           $variables['output'] = Markup::create($date->getStartTime() . " - " . $date->getEndTime());
         } else {
           $variables['output'] = Markup::create($date->getStart() . " to " . $date->getEnd());
+        }
+      }
+    }
+  }
+
+  if ($view->id() == 'events_facet' && $view->current_display == 'upcoming_webinars') {
+    if ($field->field == 'date') {
+      // Default separator between start and end dates is ' - '.
+      $output = strip_tags($variables['output']);
+      $output = explode('::', $output);
+      if (count($output) == 2) {
+        $start_date = $output[0];
+        $end_date = $output[1];
+        $date = new EventDateConvert($start_date, $end_date);
+        $start_date = date('l n/j/Y', strtotime($start_date));
+
+        if ($date->sameDay ) {
+          $variables['output'] = Markup::create($start_date . " | " . $date->getStartTime() . " - " . $date->getEndTime());
+        } else {
+          $variables['output'] = Markup::create($start_date . " | " . $date->getStart() . " to " . $date->getEnd());
         }
       }
     }
