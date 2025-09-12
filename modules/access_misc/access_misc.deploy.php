@@ -159,24 +159,39 @@ function access_misc_deploy_10004() {
 }
 
 /**
- * Update Resource webform submissions.
+ * Where to share sql update.
+ */
+function access_misc_share_this($table, $bundle, $id, $revision_id, $delta, $where_to_share) {
+  \Drupal::database()->insert($table)
+    ->fields([
+      'bundle' => $bundle,
+      'deleted' => 0,
+      'entity_id' => $id,
+      'revision_id' => $revision_id,
+      'langcode' => 'en',
+      'delta' => $delta,
+      'field_choose_where_to_share_this_value' => $where_to_share,
+    ])
+    ->execute();
+}
+
+/**
+ * Update where to choose field announcments.
  */
 function access_misc_deploy_10005() {
-  $connection = \Drupal::database();
-
   $ann_query = \Drupal::entityQuery('node')
     ->condition('type', 'access_news')
-    ->accessCheck(TRUE);
+    ->accessCheck(FALSE);
   $announcements = $ann_query->execute();
 
   $ann_ag_query = \Drupal::entityQuery('node')
     ->condition('type', 'access_news')
     ->condition('field_affinity_group', NULL, 'IS NOT NULL')
-    ->accessCheck(TRUE);
+    ->accessCheck(FALSE);
   $announcements_ag = $ann_ag_query->execute();
 
   foreach ($announcements as $nid) {
-    $revision_id = $connection->select('node', 'n')
+    $revision_id = \Drupal::database()->select('node', 'n')
       ->fields('n', ['vid'])
       ->condition('n.nid', $nid)
       ->orderBy('vid', 'DESC')
@@ -184,97 +199,72 @@ function access_misc_deploy_10005() {
       ->execute()
       ->fetchField();
 
-    $connection->insert('node_revision__field_choose_where_to_share_this')
-      ->fields([
-        'bundle' => 'access_news',
-        'deleted' => 0,
-        'entity_id' => $nid,
-        'revision_id' => $revision_id,
-        'langcode' => 'en',
-        'delta' => 0,
-        'field_choose_where_to_share_this_value' => 'on_the_announcements_page',
-      ])
-      ->execute();
+    access_misc_share_this('node_revision__field_choose_where_to_share_this', 'access_news', $nid, $revision_id, 0, 'on_the_announcements_page');
+    access_misc_share_this('node__field_choose_where_to_share_this', 'access_news', $nid, $revision_id, 0, 'on_the_announcements_page');
 
-    $connection->insert('node__field_choose_where_to_share_this')
-      ->fields([
-        'bundle' => 'access_news',
-        'deleted' => 0,
-        'entity_id' => $nid,
-        'revision_id' => $revision_id,
-        'langcode' => 'en',
-        'delta' => 0,
-        'field_choose_where_to_share_this_value' => 'on_the_announcements_page',
-      ])
-      ->execute();
-
-    $connection->insert('node_revision__field_choose_where_to_share_this')
-      ->fields([
-        'bundle' => 'access_news',
-        'deleted' => 0,
-        'entity_id' => $nid,
-        'revision_id' => $revision_id,
-        'langcode' => 'en',
-        'delta' => 1,
-        'field_choose_where_to_share_this_value' => 'in_the_access_support_bi_weekly_digest',
-      ])
-      ->execute();
-
-    $connection->insert('node__field_choose_where_to_share_this')
-      ->fields([
-        'bundle' => 'access_news',
-        'deleted' => 0,
-        'entity_id' => $nid,
-        'revision_id' => $revision_id,
-        'langcode' => 'en',
-        'delta' => 1,
-        'field_choose_where_to_share_this_value' => 'in_the_access_support_bi_weekly_digest',
-      ])
-      ->execute();
-
+    access_misc_share_this('node_revision__field_choose_where_to_share_this', 'access_news', $nid, $revision_id, 1, 'in_the_access_support_bi_weekly_digest');
+    access_misc_share_this('node__field_choose_where_to_share_this', 'access_news', $nid, $revision_id, 1, 'in_the_access_support_bi_weekly_digest');
 
     if (in_array($nid, $announcements_ag)) {
-      $connection->insert('node_revision__field_choose_where_to_share_this')
-        ->fields([
-          'bundle' => 'access_news',
-          'deleted' => 0,
-          'entity_id' => $nid,
-          'revision_id' => $revision_id,
-          'langcode' => 'en',
-          'delta' => 2,
-          'field_choose_where_to_share_this_value' => 'on_your_affinity_group_page',
-        ])
-      ->execute();
-
-      $connection->insert('node__field_choose_where_to_share_this')
-        ->fields([
-          'bundle' => 'access_news',
-          'deleted' => 0,
-          'entity_id' => $nid,
-          'revision_id' => $revision_id,
-          'langcode' => 'en',
-          'delta' => 2,
-          'field_choose_where_to_share_this_value' => 'on_your_affinity_group_page',
-        ])
-      ->execute();
+      access_misc_share_this('node_revision__field_choose_where_to_share_this', 'access_news', $nid, $revision_id, 2, 'on_your_affinity_group_page');
+      access_misc_share_this('node__field_choose_where_to_share_this', 'access_news', $nid, $revision_id, 2, 'on_your_affinity_group_page');
     }
 
   }
 
-  drupal_flush_all_caches();
-
   // Reindex the announcements search API index to pick up domain access changes
-  $events_index = Index::load('announcements');
-  if ($events_index) {
-    $events_index->reindex();
+  $ann_index = Index::load('announcements');
+  if ($ann_index) {
+    $ann_index->reindex();
 
     // Process the indexing immediately
-    $indexed_count = $events_index->indexItems();
+    $indexed_count = $ann_index->indexItems();
 
     return t('Announcments search index has been reindexed. Processed @count items to pick up new field.', [
       '@count' => $indexed_count,
     ]);
   } else {
     return t('Warning: Announcments search index not found. Manual reindexing may be required.');
+  }
+}
+
+/**
+ * Update where to choose field events.
+ */
+function access_misc_deploy_10006() {
+  $share_table = \Drupal::database()->select('eventseries__field_choose_where_to_share_this', 's')
+    ->fields('s', ['entity_id'])
+    ->execute()
+    ->fetchField();
+  if ($share_table === FALSE) {
+    $series_query = \Drupal::entityQuery('eventseries')
+      ->accessCheck(FALSE);
+    $series = $series_query->execute();
+
+    $series_ag_query = \Drupal::entityQuery('eventseries')
+      ->condition('field_affinity_group_node', NULL, 'IS NOT NULL')
+      ->accessCheck(FALSE);
+    $series_ag = $series_ag_query->execute();
+
+    foreach ($series as $sid) {
+      $table = 'eventseries__field_choose_where_to_share_this';
+      $bundle = 'default';
+
+      $series_revision_id = \Drupal::database()->select('eventseries', 's')
+        ->fields('s', ['vid'])
+        ->condition('s.id', $sid)
+        ->orderBy('vid', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+
+      access_misc_share_this($table, $bundle, $sid, $series_revision_id, 0, 'on_the_announcements_page');
+
+      access_misc_share_this($table, $bundle, $sid, $series_revision_id, 1, 'in_the_access_support_bi_weekly_digest');
+
+      if (in_array($sid, $series_ag)) {
+        access_misc_share_this($table, $bundle, $sid, $series_revision_id, 2, 'on_your_affinity_group_page');
+      }
+    }
   }
 }
