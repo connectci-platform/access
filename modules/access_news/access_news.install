@@ -1,0 +1,47 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the ACCESS News module.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function access_news_install() {
+  // Index the announcements search API index when module is installed.
+  _access_news_index_announcements();
+}
+
+/**
+ * Rebuild and index the announcements search API index.
+ */
+function access_news_update_10000() {
+  _access_news_index_announcements();
+}
+
+/**
+ * Helper function to rebuild and index the announcements search API index.
+ */
+function _access_news_index_announcements() {
+  try {
+    // Load the index using entity type manager (following Drupal patterns)
+    $index = \Drupal::entityTypeManager()->getStorage('search_api_index')->load('announcements');
+    if ($index) {
+      // Clear the index first to ensure clean rebuild
+      $index->clear();
+      
+      // Reindex all items (queues them)
+      $index->reindex();
+      
+      // Process the indexing queue immediately (don't wait for cron)
+      $indexed = $index->indexItems(-1); // -1 means index all queued items
+      
+      \Drupal::logger('access_news')->info('Successfully rebuilt and indexed @count announcements in search API.', ['@count' => $indexed]);
+    } else {
+      \Drupal::logger('access_news')->warning('Announcements search API index not found.');
+    }
+  } catch (Exception $e) {
+    \Drupal::logger('access_news')->error('Failed to index announcements search API: @error', ['@error' => $e->getMessage()]);
+  }
+}

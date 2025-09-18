@@ -97,7 +97,7 @@ class AffinityBottomLeft extends BlockBase {
         usort($event_list, fn($a, $b) => $a['date'] <=> $b['date']);
       }
     }
-    $output = '<div class="bg-md-teal p-4 mb-10 not-prose">';
+    $output = '<div class="bg-md-teal mb-10 not-prose"><div class="p-4">';
     $output .= '<h2 class="text-white-er text-xl font-semibold mt-0 mb-3">Upcoming Events</h2>';
     $affinity_group_tax = '';
     if ($node) {
@@ -124,7 +124,7 @@ class AffinityBottomLeft extends BlockBase {
       $output .= '<div class="text-white-er my-2">No upcoming events.</div>';
     }
     $output .= '<a class="text-sm uppercase text-white-er hover--text-light-teal no-underline hover--underline" href="/past-events?field_affinity_group_target_id=' . $affinity_group_tax . '">See past events</a>';
-    $output .= '</div>';
+    $output .= '</div></div>';
 
     // Display Announcements that have been assigned to the Affinity Group
     // and Announcements added as entity references to the Affinity Group.
@@ -143,7 +143,7 @@ class AffinityBottomLeft extends BlockBase {
     $announcement_view->setArguments([$nid]);
     $announcement_view->execute();
     $announcement_list = $announcement_view->render();
-    $output .= '<div class="bg-md-teal p-4 mb-10">';
+    $output .= '<div class="bg-md-teal mb-10"><div class="p-4">';
     $output .= \Drupal::service('renderer')->render($announcement_list);
     if ($announcement_list['#rows']) {
       $announcment_count = count($announcement_list['#rows'][0]['#rows']);
@@ -151,7 +151,11 @@ class AffinityBottomLeft extends BlockBase {
         $output .= '<a class="text-sm uppercase text-white-er hover--text-light-teal no-underline hover--underline" href="/announcements?field_affinity_group_target_id=' . $affinity_group_tax . '">See More</a>';
       }
     }
-    $output .= '</div>';
+    $output .= '</div></div>';
+    $domain = \Drupal::service('access_misc.sitetools')->getDomain();
+    if ($domain == 'open-ondemand') {
+      $output = str_replace('class="card mt-4 p-3"', '', $output);
+    }
 
     return [
       ['#markup' => $output],
