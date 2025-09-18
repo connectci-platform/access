@@ -75,6 +75,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
 
+    $form['#validate'][] = 'access_events_ag_validate';
 
   }
 
@@ -396,6 +397,34 @@ function access_events_eventseries_validate($form, FormStateInterface $form_stat
       $date = $form_state->getValue($date_field)[0]['value'];
       if ($date == null) {
         $form_state->setErrorByName($date_field, t('Please select a date.'));
+      }
+    }
+  }
+
+}
+
+/**
+ * Custom validation callback.
+ *
+ * Make sure AG is selected with proper checkboxes.
+ */
+function access_events_ag_validate(&$form, FormStateInterface $form_state) {
+  // Get the value of the field_choose_where_to_share_this field.
+  $values = $form_state->getValues();
+  $share_options = $values['field_choose_where_to_share_this'] ?? [];
+  $ag = $values['field_affinity_group_node'] ?? [];
+
+  $no_ag = TRUE;
+  foreach ($ag as $key => $value) {
+    if (is_array($value) && !empty($value['target_id'])) {
+      $no_ag = FALSE;
+    }
+  }
+
+  if ($no_ag) {
+    foreach ($share_options as $key => $value) {
+      if ($value['value'] == 'email_to_your_affinity_group' || $value['value'] == 'on_your_affinity_group_page') {
+        $form_state->setErrorByName('field_affinity_group_node', t('You must select at least one Affinity Group when choosing to email your Affinity Groups or place the event on your Affinity Group Page.'));
       }
     }
   }

@@ -64,13 +64,25 @@ class AffinityBottomLeft extends BlockBase {
       foreach ($eiid as $ei) {
         $ei = reset($ei);
         $event = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($ei);
+
+        $eventseries = $event->getEventSeries();
+
+        // Check if event is set to share on Affinity Group page.
+        $where = $eventseries->get('field_choose_where_to_share_this')->getValue();
+        $show_on_ag_page = FALSE;
+        foreach ($where as $w) {
+          if ($w['value'] == 'on_your_affinity_group_page') {
+            $show_on_ag_page = TRUE;
+          }
+        }
+
         $event_status = $event->get('status')->getValue()[0]['value'];
         $event_date = $event->get('date')->getValue()[0]['value'];
         // Setup date in same format as today's date so I can get future events.
         $start_date = date_create($event_date);
         $edate = date_format($start_date, "Y-m-d");
         $date_now = date("Y-m-d");
-        if ($event_status && $date_now <= $edate) {
+        if ($event_status && $date_now <= $edate && $show_on_ag_page) {
           $series = $event->getEventSeries();
           $series_title = $series->get('title')->getValue()[0]['value'];
           $link = [
