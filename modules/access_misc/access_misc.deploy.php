@@ -258,13 +258,25 @@ function access_misc_deploy_10006() {
         ->execute()
         ->fetchField();
 
-      access_misc_share_this($table, $bundle, $sid, $series_revision_id, 0, 'on_the_announcements_page');
+      // Old Do not share checkbox.
+      $event_no_listing = \Drupal::database()->select('eventseries__field_event_no_listing', 'nl')
+        ->fields('nl', ['field_event_no_listing_value'])
+        ->condition('nl.entity_id', $sid)
+        ->execute()
+        ->fetchField();
 
-      access_misc_share_this($table, $bundle, $sid, $series_revision_id, 1, 'in_the_access_support_bi_weekly_digest');
+      // Do not share if old checkbox is checked.
+      if ($event_no_listing != 1 || $event_no_listing === FALSE) {
+        access_misc_share_this($table, $bundle, $sid, $series_revision_id, 0, 'on_the_announcements_page');
 
-      if (in_array($sid, $series_ag)) {
-        access_misc_share_this($table, $bundle, $sid, $series_revision_id, 2, 'on_your_affinity_group_page');
+        access_misc_share_this($table, $bundle, $sid, $series_revision_id, 1, 'in_the_access_support_bi_weekly_digest');
+
+        if (in_array($sid, $series_ag)) {
+          access_misc_share_this($table, $bundle, $sid, $series_revision_id, 2, 'on_your_affinity_group_page');
+        }
+
       }
+
     }
   }
 }
