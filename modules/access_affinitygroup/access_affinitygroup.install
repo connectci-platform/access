@@ -84,3 +84,10 @@ function access_affinitygroup_update_10003() {
       ->execute();
   }
 }
+
+/**
+ * Set forced token state.
+ */
+function access_affinitygroup_update_10004() {
+  \Drupal::state()->set('access_affinitygroup.forcedTokenSettings', NULL);
+}

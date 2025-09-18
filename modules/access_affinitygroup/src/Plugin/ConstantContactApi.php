@@ -158,14 +158,13 @@ class ConstantContactApi {
    */
   public function getEnvironment() {
     $env = getenv('PANTHEON_ENVIRONMENT');
+    $forcedToken = \Drupal::state()->get('access_affinitygroup.forcedTokenSettings');
 
     if ($env == 'local') {
       $env = 'test';
     }
     else {
-      $token = \Drupal::token();
-      $domainName = t("[domain:name]");
-      $current_domain_name = \Drupal\Component\Utility\Html::getClass($token->replace($domainName));
+      $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
 
       if ($current_domain_name == 'open-ondemand') {
         $env = 'openondemand';
@@ -175,7 +174,9 @@ class ConstantContactApi {
       }
     }
 
-      return $env;
+    $env = $forcedToken ? $forcedToken : $env;
+
+    return $env;
   }
 
   /**
