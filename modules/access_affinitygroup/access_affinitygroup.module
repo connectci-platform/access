@@ -240,7 +240,7 @@ function access_affinitygroup_entity_presave(EntityInterface $entity) {
 
       // Get all existing CC lists.
       $cca = new ConstantContactApi();
-      $lists = $cca->apiCall('/contact_lists ');
+      $lists = $cca->apiCall('/contact_lists');
       if (empty($lists)) {
         return;
       }
@@ -270,7 +270,7 @@ function access_affinitygroup_entity_presave(EntityInterface $entity) {
         $post_data = json_encode($post_data);
 
         // Create Constant contact list named with AG title.
-        $created_list = $cca->apiCall('/contact_lists ', $post_data, 'POST');
+        $created_list = $cca->apiCall('/contact_lists', $post_data, 'POST');
 
         if (!empty($created_list)) {
           $list_id = $created_list->list_id ? Xss::filter($created_list->list_id) : '';
