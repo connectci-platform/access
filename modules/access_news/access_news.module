@@ -65,7 +65,6 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
 
   // Suggest tags for announcements.
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form') {
-    weeklyNewsReport(FALSE);
     // Replace title of 'Affiliation' and 'Choose where to share this Announcment' with h4
     $fields = ['field_affiliation', 'field_choose_where_to_share_this'];
 
@@ -635,8 +634,6 @@ function weeklyNewsReport($noSend) {
     $eventHTML = $conference . $trainings .  $office_hours . $other;
 
     $emailHTML = $wrapper->ccNewsRollupHTML($newsHTML, $eventHTML);
-    kint($emailHTML);
-    die();
 
     // Create constant contact campaign. this does not send it.
     $campaignName = uniqid('Access Digest: ' . $dtTomorrow->format('n/j/y') . ' ', FALSE);
@@ -833,19 +830,24 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
         $series = $enode->getEventSeries();
         $series_id = $series->id();
         // todo: Replace with new where to share checkbox soon.
-        $no_share = $series->get('field_event_no_listing')->value;
+        //$no_share = $series->get('field_event_no_listing')->value;
 
-//        $where_share = $series->get('field_choose_where_to_share_this');
-//        $no_share = 1;
-//        foreach ($where_share as $ws) {
-//          if ($ws->value == 'in_the_access_support_bi_weekly_digest') {
-//            $no_share = 0;
-//          }
-//        }
+        $where_share = $series->get('field_choose_where_to_share_this');
+        $no_share = 1;
+        foreach ($where_share as $ws) {
+          if ($ws->value == 'in_the_access_support_bi_weekly_digest') {
+            $no_share = 0;
+          }
+        }
 
         $recur_type = $series->get('recur_type')->value;
 
-        if ($series->field_event_type->value != $type || $no_share) {
+        if ($series->field_event_type->value != $type) {
+          continue;
+        }
+
+        // Show only if marked to share in digest.
+        if ($no_share) {
           continue;
         }
 
