@@ -951,6 +951,8 @@ function access_affinitygroup_user_login(UserInterface $account) {
 
     if (empty($user_cc_id[$env])) {
       $user_cc_id[$env] = addUserToConstantContact($current_user->getEmail(), $firstName, $lastName);
+      // Flatten if Array for $user_cc_id[$env]
+      $user_cc_id[$env] = is_array($user_cc_id[$env]) ? implode(',', $user_cc_id[$env]) : $user_cc_id[$env];
       if (empty($user_cc_id[$env])) {
         showStatus("Could not add user to Constant Contact.");
       } else {
