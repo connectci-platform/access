@@ -554,6 +554,15 @@ class ConstantContactApi {
   }
 
   /**
+   * Get clear tokens.
+   */
+  public function clearTokens() {
+    $this->setRefreshToken('');
+    $this->setAccessToken('');
+  }
+
+
+  /**
    * Save new refresh_token.
    */
   private function setRefreshToken($refresh_token) {

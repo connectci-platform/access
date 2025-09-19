@@ -79,6 +79,12 @@ class ConstantContact extends FormBase {
 
     $environment = $cca->getEnvironment();
 
+    $form['clear'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Clear tokens for') . ' ' . $environment,
+      '#submit' => [[$this, 'clearTokens']],
+    ];
+
     $form['submit'] = [
       '#type' => 'submit',
       '#value' => $this->t('Authorize App on') . ' ' . $environment,
@@ -377,6 +383,17 @@ class ConstantContact extends FormBase {
     if (empty($value_check)) {
       $form_state->setErrorByName('access_affinitygroup', 'Select at least one checkbox under scope.');
     }
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function clearTokens(array &$form, FormStateInterface $form_state) {
+    $cc = new ConstantContactApi();
+    $cc->clearTokens();
+
+    \Drupal::messenger()->addMessage(t('Constant Contact tokens cleared.'));
+
   }
 
   /**
