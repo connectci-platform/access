@@ -56,9 +56,8 @@ class ConstantContactApi {
   public function __construct() {
     try {
       $config_factory = \Drupal::configFactory();
-      $this->configSettings = $config_factory->getEditable('access_affinitygroup.settings');
-      $this->accessToken = $this->configSettings->get('access_token');
-      $this->refreshToken = \Drupal::state()->get('access_affinitygroup.refresh_token');
+      $this->accessToken = $this->getAppToken();
+      $this->refreshToken = $this->getRefreshToken();
       $this->getKey();
 
       $cc_key = $this->cc_key;
@@ -507,18 +506,54 @@ class ConstantContactApi {
    * Save new access_token.
    */
   private function setAccessToken($access_token) {
+    $tokenjson = \Drupal::state()->get('access_affinitygroup.access_token');
+    $env = $this->getEnvironment();
+
+    $token_array = $tokenjson ? json_decode($tokenjson, TRUE) : [];
+    $token_array[$env] = $access_token;
+    $access_token = json_encode($token_array);
+
     $this->accessToken = $access_token;
-    $this->configSettings->set('access_token', $access_token);
-    $this->configSettings->save();
+    \Drupal::state()->set('access_affinitygroup.access_token', $access_token);
+  }
+
+  /**
+   * Get access_token.
+   */
+  private function getAppToken() {
+    $tokenjson = \Drupal::state()->get('access_affinitygroup.access_token');
+    $env = $this->getEnvironment();
+
+    $this->accessToken = json_decode($tokenjson, TRUE)[$env];
+
+    return $this->accessToken;
+  }
+
+  /**
+   * Get refresh_token.
+   */
+  private function getRefreshToken() {
+    $tokenjson = \Drupal::state()->get('access_affinitygroup.refresh_token');
+    $env = $this->getEnvironment();
+
+    $this->refreshToken = json_decode($tokenjson, TRUE)[$env];
+
+    return $this->refreshToken;
   }
 
   /**
    * Save new refresh_token.
    */
   private function setRefreshToken($refresh_token) {
+    $tokenjson = \Drupal::state()->get('access_affinitygroup.refresh_token');
+    $env = $this->getEnvironment();
+
+    $token_array = $tokenjson ? json_decode($tokenjson, TRUE) : [];
+    $token_array[$env] = $refresh_token;
+    $refresh_token = json_encode($token_array);
+
     $this->refreshToken = $refresh_token;
     \Drupal::state()->set('access_affinitygroup.refresh_token', $refresh_token);
-
   }
 
   /*

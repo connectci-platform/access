@@ -91,3 +91,41 @@ function access_affinitygroup_update_10003() {
 function access_affinitygroup_update_10004() {
   \Drupal::state()->set('access_affinitygroup.forcedTokenSettings', NULL);
 }
+
+/**
+ * Set Refresh token state.
+ */
+function access_affinitygroup_update_10005() {
+  $current_token = \Drupal::state()->get('access_affinitygroup.refresh_token');
+  $new_token = [
+    "support" => $current_token,
+    "openondemand" => '',
+    "test" => '',
+  ];
+  $new_token = json_encode($new_token);
+  \Drupal::state()->set('access_affinitygroup.refresh_token', $new_token);
+}
+
+/**
+ * Set forced token state.
+ */
+function access_affinitygroup_update_10006() {
+  // Get config setting 'access_affinitygroup.settings'.
+  $ag_config = \Drupal::configFactory()->getEditable('access_affinitygroup.settings');
+
+  // Get access_token
+  $access_token = $ag_config->get('access_token');
+
+  $new_token = [
+    "support" => $access_token,
+    "openondemand" => '',
+    "test" => '',
+  ];
+  $new_token = json_encode($new_token);
+
+  \Drupal::state()->set('access_affinitygroup.access_token', $new_token);
+
+  // Remove config item access_token from above.
+  $ag_config->set('access_token', NULL)->save();
+}
+
