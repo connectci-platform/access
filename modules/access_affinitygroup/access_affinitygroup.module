@@ -1139,23 +1139,19 @@ function access_affinitygroup_cron() {
 
 
   try {
-    // Make sure we are on the support domain, This is crucial for
-    // the constant contact connection.
-    $host = \Drupal::request()->getHttpHost();
-    if ($host !== 'support.access-ci.org') {
-      \Drupal::logger('cron_affinitygroup')->debug("On $host: blocked Constant Contact cron");
-      return;
-    }
 
     // 1. Refresh the Constant Contact Token
     if (shouldRun('token')) {
 
       $currentTime = \Drupal::time()->getCurrentTime();
       \Drupal::state()->set('access_affinitygroup.crontime-t', $currentTime);
-      \Drupal::logger('access_affinitygroup')->notice('Cron: token refresh ' . date("Y-m-d H:i:s", $currentTime) . " on $host");
+      \Drupal::logger('access_affinitygroup')->notice('Cron: token refresh ' . date("Y-m-d H:i:s", $currentTime));
 
-      $cca = new ConstantContactApi();
-      $cca->newToken();
+      $support = new ConstantContactApi('support');
+      $support->newToken();
+
+      $ood = new ConstantContactApi('openondemand');
+      $ood->newToken();
     }
 
     // 2. call xdusage api to get users and create/update their

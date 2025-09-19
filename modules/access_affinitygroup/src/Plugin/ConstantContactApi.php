@@ -23,6 +23,11 @@ class ConstantContactApi {
   private $refreshToken;
 
   /**
+   * Return environment.
+   */
+  private $environment;
+
+  /**
    * Return clientId.
    */
   private $clientId;
@@ -53,9 +58,14 @@ class ConstantContactApi {
    * Function to sort the curl headers.
    * Sets the clientId and the clientSecret. If they are not present, sets to empty.
    */
-  public function __construct() {
+  public function __construct($env = NULL) {
     try {
-      $config_factory = \Drupal::configFactory();
+      if ($env) {
+        $this->environment = $env;
+      } else {
+        $this->getEnvironment();
+      }
+
       $this->accessToken = $this->getAppToken();
       $this->refreshToken = $this->getRefreshToken();
       $this->getKey();
@@ -143,7 +153,7 @@ class ConstantContactApi {
    */
   private function getKey() {
     $keys = \Drupal::service('key.repository')->getKey('constant_contact_json')->getKeyValues();
-    $env = $this->getEnvironment();
+    $env = $this->environment;
 
     $cc_key = json_decode($keys[0], true)[$env]['id'];
     $key_secret = json_decode($keys[0], true)[$env]['secret'];
@@ -175,6 +185,8 @@ class ConstantContactApi {
 
     $env = $forcedToken ? $forcedToken : $env;
 
+    $this->environment = $env;
+
     return $env;
   }
 
@@ -182,7 +194,7 @@ class ConstantContactApi {
    * Get the user CC id.
    */
   public function getUserCcId($user_cc_json) {
-    $env = $this->getEnvironment();
+    $env = $this->environment;
     $user_cc_json = json_decode($user_cc_json, TRUE);
     return $user_cc_json[$env] ?? 0;
   }
@@ -259,17 +271,17 @@ class ConstantContactApi {
       $httpCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
       curl_close($ch);
 
-      $host = \Drupal::request()->getSchemeAndHttpHost();
+      $env = $this->environment;
 
       if (!isset($result->error)) {
         $this->setAccessToken($result->access_token);
         $this->setRefreshToken($result->refresh_token);
-        \Drupal::logger('access_affinitygroup')->notice("Constant Contact: new access_token and refresh_token stored $host");
+        \Drupal::logger('access_affinitygroup')->notice("Constant Contact: new access_token and refresh_token stored $env");
         \Drupal::messenger()->addMessage("Constant Contact: new access_token and refresh_token stored");
       }
       else {
-        \Drupal::logger('access_affinitygroup')->notice("New token httpCode: $httpCode");
-        \Drupal::logger('access_affinitygroup')->error("New token error; host $host");
+        \Drupal::logger('access_affinitygroup')->notice("Token httpCode: $httpCode");
+        \Drupal::logger('access_affinitygroup')->error("Token Error: env $env");
         $this->apiError($result->error, $result->error_description);
 
         $policy = 'affinitygroup';
@@ -507,7 +519,7 @@ class ConstantContactApi {
    */
   private function setAccessToken($access_token) {
     $tokenjson = \Drupal::state()->get('access_affinitygroup.access_token');
-    $env = $this->getEnvironment();
+    $env = $this->environment;
 
     $token_array = $tokenjson ? json_decode($tokenjson, TRUE) : [];
     $token_array[$env] = $access_token;
@@ -522,7 +534,7 @@ class ConstantContactApi {
    */
   private function getAppToken() {
     $tokenjson = \Drupal::state()->get('access_affinitygroup.access_token');
-    $env = $this->getEnvironment();
+    $env = $this->environment;
 
     $this->accessToken = json_decode($tokenjson, TRUE)[$env];
 
@@ -534,7 +546,7 @@ class ConstantContactApi {
    */
   private function getRefreshToken() {
     $tokenjson = \Drupal::state()->get('access_affinitygroup.refresh_token');
-    $env = $this->getEnvironment();
+    $env = $this->environment;
 
     $this->refreshToken = json_decode($tokenjson, TRUE)[$env];
 
@@ -546,7 +558,7 @@ class ConstantContactApi {
    */
   private function setRefreshToken($refresh_token) {
     $tokenjson = \Drupal::state()->get('access_affinitygroup.refresh_token');
-    $env = $this->getEnvironment();
+    $env = $this->environment;
 
     $token_array = $tokenjson ? json_decode($tokenjson, TRUE) : [];
     $token_array[$env] = $refresh_token;
