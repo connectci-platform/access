@@ -459,7 +459,7 @@ class AllocationsUsersImport {
           $needCCId = TRUE;
           if ($userDetails) {
             $this->userDetailUpdates($userDetails, $aUser);
-            $needCCId = needsCCId($userDetails);
+            $needCCId = needsCCId($userDetails, 'support');
           }
 
           // Did not have the user, so create it.

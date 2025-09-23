@@ -1215,18 +1215,27 @@ function shouldRun($function) {
 }
 
 /**
- * Boolean check if user has a CC Id.
+ * Boolean check if user has a CC Id for the specified environment.
+ * If no environment specified, uses current environment.
  */
-function needsCCId($u) {
+function needsCCId($u, $environment = NULL) {
   $ccId = NULL;
   $fVal = $u->get('field_constant_contact_id')->getValue();
   if (!empty($fVal)) {
-    $ccId = $fVal[0]['value'];
+    $ccIdJson = $fVal[0]['value'];
+    if (json_validate($ccIdJson)) {
+      $ccIdArray = json_decode($ccIdJson, TRUE);
+      if ($environment === NULL) {
+        $cca = new \Drupal\access_affinitygroup\Plugin\ConstantContactApi();
+        $environment = $cca->getEnvironment();
+      }
+      $ccId = $ccIdArray[$environment] ?? '';
+    } else {
+      // Handle legacy single CC ID (for backwards compatibility)
+      $ccId = $ccIdJson;
+    }
   }
-  if (!empty($ccId)) {
-    return FALSE;
-  }
-  return TRUE;
+  return empty($ccId);
 }
 
 /**
