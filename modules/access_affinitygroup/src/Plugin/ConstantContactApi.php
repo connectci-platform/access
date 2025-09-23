@@ -74,17 +74,11 @@ class ConstantContactApi {
       if (empty($cc_key)) {
         \Drupal::logger('access_affinitygroup')->error('Constant Contact: client id not in repository.');
       }
-      else {
-        $cc_key = $cc_key;
-      }
       $this->clientId = $cc_key;
 
       $key_secret = $this->key_secret;
       if (empty($key_secret)) {
         \Drupal::logger('access_affinitygroup')->error('Constant Contact: client secret not in repository.');
-      }
-      else {
-        $key_secret = $key_secret;
       }
 
       $this->clientSecret = $key_secret;
