@@ -95,13 +95,14 @@ class ConstantContactApi {
         $policy_subtype = 'cc_error';
         $role = 'site_developer';
         $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-        $set_email = explode(',', $set_email);
-        $message = t('Constant Contact: client id or secret not set.');
-        $variables = [
-          'message' => $message,
-        ];
+        if (!empty($site_dev_emails)) {
+          $message = t('Constant Contact: client id or secret not set.');
+          $variables = [
+            'message' => $message,
+          ];
 
-        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+          \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+        }
       }
     }
     catch (\Exception $e) {
@@ -109,15 +110,16 @@ class ConstantContactApi {
       $policy_subtype = 'cc_error';
       $role = 'site_developer';
       $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-      $set_email = explode(',', $set_email);
 
       \Drupal::logger('access_affinitygroup')->notice('Exception in constantContactApi constructor: ' . $e->getMessage());
 
-      $message = t('Exception in constantContactApi constructor: ') . $e->getMessage();
-      $variables = [
-        'message' => $message,
-      ];
-      \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+      if (!empty($site_dev_emails)) {
+        $message = t('Exception in constantContactApi constructor: ') . $e->getMessage();
+        $variables = [
+          'message' => $message,
+        ];
+        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+      }
     }
   }
 
@@ -288,13 +290,15 @@ class ConstantContactApi {
         $policy_subtype = 'cc_error';
         $role = 'site_developer';
         $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-        $set_email = explode(',', $set_email);
 
-        $message = 'New token error at host ' . $host . '. See logs for access_affinitygroup.';
-        $variables = [
-          'message' => $message,
-        ];
-        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+        if (!empty($site_dev_emails)) {
+          $host = \Drupal::request()->getSchemeAndHttpHost();
+          $message = 'New token error at host ' . $host . '. See logs for access_affinitygroup.';
+          $variables = [
+            'message' => $message,
+          ];
+          \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+        }
       }
     }
     catch (\Exception $e) {

@@ -655,11 +655,13 @@ class AllocationsUsersImport {
     $policy_subtype = 'allocation_error';
     $role = 'site_developer';
     $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-    $variables = [
-      'body' => $body,
-    ];
+    if (!empty($site_dev_emails)) {
+      $variables = [
+        'body' => $body,
+      ];
 
-    \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+      \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+    }
   }
 
   /**
