@@ -769,8 +769,8 @@ class AllocationsUsersImport {
         if (!empty($ccIdField)) {
           $ccId = $ccIdField[0]['value'];
           if (!empty($ccId)) {
-            $ccId = json_decode($ccId, TRUE);
-            $ccId = $ccId['support'];
+            $ccIdArray = json_decode($ccId, TRUE);
+            $ccId = (is_array($ccIdArray) && isset($ccIdArray['support'])) ? $ccIdArray['support'] : null;
             if (!$this->batchNoCC && !$this->batchNoUserDetSave) {
               $cca = new ConstantContactApi();
               $cca->setSupressErrDisplay(TRUE);
@@ -973,8 +973,8 @@ class AllocationsUsersImport {
           $field_val = $user->get('field_constant_contact_id')->getValue();
           if (!empty($field_val) && $field_val != 0) {
             $ccId = $field_val[0]['value'];
-            $ccId = json_decode($ccId, TRUE);
-            $ccId = $ccId['support'];
+            $ccIdArray = json_decode($ccId, TRUE);
+            $ccId = (is_array($ccIdArray) && isset($ccIdArray['support'])) ? $ccIdArray['support'] : null;
             // Check to see of it's a good CC Id.
             // preventing attempts to work with an obfuscated CC Id.
             if (strlen($ccId) == 36) {

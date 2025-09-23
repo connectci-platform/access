@@ -157,11 +157,12 @@ class ConstantContactApi {
     $keys = \Drupal::service('key.repository')->getKey('constant_contact_json')->getKeyValues();
     $env = $this->environment;
 
-    $cc_key = json_decode($keys[0], true)[$env]['id'];
-    $key_secret = json_decode($keys[0], true)[$env]['secret'];
+    $decoded = json_decode($keys[0], true);
+    $cc_key = isset($decoded[$env]['id']) ? $decoded[$env]['id'] : null;
+    $key_secret = isset($decoded[$env]['secret']) ? $decoded[$env]['secret'] : null;
 
-    $this->cc_key = urlencode(trim($cc_key));
-    $this->key_secret = urlencode(trim($key_secret));
+    $this->cc_key = $cc_key ? urlencode(trim($cc_key)) : '';
+    $this->key_secret = $key_secret ? urlencode(trim($key_secret)) : '';
   }
 
   /**
@@ -540,7 +541,12 @@ class ConstantContactApi {
     $tokenjson = \Drupal::state()->get('access_affinitygroup.access_token');
     $env = $this->environment;
 
-    $this->accessToken = json_decode($tokenjson, TRUE)[$env];
+    $token_array = is_string($tokenjson) ? json_decode($tokenjson, TRUE) : [];
+    if (is_array($token_array) && array_key_exists($env, $token_array)) {
+      $this->accessToken = $token_array[$env];
+    } else {
+      $this->accessToken = null;
+    }
 
     return $this->accessToken;
   }
@@ -552,7 +558,12 @@ class ConstantContactApi {
     $tokenjson = \Drupal::state()->get('access_affinitygroup.refresh_token');
     $env = $this->environment;
 
-    $this->refreshToken = json_decode($tokenjson, TRUE)[$env];
+    $token_array = is_string($tokenjson) ? json_decode($tokenjson, TRUE) : [];
+    if (is_array($token_array) && array_key_exists($env, $token_array)) {
+      $this->refreshToken = $token_array[$env];
+    } else {
+      $this->refreshToken = null;
+    }
 
     return $this->refreshToken;
   }
