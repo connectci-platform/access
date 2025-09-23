@@ -1272,7 +1272,7 @@ function isCCEnabled() {
  *  agNames - array of affinity group names for broadcast (for display in email)
  *  ccListIds - array of constant contact list ids corresponding to the affinity groups
  *  communityTemplate - which email template to use.
- *             If true, we use community template, otherwise use the access support template.
+ *             If true, we use community template, otherwise use the ACCESS Support template.
  */
 function emailToAffinityGroups($emailText, $emailTitle, $pubDate, $agNames, $newsUrl, $ccListIds, $communityTemplate, $logoUrl) {
   // For CC, must be unique name for campaign.

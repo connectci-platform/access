@@ -232,7 +232,7 @@ class AllocationsUsersImport {
         \Drupal::logger('cron_affinitygroup')->error('Allocations imports: Contant Contact not connected.');
         return NULL;
       }
-      // Get access support affinity group node for later.
+      // Get ACCESS Support affinity group node for later.
       $nArray = \Drupal::entityQuery('node')
         ->accessCheck(FALSE)
         ->condition('type', 'affinity_group')

@@ -117,8 +117,8 @@ class ConstantContact extends FormBase {
 
     $form['support'] = [
       '#type' => 'checkbox',
-      '#title' => $this->t('Access Support'),
-      '#description' => $this->t('This will force the access support token'),
+      '#title' => $this->t('ACCESS Support'),
+      '#description' => $this->t('This will force the ACCESS Support token'),
       '#default_value' => $supportToken,
     ];
 
