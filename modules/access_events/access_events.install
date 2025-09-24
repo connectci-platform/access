@@ -221,3 +221,43 @@ function access_events_update_10003() {
     return t('Warning: Events search index not found. Manual reindexing may be required.');
   }
 }
+
+/**
+ * Migrate event type field values from 'other' to 'zz_other' for proper facet ordering.
+ */
+function access_events_update_10004() {
+  $database = Database::getConnection();
+
+  // Count existing records with 'other' value
+  $count = $database->query("SELECT COUNT(*) FROM eventseries__field_event_type WHERE field_event_type_value = 'other'")->fetchField();
+
+  if ($count == 0) {
+    return t('No event series found with event type "other". Migration not needed.');
+  }
+
+  // Update main field table
+  $updated_main = $database->update('eventseries__field_event_type')
+    ->fields(['field_event_type_value' => 'zz_other'])
+    ->condition('field_event_type_value', 'other')
+    ->execute();
+
+  // Update revision table
+  $updated_revision = $database->update('eventseries_revision__field_event_type')
+    ->fields(['field_event_type_value' => 'zz_other'])
+    ->condition('field_event_type_value', 'other')
+    ->execute();
+
+  // Reindex the events search API index to pick up the changes
+  $events_index = Index::load('events');
+  if ($events_index) {
+    $events_index->reindex();
+    $indexed_count = $events_index->indexItems();
+  }
+
+  return t('Migrated @count event series from event type "other" to "zz_other". Updated @main main records and @revision revision records. Events search index reindexed with @indexed items.', [
+    '@count' => $count,
+    '@main' => $updated_main,
+    '@revision' => $updated_revision,
+    '@indexed' => $indexed_count ?? 0,
+  ]);
+}
