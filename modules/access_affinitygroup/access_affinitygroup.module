@@ -51,9 +51,6 @@ use Drupal\views\ViewExecutable;
 use Drupal\views\Plugin\views\query\QueryPluginBase;
 use Drupal\Component\Utility\Html;
 
-const cAccessEmail = "supportapiaccess@access-ci.org";
-
-
 /**
  * Filter Affinity Groups for the current domain.
  *
@@ -1307,14 +1304,17 @@ function setupEmailCampaign($emailSubject, $emailHtml, $campaignName) {
     return NULL;
   }
 
+  $cca = new ConstantContactApi();
+  $email = $cca->getEmail();
+
   $postData = [
     'name' => $campaignName,
     'email_campaign_activities' => [
       [
         'format_type' => 5,
         'from_name' => 'ACCESS Support',
-        'from_email' => cAccessEmail,
-        'reply_to_email' => cAccessEmail,
+        'from_email' => $email,
+        'reply_to_email' => $email,
         'subject' => $emailSubject,
         'preheader' => $emailSubject,
         'html_content' => $emailHtml,

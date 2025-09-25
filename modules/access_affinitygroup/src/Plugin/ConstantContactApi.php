@@ -188,6 +188,20 @@ class ConstantContactApi {
   }
 
   /**
+   * Get the email.
+   */
+  public function getEmail() {
+    $env = $this->getEnvironment();
+    $email = [
+      'test' => 'andrew+dev@elytra.net',
+      'support' => 'supportapiaccess@access-ci.org',
+      'openondemand' => 'info@openondemand.org',
+    ];
+
+    return $email[$env];
+  }
+
+  /**
    * Get the user CC id.
    */
   public function getUserCcId($user_cc_json) {
