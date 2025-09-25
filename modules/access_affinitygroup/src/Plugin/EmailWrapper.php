@@ -42,14 +42,26 @@ class EmailWrapper {
 
     $bgcolor = '#ED3F27';
     $titleBgColor = '#134686';
+    $linkBackground = '#C91235';
+    $linkColor = '#ffffff';
+    $linkHoverBackground = '#545860';
+    $linkHoverBorderColor = '#545860';
 
     if ($env == 'support') {
       $bgcolor = '#138597';
       $titleBgColor = '#1a5b6e';
+      $linkBackground = '#ffc42d';
+      $linkColor = '#000000';
+      $linkHoverBackground = '#ffffff';
+      $linkHoverBorderColor = '#000000';
     }
     elseif ($env == 'openondemand') {
       $bgcolor = '#DDDEDF';
       $titleBgColor = '#545860';
+      $linkBackground = '#C91235';
+      $linkColor = '#ffffff';
+      $linkHoverBackground = '#545860';
+      $linkHoverBorderColor = '#545860';
     }
 
     $agText = 'You are receiving this email through the ' . $agText . ' Affinity Group.';
@@ -118,18 +130,18 @@ class EmailWrapper {
               font-size: 16px!important;
               font-weight: bold!important;
               text-decoration: none!important;
-              background-color:#ffc42d!important;
-              border-color:#ffc42d!important;
+              background-color:$linkBackground!important;
+              border-color:$linkBackground!important;
               width: fit-content!important;
-              color: #000000!important;
+              color: $linkColor!important;
               padding: 10px 20px;
               border: 4px solid;
               margin-bottom:15px;
             }
 
             a.view-on-website-btn:hover {
-              background-color: #ffffff!important;
-              border-color:black!important;
+              background-color: $linkHoverBackground!important;
+              border-color: $linkHoverBorderColor!important;
               border: 4px solid;
             }
 
@@ -828,17 +840,17 @@ DIVIDERHTML;
         font-size: 16px!important;
         font-weight: bold!important;
         text-decoration: none!important;
-        background-color:#ffc42d!important;
-        border-color:#ffc42d!important;
+        background-color:$linkBackground!important;
+        border-color:$linkBackground!important;
         width: fit-content!important;
-        color: #000000!important;
+        color: $linkColor!important;
         padding: 10px 20px!important;
         border: 4px solid;
       }
 
       a.view-on-website-btn:hover {
-        background-color: #ffffff!important;
-        border-color:black!important;
+        background-color: $linkHoverBackground!important;
+        border-color: $linkHoverBorderColor!important;
         border: 4px solid;
       }
        p {
