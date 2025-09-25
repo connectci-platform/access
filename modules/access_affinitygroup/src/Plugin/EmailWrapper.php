@@ -40,8 +40,6 @@ class EmailWrapper {
     $cca = new ConstantContactApi();
     $env = $cca->getEnvironment();
 
-    //$bgcolor = '#4b4b4b';
-    //$titleBgColor = '#3e3e3e';
     $bgcolor = '#ED3F27';
     $titleBgColor = '#134686';
 
