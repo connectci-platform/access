@@ -20,12 +20,6 @@ function access_news_update_10000() {
   _access_news_index_announcements();
 }
 
-/**
- * Reindex announcements after fixing domain filtering configuration.
- */
-function access_news_update_10001() {
-  _access_news_index_announcements();
-}
 
 /**
  * Helper function to rebuild and index the announcements search API index.
