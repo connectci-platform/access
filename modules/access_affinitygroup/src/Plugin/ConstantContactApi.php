@@ -23,6 +23,11 @@ class ConstantContactApi {
   private $refreshToken;
 
   /**
+   * Return environment.
+   */
+  private $environment;
+
+  /**
    * Return clientId.
    */
   private $clientId;
@@ -40,32 +45,40 @@ class ConstantContactApi {
   private $supressErrDisplay;
 
   /**
+   * Return cc key.
+   */
+  private $cc_key;
+
+  /**
+   * Return key secret.
+   */
+  private $key_secret;
+
+  /**
    * Function to sort the curl headers.
    * Sets the clientId and the clientSecret. If they are not present, sets to empty.
    */
-  public function __construct() {
+  public function __construct($env = NULL) {
     try {
-      $config_factory = \Drupal::configFactory();
-      $this->configSettings = $config_factory->getEditable('access_affinitygroup.settings');
-      $this->accessToken = $this->configSettings->get('access_token');
-      $this->refreshToken = \Drupal::state()->get('access_affinitygroup.refresh_token');
+      if ($env) {
+        $this->environment = $env;
+      } else {
+        $this->getEnvironment();
+      }
 
+      $this->accessToken = $this->getAppToken();
+      $this->refreshToken = $this->getRefreshToken();
+      $this->getKey();
 
-      $cc_key = \Drupal::service('key.repository')->getKey('constant_contact_client_id')->getKeyValue();
+      $cc_key = $this->cc_key;
       if (empty($cc_key)) {
         \Drupal::logger('access_affinitygroup')->error('Constant Contact: client id not in repository.');
       }
-      else {
-        $cc_key = urlencode(trim($cc_key));
-      }
       $this->clientId = $cc_key;
 
-      $key_secret = \Drupal::service('key.repository')->getKey('constant_contact_client_secret')->getKeyValue();
+      $key_secret = $this->key_secret;
       if (empty($key_secret)) {
         \Drupal::logger('access_affinitygroup')->error('Constant Contact: client secret not in repository.');
-      }
-      else {
-        $key_secret = urlencode(trim($key_secret));
       }
 
       $this->clientSecret = $key_secret;
@@ -76,13 +89,14 @@ class ConstantContactApi {
         $policy_subtype = 'cc_error';
         $role = 'site_developer';
         $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-        $set_email = explode(',', $set_email);
-        $message = t('Constant Contact: client id or secret not set.');
-        $variables = [
-          'message' => $message,
-        ];
+        if (!empty($site_dev_emails)) {
+          $message = t('Constant Contact: client id or secret not set.');
+          $variables = [
+            'message' => $message,
+          ];
 
-        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+          \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+        }
       }
     }
     catch (\Exception $e) {
@@ -90,15 +104,16 @@ class ConstantContactApi {
       $policy_subtype = 'cc_error';
       $role = 'site_developer';
       $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-      $set_email = explode(',', $set_email);
 
       \Drupal::logger('access_affinitygroup')->notice('Exception in constantContactApi constructor: ' . $e->getMessage());
 
-      $message = t('Exception in constantContactApi constructor: ') . $e->getMessage();
-      $variables = [
-        'message' => $message,
-      ];
-      \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+      if (!empty($site_dev_emails)) {
+        $message = t('Exception in constantContactApi constructor: ') . $e->getMessage();
+        $variables = [
+          'message' => $message,
+        ];
+        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+      }
     }
   }
 
@@ -112,8 +127,6 @@ class ConstantContactApi {
   /**
    * @param  $redirectURI
    *   - URL Encoded Redirect URI
-   * @param  $clientId
-   *   - API Key
    * @param  $scope
    *   - URL encoded, plus sign delimited list of scopes that your
    *   application requires. The 'offline_access' scope needed to request a
@@ -123,12 +136,92 @@ class ConstantContactApi {
    *   application state
    * @return string - Full Authorization URL
    */
-  public function getAuthorizationURL($clientId, $redirectURI, $scope, $state) {
+  public function getAuthorizationURL($redirectURI, $scope, $state) {
     // Create authorization URL.
     $baseURL = "https://authz.constantcontact.com/oauth2/default/v1/authorize";
-    $authURL = $baseURL . "?client_id=" . $clientId . "&scope=" . $scope . "+offline_access&response_type=code&state=" . $state . "&redirect_uri=" . $redirectURI;
+    $authURL = $baseURL . "?client_id=" . $this->cc_key . "&scope=" . $scope . "+offline_access&response_type=code&state=" . $state . "&redirect_uri=" . $redirectURI;
 
     return $authURL;
+  }
+
+  /**
+   * Get the Constant Contact key and secret.
+   */
+  private function getKey() {
+    $keys = \Drupal::service('key.repository')->getKey('constant_contact_json')->getKeyValues();
+    $env = $this->environment;
+
+    $decoded = json_decode($keys[0], true);
+    $cc_key = isset($decoded[$env]['id']) ? $decoded[$env]['id'] : null;
+    $key_secret = isset($decoded[$env]['secret']) ? $decoded[$env]['secret'] : null;
+
+    $this->cc_key = $cc_key ? urlencode(trim($cc_key)) : '';
+    $this->key_secret = $key_secret ? urlencode(trim($key_secret)) : '';
+  }
+
+  /**
+   * Get the current environment.
+   */
+  public function getEnvironment() {
+    $env = getenv('PANTHEON_ENVIRONMENT');
+    $forcedToken = \Drupal::state()->get('access_affinitygroup.forcedTokenSettings');
+
+    if ($env == 'local') {
+      $env = 'test';
+    }
+    else {
+      $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
+
+      if ($current_domain_name == 'open-ondemand') {
+        $env = 'openondemand';
+      }
+      else {
+        $env = 'support';
+      }
+    }
+
+    $env = $forcedToken ? $forcedToken : $env;
+
+    $this->environment = $env;
+
+    return $env;
+  }
+
+  /**
+   * Get the email.
+   */
+  public function getEmail() {
+    $env = $this->getEnvironment();
+    $email = [
+      'test' => 'andrew+dev@elytra.net',
+      'support' => 'supportapiaccess@access-ci.org',
+      'openondemand' => 'info@openondemand.org',
+    ];
+
+    return $email[$env];
+  }
+
+  /**
+   * Get the from name.
+   */
+  public function getFromName() {
+    $env = $this->getEnvironment();
+    $from = [
+      'test' => 'Test Account',
+      'support' => 'ACCESS Support',
+      'openondemand' => 'Open onDemand Community Hub',
+    ];
+
+    return $from[$env];
+  }
+
+  /**
+   * Get the user CC id.
+   */
+  public function getUserCcId($user_cc_json) {
+    $env = $this->environment;
+    $user_cc_json = json_decode($user_cc_json, TRUE);
+    return $user_cc_json[$env] ?? 0;
   }
 
   /**
@@ -203,30 +296,32 @@ class ConstantContactApi {
       $httpCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
       curl_close($ch);
 
-      $host = \Drupal::request()->getSchemeAndHttpHost();
+      $env = $this->environment;
 
       if (!isset($result->error)) {
         $this->setAccessToken($result->access_token);
         $this->setRefreshToken($result->refresh_token);
-        \Drupal::logger('access_affinitygroup')->notice("Constant Contact: new access_token and refresh_token stored $host");
+        \Drupal::logger('access_affinitygroup')->notice("Constant Contact: new access_token and refresh_token stored $env");
         \Drupal::messenger()->addMessage("Constant Contact: new access_token and refresh_token stored");
       }
       else {
-        \Drupal::logger('access_affinitygroup')->notice("New token httpCode: $httpCode");
-        \Drupal::logger('access_affinitygroup')->error("New token error; host $host");
+        \Drupal::logger('access_affinitygroup')->notice("Token httpCode: $httpCode");
+        \Drupal::logger('access_affinitygroup')->error("Token Error: env $env");
         $this->apiError($result->error, $result->error_description);
 
         $policy = 'affinitygroup';
         $policy_subtype = 'cc_error';
         $role = 'site_developer';
         $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-        $set_email = explode(',', $set_email);
 
-        $message = 'New token error at host ' . $host . '. See logs for access_affinitygroup.';
-        $variables = [
-          'message' => $message,
-        ];
-        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+        if (!empty($site_dev_emails)) {
+          $host = \Drupal::request()->getSchemeAndHttpHost();
+          $message = 'New token error at host ' . $host . '. See logs for access_affinitygroup.';
+          $variables = [
+            'message' => $message,
+          ];
+          \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+        }
       }
     }
     catch (\Exception $e) {
@@ -450,18 +545,73 @@ class ConstantContactApi {
    * Save new access_token.
    */
   private function setAccessToken($access_token) {
+    $tokenjson = \Drupal::state()->get('access_affinitygroup.access_token');
+    $env = $this->environment;
+
+    $token_array = $tokenjson ? json_decode($tokenjson, TRUE) : [];
+    $token_array[$env] = $access_token;
+    $access_token = json_encode($token_array);
+
     $this->accessToken = $access_token;
-    $this->configSettings->set('access_token', $access_token);
-    $this->configSettings->save();
+    \Drupal::state()->set('access_affinitygroup.access_token', $access_token);
   }
+
+  /**
+   * Get access_token.
+   */
+  private function getAppToken() {
+    $tokenjson = \Drupal::state()->get('access_affinitygroup.access_token');
+    $env = $this->environment;
+
+    $token_array = is_string($tokenjson) ? json_decode($tokenjson, TRUE) : [];
+    if (is_array($token_array) && array_key_exists($env, $token_array)) {
+      $this->accessToken = $token_array[$env];
+    } else {
+      $this->accessToken = null;
+    }
+
+    return $this->accessToken;
+  }
+
+  /**
+   * Get refresh_token.
+   */
+  private function getRefreshToken() {
+    $tokenjson = \Drupal::state()->get('access_affinitygroup.refresh_token');
+    $env = $this->environment;
+
+    $token_array = is_string($tokenjson) ? json_decode($tokenjson, TRUE) : [];
+    if (is_array($token_array) && array_key_exists($env, $token_array)) {
+      $this->refreshToken = $token_array[$env];
+    } else {
+      $this->refreshToken = null;
+    }
+
+    return $this->refreshToken;
+  }
+
+  /**
+   * Get clear tokens.
+   */
+  public function clearTokens() {
+    $this->setRefreshToken('');
+    $this->setAccessToken('');
+  }
+
 
   /**
    * Save new refresh_token.
    */
   private function setRefreshToken($refresh_token) {
+    $tokenjson = \Drupal::state()->get('access_affinitygroup.refresh_token');
+    $env = $this->environment;
+
+    $token_array = $tokenjson ? json_decode($tokenjson, TRUE) : [];
+    $token_array[$env] = $refresh_token;
+    $refresh_token = json_encode($token_array);
+
     $this->refreshToken = $refresh_token;
     \Drupal::state()->set('access_affinitygroup.refresh_token', $refresh_token);
-
   }
 
   /*
