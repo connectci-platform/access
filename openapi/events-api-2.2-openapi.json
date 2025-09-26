@@ -1,0 +1,103 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ACCESS Events API",
+    "description": "The ACCESS Events API provides access to upcoming and past events, trainings, webinars, and office hours.\n\n## Features\n- **Pagination**: Default 100 items per page, customizable with `items_per_page` parameter\n- **Faceted Search**: Filter by event type, affiliation, skill level, tags, and date ranges\n- **CORS Enabled**: Can be called from any domain\n- **Date Filtering**: Support for both relative (`today`, `+1week`) and absolute date formats\n- **Timezone Support**: UTC (default), America/New_York, America/Los_Angeles, Europe/London\n\n## Authentication\nNo authentication required - this is a public API.\n",
+    "version": "2.2.0",
+    "contact": {
+      "name": "ACCESS Support", 
+      "url": "https://support.access-ci.org"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://support.access-ci.org/api/2.2",
+      "description": "Production server"
+    }
+  ],
+  "paths": {
+    "/events": {
+      "get": {
+        "summary": "Get events list",
+        "description": "Retrieve a list of events with optional filtering and pagination.",
+        "operationId": "getEvents",
+        "tags": ["Events"],
+        "parameters": [
+          {
+            "name": "items_per_page",
+            "in": "query",
+            "description": "Number of items per page (25, 50, 100, 250, 500, or \"All\")",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "100",
+              "enum": ["25", "50", "100", "250", "500", "All"]
+            }
+          },
+          {
+            "name": "f[0]",
+            "in": "query", 
+            "description": "Faceted search filter in format `field:value`. Examples: `custom_event_type:Training`, `custom_event_affiliation:Community`",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response with events list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Event": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "8504"
+          },
+          "title": {
+            "type": "string",
+            "example": "Open OnDemand Tips and Tricks Call"
+          },
+          "event_summary": {
+            "type": "string",
+            "maxLength": 150,
+            "example": "Learn practical tips for using this powerful platform."
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-08-06T13:00:00Z"
+          },
+          "event_type": {
+            "type": "string",
+            "enum": ["Training", "Office Hours", "other"],
+            "example": "other"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Events",
+      "description": "ACCESS events, trainings, and webinars"
+    }
+  ]
+}
