@@ -349,7 +349,7 @@ class EmailWrapper {
                       <tbody>
                           <tr>
                               <td style="" align="center" valign="top" class="shell_panel-cell">
-                                  <table style="width:700px;" align="center" border="0" cellpadding="0" cellspacing="0"
+                                  <table style="width:90%;" align="center" border="0" cellpadding="0" cellspacing="0"
                                       class="shell_width-row scale">
                                       <tbody>
                                           <tr>
@@ -1115,7 +1115,7 @@ DIVIDERHTML;
       <table class="shell_panel-row" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color:$titleBgColor;" bgcolor="$titleBgColor">
         <tr class="" >
           <td class="shell_panel-cell" style="" align="center" valign="top">
-            <table class="shell_width-row scale" style="width: 700px;" align="center" border="0" cellpadding="0" cellspacing="0">
+            <table class="shell_width-row scale" style="width:90%;" align="center" border="0" cellpadding="0" cellspacing="0">
               <tr>
                 <td class="shell_width-cell" style="padding: 15px 10px;" align="center" valign="top">
                   <table class="shell_content-row" width="100%" align="center" border="0" cellpadding="0" cellspacing="0">
