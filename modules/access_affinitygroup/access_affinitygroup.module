@@ -1273,7 +1273,7 @@ function isCCEnabled() {
  */
 function emailToAffinityGroups($emailText, $emailTitle, $pubDate, $agNames, $newsUrl, $ccListIds, $communityTemplate, $logoUrl) {
   // For CC, must be unique name for campaign.
-  $campaignName = uniqid('Access Announcement: ' . $agNames[0] . '- ' . $pubDate . ' ', FALSE);
+  $campaignName = uniqid('Community Announcement: ' . $agNames[0] . '- ' . $pubDate . ' ', FALSE);
 
   // Either use email template for access or community.
   $wrapper = new EmailWrapper();
@@ -1305,6 +1305,7 @@ function setupEmailCampaign($emailSubject, $emailHtml, $campaignName) {
   }
 
   $cca = new ConstantContactApi();
+  $from_name = $cca->getFromName();
   $email = $cca->getEmail();
 
   $postData = [
@@ -1312,7 +1313,7 @@ function setupEmailCampaign($emailSubject, $emailHtml, $campaignName) {
     'email_campaign_activities' => [
       [
         'format_type' => 5,
-        'from_name' => 'ACCESS Support',
+        'from_name' => $from_name,
         'from_email' => $email,
         'reply_to_email' => $email,
         'subject' => $emailSubject,

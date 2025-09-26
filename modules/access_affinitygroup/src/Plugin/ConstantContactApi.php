@@ -202,6 +202,20 @@ class ConstantContactApi {
   }
 
   /**
+   * Get the from name.
+   */
+  public function getFromName() {
+    $env = $this->getEnvironment();
+    $from = [
+      'test' => 'Test Account',
+      'support' => 'ACCESS Support',
+      'openondemand' => 'Open onDemand Community Hub',
+    ];
+
+    return $from[$env];
+  }
+
+  /**
    * Get the user CC id.
    */
   public function getUserCcId($user_cc_json) {

@@ -42,6 +42,7 @@ class EmailWrapper {
 
     $bgcolor = '#ED3F27';
     $titleBgColor = '#134686';
+    $titleColor = '#134686';
     $linkBackground = '#C91235';
     $linkColor = '#ffffff';
     $linkHoverBackground = '#545860';
@@ -50,6 +51,7 @@ class EmailWrapper {
     if ($env == 'support') {
       $bgcolor = '#138597';
       $titleBgColor = '#1a5b6e';
+      $titleColor = 'rgb(26, 91, 110)';
       $linkBackground = '#ffc42d';
       $linkColor = '#000000';
       $linkHoverBackground = '#ffffff';
@@ -58,6 +60,7 @@ class EmailWrapper {
     elseif ($env == 'openondemand') {
       $bgcolor = '#DDDEDF';
       $titleBgColor = '#545860';
+      $titleColor = '#545860';
       $linkBackground = '#C91235';
       $linkColor = '#ffffff';
       $linkHoverBackground = '#545860';
@@ -149,7 +152,7 @@ class EmailWrapper {
               margin-bottom: 10px!important;
             }
 
-              @media only screen and (max-width:480px) {
+              @media only screen and (max-width:1200px) {
                   # .footer-main-width {
                       width: 100% !important;
                   }
@@ -231,7 +234,7 @@ class EmailWrapper {
               .text .text_content-cell {}
           </style>
           <style>
-              @media only screen and (max-width:480px) {
+              @media only screen and (max-width:1200px) {
                    .button_content-cell {
                       padding-top: 10px !important;
                       padding-right: 20px !important;
@@ -429,7 +432,7 @@ class EmailWrapper {
                                                                                                   valign="top"
                                                                                                   class="text_content-cell content-padding-horizontal">
                                                                                                   <p style="margin:0;">
-                                                                                                      <span style="font-size:16px;font-weight:bold;color:rgb(26, 91, 110);">
+                                                                                                      <span style="font-size:16px;font-weight:bold;color:$titleColor;">
                                                                                                       $newsTitle
                                                                                                       </span>
                                                                                                   </p>
@@ -877,7 +880,7 @@ DIVIDERHTML;
         padding-bottom: 20px;
       }
 
-      @media only screen and (max-width:480px) {
+      @media only screen and (max-width:1200px) {
         .footer-main-width {
           width: 100% !important;
         }
@@ -989,7 +992,7 @@ DIVIDERHTML;
     </style>
     <![endif]-->
     <style>
-      @media only screen and (max-width:480px) {
+      @media only screen and (max-width:1200px) {
         .button_content-cell {
           padding-top: 10px !important;
           padding-right: 20px !important;
