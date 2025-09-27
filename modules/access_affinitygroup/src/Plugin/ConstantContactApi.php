@@ -148,7 +148,16 @@ class ConstantContactApi {
    * Get the Constant Contact key and secret.
    */
   private function getKey() {
-    $keys = \Drupal::service('key.repository')->getKey('constant_contact_json')->getKeyValues();
+    $key_entity = \Drupal::service('key.repository')->getKey('constant_contact_json');
+    
+    if (!$key_entity) {
+      \Drupal::logger('access_affinitygroup')->warning('Constant Contact key "constant_contact_json" not found.');
+      $this->cc_key = '';
+      $this->key_secret = '';
+      return;
+    }
+    
+    $keys = $key_entity->getKeyValues();
     $env = $this->environment;
 
     $decoded = json_decode($keys[0], true);
