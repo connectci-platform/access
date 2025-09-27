@@ -20,6 +20,13 @@ function access_news_update_10000() {
   _access_news_index_announcements();
 }
 
+/**
+ * Reindex the announcements search API index for v2.2 API.
+ */
+function access_news_update_10001() {
+  _access_news_index_announcements();
+}
+
 
 /**
  * Helper function to rebuild and index the announcements search API index.
