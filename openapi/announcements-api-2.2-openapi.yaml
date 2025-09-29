@@ -7,6 +7,7 @@ info:
     ## Features
     - **Pagination**: Default 25 items per page, customizable with `items_per_page` parameter
     - **Faceted Filtering**: Filter by tags, affiliation, affinity groups, and date ranges
+    - **Full-text Search**: Search across announcement titles and content with `search_api_fulltext` parameter
     - **CORS Enabled**: Can be called from any domain
     - **Domain Filtering**: Automatically filters content by domain context
     - **Date Filtering**: Support for both relative and absolute date formats
@@ -117,12 +118,12 @@ paths:
           schema:
             type: string
           examples:
-            community:
-              value: "Community"
-              summary: Filter by Community affinity group
-            research:
-              value: "Research"
-              summary: Filter by Research affinity group
+            stampede3:
+              value: "Stampede-3"
+              summary: Filter by Stampede-3 affinity group
+            anvil:
+              value: "Anvil"
+              summary: Filter by Anvil affinity group
               
         - name: affiliation
           in: query
@@ -156,6 +157,30 @@ paths:
             type: string
             format: date
           example: "2024-12-31"
+          
+        # Full-text Search Parameter
+        - name: search_api_fulltext
+          in: query
+          description: |-
+            Full-text search across announcement titles and content.
+            
+            **Examples:**
+            - `search_api_fulltext=PSC` - Search for announcements containing "PSC"
+            - `search_api_fulltext=Anvil` - Search for Anvil-related announcements
+            - `search_api_fulltext=funding opportunities` - Search for funding-related announcements
+          required: false
+          schema:
+            type: string
+          examples:
+            psc_search:
+              value: "PSC"
+              summary: Search for PSC-related announcements
+            anvil_search:
+              value: "Anvil"
+              summary: Search for Anvil-related announcements
+            funding_search:
+              value: "funding opportunities"
+              summary: Search for funding opportunities
             
       responses:
         '200':
@@ -188,10 +213,10 @@ paths:
                   value:
                     - title: "New Funding Opportunity for AI Research"
                       body: "<p>The NSF has announced a new funding opportunity for artificial intelligence research projects...</p>"
-                      field_published_date: "2024-09-15"
-                      custom_announcement_ag: "Research, Community"
-                      custom_announcement_tags: "funding,ai,research"
-                      field_affiliation: "NSF,ACCESS"
+                      published_date: "2024-09-15"
+                      affinity_group: "Stampede-3, Anvil"
+                      tags: "funding,ai,research"
+                      affiliation: "NSF,ACCESS"
                       
         '400':
           description: Bad request - invalid parameters
@@ -221,7 +246,7 @@ components:
       required:
         - title
         - body
-        - field_published_date
+        - published_date
       properties:
         title:
           type: string
@@ -231,20 +256,20 @@ components:
           type: string
           description: Full HTML body of the announcement
           example: "<p>The NSF has announced a new funding opportunity for artificial intelligence research projects...</p>"
-        field_published_date:
+        published_date:
           type: string
           format: date
           description: Publication date (YYYY-MM-DD format)
           example: "2024-09-15"
-        custom_announcement_ag:
+        affinity_group:
           type: string
           description: Comma-separated list of affinity groups this announcement is relevant to
           example: "Research, Community"
-        custom_announcement_tags:
+        tags:
           type: string
           description: Comma-separated list of tags for categorization and filtering
           example: "funding,ai,research"
-        field_affiliation:
+        affiliation:
           type: string
           description: Comma-separated list of organizational affiliations
           example: "NSF,ACCESS"

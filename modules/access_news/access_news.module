@@ -28,7 +28,7 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
     return;
   }
   
-  $current_display = $view->getDisplay()->view->element['#display_id'];
+  $current_display = $display_id;
   
   // Define which displays need domain filtering
   $domain_filtered_displays = [

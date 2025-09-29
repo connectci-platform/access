@@ -7,6 +7,7 @@ info:
     ## Features
     - **Pagination**: Default 100 items per page, customizable with `items_per_page` parameter
     - **Faceted Search**: Filter by event type, affiliation, skill level, tags, and date ranges
+    - **Full-text Search**: Search across event titles, descriptions, and content with `search_api_fulltext` parameter
     - **CORS Enabled**: Can be called from any domain
     - **Date Filtering**: Support for both relative (`today`, `+1week`) and absolute date formats
     - **Timezone Support**: UTC (default), America/New_York, America/Los_Angeles, Europe/London
@@ -41,10 +42,11 @@ paths:
         
         ## Faceted Search
         Use the format `f[0]=field:value` for filtering:
-        - Event Type: `f[0]=custom_event_type:Training`
-        - Affiliation: `f[0]=custom_event_affiliation:Community`  
+        - Event Type: `f[0]=event_type:Training`
+        - Affiliation: `f[0]=affiliation:ACCESS Collaboration`
+        - Affinity Group: `f[0]=affinity_group:Anvil`
         - Skill Level: `f[0]=skill_level:Beginner`
-        - Tags: `f[0]=custom_event_tags:ai`
+        - Tags: `f[0]=tags:ai`
         
         ## Date Filtering
         **Relative dates:**
@@ -88,10 +90,11 @@ paths:
             Faceted search filter in format `field:value`.
             
             **Available fields:**
-            - `custom_event_type` - Filter by event type (Training, Office Hours, other)
-            - `custom_event_affiliation` - Filter by affiliation (Community, ACCESS Collaboration, etc.)
+            - `event_type` - Filter by event type (Training, Office Hours, other)
+            - `affiliation` - Filter by affiliation (Community, ACCESS Collaboration, access_nairr_office_hours, nairr_pilot, etc.)
+            - `affinity_group` - Filter by affinity group (Anvil, Stampede-3, etc.)
             - `skill_level` - Filter by skill level (Beginner, Intermediate, Advanced)
-            - `custom_event_tags` - Filter by tags (ai, big-data, python, etc.)
+            - `tags` - Filter by tags (ai, big-data, python, etc.)
           required: false
           style: form
           explode: true
@@ -99,16 +102,19 @@ paths:
             type: string
           examples:
             event_type:
-              value: "custom_event_type:Training"
+              value: "event_type:Training"
               summary: Filter by Training events
             affiliation:
-              value: "custom_event_affiliation:Community"
-              summary: Filter by Community affiliation
+              value: "affiliation:ACCESS Collaboration"
+              summary: Filter by ACCESS Collaboration affiliation
+            affinity_group:
+              value: "affinity_group:Anvil"
+              summary: Filter by Anvil affinity group
             skill_level:
               value: "skill_level:Beginner"
               summary: Filter by Beginner skill level
             tags:
-              value: "custom_event_tags:ai" 
+              value: "tags:ai" 
               summary: Filter by AI-related events
               
         # Date Filtering Parameters
@@ -181,6 +187,30 @@ paths:
             type: string
             format: date-time
           example: "2025-01-01T00:00:00Z"
+          
+        # Full-text Search Parameter
+        - name: search_api_fulltext
+          in: query
+          description: |-
+            Full-text search across event titles, descriptions, and content.
+            
+            **Examples:**
+            - `search_api_fulltext=OnDemand` - Search for Open OnDemand events
+            - `search_api_fulltext=Python` - Search for Python-related events
+            - `search_api_fulltext=training` - Search for training events
+          required: false
+          schema:
+            type: string
+          examples:
+            ondemand_search:
+              value: "OnDemand"
+              summary: Search for Open OnDemand events
+            python_search:
+              value: "Python"
+              summary: Search for Python-related events
+            training_search:
+              value: "training"
+              summary: Search for training events
             
       responses:
         '200':
@@ -213,20 +243,20 @@ paths:
                   value:
                     - id: "8504"
                       title: "Open OnDemand Tips and Tricks Call"
-                      event_summary: "Learn practical tips for using this powerful, web-based platform that gives you seamless access to HPC resources—no software needed."
+                      summary: "Learn practical tips for using this powerful, web-based platform that gives you seamless access to HPC resources—no software needed."
                       description: "Join our monthly community-hosted call to learn practical tips..."
                       contact: ""
-                      event_affiliation: "ACCESS Collaboration, nairr_pilot"
+                      affiliation: "ACCESS Collaboration, nairr_pilot"
                       created: "2025-09-15T14:39:34Z"
                       changed: "2025-09-15T14:40:14Z"
                       event_type: "other"
                       location: "Zoom"
                       registration: "https://utah.zoom.us/meeting/register/..."
                       skill_level: ""
-                      custom_event_tags: "open-ondemand"
-                      field_video: ""
-                      date: "2026-08-06T13:00:00Z"
-                      date_1: "2026-08-06T14:00:00Z"
+                      tags: "open-ondemand"
+                      video: ""
+                      start_date: "2026-08-06T13:00:00Z"
+                      end_date: "2026-08-06T14:00:00Z"
                       speakers: ""
                       
         '400':
@@ -257,7 +287,7 @@ components:
       required:
         - id
         - title
-        - date
+        - start_date
       properties:
         id:
           type: string
@@ -267,7 +297,7 @@ components:
           type: string
           description: Event title
           example: "Open OnDemand Tips and Tricks Call"
-        event_summary:
+        summary:
           type: string
           description: Brief summary of the event (max 150 characters)
           maxLength: 150
@@ -280,10 +310,14 @@ components:
           type: string
           description: Contact information for the event
           example: "support@access-ci.org"
-        event_affiliation:
+        affiliation:
           type: string
           description: Comma-separated list of affiliations
           example: "ACCESS Collaboration, nairr_pilot"
+        affinity_group:
+          type: string
+          description: Affinity group associated with the event
+          example: "Anvil"
         created:
           type: string
           format: date-time
@@ -313,21 +347,21 @@ components:
           description: Required skill level
           enum: [Beginner, Intermediate, Advanced, ""]
           example: ""
-        custom_event_tags:
+        tags:
           type: string
           description: Comma-separated list of tags
           example: "open-ondemand,hpc,webinar"
-        field_video:
+        video:
           type: string
           format: uri
           description: Video URL (often empty for future events)
           example: ""
-        date:
+        start_date:
           type: string
           format: date-time
           description: Event start date and time (ISO 8601 UTC)
           example: "2026-08-06T13:00:00Z"
-        date_1:
+        end_date:
           type: string
           format: date-time
           description: Event end date and time (ISO 8601 UTC)
