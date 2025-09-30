@@ -227,7 +227,7 @@ class AllocationsUsersImport {
     $portalUserNames = NULL;
     $this->currentNumber = 0;
     try {
-      $cca = new ConstantContactApi();
+      $cca = new ConstantContactApi('support');
       if (!$cca->getConnectionStatus()) {
         \Drupal::logger('cron_affinitygroup')->error('Allocations imports: Contant Contact not connected.');
         return NULL;
@@ -772,7 +772,7 @@ class AllocationsUsersImport {
             $ccIdArray = json_decode($ccId, TRUE);
             $ccId = (is_array($ccIdArray) && isset($ccIdArray['support'])) ? $ccIdArray['support'] : null;
             if (!$this->batchNoCC && !$this->batchNoUserDetSave) {
-              $cca = new ConstantContactApi();
+              $cca = new ConstantContactApi('support');
               $cca->setSupressErrDisplay(TRUE);
               $cca->updateContact($ccId, $a['firstName'], $a['lastName'], $a['email']);
             }
@@ -877,7 +877,7 @@ class AllocationsUsersImport {
       $this->collectCronLog("...error in subscribe; possible missing CC ID", 'err');
     }
     else {
-      $cca = new ConstantContactApi();
+      $cca = new ConstantContactApi('support');
       $cca->setSupressErrDisplay(TRUE);
       $cca->apiCall('/activities/add_list_memberships', $postJSON, 'POST');
     }
@@ -942,7 +942,7 @@ class AllocationsUsersImport {
       ->accessCheck(FALSE)
       ->execute();
     $nodes = Node::loadMultiple($nids);
-    $cca = new ConstantContactApi();
+    $cca = new ConstantContactApi('support');
 
     foreach ($nodes as $node) {
       $agCount += 1;
