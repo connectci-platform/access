@@ -42,6 +42,8 @@ paths:
         - Example: `?items_per_page=10&page=0` gets first 10 items, `?items_per_page=10&page=1` gets next 10 items
         
         ## Filtering
+        **Important:** All filters are optional. Leave them empty to get all announcements. Combining multiple filters may result in very few or no results.
+        
         **Tags:** Filter by single tag (partial matching)
         - `tags=ai` - Announcements containing 'ai' in their tags
         - Note: Only single tag filtering supported, not multiple tags
@@ -75,6 +77,7 @@ paths:
                 enum: [5, 10, 25, 50]
               - type: string
                 enum: ["All"]
+            default: 10
         - name: page
           in: query
           description: |
@@ -104,6 +107,9 @@ paths:
           schema:
             type: string
           examples:
+            empty:
+              value: ""
+              summary: No filter (returns all announcements)
             ai_tag:
               value: "ai"
               summary: Filter by AI-related announcements
@@ -118,6 +124,9 @@ paths:
           schema:
             type: string
           examples:
+            empty:
+              value: ""
+              summary: No filter (returns all announcements)
             stampede3:
               value: "Stampede-3"
               summary: Filter by Stampede-3 affinity group
@@ -132,12 +141,15 @@ paths:
           schema:
             type: string
           examples:
-            access:
-              value: "ACCESS"
-              summary: Filter by ACCESS affiliation
-            nsf:
-              value: "NSF"
-              summary: Filter by NSF affiliation
+            empty:
+              value: ""
+              summary: No filter (returns all announcements)
+            access_collaboration:
+              value: "ACCESS Collaboration"
+              summary: Filter by ACCESS Collaboration affiliation
+            community:
+              value: "Community"
+              summary: Filter by Community affiliation
               
         # Date Filtering Parameters
         - name: start_date
@@ -172,6 +184,9 @@ paths:
           schema:
             type: string
           examples:
+            empty:
+              value: ""
+              summary: No search filter (returns all announcements)
             psc_search:
               value: "PSC"
               summary: Search for PSC-related announcements
@@ -212,11 +227,12 @@ paths:
                   summary: Example announcements response
                   value:
                     - title: "New Funding Opportunity for AI Research"
+                      summary: "The NSF has announced a new funding opportunity for artificial intelligence research projects focusing on innovative applications..."
                       body: "<p>The NSF has announced a new funding opportunity for artificial intelligence research projects...</p>"
                       published_date: "2024-09-15"
                       affinity_group: "Stampede-3, Anvil"
                       tags: "funding,ai,research"
-                      affiliation: "NSF,ACCESS"
+                      affiliation: "ACCESS Collaboration,Community"
                       
         '400':
           description: Bad request - invalid parameters
@@ -252,6 +268,10 @@ components:
           type: string
           description: Announcement title
           example: "New Funding Opportunity for AI Research"
+        summary:
+          type: string
+          description: Brief summary/excerpt of the announcement (max 600 characters)
+          example: "The NSF has announced a new funding opportunity for artificial intelligence research projects focusing on innovative applications..."
         body:
           type: string
           description: Full HTML body of the announcement
@@ -272,7 +292,7 @@ components:
         affiliation:
           type: string
           description: Comma-separated list of organizational affiliations
-          example: "NSF,ACCESS"
+          example: "ACCESS Collaboration,Community"
           
     Error:
       type: object
