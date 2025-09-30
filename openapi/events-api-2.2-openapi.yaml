@@ -1,0 +1,393 @@
+openapi: 3.0.3
+info:
+  title: ACCESS Events API
+  description: |
+    The ACCESS Events API provides access to upcoming and past events, trainings, webinars, and office hours.
+    
+    ## Features
+    - **Pagination**: Default 100 items per page, customizable with `items_per_page` parameter
+    - **Faceted Search**: Filter by event type, affiliation, skill level, tags, and date ranges
+    - **Full-text Search**: Search across event titles, descriptions, and content with `search_api_fulltext` parameter
+    - **CORS Enabled**: Can be called from any domain
+    - **Date Filtering**: Support for both relative (`today`, `+1week`) and absolute date formats
+    - **Timezone Support**: UTC (default), America/New_York, America/Los_Angeles, Europe/London
+    
+    ## Authentication
+    No authentication required - this is a public API.
+    
+  version: 2.2.0
+  termsOfService: https://access-ci.org/terms
+  contact:
+    name: ACCESS Support
+    url: https://support.access-ci.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://support.access-ci.org/api/2.2
+    description: Production server
+
+paths:
+  /events:
+    get:
+      summary: Get events list
+      description: |
+        Retrieve a list of events with optional filtering and pagination.
+        
+        ## Pagination
+        - Default: 100 events per page
+        - Options: 25, 50, 100, 250, 500, or "All"
+        - Use `page` parameter for pagination navigation
+        
+        ## Faceted Search
+        Use the format `f[0]=field:value` for filtering:
+        - Event Type: `f[0]=event_type:Training`
+        - Affiliation: `f[0]=affiliation:ACCESS Collaboration`
+        - Affinity Group: `f[0]=affinity_group:Anvil`
+        - Skill Level: `f[0]=skill_level:Beginner`
+        - Tags: `f[0]=tags:ai`
+        
+        ## Date Filtering
+        **Relative dates:**
+        - `beginning_date_relative=today`
+        - `beginning_date_relative=+1week` 
+        - `end_date_relative=+1month`
+        
+        **Absolute dates:**
+        - `beginning_date=2025-01-01T00:00:00Z`
+        - `end_date=2025-12-31T23:59:59Z`
+        
+      operationId: getEvents
+      tags:
+        - Events
+      parameters:
+        # Pagination Parameters
+        - name: items_per_page
+          in: query
+          description: Number of items per page (25, 50, 100, 250, 500, or "All")
+          required: false
+          schema:
+            oneOf:
+              - type: integer
+                enum: [25, 50, 100, 250, 500]
+              - type: string
+                enum: ["All"]
+            default: 100
+        - name: page
+          in: query
+          description: Page number for pagination (0-indexed)
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            
+        # Faceted Search Parameters  
+        - name: f[0]
+          in: query
+          description: |
+            Faceted search filter in format `field:value`.
+            
+            **Available fields:**
+            - `event_type` - Filter by event type (Training, Office Hours, other)
+            - `affiliation` - Filter by affiliation (Community, ACCESS Collaboration, access_nairr_office_hours, nairr_pilot, etc.)
+            - `affinity_group` - Filter by affinity group (Anvil, Stampede-3, etc.)
+            - `skill_level` - Filter by skill level (Beginner, Intermediate, Advanced)
+            - `tags` - Filter by tags (ai, big-data, python, etc.)
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: string
+          examples:
+            event_type:
+              value: "event_type:Training"
+              summary: Filter by Training events
+            affiliation:
+              value: "affiliation:ACCESS Collaboration"
+              summary: Filter by ACCESS Collaboration affiliation
+            affinity_group:
+              value: "affinity_group:Anvil"
+              summary: Filter by Anvil affinity group
+            skill_level:
+              value: "skill_level:Beginner"
+              summary: Filter by Beginner skill level
+            tags:
+              value: "tags:ai" 
+              summary: Filter by AI-related events
+              
+        # Date Filtering Parameters
+        - name: beginning_date_relative
+          in: query
+          description: |
+            Relative start date filter. Common values:
+            - `today` - Events starting today
+            - `+1day`, `+1week`, `+1month` - Events starting in the future
+            - `-1month` - Events that started in the past month
+          required: false
+          schema:
+            type: string
+          examples:
+            today:
+              value: "today"
+              summary: Events starting today
+            next_week:
+              value: "+1week"
+              summary: Events starting next week
+            next_month:
+              value: "+1month" 
+              summary: Events starting next month
+              
+        - name: end_date_relative
+          in: query
+          description: |
+            Relative end date filter. Common values:
+            - `today` - Events ending today
+            - `+1day`, `+1week`, `+1month` - Events ending in the future
+          required: false
+          schema:
+            type: string
+            
+        - name: beginning_date
+          in: query
+          description: Absolute start date in ISO 8601 format (UTC)
+          required: false
+          schema:
+            type: string
+            format: date-time
+          example: "2025-01-01T00:00:00Z"
+          
+        - name: end_date
+          in: query
+          description: Absolute end date in ISO 8601 format (UTC)
+          required: false
+          schema:
+            type: string
+            format: date-time
+          example: "2025-12-31T23:59:59Z"
+            
+        - name: timezone
+          in: query
+          description: |
+            Timezone for relative date calculations. Only affects relative dates.
+            Absolute dates are always in UTC.
+          required: false
+          schema:
+            type: string
+            enum: [UTC, America/New_York, America/Los_Angeles, Europe/London]
+            default: UTC
+            
+        # Other Parameters
+        - name: changed
+          in: query
+          description: Filter events modified after this date (ISO 8601 format)
+          required: false
+          schema:
+            type: string
+            format: date-time
+          example: "2025-01-01T00:00:00Z"
+          
+        # Full-text Search Parameter
+        - name: search_api_fulltext
+          in: query
+          description: |-
+            Full-text search across event titles, descriptions, and content.
+            
+            **Examples:**
+            - `search_api_fulltext=OnDemand` - Search for Open OnDemand events
+            - `search_api_fulltext=Python` - Search for Python-related events
+            - `search_api_fulltext=training` - Search for training events
+          required: false
+          schema:
+            type: string
+          examples:
+            ondemand_search:
+              value: "OnDemand"
+              summary: Search for Open OnDemand events
+            python_search:
+              value: "Python"
+              summary: Search for Python-related events
+            training_search:
+              value: "training"
+              summary: Search for training events
+            
+      responses:
+        '200':
+          description: Successful response with events list
+          headers:
+            Access-Control-Allow-Origin:
+              description: CORS header allowing all origins
+              schema:
+                type: string
+                example: "*"
+            Access-Control-Allow-Headers:
+              description: CORS header allowing all headers
+              schema:
+                type: string
+                example: "*"
+            Access-Control-Allow-Methods:
+              description: CORS header allowing all methods
+              schema:
+                type: string
+                example: "*"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+              examples:
+                events_list:
+                  summary: Example events response
+                  value:
+                    - id: "8504"
+                      title: "Open OnDemand Tips and Tricks Call"
+                      summary: "Learn practical tips for using this powerful, web-based platform that gives you seamless access to HPC resources—no software needed."
+                      description: "Join our monthly community-hosted call to learn practical tips..."
+                      contact: ""
+                      affiliation: "ACCESS Collaboration, nairr_pilot"
+                      created: "2025-09-15T14:39:34Z"
+                      changed: "2025-09-15T14:40:14Z"
+                      event_type: "other"
+                      location: "Zoom"
+                      registration: "https://utah.zoom.us/meeting/register/..."
+                      skill_level: ""
+                      tags: "open-ondemand"
+                      video: ""
+                      start_date: "2026-08-06T13:00:00Z"
+                      end_date: "2026-08-06T14:00:00Z"
+                      speakers: ""
+                      
+        '400':
+          description: Bad request - invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_timezone:
+                  summary: Invalid timezone parameter
+                  value:
+                    error: "Invalid timezone specified"
+                    message: "Timezone must be one of: UTC, America/New_York, America/Los_Angeles, Europe/London"
+                    
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Event:
+      type: object
+      description: An ACCESS event (training, webinar, office hours, etc.)
+      required:
+        - id
+        - title
+        - start_date
+      properties:
+        id:
+          type: string
+          description: Unique event ID
+          example: "8504"
+        title:
+          type: string
+          description: Event title
+          example: "Open OnDemand Tips and Tricks Call"
+        summary:
+          type: string
+          description: Brief summary of the event (max 150 characters)
+          maxLength: 150
+          example: "Learn practical tips for using this powerful, web-based platform that gives you seamless access to HPC resources—no software needed."
+        description:
+          type: string
+          description: Full HTML description of the event
+          example: "Join our monthly community-hosted call to learn practical tips..."
+        contact:
+          type: string
+          description: Contact information for the event
+          example: "support@access-ci.org"
+        affiliation:
+          type: string
+          description: Comma-separated list of affiliations
+          example: "ACCESS Collaboration, nairr_pilot"
+        affinity_group:
+          type: string
+          description: Affinity group associated with the event
+          example: "Anvil"
+        created:
+          type: string
+          format: date-time
+          description: When the event was created (ISO 8601 UTC)
+          example: "2025-09-15T14:39:34Z"
+        changed:
+          type: string
+          format: date-time
+          description: When the event was last modified (ISO 8601 UTC)
+          example: "2025-09-15T14:40:14Z"
+        event_type:
+          type: string
+          description: Type of event
+          enum: [Training, Office Hours, other]
+          example: "other"
+        location:
+          type: string
+          description: Event location (physical or virtual)
+          example: "Zoom"
+        registration:
+          type: string
+          format: uri
+          description: Registration URL
+          example: "https://utah.zoom.us/meeting/register/..."
+        skill_level:
+          type: string
+          description: Required skill level
+          enum: [Beginner, Intermediate, Advanced, ""]
+          example: ""
+        tags:
+          type: string
+          description: Comma-separated list of tags
+          example: "open-ondemand,hpc,webinar"
+        video:
+          type: string
+          format: uri
+          description: Video URL (often empty for future events)
+          example: ""
+        start_date:
+          type: string
+          format: date-time
+          description: Event start date and time (ISO 8601 UTC)
+          example: "2026-08-06T13:00:00Z"
+        end_date:
+          type: string
+          format: date-time
+          description: Event end date and time (ISO 8601 UTC)
+          example: "2026-08-06T14:00:00Z"
+        speakers:
+          type: string
+          description: Comma-separated list of speaker names
+          example: "Dr. Jane Smith, Prof. John Doe"
+          
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error type
+        message:
+          type: string
+          description: Human-readable error message
+        code:
+          type: integer
+          description: HTTP status code
+          
+tags:
+  - name: Events
+    description: ACCESS events, trainings, and webinars
+
+externalDocs:
+  description: Find out more about ACCESS
+  url: https://access-ci.org

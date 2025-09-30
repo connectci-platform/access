@@ -72,9 +72,13 @@ class AffinityGroupCommands extends DrushCommands {
         $this->output()->writeln($last_name);
 
         // Get the Constant Contact id for the User.
+        $env = $cca->getEnvironment();
+
         $field_val = $user->get('field_constant_contact_id')->getValue();
         if (!empty($field_val) && $field_val != 0) {
           $cc_id = $field_val[0]['value'];
+          $cc_id = json_decode($cc_id, TRUE);
+          $cc_id = $cc_id[$env];
           $this->output()->writeln($first_name . ' ' . $last_name . ' already has cc id: ' . $cc_id);
         }
         else {
@@ -92,7 +96,16 @@ class AffinityGroupCommands extends DrushCommands {
             usleep(500);
           }
           $this->output()->writeln($cc_id);
-          $user->set('field_constant_contact_id', $cc_id);
+
+          $user_cc_id = [
+            'test' => '',
+            'openondemand' => '',
+            'support' => '',
+          ];
+          $user_cc_id[$env] = $cc_id;
+          $user_cc_id = json_encode($user_cc_id);
+
+          $user->set('field_constant_contact_id', $user_cc_id);
           $user->save();
           $this->output()->writeln('Added ' . $first_name . ' ' . $last_name);
         }
@@ -125,6 +138,8 @@ class AffinityGroupCommands extends DrushCommands {
   public function showAffinityGroups(string $agName = '', $options = ['uidonly' => FALSE, 'headonly' => FALSE]) {
     $uidOnly = $options['uidonly'];
     $headOnly = $options['headonly'];
+
+    $cca = new ConstantContactApi();
 
     // Get all the Affinity Groups.
     $agCount = 0;
@@ -203,7 +218,18 @@ class AffinityGroupCommands extends DrushCommands {
           // Get the Constant Contact id for the User.
           $field_val = $user->get('field_constant_contact_id')->getValue();
           if (!empty($field_val) && $field_val != 0) {
+            // Get the Constant Contact id for the User.
+            $env = $cca->getEnvironment();
+
             $cc_id = $field_val[0]['value'];
+            $cc_id = json_decode($cc_id, TRUE);
+            if (isset($cc_id[$env])) {
+              $cc_id = $cc_id[$env];
+            }
+            else {
+              $cc_id = 'NO cc id for ' . $env;
+            }
+
           }
           $this->output()->writeln('cc id: ' . $cc_id);
         }

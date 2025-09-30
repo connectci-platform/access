@@ -32,17 +32,21 @@ class ConstantContact extends FormBase {
 
     $noConstantContactCalls = \Drupal::configFactory()->getEditable('access_affinitygroup.settings')->get('noConstantContactCalls');
 
+    $forcedTokenSettings = \Drupal::state()->get('access_affinitygroup.forcedTokenSettings');
+    $supportToken = $forcedTokenSettings == 'support' ? 1 : 0;
+    $openondemandToken = $forcedTokenSettings == 'openondemand' ? 1 : 0;
+    $testToken = $forcedTokenSettings == 'test' ? 1 : 0;
+
     $request = \Drupal::request();
     $code = $request->get('code');
     $refresh_token = $request->get('refresh_token');
+    $cca = new ConstantContactApi();
 
     if ($refresh_token) {
-      $cca = new ConstantContactApi();
       $cca->newToken();
     }
 
     if ($code) {
-      $cca = new ConstantContactApi();
       $cca->initializeToken($code);
     }
 
@@ -73,9 +77,17 @@ class ConstantContact extends FormBase {
       '#description' => $this->t('Select Constant Contact permissions.'),
     ];
 
+    $environment = $cca->getEnvironment();
+
+    $form['clear'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Clear tokens for') . ' ' . $environment,
+      '#submit' => [[$this, 'clearTokens']],
+    ];
+
     $form['submit'] = [
       '#type' => 'submit',
-      '#value' => $this->t('Authorize App'),
+      '#value' => $this->t('Authorize App on') . ' ' . $environment,
       '#submit' => [[$this, 'submitForm']],
     ];
 
@@ -98,6 +110,40 @@ class ConstantContact extends FormBase {
       '#value' => $this->t('Save Disable Setting'),
       '#submit' => [[$this, 'doSaveDisableCC']],
     ];
+
+    $form['force_token_title'] = [
+      '#markup' => '<br><br><h4>' . $this->t('Force Token') . '</h4>',
+    ];
+
+    $form['support'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('ACCESS Support'),
+      '#description' => $this->t('This will force the ACCESS Support token'),
+      '#default_value' => $supportToken,
+    ];
+
+    $form['openondemand'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Open On Demand'),
+      '#description' => $this->t('This will force the open on demand token'),
+      '#default_value' => $openondemandToken,
+    ];
+
+    $form['test'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Test'),
+      '#description' => $this->t('This will force the test token'),
+      '#default_value' => $testToken,
+    ];
+
+    $form['force_token_save'] = [
+      '#type' => 'submit',
+      '#description' => $this->t('Unchecked is the normal value.'),
+      '#value' => $this->t('Save forced token settings'),
+      '#submit' => [[$this, 'doSaveTokenSet']],
+    ];
+
+
     $form['y5'] = [
       '#markup' => '<br><br><h4>Generate Weekly Digest</h4>',
     ];
@@ -342,6 +388,17 @@ class ConstantContact extends FormBase {
   /**
    * {@inheritdoc}
    */
+  public function clearTokens(array &$form, FormStateInterface $form_state) {
+    $cc = new ConstantContactApi();
+    $cc->clearTokens();
+
+    \Drupal::messenger()->addMessage(t('Constant Contact tokens cleared.'));
+
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function submitForm(array &$form, FormStateInterface $form_state) {
     $selected_scope = '';
     foreach ($form_state->getValue('scope') as $scope_value) {
@@ -350,13 +407,11 @@ class ConstantContact extends FormBase {
       }
     }
     $cc = new ConstantContactApi();
-    $key = trim(\Drupal::service('key.repository')->getKey('constant_contact_client_id')->getKeyValue());
-    $token = urlencode($key);
     $host = \Drupal::request()->getSchemeAndHttpHost();
     $redirectURI = urlencode("$host/admin/services/constantcontact-token");
     $scope = urlencode(rtrim($selected_scope));
     $state = uniqid();
-    $response = new RedirectResponse($cc->getAuthorizationURL($token, $redirectURI, $scope, $state));
+    $response = new RedirectResponse($cc->getAuthorizationURL($redirectURI, $scope, $state));
     $response->send();
     parent::submitForm($form, $form_state);
   }
@@ -368,6 +423,33 @@ class ConstantContact extends FormBase {
     $config = \Drupal::configFactory()->getEditable('access_affinitygroup.settings');
     $config->set('noConstantContactCalls', $form_state->getValue('no_constant_contact_calls'));
     $config->save();
+  }
+
+  /**
+   * Save config setting access_affinitygroup.settings.noConstantContactCalls according to checkbox  value.
+   */
+  public function doSaveTokenSet(array &$form, FormStateInterface $form_state) {
+    $forcedTokenSettings = [
+      'support' => $form_state->getValue('support'),
+      'openondemand' => $form_state->getValue('openondemand'),
+      'test' => $form_state->getValue('test'),
+    ];
+
+    $oneset = FALSE;
+    \Drupal::state()->set('access_affinitygroup.forcedTokenSettings', NULL);
+
+    foreach ($forcedTokenSettings as $key => $value) {
+      if ($value) {
+        if ($oneset) {
+          \Drupal::messenger()->addError(t('Only one token setting can be set to TRUE.'));
+          return;
+        }
+
+        \Drupal::state()->set('access_affinitygroup.forcedTokenSettings', $key);
+        $oneset = TRUE;
+      }
+    }
+
   }
 
   /**
