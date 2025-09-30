@@ -38,13 +38,23 @@ class ViewsCustomAccess extends AccessPluginBase {
     if (in_array('administrator', $roles)) {
       $access = TRUE;
     }
+
+    // Try to get nid from query string first, then from route.
     $nid = \Drupal::request()->query->get('nid');
+    if (!$nid) {
+      $node = \Drupal::routeMatch()->getParameter('node');
+      $nid = $node ? $node->id() : NULL;
+    }
+
     if ($nid) {
       $node = \Drupal\node\Entity\Node::load($nid);
-      $coordinators = $node->get('field_coordinator')->getValue();
-      foreach ($coordinators as $coordinator) {
-        if ($coordinator['target_id'] == $account->id()) {
-          $access = TRUE;
+      if ($node) {
+        $coordinators = $node->get('field_coordinator')->getValue();
+        foreach ($coordinators as $coordinator) {
+          if ($coordinator['target_id'] == $account->id()) {
+            $access = TRUE;
+            break;
+          }
         }
       }
     }

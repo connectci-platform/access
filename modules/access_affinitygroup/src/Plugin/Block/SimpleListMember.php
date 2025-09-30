@@ -163,10 +163,10 @@ class SimpleListMember extends BlockBase implements
   }
 
   /**
-   *
+   * {@inheritdoc}
    */
   public function getCacheContexts() {
-    return Cache::mergeContexts(parent::getCacheContexts(), ['route']);
+    return Cache::mergeContexts(parent::getCacheContexts(), ['route', 'user']);
   }
 
 }

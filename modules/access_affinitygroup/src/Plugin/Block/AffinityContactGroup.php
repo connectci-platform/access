@@ -27,7 +27,23 @@ class AffinityContactGroup extends BlockBase {
     $contact = [
       ['#markup' => ''],
     ];
-    if (in_array('administrator', $roles) || in_array('affinity_group_leader', $roles)) {
+
+    // Check if user is administrator or coordinator of this affinity group.
+    $has_access = FALSE;
+    if (in_array('administrator', $roles)) {
+      $has_access = TRUE;
+    }
+    elseif ($node) {
+      $coordinators = $node->get('field_coordinator')->getValue();
+      foreach ($coordinators as $coordinator) {
+        if ($coordinator['target_id'] == $current_user->id()) {
+          $has_access = TRUE;
+          break;
+        }
+      }
+    }
+
+    if ($has_access) {
       $contact['string'] = [
         '#type' => 'inline_template',
         '#template' => '<a class="btn btn-outline-dark cursor-default mx-0 my-2" href="/form/affinity-group-contact?nid={{ nid }}">{{ contact_text }}</a>',
@@ -54,10 +70,10 @@ class AffinityContactGroup extends BlockBase {
   }
 
   /**
-   *
+   * {@inheritdoc}
    */
   public function getCacheContexts() {
-    return Cache::mergeContexts(parent::getCacheContexts(), ['route']);
+    return Cache::mergeContexts(parent::getCacheContexts(), ['route', 'user']);
   }
 
 }
