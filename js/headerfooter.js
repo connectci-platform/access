@@ -10,7 +10,7 @@ import {
   qaBot,
   siteMenus,
   universalMenus,
-} from "https://unpkg.com/@access-ci/ui@0.12.0/dist/access-ci-ui.js";
+} from "https://unpkg.com/@access-ci/ui@0.12.1/dist/access-ci-ui.js";
 
 (function (Drupal, drupalSettings) {
 
@@ -99,13 +99,6 @@ async function setMenu(menu, currentUri) {
 
   const { email = '', name = '', accessId = '' } = drupalSettings.access.user || {};
   const apiKey = "4nn5l4T4TnkMdzsK0AwAtnGRcheBDnjawuAT42LaOLc";
-
-  console.log('QA Bot initialization:', {
-    userFromDrupal: drupalSettings.access.user,
-    extractedValues: { email, name, accessId },
-    isLoggedIn: isLoggedIn,
-    currentUri: currentUri,
-  });
 
   // Initialize floating qa-bot if target exists (using npm version)
   const floatingTarget = document.getElementById("qa-bot");
