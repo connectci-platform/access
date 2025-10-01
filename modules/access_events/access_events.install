@@ -261,3 +261,53 @@ function access_events_update_10004() {
     '@indexed' => $indexed_count ?? 0,
   ]);
 }
+
+/**
+ * Helper function to rebuild and index the events search API index.
+ */
+function _access_events_index_events() {
+  try {
+    // Load the index using entity type manager
+    $index = \Drupal::entityTypeManager()->getStorage('search_api_index')->load('events');
+    if ($index) {
+      // Clear the index first to ensure clean rebuild
+      $index->clear();
+
+      // Reindex all items (queues them)
+      $index->reindex();
+
+      // Process the indexing queue immediately (don't wait for cron)
+      $indexed = $index->indexItems(-1); // -1 means index all queued items
+
+      \Drupal::logger('access_events')->info('Successfully rebuilt and indexed @count events in search API.', ['@count' => $indexed]);
+
+      return $indexed;
+    } else {
+      \Drupal::logger('access_events')->warning('Events search API index not found.');
+      return 0;
+    }
+  } catch (Exception $e) {
+    \Drupal::logger('access_events')->error('Failed to index events search API: @error', ['@error' => $e->getMessage()]);
+    return 0;
+  }
+}
+
+/**
+ * Reindex events for new EventAffinityGroup processor and removed custom_event_no_show field.
+ */
+function access_events_update_10005() {
+  // Clear plugin caches to recognize the new EventAffinityGroup processor
+  \Drupal::service('plugin.manager.search_api.processor')->clearCachedDefinitions();
+
+  // Use helper function to rebuild and index
+  $indexed_count = _access_events_index_events();
+
+  if ($indexed_count > 0) {
+    return t('Events search index has been cleared and reindexed. Processed @count items to add affinity group data and remove obsolete no_show field.', [
+      '@count' => $indexed_count,
+    ]);
+  }
+  else {
+    return t('Warning: Events search index not found or no items indexed. Manual reindexing may be required.');
+  }
+}
