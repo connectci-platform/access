@@ -70,16 +70,6 @@ class LoginController extends ControllerBase {
    * Route user to login.
    */
   public function login() {
-      $test = new \Drupal\access_affinitygroup\Plugin\ConstantContactApi('test');
-      $test->newToken();
-    sleep(2);
-      $support = new \Drupal\access_affinitygroup\Plugin\ConstantContactApi('support');
-      $support->newToken();
-    sleep(2);
-      $ood = new \Drupal\access_affinitygroup\Plugin\ConstantContactApi('openondemand');
-      $ood->newToken();
-    die();
-
     $this->killSwitch->trigger();
     // Check if user is logged in.
     if ($this->currentUser->isAuthenticated()) {
