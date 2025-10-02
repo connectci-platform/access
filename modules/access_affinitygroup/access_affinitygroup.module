@@ -1147,6 +1147,9 @@ function access_affinitygroup_cron() {
       $support = new ConstantContactApi('support');
       $support->newToken();
 
+      // Need a pause between api calls.
+      sleep(2);
+
       $ood = new ConstantContactApi('openondemand');
       $ood->newToken();
     }
