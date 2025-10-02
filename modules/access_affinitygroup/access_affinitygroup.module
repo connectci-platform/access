@@ -1452,6 +1452,8 @@ function access_affinitygroup_form_alter(&$form, FormStateInterface $form_state,
     $form['#validate'][] = 'access_affinitygroup_edit_validate';
 
     $form['#attached']['library'][] = 'access_affinitygroup/ag_node_form';
+
+    $form['actions']['submit']['#submit'][] = 'access_affinitygroup_edit_submit';
   }
 
   if ($form_id == 'node_affinity_group_form') {
@@ -1596,6 +1598,33 @@ function access_affinitygroup_replace_section_callback(array &$form, FormStateIn
 
   // Return the updated section.
   return $form['field_tags_replace'];
+}
+
+/**
+ * Form submit handler for affinity group to flag group for new coordinator.
+ */
+function access_affinitygroup_edit_submit($form, FormStateInterface $form_state) {
+  $coordinators = $form_state->getValue('field_coordinator');
+  if ($coordinators) {
+    $title = $form_state->getValue('title')[0]['value'];
+    $vid = 'affinity_groups';
+
+    // Lookup taxonomy term by title.
+    $at_taxonomy = \Drupal::entityTypeManager()
+              ->getStorage('taxonomy_term')
+              ->loadByProperties([
+                      'vid' => $vid,
+                      'name' => $title
+                  ]);
+    $tid = array_key_first($at_taxonomy);
+
+    foreach ($coordinators as $coordinator) {
+      // Lookup coordinator in flag for this affinity group if not there add it.
+      kint($coordinator);
+    }
+  }
+  kint($coordinators);
+  die();
 }
 
 /**
