@@ -199,6 +199,15 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['actions']['submit']['#submit'][] = 'access_misc_registrant_submit';
   }
 
+  if ($form_id == 'eventinstance_default_add_form' || $form_id == 'eventinstance_default_edit_form' || $form_id == 'eventinstance_default_clone_form') {
+    // If user is not administrator, hide the field 'domain_access'.
+    $current_user = \Drupal::currentUser();
+    $roles = $current_user->getRoles();
+    if (!in_array('administrator', $roles)) {
+      $form['domain_access']['#access'] = FALSE;
+    }
+  }
+
   // Custom tags on /events/add
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
 
@@ -581,7 +590,7 @@ function access_events_views_pre_build(ViewExecutable $view) {
         // Convert to absolute date
         $absolute_key = str_replace('_relative', '', $key);
         $updated_input[$absolute_key] = $date->format('Y-m-d H:i:s');
-        
+
         // Remove the relative parameter
         unset($updated_input[$key]);
       } else {
@@ -885,11 +894,20 @@ function access_events_entity_access(EntityInterface $entity, $operation, Accoun
       $other_authors = $entity->get('other_authors')->getValue();
     }
 
+    $other_author_allowed = FALSE;
+
+    foreach ($other_authors as $key => $value) {
+      if ($value['target_id'] == $current_user_id) {
+        $other_author_allowed = TRUE;
+        break;
+      }
+    }
+
     if ($author_id == $current_user_id) {
       // Allow access if the user is the author of the event instance.
       return AccessResult::allowed();
     }
-    elseif(in_array(['target_id' => $current_user_id], $other_authors)) {
+    elseif($other_author_allowed) {
       // Allow access if the user is listed as other author.
       return AccessResult::allowed();
     }

@@ -2,3 +2,6 @@ services:
   access_events.XsedeApi:
     class: Drupal\access_events\Plugin\XsedeApi
     arguments: ['@entity_type.manager', '@key.repository', '@http_client', '@logger.channel.default', '@messenger', '@string_translation']
+  access_events.latest_revision:
+    class: Drupal\access_events\Plugin\LatestRevisionCheck
+    arguments: ['@content_moderation.moderation_information']
