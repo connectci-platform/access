@@ -76,7 +76,7 @@ class LoginController extends ControllerBase {
       $support = new \Drupal\access_affinitygroup\Plugin\ConstantContactApi('support');
       $support->newToken();
     sleep(2);
-      $ood = new ConstantContactApi('openondemand');
+      $ood = new \Drupal\access_affinitygroup\Plugin\ConstantContactApi('openondemand');
       $ood->newToken();
     die();
 
