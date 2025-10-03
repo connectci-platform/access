@@ -218,7 +218,7 @@ function access_misc_deploy_10005() {
 
   }
 
-  // Reindex the announcements search API index to pick up domain access changes
+  // Reindex the announcements search API index to pick up the new field.
   $ann_index = Index::load('announcements');
   if ($ann_index) {
     $ann_index->reindex();
@@ -255,7 +255,7 @@ function access_misc_deploy_10006() {
     foreach ($series as $sid) {
       // Skip test events created by amp_dev module.
       $event_series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($sid);
-      if ($event_series && strpos($event_series->getTitle(), 'Test Event') === 0) {
+      if ($event_series && strpos($event_series->label(), 'Test Event') === 0) {
         continue;
       }
 
