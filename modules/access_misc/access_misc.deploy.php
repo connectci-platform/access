@@ -191,6 +191,12 @@ function access_misc_deploy_10005() {
   $announcements_ag = $ann_ag_query->execute();
 
   foreach ($announcements as $nid) {
+    // Skip test announcements created by amp_dev module.
+    $node = \Drupal\node\Entity\Node::load($nid);
+    if ($node && strpos($node->getTitle(), 'Test Announcement') === 0) {
+      continue;
+    }
+
     $revision_id = \Drupal::database()->select('node', 'n')
       ->fields('n', ['vid'])
       ->condition('n.nid', $nid)
@@ -247,6 +253,12 @@ function access_misc_deploy_10006() {
     $series_ag = $series_ag_query->execute();
 
     foreach ($series as $sid) {
+      // Skip test events created by amp_dev module.
+      $event_series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($sid);
+      if ($event_series && strpos($event_series->getTitle(), 'Test Event') === 0) {
+        continue;
+      }
+
       $table = 'eventseries__field_choose_where_to_share_this';
       $bundle = 'default';
 
