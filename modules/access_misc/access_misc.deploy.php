@@ -176,7 +176,7 @@ function access_misc_share_this($table, $bundle, $id, $revision_id, $delta, $whe
 }
 
 /**
- * Update where to choose field announcments.
+ * Update where to choose field announcements.
  */
 function access_misc_deploy_10005() {
   $ann_query = \Drupal::entityQuery('node')
