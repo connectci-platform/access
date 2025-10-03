@@ -261,7 +261,7 @@ function access_news_ag_validate(&$form, FormStateInterface $form_state) {
   if ($no_ag) {
     foreach ($share_options as $key => $value) {
       if ($value['value'] == 'email_to_your_affinity_group' || $value['value'] == 'on_your_affinity_group_page') {
-        $form_state->setErrorByName('field_affinity_group_node', t('You must select at least one Affinity Group when choosing to email your Affinity Groups or place the announcment on your Affinity Group Page.'));
+        $form_state->setErrorByName('field_affinity_group_node', t('You must select at least one Affinity Group when choosing to email your Affinity Groups or place the announcement on your Affinity Group Page.'));
       }
     }
   }
