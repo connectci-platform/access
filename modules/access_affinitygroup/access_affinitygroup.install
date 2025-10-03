@@ -129,3 +129,51 @@ function access_affinitygroup_update_10006() {
   $ag_config->set('access_token', NULL)->save();
 }
 
+/**
+ * Flag all coordinators.
+ */
+function access_affinitygroup_update_10007() {
+  // mysql lookup table 'node__field_coordinator' and get field_coordinator_target_id and entity_id.
+  $mysql = \Drupal::database();
+  $query = $mysql->select('node__field_coordinator', 'fc');
+  $query->fields('fc', ['entity_id', 'field_coordinator_target_id']);
+  $result = $query->execute()->fetchAll();
+
+  $vid = 'affinity_groups';
+
+  foreach ($result as $row) {
+    $nid = $row->entity_id;
+    $uid = $row->field_coordinator_target_id;
+
+    // Load node to get title.
+    $node = \Drupal\node\Entity\Node::load($nid);
+    $title = $node->getTitle();
+
+    // Lookup taxonomy term by title.
+    $at_taxonomy = \Drupal::entityTypeManager()
+              ->getStorage('taxonomy_term')
+              ->loadByProperties([
+                      'vid' => $vid,
+                      'name' => $title
+                  ]);
+    $tid = array_key_first($at_taxonomy);
+
+    // Load user.
+    $user = \Drupal\user\Entity\User::load($uid);
+
+    // Load taxonomy entity by tid.
+    $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($tid);
+
+    if ($term && $user) {
+      // Grab flag service for ag.
+      $flag_service = \Drupal::service('flag');
+      $flag = $flag_service->getFlagById('affinity_group');
+
+      if (!$flag_service->getFlagging($flag, $term, $user)) {
+        // Flag the affinity group term for this coordinator.
+        $flag_service->flag($flag, $term, $user);
+      }
+    }
+
+  }
+}

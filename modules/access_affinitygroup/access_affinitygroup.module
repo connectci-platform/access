@@ -1619,12 +1619,25 @@ function access_affinitygroup_edit_submit($form, FormStateInterface $form_state)
     $tid = array_key_first($at_taxonomy);
 
     foreach ($coordinators as $coordinator) {
-      // Lookup coordinator in flag for this affinity group if not there add it.
-      kint($coordinator);
+      if (!isset($coordinator['target_id'])) {
+        continue;
+      }
+      // Load user.
+      $user = User::load($coordinator['target_id']);
+
+      // Load taxonomy entity by tid.
+      $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($tid);
+
+      // Grab flag service for ag.
+      $flag_service = \Drupal::service('flag');
+      $flag = $flag_service->getFlagById('affinity_group');
+
+      if (!$flag_service->getFlagging($flag, $term, $user)) {
+        // Flag the affinity group term for this coordinator.
+        $flag_service->flag($flag, $term, $user);
+      }
     }
   }
-  kint($coordinators);
-  die();
 }
 
 /**
