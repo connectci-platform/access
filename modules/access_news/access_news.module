@@ -23,18 +23,20 @@ define('ACCESS_SUPPPORT_URL', "https://support.access-ci.org");
  * Implements hook_views_pre_view() for node templates.
  */
 function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
-  // Only process access_news view
-  if ($view->id() != 'access_news') {
+  // Only process News and Announcements views
+  if (!in_array($view->id(), ['access_news', 'access_announcements'])) {
     return;
   }
-
-  $current_display = $view->getDisplay()->view->element['#display_id'];
-
+  
+  $current_display = $display_id;
+  
   // Define which displays need domain filtering
   $domain_filtered_displays = [
     'block_1' => SiteTools::DOMAIN_CURRENT,
     'latest_news_block' => SiteTools::DOMAIN_CURRENT,
     'mrollup_list_block' => SiteTools::DOMAIN_ACCESS_SUPPORT,
+    'rest_export_1' => SiteTools::DOMAIN_CURRENT,
+    'rest_export_2' => SiteTools::DOMAIN_CURRENT,
   ];
 
   // Apply domain filtering if this display is in our list
@@ -45,9 +47,28 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
     $domain = ($domain_filtered_displays[$current_display] === SiteTools::DOMAIN_CURRENT)
       ? \Drupal::service('access_misc.sitetools')->getDomainId()
       : $domain_filtered_displays[$current_display];
-
-    $view_filters['field_domain_access_target_id']['value'] = [$domain => $domain];
-    $view->display_handler->setOption('filters', $view_filters);
+    
+    // Use appropriate field name based on view type
+    $domain_field = ($view->id() == 'access_announcements') ? 'field_domain_access' : 'field_domain_access_target_id';
+    
+    // Only apply filtering if the domain field exists
+    if (isset($view_filters[$domain_field])) {
+      // Handle different filter value structures
+      if (is_array($view_filters[$domain_field]['value'])) {
+        // If it's an array structure (like min/max/value), preserve the structure
+        if (isset($view_filters[$domain_field]['value']['value'])) {
+          $view_filters[$domain_field]['value']['value'] = $domain;
+        } else {
+          // If it's a simple associative array
+          $view_filters[$domain_field]['value'] = [$domain => $domain];
+        }
+      } else {
+        // If it's a simple string value
+        $view_filters[$domain_field]['value'] = $domain;
+      }
+      
+      $view->display_handler->setOption('filters', $view_filters);
+    }
   }
 }
 

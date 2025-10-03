@@ -574,8 +574,8 @@ function access_events_user_delete_submit($form, FormStateInterface $form_state)
  * Handle timezone parameter for API endpoints.
  */
 function access_events_views_pre_build(ViewExecutable $view) {
-  // Handle timezone parameter for Events API v2.1
-  if ($view->id() == 'events_facet' && ($view->current_display == 'data_export_1' || $view->current_display == 'data_export_2')) {
+  // Handle timezone parameter for Events API v2.1 and v2.2
+  if ($view->id() == 'events_facet' && in_array($view->current_display, ['data_export_1', 'data_export_2', 'data_export_3'])) {
     $request = \Drupal::request();
     $timezone = $request->query->get('timezone', 'UTC');
 
@@ -610,6 +610,7 @@ function access_events_views_pre_build(ViewExecutable $view) {
         // Convert to absolute date
         $absolute_key = str_replace('_relative', '', $key);
         $updated_input[$absolute_key] = $date->format('Y-m-d H:i:s');
+        
         // Remove the relative parameter
         unset($updated_input[$key]);
       } else {

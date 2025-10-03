@@ -51,9 +51,6 @@ use Drupal\views\ViewExecutable;
 use Drupal\views\Plugin\views\query\QueryPluginBase;
 use Drupal\Component\Utility\Html;
 
-const cAccessEmail = "supportapiaccess@access-ci.org";
-
-
 /**
  * Filter Affinity Groups for the current domain.
  *
@@ -240,7 +237,7 @@ function access_affinitygroup_entity_presave(EntityInterface $entity) {
 
       // Get all existing CC lists.
       $cca = new ConstantContactApi();
-      $lists = $cca->apiCall('/contact_lists ');
+      $lists = $cca->apiCall('/contact_lists');
       if (empty($lists)) {
         return;
       }
@@ -270,7 +267,7 @@ function access_affinitygroup_entity_presave(EntityInterface $entity) {
         $post_data = json_encode($post_data);
 
         // Create Constant contact list named with AG title.
-        $created_list = $cca->apiCall('/contact_lists ', $post_data, 'POST');
+        $created_list = $cca->apiCall('/contact_lists', $post_data, 'POST');
 
         if (!empty($created_list)) {
           $list_id = $created_list->list_id ? Xss::filter($created_list->list_id) : '';
@@ -857,6 +854,8 @@ function makeListMembershipJSON($flagEntityId, $userDetails) {
   $ccIdField = $userDetails->get('field_constant_contact_id')->getValue();
   if (!empty($ccIdField)) {
     $user_cc_id = $ccIdField[0]['value'];
+    $constantcontactapi = new ConstantContactApi();
+    $user_cc_id = $constantcontactapi->getUserCcId($user_cc_id);
   }
 
   if (empty($user_cc_id)) {
@@ -916,20 +915,50 @@ function access_affinitygroup_user_login(UserInterface $account) {
   if (!empty($field_val)) {
     $cca_user_id = $field_val[0]['value'];
   }
+
   // If user did not already have the CC id, try to add to CC.
-  if (empty($cca_user_id)) {
+  if (empty($cca_user_id) || !json_validate($cca_user_id)) {
+      $user_cc_id = [
+        'test' => '',
+        'openondemand' => '',
+        'support' => '',
+      ];
+
+    $constantcontactapi = new ConstantContactApi();
+    $env = $constantcontactapi->getEnvironment();
 
     $firstName = $user_detail->get('field_user_first_name')->getString();
     $lastName = $user_detail->get('field_user_last_name')->getString();
 
-    $cca_user_id = addUserToConstantContact($current_user->getEmail(), $firstName, $lastName);
-    if (empty($cca_user_id)) {
+
+    $user_cc_id[$env] = addUserToConstantContact($current_user->getEmail(), $firstName, $lastName);
+
+    if (empty($user_cc_id[$env])) {
       showStatus("Could not add user to Constant Contact.");
     } else {
-      $user_detail->set('field_constant_contact_id', $cca_user_id);
+      $user_cc_id = json_encode($user_cc_id);
+      $user_detail->set('field_constant_contact_id', $user_cc_id);
       $user_detail->save();
     }
   } else {
+    $constantcontactapi = new ConstantContactApi();
+    $env = $constantcontactapi->getEnvironment();
+    $user_cc_id = $user_detail->get('field_constant_contact_id')->getString();
+    $user_cc_id = json_decode($user_cc_id, TRUE);
+
+    if (empty($user_cc_id[$env])) {
+      $user_cc_id[$env] = addUserToConstantContact($current_user->getEmail(), $firstName, $lastName);
+      // Flatten if Array for $user_cc_id[$env]
+      $user_cc_id[$env] = is_array($user_cc_id[$env]) ? implode(',', $user_cc_id[$env]) : $user_cc_id[$env];
+      if (empty($user_cc_id[$env])) {
+        showStatus("Could not add user to Constant Contact.");
+      } else {
+        $user_cc_id = json_encode($user_cc_id);
+        $user_detail->set('field_constant_contact_id', $user_cc_id);
+        $user_detail->save();
+      }
+    }
+
     // This else just for debugging in early stages
     // showStatus("Login and NOT attempting add of new constant contact id.");.
   }
@@ -1107,23 +1136,22 @@ function access_affinitygroup_cron() {
 
 
   try {
-    // Make sure we are on the support domain, This is crucial for
-    // the constant contact connection.
-    $host = \Drupal::request()->getHttpHost();
-    if ($host !== 'support.access-ci.org') {
-      \Drupal::logger('cron_affinitygroup')->debug("On $host: blocked Constant Contact cron");
-      return;
-    }
 
     // 1. Refresh the Constant Contact Token
     if (shouldRun('token')) {
 
       $currentTime = \Drupal::time()->getCurrentTime();
       \Drupal::state()->set('access_affinitygroup.crontime-t', $currentTime);
-      \Drupal::logger('access_affinitygroup')->notice('Cron: token refresh ' . date("Y-m-d H:i:s", $currentTime) . " on $host");
+      \Drupal::logger('access_affinitygroup')->notice('Cron: token refresh ' . date("Y-m-d H:i:s", $currentTime));
 
-      $cca = new ConstantContactApi();
-      $cca->newToken();
+      $support = new ConstantContactApi('support');
+      $support->newToken();
+
+      // Need a pause between api calls.
+      sleep(2);
+
+      $ood = new ConstantContactApi('openondemand');
+      $ood->newToken();
     }
 
     // 2. call xdusage api to get users and create/update their
@@ -1187,18 +1215,27 @@ function shouldRun($function) {
 }
 
 /**
- * Boolean check if user has a CC Id.
+ * Boolean check if user has a CC Id for the specified environment.
+ * If no environment specified, uses current environment.
  */
-function needsCCId($u) {
+function needsCCId($u, $environment = NULL) {
   $ccId = NULL;
   $fVal = $u->get('field_constant_contact_id')->getValue();
   if (!empty($fVal)) {
-    $ccId = $fVal[0]['value'];
+    $ccIdJson = $fVal[0]['value'];
+    if (json_validate($ccIdJson)) {
+      $ccIdArray = json_decode($ccIdJson, TRUE);
+      if ($environment === NULL) {
+        $cca = new \Drupal\access_affinitygroup\Plugin\ConstantContactApi();
+        $environment = $cca->getEnvironment();
+      }
+      $ccId = $ccIdArray[$environment] ?? '';
+    } else {
+      // Handle legacy single CC ID (for backwards compatibility)
+      $ccId = $ccIdJson;
+    }
   }
-  if (!empty($ccId)) {
-    return FALSE;
-  }
-  return TRUE;
+  return empty($ccId);
 }
 
 /**
@@ -1235,11 +1272,11 @@ function isCCEnabled() {
  *  agNames - array of affinity group names for broadcast (for display in email)
  *  ccListIds - array of constant contact list ids corresponding to the affinity groups
  *  communityTemplate - which email template to use.
- *             If true, we use community template, otherwise use the access support template.
+ *             If true, we use community template, otherwise use the ACCESS Support template.
  */
 function emailToAffinityGroups($emailText, $emailTitle, $pubDate, $agNames, $newsUrl, $ccListIds, $communityTemplate, $logoUrl) {
   // For CC, must be unique name for campaign.
-  $campaignName = uniqid('Access Announcement: ' . $agNames[0] . '- ' . $pubDate . ' ', FALSE);
+  $campaignName = uniqid('Community Announcement: ' . $agNames[0] . '- ' . $pubDate . ' ', FALSE);
 
   // Either use email template for access or community.
   $wrapper = new EmailWrapper();
@@ -1270,14 +1307,18 @@ function setupEmailCampaign($emailSubject, $emailHtml, $campaignName) {
     return NULL;
   }
 
+  $cca = new ConstantContactApi();
+  $from_name = $cca->getFromName();
+  $email = $cca->getEmail();
+
   $postData = [
     'name' => $campaignName,
     'email_campaign_activities' => [
       [
         'format_type' => 5,
-        'from_name' => 'ACCESS Support',
-        'from_email' => cAccessEmail,
-        'reply_to_email' => cAccessEmail,
+        'from_name' => $from_name,
+        'from_email' => $email,
+        'reply_to_email' => $email,
         'subject' => $emailSubject,
         'preheader' => $emailSubject,
         'html_content' => $emailHtml,
@@ -1688,7 +1729,6 @@ function webform_submission_affinity_group_affinity_contact(&$form, FormStateInt
   $cc_list_id = $form['elements']['cc_list_id']['#value'];
   $ccListIds = [$cc_list_id];
   $subject = $form['elements']['subject']['#value'];
-  $message = "<p>$subject</p>\n\n";
   $message .= $form['elements']['message']['value']['#value'];
   $message .= '<p>Sent by ' . $form['elements']['name']['#value'] . '</p>';
   $pubDate = date('m/d/Y');

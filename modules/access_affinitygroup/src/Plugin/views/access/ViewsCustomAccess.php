@@ -39,13 +39,11 @@ class ViewsCustomAccess extends AccessPluginBase {
       $access = TRUE;
     }
 
-    // Try to get nid from query parameter first, then from route.
+    // Try to get nid from query string first, then from route.
     $nid = \Drupal::request()->query->get('nid');
     if (!$nid) {
       $node = \Drupal::routeMatch()->getParameter('node');
-      if ($node) {
-        $nid = $node->id();
-      }
+      $nid = $node ? $node->id() : NULL;
     }
 
     if ($nid) {
@@ -55,6 +53,7 @@ class ViewsCustomAccess extends AccessPluginBase {
         foreach ($coordinators as $coordinator) {
           if ($coordinator['target_id'] == $account->id()) {
             $access = TRUE;
+            break;
           }
         }
       }
