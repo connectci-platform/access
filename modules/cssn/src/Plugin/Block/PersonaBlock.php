@@ -272,7 +272,7 @@ class PersonaBlock extends BlockBase {
 
                             <div class="d-flex justify-content-between flex justify-between mb-3 py-3">
                               {% if roles %}
-                                <div><h4 class="mt-0">{{ role_text }}:</h4>{{ roles | raw }}</div>
+                                <div><h4>{{ role_text }}:</h4>{{ roles | raw }}</div>
                               {% endif %}
                               {% if cssn_role %}
                                 <div><i class="text-dark bi-pencil-square"></i> {{ cssn_role }}</div>
