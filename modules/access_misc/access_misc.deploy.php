@@ -226,11 +226,11 @@ function access_misc_deploy_10005() {
     // Process the indexing immediately
     $indexed_count = $ann_index->indexItems();
 
-    return t('Announcments search index has been reindexed. Processed @count items to pick up new field.', [
+    return t('Announcements search index has been reindexed. Processed @count items to pick up new field.', [
       '@count' => $indexed_count,
     ]);
   } else {
-    return t('Warning: Announcments search index not found. Manual reindexing may be required.');
+    return t('Warning: Announcements search index not found. Manual reindexing may be required.');
   }
 }
 
