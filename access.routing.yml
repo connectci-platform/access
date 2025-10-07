@@ -6,3 +6,47 @@ access.autocomplete:
     requirements:
         _access: 'TRUE'
 
+access.api_docs:
+  path: '/api-docs'
+  defaults:
+    _title: 'ACCESS Support API Documentation'
+    _controller: '\Drupal\access\Controller\ApiDocsController::index'
+  requirements:
+    _permission: 'access content'
+  options:
+    _admin_route: FALSE
+
+access.api_docs_events:
+  path: '/api-docs/events'
+  defaults:
+    _title: 'ACCESS Events API Documentation'
+    _controller: '\Drupal\openapi\Controller\OpenApiUiController::generate'
+    openapi_ui: 'swagger'
+    openapi_generator: 'access_events'
+  requirements:
+    _permission: 'access content'
+  options:
+    _admin_route: FALSE
+    parameters:
+      openapi_ui:
+        type: openapi_ui
+      openapi_generator:
+        type: openapi_generator
+
+access.api_docs_announcements:
+  path: '/api-docs/announcements'
+  defaults:
+    _title: 'ACCESS Announcements API Documentation'
+    _controller: '\Drupal\openapi\Controller\OpenApiUiController::generate'
+    openapi_ui: 'swagger'
+    openapi_generator: 'access_announcements'
+  requirements:
+    _permission: 'access content'
+  options:
+    _admin_route: FALSE
+    parameters:
+      openapi_ui:
+        type: openapi_ui
+      openapi_generator:
+        type: openapi_generator
+

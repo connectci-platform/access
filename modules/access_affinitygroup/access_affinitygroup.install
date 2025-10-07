@@ -25,7 +25,7 @@ function access_affinitygroup_update_10002() {
   // Get 'state' taxonomy term IDs for recruiting states.
   $recruiting_term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'recruiting']);
   $in_progress_recruiting_term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'In Progress and Recruiting']);
-  
+
   $term_ids = [];
   if ($recruiting_term) {
     $term_ids[] = array_keys($recruiting_term)[0];
@@ -33,7 +33,7 @@ function access_affinitygroup_update_10002() {
   if ($in_progress_recruiting_term) {
     $term_ids[] = array_keys($in_progress_recruiting_term)[0];
   }
-  
+
   if (!empty($term_ids)) {
     // Get all mentorship nodes currently in recruiting states that are approved and published
     $query = \Drupal::entityQuery('node')
@@ -43,15 +43,138 @@ function access_affinitygroup_update_10002() {
       ->condition('status', 1)
       ->accessCheck(FALSE);
     $existing_recruiting_nids = $query->execute();
-    
+
     // Set these as already notified to prevent sending emails for existing mentorships
     \Drupal::state()->set('access_affinitygroup.notified_mentorships', array_values($existing_recruiting_nids));
-    
+
     $count = count($existing_recruiting_nids);
     \Drupal::logger('access_affinitygroup')->info('Update 10002: Marked @count existing recruiting mentorships (approved and published) as already notified to prevent duplicate emails.', ['@count' => $count]);
-    
+
     return "Marked $count existing recruiting mentorships (approved and published) as already notified.";
   }
-  
+
   return 'No recruiting mentorships found to mark as notified.';
+}
+
+/**
+ * Update user CC ids.
+ */
+function access_affinitygroup_update_10003() {
+  $connection = \Drupal::database();
+  $query = $connection->select('user__field_constant_contact_id', 'cci');
+  $query->fields('cci', ['entity_id', 'field_constant_contact_id_value']);
+  $result = $query->execute()->fetchAll();
+  foreach ($result as $row) {
+    $user_id = $row->entity_id;
+    $cc_id = $row->field_constant_contact_id_value;
+
+    $user_cc_id = [
+      'test' => '',
+      'openondemand' => '',
+      'support' => $cc_id,
+    ];
+
+    $user_cc_id = json_encode($user_cc_id);
+
+    $query = \Drupal::database()->update('user__field_constant_contact_id')
+      ->fields([
+        'field_constant_contact_id_value' => $user_cc_id,
+      ])
+      ->condition('entity_id', $user_id, '=')
+      ->execute();
+  }
+}
+
+/**
+ * Set forced token state.
+ */
+function access_affinitygroup_update_10004() {
+  \Drupal::state()->set('access_affinitygroup.forcedTokenSettings', NULL);
+}
+
+/**
+ * Set Refresh token state.
+ */
+function access_affinitygroup_update_10005() {
+  $current_token = \Drupal::state()->get('access_affinitygroup.refresh_token');
+  $new_token = [
+    "support" => $current_token,
+    "openondemand" => '',
+    "test" => '',
+  ];
+  $new_token = json_encode($new_token);
+  \Drupal::state()->set('access_affinitygroup.refresh_token', $new_token);
+}
+
+/**
+ * Set forced token state.
+ */
+function access_affinitygroup_update_10006() {
+  // Get config setting 'access_affinitygroup.settings'.
+  $ag_config = \Drupal::configFactory()->getEditable('access_affinitygroup.settings');
+
+  // Get access_token
+  $access_token = $ag_config->get('access_token');
+
+  $new_token = [
+    "support" => $access_token,
+    "openondemand" => '',
+    "test" => '',
+  ];
+  $new_token = json_encode($new_token);
+
+  \Drupal::state()->set('access_affinitygroup.access_token', $new_token);
+
+  // Remove config item access_token from above.
+  $ag_config->set('access_token', NULL)->save();
+}
+
+/**
+ * Flag all coordinators.
+ */
+function access_affinitygroup_update_10007() {
+  // mysql lookup table 'node__field_coordinator' and get field_coordinator_target_id and entity_id.
+  $mysql = \Drupal::database();
+  $query = $mysql->select('node__field_coordinator', 'fc');
+  $query->fields('fc', ['entity_id', 'field_coordinator_target_id']);
+  $result = $query->execute()->fetchAll();
+
+  $vid = 'affinity_groups';
+
+  $flag_service = \Drupal::service('flag');
+
+  foreach ($result as $row) {
+    $nid = $row->entity_id;
+    $uid = $row->field_coordinator_target_id;
+
+    // Load node to get title.
+    $node = \Drupal\node\Entity\Node::load($nid);
+    $title = $node->getTitle();
+
+    // Lookup taxonomy term by title.
+    $at_taxonomy = \Drupal::entityTypeManager()
+              ->getStorage('taxonomy_term')
+              ->loadByProperties([
+                      'vid' => $vid,
+                      'name' => $title
+                  ]);
+    $tid = array_key_first($at_taxonomy);
+
+    // Load user.
+    $user = \Drupal\user\Entity\User::load($uid);
+
+    // Load taxonomy entity by tid.
+    $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($tid);
+
+    if ($term && $user) {
+      // Grab flag service for ag.
+      $flag = $flag_service->getFlagById('affinity_group');
+
+      if (!$flag_service->getFlagging($flag, $term, $user)) {
+        // Flag the affinity group term for this coordinator.
+        $flag_service->flag($flag, $term, $user);
+      }
+    }
+
+  }
 }

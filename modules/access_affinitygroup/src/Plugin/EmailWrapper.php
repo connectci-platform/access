@@ -2,6 +2,8 @@
 
 namespace Drupal\access_affinitygroup\Plugin;
 
+use Drupal\access_affinitygroup\Plugin\ConstantContactApi;
+
 /**
  * @file
  * Returns the HTML to send to Constant Contact.
@@ -17,6 +19,41 @@ namespace Drupal\access_affinitygroup\Plugin;
  *
  */
 class EmailWrapper {
+
+  private $bgcolor = '#ED3F27';
+  private $titleBgColor = '#134686';
+  private $titleColor = '#134686';
+  private $linkBackground = '#C91235';
+  private $linkColor = '#ffffff';
+  private $linkHoverBackground = '#545860';
+  private $linkHoverBorderColor = '#545860';
+
+  /**
+   * Template colors.
+   */
+  public function __construct() {
+    $cca = new ConstantContactApi();
+    $env = $cca->getEnvironment();
+
+    if ($env == 'support') {
+      $this->bgcolor = '#138597';
+      $this->titleBgColor = '#1a5b6e';
+      $this->titleColor = 'rgb(26, 91, 110)';
+      $this->linkBackground = '#ffc42d';
+      $this->linkColor = '#000000';
+      $this->linkHoverBackground = '#ffffff';
+      $this->linkHoverBorderColor = '#000000';
+    }
+    elseif ($env == 'openondemand') {
+      $this->bgcolor = '#DDDEDF';
+      $this->titleBgColor = '#545860';
+      $this->titleColor = '#545860';
+      $this->linkBackground = '#C91235';
+      $this->linkColor = '#ffffff';
+      $this->linkHoverBackground = '#545860';
+      $this->linkHoverBorderColor = '#545860';
+    }
+  }
 
   /**
    * NewsBody: the next text
@@ -34,6 +71,7 @@ class EmailWrapper {
       $agText = $agText . $or . $agName;
       $or = ' or ';
     }
+
     $agText = 'You are receiving this email through the ' . $agText . ' Affinity Group.';
 
     $pubDateDisplay = NULL;
@@ -100,18 +138,18 @@ class EmailWrapper {
               font-size: 16px!important;
               font-weight: bold!important;
               text-decoration: none!important;
-              background-color:#ffc42d!important;
-              border-color:#ffc42d!important;
+              background-color:$this->linkBackground!important;
+              border-color:$this->linkBackground!important;
               width: fit-content!important;
-              color: #000000!important;
+              color: $this->linkColor!important;
               padding: 10px 20px;
               border: 4px solid;
               margin-bottom:15px;
             }
 
             a.view-on-website-btn:hover {
-              background-color: #ffffff!important;
-              border-color:black!important;
+              background-color: $this->linkHoverBackground!important;
+              border-color: $this->linkHoverBorderColor!important;
               border: 4px solid;
             }
 
@@ -119,7 +157,7 @@ class EmailWrapper {
               margin-bottom: 10px!important;
             }
 
-              @media only screen and (max-width:480px) {
+              @media only screen and (max-width:1200px) {
                   # .footer-main-width {
                       width: 100% !important;
                   }
@@ -201,7 +239,7 @@ class EmailWrapper {
               .text .text_content-cell {}
           </style>
           <style>
-              @media only screen and (max-width:480px) {
+              @media only screen and (max-width:1200px) {
                    .button_content-cell {
                       padding-top: 10px !important;
                       padding-right: 20px !important;
@@ -310,13 +348,13 @@ class EmailWrapper {
           </style>
           <div>
 
-              <div lang="en-US" style="background-color:#138597;" class="shell">
-                  <table width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color:#138597;"
-                      bgcolor="#138597" class="shell_panel-row">
+              <div lang="en-US" style="background-color:$this->bgcolor;" class="shell">
+                  <table width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color:$this->bgcolor;"
+                      bgcolor="$this->bgcolor" class="shell_panel-row">
                       <tbody>
                           <tr>
                               <td style="" align="center" valign="top" class="shell_panel-cell">
-                                  <table style="width:700px;" align="center" border="0" cellpadding="0" cellspacing="0"
+                                  <table style="width:90%; max-width:700px;" align="center" border="0" cellpadding="0" cellspacing="0"
                                       class="shell_width-row scale">
                                       <tbody>
                                           <tr>
@@ -330,9 +368,9 @@ class EmailWrapper {
                                                                   align="center" valign="top" bgcolor="#ffffff"
                                                                   class="shell_content-cell">
                                                                   <table
-                                                                      style="background-color:#1a5b6e;table-layout:fixed;"
+                                                                      style="background-color:$this->titleBgColor;table-layout:fixed;"
                                                                       width="100%" border="0" cellpadding="0"
-                                                                      cellspacing="0" bgcolor="#1a5b6e"
+                                                                      cellspacing="0" bgcolor="$this->titleBgColor"
                                                                       class="layout layout--1-column">
                                                                       <tbody>
                                                                           <tr>
@@ -399,7 +437,7 @@ class EmailWrapper {
                                                                                                   valign="top"
                                                                                                   class="text_content-cell content-padding-horizontal">
                                                                                                   <p style="margin:0;">
-                                                                                                      <span style="font-size:16px;font-weight:bold;color:rgb(26, 91, 110);">
+                                                                                                      <span style="font-size:16px;font-weight:bold;color:$this->titleColor;">
                                                                                                       $newsTitle
                                                                                                       </span>
                                                                                                   </p>
@@ -523,7 +561,7 @@ SECTIONHEADHTML;
                         style="text-align: center; font-family: Roboto,sans-serif; color:#4d4d4d; font-size:12px; line-height:1.2;
                         display:block; word-wrap: break-word; padding: 10px 40px;" align="center" valign="top">
                 <h3 style="text-align:left; font-family:Roboto,sans-serif; color: #3E3E3E; background-color: rgb(236 249 248); font-size: 18px; font-weight:bold; padding: 8px 10px; margin:0;" align="left">
-                  <span style="font-family:Roboto,sans-serif; color:#1a5b6e;">$titleText</span>
+                  <span style="font-family:Roboto,sans-serif; color:$this->titleBgColor;">$titleText</span>
                 </h3>
               </td>
             </tr>
@@ -677,7 +715,7 @@ DIVIDERHTML;
 
     // Line at the top that lists AG groups.
     $topExtra = <<<TOPEXTRA
-    <table style="background-color:#1a5b6e;table-layout:fixed;" width="100%" border="0" cellpadding="0" cellspacing="0"  bgcolor="#1a5b6e">
+    <table style="background-color:$this->titleBgColor;table-layout:fixed;" width="100%" border="0" cellpadding="0" cellspacing="0"  bgcolor="$this->titleBgColor">
       <tbody>
         <tr>
           <td style="width:100%;" align="center" valign="top ">
@@ -810,17 +848,17 @@ DIVIDERHTML;
         font-size: 16px!important;
         font-weight: bold!important;
         text-decoration: none!important;
-        background-color:#ffc42d!important;
-        border-color:#ffc42d!important;
+        background-color:$this->linkBackground!important;
+        border-color:$this->linkBackground!important;
         width: fit-content!important;
-        color: #000000!important;
+        color: $this->linkColor!important;
         padding: 10px 20px!important;
         border: 4px solid;
       }
 
       a.view-on-website-btn:hover {
-        background-color: #ffffff!important;
-        border-color:black!important;
+        background-color: $this->linkHoverBackground!important;
+        border-color: $this->linkHoverBorderColor!important;
         border: 4px solid;
       }
        p {
@@ -847,7 +885,7 @@ DIVIDERHTML;
         padding-bottom: 20px;
       }
 
-      @media only screen and (max-width:480px) {
+      @media only screen and (max-width:1200px) {
         .footer-main-width {
           width: 100% !important;
         }
@@ -959,7 +997,7 @@ DIVIDERHTML;
     </style>
     <![endif]-->
     <style>
-      @media only screen and (max-width:480px) {
+      @media only screen and (max-width:1200px) {
         .button_content-cell {
           padding-top: 10px !important;
           padding-right: 20px !important;
@@ -1078,11 +1116,11 @@ DIVIDERHTML;
     [[trackingImage]]
     <div id="tracking-image" style="color: transparent; display: none; font-size: 1px; line-height: 1px; max-height: 0px; max-width: 0px;
              opacity: 0; overflow: hidden;"></div>
-    <div class="shell" lang="en-US" style="background-color:// 1a5b6e;">
-      <table class="shell_panel-row" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color:#1a5b6e;" bgcolor="#1a5b6e">
+    <div class="shell" lang="en-US" style="background-color:$this->titleBgColor">
+      <table class="shell_panel-row" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color:$this->titleBgColor;" bgcolor="$this->titleBgColor">
         <tr class="" >
           <td class="shell_panel-cell" style="" align="center" valign="top">
-            <table class="shell_width-row scale" style="width: 700px;" align="center" border="0" cellpadding="0" cellspacing="0">
+            <table class="shell_width-row scale" style="width:90%; max-width:700px;" align="center" border="0" cellpadding="0" cellspacing="0">
               <tr>
                 <td class="shell_width-cell" style="padding: 15px 10px;" align="center" valign="top">
                   <table class="shell_content-row" width="100%" align="center" border="0" cellpadding="0" cellspacing="0">

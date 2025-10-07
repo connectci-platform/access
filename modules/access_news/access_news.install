@@ -21,6 +21,26 @@ function access_news_update_10000() {
 }
 
 /**
+ * Reindex the announcements search API index for v2.2 API.
+ */
+function access_news_update_10001() {
+  _access_news_index_announcements();
+}
+
+/**
+ * Rebuild search API indexes after adding EventAffinityGroup processor.
+ */
+function access_news_update_10002() {
+  // Clear caches to ensure new processor is recognized
+  drupal_flush_all_caches();
+  
+  // Rebuild both events and announcements indexes
+  _access_news_index_announcements();
+  _access_news_index_events();
+}
+
+
+/**
  * Helper function to rebuild and index the announcements search API index.
  */
 function _access_news_index_announcements() {
@@ -43,5 +63,31 @@ function _access_news_index_announcements() {
     }
   } catch (Exception $e) {
     \Drupal::logger('access_news')->error('Failed to index announcements search API: @error', ['@error' => $e->getMessage()]);
+  }
+}
+
+/**
+ * Helper function to rebuild and index the events search API index.
+ */
+function _access_news_index_events() {
+  try {
+    // Load the index using entity type manager (following Drupal patterns)
+    $index = \Drupal::entityTypeManager()->getStorage('search_api_index')->load('events');
+    if ($index) {
+      // Clear the index first to ensure clean rebuild
+      $index->clear();
+      
+      // Reindex all items (queues them)
+      $index->reindex();
+      
+      // Process the indexing queue immediately (don't wait for cron)
+      $indexed = $index->indexItems(-1); // -1 means index all queued items
+      
+      \Drupal::logger('access_news')->info('Successfully rebuilt and indexed @count events in search API.', ['@count' => $indexed]);
+    } else {
+      \Drupal::logger('access_news')->warning('Events search API index not found.');
+    }
+  } catch (Exception $e) {
+    \Drupal::logger('access_news')->error('Failed to index events search API: @error', ['@error' => $e->getMessage()]);
   }
 }

@@ -1,0 +1,316 @@
+openapi: 3.0.3
+info:
+  title: ACCESS Announcements API
+  description: |
+    The ACCESS Announcements API provides access to news, updates, and announcements from the ACCESS community.
+    
+    ## Features
+    - **Pagination**: Default 25 items per page, customizable with `items_per_page` parameter
+    - **Faceted Filtering**: Filter by tags, affiliation, affinity groups, and date ranges
+    - **Full-text Search**: Search across announcement titles and content with `search_api_fulltext` parameter
+    - **CORS Enabled**: Can be called from any domain
+    - **Domain Filtering**: Automatically filters content by domain context
+    - **Date Filtering**: Support for both relative and absolute date formats
+    
+    ## Authentication
+    No authentication required - this is a public API.
+    
+  version: 2.2.0
+  termsOfService: https://access-ci.org/terms
+  contact:
+    name: ACCESS Support
+    url: https://support.access-ci.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://support.access-ci.org/api/2.2
+    description: Production server
+
+paths:
+  /announcements:
+    get:
+      summary: Get announcements list
+      description: |
+        Retrieve a list of announcements with optional filtering and pagination.
+        
+        ## Pagination
+        - Default: Returns all available announcements 
+        - Use `page` parameter for pagination navigation (0-indexed)
+        - Use `items_per_page` with predefined values: 5, 10, 25, 50, or "All"
+        - Example: `?items_per_page=10&page=0` gets first 10 items, `?items_per_page=10&page=1` gets next 10 items
+        
+        ## Filtering
+        **Important:** All filters are optional. Leave them empty to get all announcements. Combining multiple filters may result in very few or no results.
+        
+        **Tags:** Filter by single tag (partial matching)
+        - `tags=ai` - Announcements containing 'ai' in their tags
+        - Note: Only single tag filtering supported, not multiple tags
+        
+        **Affinity Groups:** Filter by affinity group
+        - `ag=Community` - Announcements for the Community affinity group
+        
+        **Affiliation:** Filter by organization affiliation
+        - `affiliation=ACCESS` - Announcements from ACCESS-affiliated organizations
+        
+        **Date Range:** Filter by publication date
+        - `start_date=2024-01-01&end_date=2024-12-31` - Announcements published in 2024
+        
+        ## Domain Context
+        Results are automatically filtered based on the domain from which the API is accessed.
+        ACCESS domain will show ACCESS-specific announcements, Campus Champions domain
+        will show Campus Champions announcements, etc.
+        
+      operationId: getAnnouncements
+      tags:
+        - Announcements
+      parameters:
+        # Pagination Parameters
+        - name: items_per_page
+          in: query
+          description: Number of items per page (must be one of the predefined values)
+          required: false
+          schema:
+            oneOf:
+              - type: integer
+                enum: [5, 10, 25, 50]
+              - type: string
+                enum: ["All"]
+            default: 10
+        - name: page
+          in: query
+          description: |
+            Page number for pagination (0-indexed).
+            Page 0 returns the first set of results, page 1 returns the next set, etc.
+            Must be used with items_per_page parameter.
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          example: 1
+            
+        # Filtering Parameters
+        - name: tags
+          in: query
+          description: |
+            Filter by single announcement tag (partial matching).
+            
+            **Common tags include:**
+            - ai
+            - ACCESS
+            - training
+            - research
+            - community
+          required: false
+          schema:
+            type: string
+          examples:
+            empty:
+              value: ""
+              summary: No filter (returns all announcements)
+            ai_tag:
+              value: "ai"
+              summary: Filter by AI-related announcements
+            access_tag:
+              value: "ACCESS"
+              summary: Filter by ACCESS-related announcements
+              
+        - name: ag
+          in: query
+          description: Filter by affinity group
+          required: false
+          schema:
+            type: string
+          examples:
+            empty:
+              value: ""
+              summary: No filter (returns all announcements)
+            stampede3:
+              value: "Stampede-3"
+              summary: Filter by Stampede-3 affinity group
+            anvil:
+              value: "Anvil"
+              summary: Filter by Anvil affinity group
+              
+        - name: affiliation
+          in: query
+          description: Filter by organization affiliation
+          required: false
+          schema:
+            type: string
+          examples:
+            empty:
+              value: ""
+              summary: No filter (returns all announcements)
+            access_collaboration:
+              value: "ACCESS Collaboration"
+              summary: Filter by ACCESS Collaboration affiliation
+            community:
+              value: "Community"
+              summary: Filter by Community affiliation
+              
+        # Date Filtering Parameters
+        - name: start_date
+          in: query
+          description: Filter announcements published on or after this date (YYYY-MM-DD format)
+          required: false
+          schema:
+            type: string
+            format: date
+          example: "2024-01-01"
+          
+        - name: end_date
+          in: query
+          description: Filter announcements published on or before this date (YYYY-MM-DD format)
+          required: false
+          schema:
+            type: string
+            format: date
+          example: "2024-12-31"
+          
+        # Full-text Search Parameter
+        - name: search_api_fulltext
+          in: query
+          description: |-
+            Full-text search across announcement titles and content.
+            
+            **Examples:**
+            - `search_api_fulltext=PSC` - Search for announcements containing "PSC"
+            - `search_api_fulltext=Anvil` - Search for Anvil-related announcements
+            - `search_api_fulltext=funding opportunities` - Search for funding-related announcements
+          required: false
+          schema:
+            type: string
+          examples:
+            empty:
+              value: ""
+              summary: No search filter (returns all announcements)
+            psc_search:
+              value: "PSC"
+              summary: Search for PSC-related announcements
+            anvil_search:
+              value: "Anvil"
+              summary: Search for Anvil-related announcements
+            funding_search:
+              value: "funding opportunities"
+              summary: Search for funding opportunities
+            
+      responses:
+        '200':
+          description: Successful response with announcements list
+          headers:
+            Access-Control-Allow-Origin:
+              description: CORS header allowing all origins
+              schema:
+                type: string
+                example: "*"
+            Access-Control-Allow-Headers:
+              description: CORS header allowing all headers
+              schema:
+                type: string
+                example: "*"
+            Access-Control-Allow-Methods:
+              description: CORS header allowing all methods
+              schema:
+                type: string
+                example: "*"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Announcement'
+              examples:
+                announcements_list:
+                  summary: Example announcements response
+                  value:
+                    - title: "New Funding Opportunity for AI Research"
+                      summary: "The NSF has announced a new funding opportunity for artificial intelligence research projects focusing on innovative applications..."
+                      body: "<p>The NSF has announced a new funding opportunity for artificial intelligence research projects...</p>"
+                      published_date: "2024-09-15"
+                      affinity_group: "Stampede-3, Anvil"
+                      tags: "funding,ai,research"
+                      affiliation: "ACCESS Collaboration,Community"
+                      
+        '400':
+          description: Bad request - invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_date:
+                  summary: Invalid date format
+                  value:
+                    error: "Invalid date format"
+                    message: "Date must be in YYYY-MM-DD format"
+                    
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Announcement:
+      type: object
+      description: An ACCESS community announcement
+      required:
+        - title
+        - body
+        - published_date
+      properties:
+        title:
+          type: string
+          description: Announcement title
+          example: "New Funding Opportunity for AI Research"
+        summary:
+          type: string
+          description: Brief summary/excerpt of the announcement (max 600 characters)
+          example: "The NSF has announced a new funding opportunity for artificial intelligence research projects focusing on innovative applications..."
+        body:
+          type: string
+          description: Full HTML body of the announcement
+          example: "<p>The NSF has announced a new funding opportunity for artificial intelligence research projects...</p>"
+        published_date:
+          type: string
+          format: date
+          description: Publication date (YYYY-MM-DD format)
+          example: "2024-09-15"
+        affinity_group:
+          type: string
+          description: Comma-separated list of affinity groups this announcement is relevant to
+          example: "Research, Community"
+        tags:
+          type: string
+          description: Comma-separated list of tags for categorization and filtering
+          example: "funding,ai,research"
+        affiliation:
+          type: string
+          description: Comma-separated list of organizational affiliations
+          example: "ACCESS Collaboration,Community"
+          
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error type
+        message:
+          type: string
+          description: Human-readable error message
+        code:
+          type: integer
+          description: HTTP status code
+          
+tags:
+  - name: Announcements
+    description: ACCESS community announcements and news
+
+externalDocs:
+  description: Find out more about ACCESS
+  url: https://access-ci.org

@@ -227,12 +227,12 @@ class AllocationsUsersImport {
     $portalUserNames = NULL;
     $this->currentNumber = 0;
     try {
-      $cca = new ConstantContactApi();
+      $cca = new ConstantContactApi('support');
       if (!$cca->getConnectionStatus()) {
         \Drupal::logger('cron_affinitygroup')->error('Allocations imports: Contant Contact not connected.');
         return NULL;
       }
-      // Get access support affinity group node for later.
+      // Get ACCESS Support affinity group node for later.
       $nArray = \Drupal::entityQuery('node')
         ->accessCheck(FALSE)
         ->condition('type', 'affinity_group')
@@ -459,7 +459,7 @@ class AllocationsUsersImport {
           $needCCId = TRUE;
           if ($userDetails) {
             $this->userDetailUpdates($userDetails, $aUser);
-            $needCCId = needsCCId($userDetails);
+            $needCCId = needsCCId($userDetails, 'support');
           }
 
           // Did not have the user, so create it.
@@ -587,7 +587,13 @@ class AllocationsUsersImport {
       return FALSE;
     }
     else {
-      $u->set('field_constant_contact_id', $ccId);
+      $user_cc_id = [
+        'test' => '',
+        'openondemand' => '',
+        'support' => $ccId,
+      ];
+      $user_cc_id = json_encode($user_cc_id);
+      $u->set('field_constant_contact_id', $user_cc_id);
       $u->save();
       $this->collectCronLog("Id from Constant Contact:  $uEmail", 'd');
       return TRUE;
@@ -649,11 +655,13 @@ class AllocationsUsersImport {
     $policy_subtype = 'allocation_error';
     $role = 'site_developer';
     $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-    $variables = [
-      'body' => $body,
-    ];
+    if (!empty($site_dev_emails)) {
+      $variables = [
+        'body' => $body,
+      ];
 
-    \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+      \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+    }
   }
 
   /**
@@ -761,8 +769,10 @@ class AllocationsUsersImport {
         if (!empty($ccIdField)) {
           $ccId = $ccIdField[0]['value'];
           if (!empty($ccId)) {
+            $ccIdArray = json_decode($ccId, TRUE);
+            $ccId = (is_array($ccIdArray) && isset($ccIdArray['support'])) ? $ccIdArray['support'] : null;
             if (!$this->batchNoCC && !$this->batchNoUserDetSave) {
-              $cca = new ConstantContactApi();
+              $cca = new ConstantContactApi('support');
               $cca->setSupressErrDisplay(TRUE);
               $cca->updateContact($ccId, $a['firstName'], $a['lastName'], $a['email']);
             }
@@ -867,7 +877,7 @@ class AllocationsUsersImport {
       $this->collectCronLog("...error in subscribe; possible missing CC ID", 'err');
     }
     else {
-      $cca = new ConstantContactApi();
+      $cca = new ConstantContactApi('support');
       $cca->setSupressErrDisplay(TRUE);
       $cca->apiCall('/activities/add_list_memberships', $postJSON, 'POST');
     }
@@ -932,7 +942,7 @@ class AllocationsUsersImport {
       ->accessCheck(FALSE)
       ->execute();
     $nodes = Node::loadMultiple($nids);
-    $cca = new ConstantContactApi();
+    $cca = new ConstantContactApi('support');
 
     foreach ($nodes as $node) {
       $agCount += 1;
@@ -963,6 +973,8 @@ class AllocationsUsersImport {
           $field_val = $user->get('field_constant_contact_id')->getValue();
           if (!empty($field_val) && $field_val != 0) {
             $ccId = $field_val[0]['value'];
+            $ccIdArray = json_decode($ccId, TRUE);
+            $ccId = (is_array($ccIdArray) && isset($ccIdArray['support'])) ? $ccIdArray['support'] : null;
             // Check to see of it's a good CC Id.
             // preventing attempts to work with an obfuscated CC Id.
             if (strlen($ccId) == 36) {

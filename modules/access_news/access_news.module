@@ -23,31 +23,52 @@ define('ACCESS_SUPPPORT_URL', "https://support.access-ci.org");
  * Implements hook_views_pre_view() for node templates.
  */
 function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
-  // Only process access_news view
-  if ($view->id() != 'access_news') {
+  // Only process News and Announcements views
+  if (!in_array($view->id(), ['access_news', 'access_announcements'])) {
     return;
   }
-  
-  $current_display = $view->getDisplay()->view->element['#display_id'];
-  
+
+  $current_display = $display_id;
+
   // Define which displays need domain filtering
   $domain_filtered_displays = [
     'block_1' => SiteTools::DOMAIN_CURRENT,
     'latest_news_block' => SiteTools::DOMAIN_CURRENT,
     'mrollup_list_block' => SiteTools::DOMAIN_ACCESS_SUPPORT,
+    'rest_export_1' => SiteTools::DOMAIN_CURRENT,
+    'rest_export_2' => SiteTools::DOMAIN_CURRENT,
   ];
-  
+
   // Apply domain filtering if this display is in our list
   if (isset($domain_filtered_displays[$current_display])) {
     $view_filters = $view->display_handler->getOption('filters');
-    
+
     // Determine which domain to use
     $domain = ($domain_filtered_displays[$current_display] === SiteTools::DOMAIN_CURRENT)
       ? \Drupal::service('access_misc.sitetools')->getDomainId()
       : $domain_filtered_displays[$current_display];
-    
-    $view_filters['field_domain_access_target_id']['value'] = [$domain => $domain];
-    $view->display_handler->setOption('filters', $view_filters);
+
+    // Use appropriate field name based on view type
+    $domain_field = ($view->id() == 'access_announcements') ? 'field_domain_access' : 'field_domain_access_target_id';
+
+    // Only apply filtering if the domain field exists
+    if (isset($view_filters[$domain_field])) {
+      // Handle different filter value structures
+      if (is_array($view_filters[$domain_field]['value'])) {
+        // If it's an array structure (like min/max/value), preserve the structure
+        if (isset($view_filters[$domain_field]['value']['value'])) {
+          $view_filters[$domain_field]['value']['value'] = $domain;
+        } else {
+          // If it's a simple associative array
+          $view_filters[$domain_field]['value'] = [$domain => $domain];
+        }
+      } else {
+        // If it's a simple string value
+        $view_filters[$domain_field]['value'] = $domain;
+      }
+
+      $view->display_handler->setOption('filters', $view_filters);
+    }
   }
 }
 
@@ -55,8 +76,30 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
  * Implements hook_form_alter().
  */
 function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+
+  $domain = \Drupal::service('access_misc.sitetools')->getDomain();
+
+  if ($domain != 'access-support' && ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form')) {
+    $form['field_affiliation']['#access'] = FALSE;
+    unset($form['field_choose_where_to_share_this']['widget']['#options']['in_the_access_support_bi_weekly_digest']);
+  }
+
   // Suggest tags for announcements.
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form') {
+    // Replace title of 'Affiliation' and 'Choose where to share this Announcment' with h4
+    $fields = ['field_affiliation', 'field_choose_where_to_share_this'];
+
+    foreach ($fields as $field) {
+      $title = $form[$field]['widget']['#title'];
+      $form[$field]['widget']['#prefix'] = "<h4>$title</h4>";
+      $form[$field]['widget']['#title'] = "<span class='hidden'>$title</span>";
+    }
+
+    // Replace title of 'External Link' with h4
+    $el_title = $form['field_news_external_link']['widget'][0]['#title'];
+    $form['field_news_external_link']['widget'][0]['#prefix'] = "<h4>$el_title</h4>";
+    $form['field_news_external_link']['widget'][0]['#title'] = "<span class='hidden'>$el_title</span>";
+
     $form['field_tags_replace'] = [
       '#type' => 'container',
       '#attributes' => [
@@ -116,6 +159,8 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
     ];
     // Attach javascript.
     $form['#attached']['library'][] = 'access_misc/node_add_tags';
+
+    $form['#validate'][] = 'access_news_ag_validate';
   }
 
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form') {
@@ -214,6 +259,34 @@ function access_news_replace_section_callback(array &$form, FormStateInterface $
 
   // Return the updated section.
   return $form['field_tags_replace'];
+}
+
+/**
+ * Custom validation callback.
+ *
+ * Make sure AG is selected with proper checkboxes.
+ */
+function access_news_ag_validate(&$form, FormStateInterface $form_state) {
+  // Get the value of the field_choose_where_to_share_this field.
+  $values = $form_state->getValues();
+  $share_options = $values['field_choose_where_to_share_this'] ?? [];
+  $ag = $values['field_affinity_group_node'] ?? [];
+
+  $no_ag = TRUE;
+  foreach ($ag as $key => $value) {
+    if (is_array($value) && !empty($value['target_id'])) {
+      $no_ag = FALSE;
+    }
+  }
+
+  if ($no_ag) {
+    foreach ($share_options as $key => $value) {
+      if ($value['value'] == 'email_to_your_affinity_group' || $value['value'] == 'on_your_affinity_group_page') {
+        $form_state->setErrorByName('field_affinity_group_node', t('You must select at least one Affinity Group when choosing to email your Affinity Groups or place the announcement on your Affinity Group Page.'));
+      }
+    }
+  }
+
 }
 
 /**
@@ -415,8 +488,15 @@ function access_news_entity_update(EntityInterface $node) {
 function affinityGroupBroadcast(EntityInterface $node, $newsType) {
 
   $getFields = $node->getFields();
-  $broadcastArray = $getFields['field_broadcast_affinity_groups']->getValue();
-  if (!count($broadcastArray)) {
+  $broadcastArray = $getFields['field_choose_where_to_share_this']->getValue();
+  $broadcast = 0;
+  foreach ($broadcastArray as $key => $value) {
+    if ($value['value'] == 'email_to_your_affinity_group') {
+      $broadcast = 1;
+      unset($broadcastArray[$key]);
+    }
+  }
+  if (!$broadcast) {
     return;
   }
   $broadcastToAGs = $broadcastArray[0]['value'];
@@ -506,7 +586,7 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
 
         // Now emailing the group; set option broadcast off. If user wants to email again after
         // and edit, they will need to check the box again.
-        $node->set('field_broadcast_affinity_groups', [0]);
+        $node->set('field_choose_where_to_share_this', $broadcastArray);
         $node->save();
 
         emailToAffinityGroups(
@@ -537,9 +617,9 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
 function weeklyNewsReport($noSend) {
 
   try {
-    // Gather all news published from 7 days ago until today.
+    // Gather all news published from 14 days ago until today.
     // need to make dates for searching on published_date (not date+time)
-    $dtLastWeek = new \DateTime('-7 days');
+    $dtLastWeek = new \DateTime('-14 days');
     $dtToday = new \DateTime('today');
     $dtTomorrow = new \DateTime('tomorrow');
     $utmCampaign = 'Digest-' . $dtTomorrow->format('mdy');
@@ -682,7 +762,8 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
       ->condition('field_published_date.value', $fromDate, '>=')
       ->condition('field_published_date.value', $toDate, '<=')
       ->condition('type', 'access_news')
-      ->condition('field_domain_source', SiteTools::DOMAIN_ACCESS_SUPPORT)
+      ->condition('field_domain_access', SiteTools::DOMAIN_ACCESS_SUPPORT)
+      ->condition('field_choose_where_to_share_this', 'in_the_access_support_bi_weekly_digest')
       ->accessCheck(FALSE)
       ->execute();
 
@@ -769,10 +850,25 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
         $eCount += 1;
         $series = $enode->getEventSeries();
         $series_id = $series->id();
-        $no_share = $series->get('field_event_no_listing')->value;
+        // todo: Replace with new where to share checkbox soon.
+        //$no_share = $series->get('field_event_no_listing')->value;
+
+        $where_share = $series->get('field_choose_where_to_share_this');
+        $no_share = 1;
+        foreach ($where_share as $ws) {
+          if ($ws->value == 'in_the_access_support_bi_weekly_digest') {
+            $no_share = 0;
+          }
+        }
+
         $recur_type = $series->get('recur_type')->value;
 
-        if ($series->field_event_type->value != $type || $no_share) {
+        if ($series->field_event_type->value != $type) {
+          continue;
+        }
+
+        // Show only if marked to share in digest.
+        if ($no_share) {
           continue;
         }
 
@@ -811,8 +907,15 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
         $dateTimeDisp = $startEvent->format('n/j/Y g:i a')
           . ' - ' . $endDisplay . " " . $tz;
 
-        $body = empty($enode->description[0]) ? '' : $enode->description[0]->view('rollup_list');
-        $bodyDisp = \Drupal::service('renderer')->renderPlain($body);
+        $summary = $series->get('field_summary')->value;
+        if ($summary == NULL) {
+          $body = empty($enode->description[0]) ? '' : $enode->description[0]->view('rollup_list');
+          $body = \Drupal::service('renderer')->renderPlain($body);
+        }
+        else {
+          $body = '<p>' . $summary . '</p>';
+        }
+        $bodyDisp = $body;
 
         // $location = empty($enode->location[0]) ? '' : $enode->location[0]->view('rollup_list');
         // $locationDisp = \Drupal::service('renderer')->renderPlain($location);
