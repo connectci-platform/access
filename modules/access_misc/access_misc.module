@@ -488,7 +488,9 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
   // Project tweak: /form/project
   if ($form_id == 'webform_submission_project_add_form') {
     $program = \Drupal::service('access_misc.sitetools')->getProgram();
-    $form['elements']['region']['#default_value'] = $program;
+    if ($program) {
+      $form['elements']['region']['#default_value'] = $program;
+    }
   }
 
   if ($form_id == 'views_exposed_form' && array_key_exists('filter-search_api_fulltext', $form['#info'])) {
