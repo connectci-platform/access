@@ -1116,7 +1116,7 @@ DIVIDERHTML;
     [[trackingImage]]
     <div id="tracking-image" style="color: transparent; display: none; font-size: 1px; line-height: 1px; max-height: 0px; max-width: 0px;
              opacity: 0; overflow: hidden;"></div>
-    <div class="shell" lang="en-US" style="background-color:// $this->titleBgColor">
+    <div class="shell" lang="en-US" style="background-color:$this->titleBgColor">
       <table class="shell_panel-row" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color:$this->titleBgColor;" bgcolor="$this->titleBgColor">
         <tr class="" >
           <td class="shell_panel-cell" style="" align="center" valign="top">
