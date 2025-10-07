@@ -218,7 +218,7 @@ class ConstantContactApi {
     $from = [
       'test' => 'Test Account',
       'support' => 'ACCESS Support',
-      'openondemand' => 'Open onDemand Community Hub',
+      'openondemand' => 'Open OnDemand Community Hub',
     ];
 
     return $from[$env];

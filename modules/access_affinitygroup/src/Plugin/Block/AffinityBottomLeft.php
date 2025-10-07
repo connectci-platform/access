@@ -42,7 +42,10 @@ class AffinityBottomLeft extends BlockBase {
       $eiids[] = $this->getEventInstances($es);
       foreach ($eiids as $e) {
         foreach ($e as $ei) {
-          $eiid[] = [$ei];
+          $eiid[] = [
+            'id' => $ei,
+            'attached_to' => 'event',
+          ];
         }
       }
     }
@@ -54,7 +57,10 @@ class AffinityBottomLeft extends BlockBase {
         $eiids[] = $this->getEventInstances($event['target_id']);
         foreach ($eiids as $e) {
           foreach ($e as $ei) {
-            $eiid[] = [$ei];
+            $eiid[] = [
+              'id' => $ei,
+              'attached_to' => 'ag',
+            ];
           }
         }
       }
@@ -62,21 +68,39 @@ class AffinityBottomLeft extends BlockBase {
     $event_list = [];
     if (!empty($eiid)) {
       foreach ($eiid as $ei) {
-        $ei = reset($ei);
-        $event = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($ei);
+        $eid = $ei['id'];
+        $type = $ei['attached_to'];
+        $event = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eid);
+
+        $eventseries = $event->getEventSeries();
+
+        // Check if event is set to share on Affinity Group page.
+        if ($type == 'event') {
+          $where = $eventseries->get('field_choose_where_to_share_this')->getValue();
+          $show_on_ag_page = FALSE;
+          foreach ($where as $w) {
+            if ($w['value'] == 'on_your_affinity_group_page') {
+              $show_on_ag_page = TRUE;
+            }
+          }
+        } else {
+          // Event added directly to Affinity Group, so show it.
+          $show_on_ag_page = TRUE;
+        }
+
         $event_status = $event->get('status')->getValue()[0]['value'];
         $event_date = $event->get('date')->getValue()[0]['value'];
         // Setup date in same format as today's date so I can get future events.
         $start_date = date_create($event_date);
         $edate = date_format($start_date, "Y-m-d");
         $date_now = date("Y-m-d");
-        if ($event_status && $date_now <= $edate) {
+        if ($event_status && $date_now <= $edate && $show_on_ag_page) {
           $series = $event->getEventSeries();
           $series_title = $series->get('title')->getValue()[0]['value'];
           $link = [
             '#type' => 'link',
             '#title' => $series_title,
-            '#url' => Url::fromUri('internal:/events/' . $ei),
+            '#url' => Url::fromUri('internal:/events/' . $eid),
             '#attributes' => [
               'class' => [
                 'block',
@@ -88,7 +112,7 @@ class AffinityBottomLeft extends BlockBase {
             ],
           ];
           $link_name = \Drupal::service('renderer')->render($link)->__toString();
-          $event_list[$ei] = [
+          $event_list[$eid] = [
             'date' => $event_date,
             'title' => $link_name,
           ];
@@ -135,6 +159,10 @@ class AffinityBottomLeft extends BlockBase {
     */
     $nid = $node ? $node->id() : 291;
 
+    // Get field_affinity_announcements from node.
+    //$node = \Drupal\node\Entity\Node::load($nid);
+    //$ag_announcements = $node->get('field_affinity_announcements')->getValue();
+
     /**
     * Load Announcement view.
     */
@@ -145,6 +173,7 @@ class AffinityBottomLeft extends BlockBase {
     $announcement_list = $announcement_view->render();
     $output .= '<div class="bg-md-teal mb-10"><div class="p-4">';
     $output .= \Drupal::service('renderer')->render($announcement_list);
+
     if ($announcement_list['#rows']) {
       $announcment_count = count($announcement_list['#rows'][0]['#rows']);
       if ($announcment_count > 4) {
