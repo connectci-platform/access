@@ -246,14 +246,14 @@ class PersonaBlock extends BlockBase {
                                 <h4 class="mt-0">{{ profile_text }}</h4>
 
                                 {% if askci %}
-                                  <a href="https://ask.ci.org/u/{{ askci }}" class="d-flex flex mt-3 text-decoration-none no-underline" target="_blank" rel="noopener noreferrer">
+                                  <a href="https://ask.cyberinfrastructure.org/u/{{ askci }}" class="d-flex flex mt-1 text-decoration-none no-underline" target="_blank" rel="noopener noreferrer">
                                     <img src="/modules/custom/access/modules/cssn/images/askci.svg" alt="ask.ci" width="20" height="20" class="me-1 mr-2" />
                                     <span><strong>@{{ askci }}</strong></span>
                                   </a>
                                 {% endif %}
 
                                 {% if discourse_ood %}
-                                  <a href="https://discourse.openondemand.org/u/{{ discourse_ood }}" class="d-flex flex mt-3 text-decoration-none no-underline" target="_blank" rel="noopener noreferrer">
+                                  <a href="https://discourse.openondemand.org/u/{{ discourse_ood }}" class="d-flex flex mt-1 text-decoration-none no-underline" target="_blank" rel="noopener noreferrer">
                                     <img src="/modules/custom/access/modules/cssn/images/ood.svg" alt="discourse.openondemand.org" width="20" height="20" class="me-1 mr-2" />
                                     <span><strong>@{{ discourse_ood }}</strong></span>
                                   </a>
@@ -261,7 +261,7 @@ class PersonaBlock extends BlockBase {
 
                                 {% if github %}
                                   <div class="d-flex flex">
-                                  <a href="https://github.com/{{ github }}" class="d-flex flex mt-3 text-decoration-none no-underline" target="_blank" rel="noopener noreferrer">
+                                  <a href="https://github.com/{{ github }}" class="d-flex flex mt-1 text-decoration-none no-underline" target="_blank" rel="noopener noreferrer">
                                     <img src="/modules/custom/access/modules/cssn/images/github.svg" alt="GitHub logo" width="20" height="20" class="me-1 mr-2" />
                                     <span><strong>@{{ github }}</strong></span>
                                   </a>
