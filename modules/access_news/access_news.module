@@ -27,9 +27,9 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
   if (!in_array($view->id(), ['access_news', 'access_announcements'])) {
     return;
   }
-  
+
   $current_display = $display_id;
-  
+
   // Define which displays need domain filtering
   $domain_filtered_displays = [
     'block_1' => SiteTools::DOMAIN_CURRENT,
@@ -47,10 +47,10 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
     $domain = ($domain_filtered_displays[$current_display] === SiteTools::DOMAIN_CURRENT)
       ? \Drupal::service('access_misc.sitetools')->getDomainId()
       : $domain_filtered_displays[$current_display];
-    
+
     // Use appropriate field name based on view type
     $domain_field = ($view->id() == 'access_announcements') ? 'field_domain_access' : 'field_domain_access_target_id';
-    
+
     // Only apply filtering if the domain field exists
     if (isset($view_filters[$domain_field])) {
       // Handle different filter value structures
@@ -66,7 +66,7 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
         // If it's a simple string value
         $view_filters[$domain_field]['value'] = $domain;
       }
-      
+
       $view->display_handler->setOption('filters', $view_filters);
     }
   }
@@ -617,9 +617,9 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
 function weeklyNewsReport($noSend) {
 
   try {
-    // Gather all news published from 7 days ago until today.
+    // Gather all news published from 14 days ago until today.
     // need to make dates for searching on published_date (not date+time)
-    $dtLastWeek = new \DateTime('-7 days');
+    $dtLastWeek = new \DateTime('-14 days');
     $dtToday = new \DateTime('today');
     $dtTomorrow = new \DateTime('tomorrow');
     $utmCampaign = 'Digest-' . $dtTomorrow->format('mdy');
