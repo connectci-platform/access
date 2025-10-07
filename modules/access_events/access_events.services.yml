@@ -5,3 +5,6 @@ services:
   access_events.latest_revision:
     class: Drupal\access_events\Plugin\LatestRevisionCheck
     arguments: ['@content_moderation.moderation_information']
+    tags:
+      - { name: access_check, applies_to: _content_moderation_latest_version, priority: 10 }
+
