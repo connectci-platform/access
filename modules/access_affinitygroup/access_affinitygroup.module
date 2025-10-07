@@ -1618,6 +1618,8 @@ function access_affinitygroup_edit_submit($form, FormStateInterface $form_state)
                   ]);
     $tid = array_key_first($at_taxonomy);
 
+    $flag_service = \Drupal::service('flag');
+
     foreach ($coordinators as $coordinator) {
       if (!isset($coordinator['target_id'])) {
         continue;
@@ -1629,7 +1631,6 @@ function access_affinitygroup_edit_submit($form, FormStateInterface $form_state)
       $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($tid);
 
       // Grab flag service for ag.
-      $flag_service = \Drupal::service('flag');
       $flag = $flag_service->getFlagById('affinity_group');
 
       if (!$flag_service->getFlagging($flag, $term, $user)) {

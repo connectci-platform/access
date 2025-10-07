@@ -141,6 +141,8 @@ function access_affinitygroup_update_10007() {
 
   $vid = 'affinity_groups';
 
+  $flag_service = \Drupal::service('flag');
+
   foreach ($result as $row) {
     $nid = $row->entity_id;
     $uid = $row->field_coordinator_target_id;
@@ -166,7 +168,6 @@ function access_affinitygroup_update_10007() {
 
     if ($term && $user) {
       // Grab flag service for ag.
-      $flag_service = \Drupal::service('flag');
       $flag = $flag_service->getFlagById('affinity_group');
 
       if (!$flag_service->getFlagging($flag, $term, $user)) {
