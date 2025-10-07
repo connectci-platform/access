@@ -68,4 +68,36 @@ class ViewsCustomAccess extends AccessPluginBase {
   public function alterRouteDefinition(Route $route) {
     $route->setRequirement('_access', 'TRUE');
   }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getCacheContexts() {
+    // Cache per user and per URL (since we check ?nid query parameter).
+    return ['user', 'url.query_args:nid'];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getCacheTags() {
+    $tags = parent::getCacheTags();
+
+    // Add the affinity group node as a cache tag so when it's updated
+    // (e.g., coordinators changed), the view cache is invalidated.
+    // Try query parameter first, then route.
+    $nid = \Drupal::request()->query->get('nid');
+    if (!$nid) {
+      $node = \Drupal::routeMatch()->getParameter('node');
+      if ($node) {
+        $nid = $node->id();
+      }
+    }
+
+    if ($nid) {
+      $tags[] = 'node:' . $nid;
+    }
+
+    return $tags;
+  }
 }
