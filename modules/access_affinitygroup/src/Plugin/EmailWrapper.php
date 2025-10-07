@@ -857,7 +857,7 @@ DIVIDERHTML;
       }
 
       a.view-on-website-btn:hover {
-        background-color: $$this->linkHoverBackground!important;
+        background-color: $this->linkHoverBackground!important;
         border-color: $this->linkHoverBorderColor!important;
         border: 4px solid;
       }
