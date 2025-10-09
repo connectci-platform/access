@@ -149,14 +149,14 @@ class ConstantContactApi {
    */
   private function getKey() {
     $key_entity = \Drupal::service('key.repository')->getKey('constant_contact_json');
-    
+
     if (!$key_entity) {
       \Drupal::logger('access_affinitygroup')->warning('Constant Contact key "constant_contact_json" not found.');
       $this->cc_key = '';
       $this->key_secret = '';
       return;
     }
-    
+
     $keys = $key_entity->getKeyValues();
     $env = $this->environment;
 
@@ -200,7 +200,7 @@ class ConstantContactApi {
    * Get the email.
    */
   public function getEmail() {
-    $env = $this->getEnvironment();
+    $env = $this->environment;
     $email = [
       'test' => 'andrew+dev@elytra.net',
       'support' => 'supportapiaccess@access-ci.org',
@@ -214,11 +214,11 @@ class ConstantContactApi {
    * Get the from name.
    */
   public function getFromName() {
-    $env = $this->getEnvironment();
+    $env = $this->environment;
     $from = [
       'test' => 'Test Account',
       'support' => 'ACCESS Support',
-      'openondemand' => 'Open onDemand Community Hub',
+      'openondemand' => 'Open OnDemand Community Hub',
     ];
 
     return $from[$env];

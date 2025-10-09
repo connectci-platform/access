@@ -68,10 +68,10 @@ class AffinityCoordinatorDocumentation extends BlockBase {
   }
 
   /**
-   *
+   * {@inheritdoc}
    */
   public function getCacheContexts() {
-    return Cache::mergeContexts(parent::getCacheContexts(), ['route']);
+    return Cache::mergeContexts(parent::getCacheContexts(), ['route', 'user']);
   }
 
 }

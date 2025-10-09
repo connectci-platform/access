@@ -85,7 +85,7 @@ class PersonaBlock extends BlockBase {
       // Show access organization if set; use institution field if organization is "Other" (3695) or not set.
       $orgArray = $user_entity->get('field_access_organization')->getValue();
       $institution = $user_entity->get('field_institution')->value;
-      
+
       if (!empty($orgArray) && !empty($orgArray[0])) {
         $nodeId = $orgArray[0]['target_id'];
         // If organization is "Other" (node ID 3695), use institution field instead
@@ -209,6 +209,10 @@ class PersonaBlock extends BlockBase {
       $user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($user_id);
       $job_title = $user_entity->get('field_current_occupation')->value;
 
+      $askci = $user_entity->get('field_askci_username')->value;
+      $github = $user_entity->get('field_github_username')->value;
+      $ood_discourse = $user_entity->get('field_discourse_openondemand_org')->value;
+
       $persona_block['string'] = [
         '#type' => 'inline_template',
         '#template' => '<div class="persona">
@@ -233,22 +237,54 @@ class PersonaBlock extends BlockBase {
                             </div>
                           {% endif %}
                           {% if user_badges %}
-                            <div class="py-3 border-b border-black flex flex-wrap">{{ user_badges | raw }}</div>
+                            <div class="py-3 flex flex-wrap">{{ user_badges | raw }}</div>
                           {% endif %}
-                          <div class="d-flex justify-content-between flex justify-between border-top border-bottom mb-3 py-3 border-secondary border-b border-black">
-                            {% if roles %}
-                              <div><b>{{ role_text }}:</b><br />{{ roles | raw }}</div>
+
+                          <div class="ml-3 ms-3">
+                            {% if askci or discourse_ood or github %}
+                              <div class="mb-3 py-3">
+                                <h4 class="mt-0">{{ profile_text }}</h4>
+
+                                {% if askci %}
+                                  <a href="https://ask.cyberinfrastructure.org/u/{{ askci }}" class="d-flex flex mt-1 text-decoration-none no-underline" target="_blank" rel="noopener noreferrer">
+                                    <img src="/modules/custom/access/modules/cssn/images/askci.svg" alt="ask.ci" width="20" height="20" class="me-1 mr-2" />
+                                    <span><strong>@{{ askci }}</strong></span>
+                                  </a>
+                                {% endif %}
+
+                                {% if discourse_ood %}
+                                  <a href="https://discourse.openondemand.org/u/{{ discourse_ood }}" class="d-flex flex mt-1 text-decoration-none no-underline" target="_blank" rel="noopener noreferrer">
+                                    <img src="/modules/custom/access/modules/cssn/images/ood.svg" alt="discourse.openondemand.org" width="20" height="20" class="me-1 mr-2" />
+                                    <span><strong>@{{ discourse_ood }}</strong></span>
+                                  </a>
+                                {% endif %}
+
+                                {% if github %}
+                                  <div class="d-flex flex">
+                                  <a href="https://github.com/{{ github }}" class="d-flex flex mt-1 text-decoration-none no-underline" target="_blank" rel="noopener noreferrer">
+                                    <img src="/modules/custom/access/modules/cssn/images/github.svg" alt="GitHub logo" width="20" height="20" class="me-1 mr-2" />
+                                    <span><strong>@{{ github }}</strong></span>
+                                  </a>
+                                {% endif %}
+
+                              </div>
                             {% endif %}
-                            {% if cssn_role %}
-                              <div><i class="text-dark bi-pencil-square"></i> {{ cssn_role }}</div>
+
+                            <div class="d-flex justify-content-between flex justify-between mb-3 py-3">
+                              {% if roles %}
+                                <div><h4>{{ role_text }}:</h4>{{ roles | raw }}</div>
+                              {% endif %}
+                              {% if cssn_role %}
+                                <div><i class="text-dark bi-pencil-square"></i> {{ cssn_role }}</div>
+                              {% endif %}
+                            </div>
+                            {% if program %}
+                              <div class="mb-3"><b>{{ program_text }}:</b><br />{{ program }}</div>
                             {% endif %}
-                          </div>
-                          {% if program %}
-                            <div class="mb-3"><b>{{ program_text }}:</b><br />{{ program }}</div>
-                          {% endif %}
-                          <div class="w-100">
-                           {{ send_email | raw }}
-                          {{ edit_link | raw }}
+                            <div class="w-100">
+                             {{ send_email | raw }}
+                            {{ edit_link | raw }}
+                            </div>
                           </div>
                         </div>',
         '#context' => [
@@ -264,6 +300,10 @@ class PersonaBlock extends BlockBase {
           'cssn_indicator' => $cssn_indicator,
           'cssn_more' => $cssn_more,
           'user_badges' => $user_badges,
+          'profile_text' => t('Profiles'),
+          'askci' => $askci,
+          'github' => $github,
+          'discourse_ood' => $ood_discourse,
           'roles' => $roles,
           'role_text' => t('Roles'),
           'cssn_role' => $cssn_role,

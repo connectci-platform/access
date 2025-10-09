@@ -73,7 +73,7 @@ paths:
                 enum: [25, 50, 100, 250, 500]
               - type: string
                 enum: ["All"]
-            default: 100
+            default: 25
         - name: page
           in: query
           description: Page number for pagination (0-indexed)
@@ -91,7 +91,7 @@ paths:
             
             **Available fields:**
             - `event_type` - Filter by event type (Training, Office Hours, other)
-            - `affiliation` - Filter by affiliation (Community, ACCESS Collaboration, access_nairr_office_hours, nairr_pilot, etc.)
+            - `affiliation` - Filter by affiliation (ACCESS Collaboration, Community, nairr_pilot, etc.)
             - `affinity_group` - Filter by affinity group (Anvil, Stampede-3, etc.)
             - `skill_level` - Filter by skill level (Beginner, Intermediate, Advanced)
             - `tags` - Filter by tags (ai, big-data, python, etc.)

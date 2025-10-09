@@ -72,6 +72,12 @@ class SimpleListMember extends BlockBase implements
     $group_slug = $node->get('field_group_slug')->value;
     // Get current user email.
     $current_user = \Drupal::currentUser();
+
+    // Only show email list options to authenticated users.
+    if ($current_user->isAnonymous()) {
+      return [];
+    }
+
     $current_user_email = $current_user->getEmail();
     $user_list = $simpleListsApi->getUserListStatus($group_slug, $current_user_email, $msg);
     $user_list = $user_list ? $user_list : 'none';
@@ -163,10 +169,10 @@ class SimpleListMember extends BlockBase implements
   }
 
   /**
-   *
+   * {@inheritdoc}
    */
   public function getCacheContexts() {
-    return Cache::mergeContexts(parent::getCacheContexts(), ['route']);
+    return Cache::mergeContexts(parent::getCacheContexts(), ['route', 'user']);
   }
 
 }
