@@ -53,7 +53,16 @@ class LatestRevisionCheck implements AccessInterface {
    * @see \Drupal\Core\Entity\EntityAccessCheck
    */
   public function access(Route $route, RouteMatchInterface $route_match, AccountInterface $account) {
-    print_r("LatestRevisionCheck access called\n");
+    // This tab should not show up unless there's a reason to show it.
+    $entity = $this->loadEntity($route, $route_match);
+    if ($this->moderationInfo->hasPendingRevision($entity)) {
+      print_r("LatestRevisionCheck access called - ");
+
+      $access_result = AccessResult::allowed();
+
+      return $access_result->addCacheableDependency($entity);
+    }
+
     return AccessResult::allowed();
   }
 
