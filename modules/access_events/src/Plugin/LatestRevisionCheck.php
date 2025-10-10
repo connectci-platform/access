@@ -2,37 +2,17 @@
 
 namespace Drupal\access_events\Plugin;
 
-use Drupal\Core\Access\AccessException;
 use Drupal\Core\Access\AccessResult;
-use Drupal\Core\Entity\EntityInterface;
-use Drupal\Core\Routing\Access\AccessInterface;
 use Drupal\Core\Routing\RouteMatchInterface;
-use Drupal\content_moderation\ModerationInformationInterface;
 use Drupal\Core\Session\AccountInterface;
+use Drupal\content_moderation\Access\LatestRevisionCheck as CoreLatestRevisionCheck;
 use Drupal\user\EntityOwnerInterface;
 use Symfony\Component\Routing\Route;
 
 /**
- * Access check for the entity moderation tab.
+ * Access check for the entity moderation tab with other_authors support.
  */
-class LatestRevisionCheck implements AccessInterface {
-
-  /**
-   * The moderation information service.
-   *
-   * @var \Drupal\content_moderation\ModerationInformationInterface
-   */
-  protected $moderationInfo;
-
-  /**
-   * Constructs a new LatestRevisionCheck.
-   *
-   * @param \Drupal\content_moderation\ModerationInformationInterface $moderation_information
-   *   The moderation information service.
-   */
-  public function __construct(ModerationInformationInterface $moderation_information) {
-    $this->moderationInfo = $moderation_information;
-  }
+class LatestRevisionCheck extends CoreLatestRevisionCheck {
 
   /**
    * Checks that there is a pending revision available.
@@ -56,39 +36,45 @@ class LatestRevisionCheck implements AccessInterface {
     // This tab should not show up unless there's a reason to show it.
     $entity = $this->loadEntity($route, $route_match);
     if ($this->moderationInfo->hasPendingRevision($entity)) {
-      print_r("LatestRevisionCheck access called - ");
+      // Check the global permissions first.
+      $access_result = AccessResult::allowedIfHasPermissions($account, ['view latest version', 'view any unpublished content']);
+      if (!$access_result->isAllowed()) {
+        // Check entity owner access.
+        $owner_access = AccessResult::allowedIfHasPermissions($account, ['view latest version', 'view own unpublished content']);
+        $owner_access = $owner_access->andIf((AccessResult::allowedIf($entity instanceof EntityOwnerInterface && ($entity->getOwnerId() == $account->id()))));
+        $access_result = $access_result->orIf($owner_access);
+      }
 
-      $access_result = AccessResult::allowed();
+      // Check if user is referenced in the other_authors field.
+      if (!$access_result->isAllowed()) {
+        $other_authors = [];
+
+        // For eventseries, check field_other_authors directly.
+        if ($entity->getEntityTypeId() == 'eventseries' && $entity->hasField('field_other_authors')) {
+          $other_authors = $entity->get('field_other_authors')->getValue();
+        }
+        // For eventinstance, get the parent eventseries and check its field_other_authors.
+        elseif ($entity->getEntityTypeId() == 'eventinstance' && method_exists($entity, 'getEventSeries')) {
+          $eventseries = $entity->getEventSeries();
+          if ($eventseries && $eventseries->hasField('field_other_authors')) {
+            $other_authors = $eventseries->get('field_other_authors')->getValue();
+          }
+        }
+
+        if (!empty($other_authors)) {
+          $user_ids = array_column($other_authors, 'target_id');
+          if (in_array($account->id(), $user_ids)) {
+            // User is in the other_authors field, grant access if they have the base permission.
+            $additional_editor_access = AccessResult::allowedIfHasPermissions($account, ['view latest version']);
+            $access_result = $access_result->orIf($additional_editor_access);
+          }
+        }
+      }
 
       return $access_result->addCacheableDependency($entity);
     }
 
-    return AccessResult::allowed();
-  }
-
-  /**
-   * Returns the default revision of the entity this route is for.
-   *
-   * @param \Symfony\Component\Routing\Route $route
-   *   The route to check against.
-   * @param \Drupal\Core\Routing\RouteMatchInterface $route_match
-   *   The parametrized route.
-   *
-   * @return \Drupal\Core\Entity\ContentEntityInterface
-   *   returns the Entity in question.
-   *
-   * @throws \Drupal\Core\Access\AccessException
-   *   An AccessException is thrown if the entity couldn't be loaded.
-   */
-  protected function loadEntity(Route $route, RouteMatchInterface $route_match) {
-    $entity_type = $route->getOption('_content_moderation_entity_type');
-
-    if ($entity = $route_match->getParameter($entity_type)) {
-      if ($entity instanceof EntityInterface) {
-        return $entity;
-      }
-    }
-    throw new AccessException(sprintf('%s is not a valid entity route. The LatestRevisionCheck access checker may only be used with a route that has a single entity parameter.', $route_match->getRouteName()));
+    return AccessResult::forbidden('No pending revision for moderated entity.')->addCacheableDependency($entity);
   }
 
 }

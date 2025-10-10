@@ -910,6 +910,9 @@ function access_events_views_query_alter(ViewExecutable $view, QueryPluginBase $
 function access_events_entity_access(EntityInterface $entity, $operation, AccountInterface $account) {
   if (($entity->getEntityTypeId() == 'eventinstance' || $entity->getEntityTypeId() == 'eventseries') && $entity->bundle() == 'default') {
     $author = $entity->getOwner();
+    if (!$author) {
+      return AccessResult::neutral();
+    }
     $author_id = $author->id();
     $current_user = \Drupal::currentUser();
     $current_user_id = $current_user->id();
@@ -920,7 +923,12 @@ function access_events_entity_access(EntityInterface $entity, $operation, Accoun
       $other_authors = $entity->get('field_other_authors')->getValue();
     }
     elseif ($entity->getEntityTypeId() == 'eventinstance'){
-      $other_authors = $entity->get('other_authors')->getValue();
+      // For eventinstance, get the parent eventseries and check its field_other_authors
+      // since other_authors is inherited via field_inheritance.
+      $eventseries = $entity->getEventSeries();
+      if ($eventseries && $eventseries->hasField('field_other_authors')) {
+        $other_authors = $eventseries->get('field_other_authors')->getValue();
+      }
     }
 
     $other_author_allowed = FALSE;
