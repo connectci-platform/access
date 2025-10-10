@@ -28,6 +28,13 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['actions']['submit']['#submit'][] = 'access_events_user_delete_submit';
   }
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
+    $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
+
+    // Hide the option to share in the ACCESS bi-weekly digest if not on Access.
+    if ($domain_id != 'amp_cyberinfrastructure_org') {
+      unset($form['field_choose_where_to_share_this']['widget']['#options']['in_the_access_support_bi_weekly_digest']);
+    }
+
     // Get user role.
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
@@ -610,7 +617,7 @@ function access_events_views_pre_build(ViewExecutable $view) {
         // Convert to absolute date
         $absolute_key = str_replace('_relative', '', $key);
         $updated_input[$absolute_key] = $date->format('Y-m-d H:i:s');
-        
+
         // Remove the relative parameter
         unset($updated_input[$key]);
       } else {
