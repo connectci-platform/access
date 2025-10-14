@@ -83,7 +83,7 @@ class EmailWrapper {
             class="text text--padding-vertical">
             <tbody>
                 <tr>
-                    <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1.2;display:block;word-wrap:break-word;padding:10px 40px;"
+                    <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1.2;display:block;word-wrap:break-word;padding:0px 40px;"
                         align="left"
                         valign="top"
                         class="text_content-cell content-padding-horizontal">
@@ -120,7 +120,7 @@ class EmailWrapper {
     if ($newsUrl != NULL) {
       $websiteButtonDisplay = <<<WEBSITEBUTTONHTML
         <div style="line-height:20px;min-height:20px;" class="spacer"> </div>
-        <div style="text-align:left; padding-left: 40px;padding-top:10px;padding-bottom:15px;">
+        <div style="text-align:left; padding-top:10px;padding-bottom:15px;">
             <a href="$newsUrl" rel="nofollow noopener noreferrer" class="view-on-website-btn">VIEW ON WEBSITE</a>
         </div>
     WEBSITEBUTTONHTML;
@@ -432,7 +432,7 @@ class EmailWrapper {
                                                                                       class="text text--padding-vertical">
                                                                                       <tbody>
                                                                                           <tr>
-                                                                                              <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1.2;display:block;word-wrap:break-word;padding:10px 40px;"
+                                                                                              <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1.2;display:block;word-wrap:break-word;padding:10px 40px 0px 40px;"
                                                                                                   align="left"
                                                                                                   valign="top"
                                                                                                   class="text_content-cell content-padding-horizontal">
@@ -761,7 +761,7 @@ DIVIDERHTML;
     $websiteButtonDisplay = '';
     if ($newsUrl != NULL) {
       $websiteButtonDisplay = <<<WEBSITEBUTTONHTML2
-      <div style="padding-top:10px;padding-bottom:15px;">
+      <div style="text-align:left; padding-top:10px;padding-bottom:15px;">
         <a href="$newsUrl" rel="nofollow noopener noreferrer" class="view-on-website-btn">VIEW ON WEBSITE</a>
       </div>
     WEBSITEBUTTONHTML2;
@@ -776,7 +776,6 @@ DIVIDERHTML;
                 <td class="text_content-cell content-padding-horizontal" style="text-align: left; font-family:Roboto,sans-serif; color: #4d4d4d;
                       font-size: 14px; line-height: 1.2; display: block; word-wrap: break-word; padding: 20px 40px 10px 40px;" align="left" valign="top">
                 $titleDisplay
-                <br>
                 $pubDateDisplay
                 <span style="font-size: 14px;">$main</span>
                 <p style="margin: 0;">
@@ -799,7 +798,7 @@ DIVIDERHTML;
    */
   private function titleHTML($titleText) {
     $t = <<<TITLE
-    <h3 style="font-family:Roboto,sans-serif; color: #f07537; font-size: 18px; font-weight: bold; margin: 0; padding: 0px 0px 8px 0px">
+    <h3 style="font-family:Roboto,sans-serif; color: #f07537; font-size: 18px; font-weight: bold; margin: 0; padding: 0px 0px 4px 0px">
       $titleText
     </h3>
   TITLE;

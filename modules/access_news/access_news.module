@@ -538,6 +538,14 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
       $ccListIdArray = [];
       $agNames = [];
       $logoUrl = NULL;
+      $currentDomainId = NULL;
+
+      // Get the current domain (where the broadcast is being initiated from)
+      // to use for URLs in the email.
+      $current_domain = \Drupal::service('domain.negotiator')->getActiveDomain();
+      if ($current_domain) {
+        $currentDomainId = $current_domain->id();
+      }
 
       // Collect ag name and cc email list id.
       foreach ($agNodes as $agNode) {
@@ -546,10 +554,10 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
         $ag = Node::load($nid);
 
         $name = $ag->get('title')->value;
-        array_push($agNames, $name);
+        $agNames[] = $name;
 
         $ccListId = $ag->get('field_list_id')->value;
-        array_push($ccListIdArray, $ccListId);
+        $ccListIdArray[] = $ccListId;
 
         // We decide which email template to use (community or access)
         // looking at the type of the first AG only in send list.
@@ -572,11 +580,11 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
       }
       else {
         // Gather items to insert into the email template.
-        $titleArray = $getFields['title']->getValue();
-        $title = $titleArray[0]['value'];
+        $title = $node->getTitle();
 
         // Make link to item, including utm for analytics.
-        $newsUrl = ACCESS_SUPPPORT_URL . $node->toUrl()->toString();
+        // Use the current domain for the URL.
+        $newsUrl = _access_news_build_url_for_domain($node, $currentDomainId);
         $utmCampaign = filter_var($agNames[0], FILTER_SANITIZE_URL) . '-' . date('mdy');
         $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
 
@@ -598,7 +606,17 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
           // Newstype is eventseries.
           $pubDate = NULL;
 
-          if ($node->getInstanceCount() > 1) {
+          // If there's only one event instance, link to that instance instead of the series.
+          if ($node->getInstanceCount() == 1) {
+            $instances = $node->getInstances();
+            if (!empty($instances)) {
+              $first_instance = reset($instances);
+              $newsUrl = _access_news_build_url_for_domain($first_instance, $currentDomainId);
+              $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
+            }
+          }
+          elseif ($node->getInstanceCount() > 1) {
+            // Multiple instances - don't include a link button.
             $newsUrl = NULL;
           }
 
@@ -608,7 +626,20 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
           $body = \Drupal::service('renderer')->renderPlain($renderArray);
 
           $body = str_replace('Event Instances', 'Event Date & Time', $body);
-          $body = Html::transformRootRelativeUrlsToAbsolute($body, \Drupal::request()->getSchemeAndHttpHost());
+
+          // Make field labels bold in the email.
+          $body = preg_replace(
+            '/<div class="field__label">(Location|Affiliation|Skill Level|Virtual Meeting Link|Contact|Tags|Affinity Group Node|Speakers)<\/div>/',
+            '<div class="field__label"><strong>$1</strong></div>',
+            $body
+          );
+
+          // Transform relative URLs to absolute using the current domain.
+          $domain = \Drupal::entityTypeManager()->getStorage('domain')->load($currentDomainId);
+          if ($domain) {
+            $domain_url = $domain->getScheme() . '://' . $domain->getHostname();
+            $body = Html::transformRootRelativeUrlsToAbsolute($body, $domain_url);
+          }
 
         }
 
@@ -828,9 +859,6 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
         $newsUrl = ACCESS_SUPPPORT_URL . $node->toUrl()->toString();
         $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
 
-        if ($nCount > 1) {
-          $listDisplay = $listDisplay;
-        }
         $itemDisplay = $wrapper->newsItemHTML($title, $pubDateDisp, $bodyDisp, $newsUrl);
       }
       catch (Exception $e) {
@@ -947,9 +975,6 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
 
         // $location = empty($enode->location[0]) ? '' : $enode->location[0]->view('rollup_list');
         // $locationDisp = \Drupal::service('renderer')->renderPlain($location);
-        if ($eCount > 1) {
-          $listDisplay = $listDisplay;
-        }
 
         if ($recur_type == 'weekly_recurring_date') {
           $weekly_id[$series_id][] = [
@@ -1050,6 +1075,37 @@ function accessNewsCronShouldRun() {
     }
   }
   return FALSE;
+}
+
+/**
+ * Helper function to build a URL for an entity using a specific domain.
+ *
+ * @param \Drupal\Core\Entity\EntityInterface $entity
+ *   The entity (node, eventseries, or eventinstance) to get the URL for.
+ * @param string $domain_id
+ *   The domain ID to use for building the URL.
+ *
+ * @return string
+ *   The full URL with domain.
+ */
+function _access_news_build_url_for_domain($entity, $domain_id) {
+  try {
+    $domain = \Drupal::entityTypeManager()
+      ->getStorage('domain')
+      ->load($domain_id);
+
+    if ($domain) {
+      return $domain->buildUrl($entity->toUrl()->toString());
+    }
+
+    // Fallback to ACCESS Support URL if domain load fails.
+    return ACCESS_SUPPPORT_URL . $entity->toUrl()->toString();
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('access_news')
+      ->error('Error building URL for domain: ' . $e->getMessage());
+    return ACCESS_SUPPPORT_URL . $entity->toUrl()->toString();
+  }
 }
 
 /**
