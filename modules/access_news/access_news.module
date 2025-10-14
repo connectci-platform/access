@@ -580,7 +580,8 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
       }
       else {
         // Gather items to insert into the email template.
-        $title = $node->getTitle();
+        $titleArray = $getFields['title']->getValue();
+        $title = $titleArray[0]['value'];
 
         // Make link to item, including utm for analytics.
         // Use the current domain for the URL.
