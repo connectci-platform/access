@@ -100,6 +100,10 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
     $form['field_news_external_link']['widget'][0]['#prefix'] = "<h4>$el_title</h4>";
     $form['field_news_external_link']['widget'][0]['#title'] = "<span class='hidden'>$el_title</span>";
 
+    // Field is hidden and replaced with custom UI
+    // Element validation ensures proper error messages are shown
+    $form['field_tags']['widget']['#element_validate'][] = 'access_news_tags_validate_element';
+
     $form['field_tags_replace'] = [
       '#type' => 'container',
       '#attributes' => [
@@ -262,6 +266,34 @@ function access_news_replace_section_callback(array &$form, FormStateInterface $
 }
 
 /**
+ * Element validation callback for field_tags.
+ *
+ * Validates that at least one tag is selected and no more than 6.
+ */
+function access_news_tags_validate_element($element, FormStateInterface $form_state, $form) {
+  $values = $form_state->getValue('field_tags');
+
+  // Count non-empty tag values
+  $tag_count = 0;
+  if (is_array($values)) {
+    foreach ($values as $tag) {
+      if (is_array($tag) && !empty($tag['target_id'])) {
+        $tag_count++;
+      }
+    }
+  }
+
+  // Check if at least one tag is selected
+  if ($tag_count === 0) {
+    $form_state->setError($element, t('Please select at least one tag from the list below. Tags help others find your announcement.'));
+  }
+  // Check maximum of 6 tags
+  elseif ($tag_count > 6) {
+    $form_state->setError($element, t('You can only select up to 6 tags. Please remove @count tags.', ['@count' => $tag_count - 6]));
+  }
+}
+
+/**
  * Custom validation callback.
  *
  * Make sure AG is selected with proper checkboxes.
@@ -341,11 +373,7 @@ function access_news_validate(&$form, FormStateInterface $form_state) {
     }
   }
 
-  $values = $form_state->getValues();
-  $tags = $values['field_tags'] ?? [];
-  if (is_array($tags) && count($tags) > 6) {
-    $form_state->setErrorByName('Tags', t('You can only select 6 tags. Please remove some tags.'));
-  }
+  // Note: Tag validation (min 1, max 6) is handled by access_news_tags_validate_element()
 }
 
 /**
