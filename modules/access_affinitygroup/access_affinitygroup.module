@@ -98,10 +98,20 @@ function access_affinitygroup_preprocess_views_view_field(&$variables) {
   // Override view /admin/structure/views/view/affinity_group_search ID to show Join flag.
   // Details output on CI links search on /affinity_group page.
   if ($view->id() == 'affinity_group_search' && ($view->current_display == 'page_1' && $field->options['id'] == 'nid')) {
-    $nid = $variables['output']->__toString();
+    // Handle both string and MarkupInterface outputs
+    $nid = is_string($variables['output']) ? $variables['output'] : $variables['output']->__toString();
     // Load Entity node from $nid.
     $node = \Drupal::entityTypeManager()->getStorage('node')->load($nid);
+
+    // If node doesn't exist or doesn't have the field, return early
+    if (!$node || !$node->hasField('field_affinity_group')) {
+      return;
+    }
+
     $tid = $node->get('field_affinity_group')->getValue();
+    if (empty($tid) || !isset($tid[0]['target_id'])) {
+      return;
+    }
     $tid = $tid[0]['target_id'];
 
     $flag_ag = \Drupal::service('flag.link_builder')->build('taxonomy_term', $tid, 'affinity_group', 'full');
