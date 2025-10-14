@@ -94,40 +94,102 @@ class SimpleListController extends ControllerBase {
     $firstName = $user->get('field_user_first_name')->value;
     $lastName = $user->get('field_user_last_name')->value;
     if ($param['current'] == 'none') {
+      // User is joining the list
+      $addSuccess = FALSE;
       $simplelistsId = $simpleListsApi->getUserIdFromEmail($userEmail, $msg);
       if ($simplelistsId) {
         $addCurrentUser = $simpleListsApi->updateUserToList($simplelistsId, $listName, $msg);
+        if ($addCurrentUser) {
+          \Drupal::messenger()->addStatus($msg);
+          $addSuccess = TRUE;
+        }
+        else {
+          \Drupal::messenger()->addError($msg ?: 'Failed to add you to the list.');
+        }
       }
       else {
         $addUser = $simpleListsApi->addUser($uid, $userEmail, $firstName, $lastName, $listName, $msg);
+        if ($addUser) {
+          \Drupal::messenger()->addStatus($msg);
+          $addSuccess = TRUE;
+        }
+        else {
+          \Drupal::messenger()->addError($msg ?: 'Failed to add you to the list.');
+        }
       }
-      if ($path == 'daily') {
+      // Only set digest if user was successfully added to the list
+      if ($addSuccess && $path == 'daily') {
         $digest = 1;
         $set_digest = $simpleListsApi->setUserDigest($listName, $userEmail, $digest, $msg);
+        if ($set_digest) {
+          \Drupal::messenger()->addStatus($msg);
+        }
+        else {
+          \Drupal::messenger()->addError($msg ?: 'Failed to set digest preference.');
+        }
       }
     }
     elseif ($path == 'none') {
+      // User is leaving the list
       $removeUser = $simpleListsApi->removeUserFromList($userEmail, $listName, $msg);
+      if ($removeUser) {
+        \Drupal::messenger()->addStatus($msg);
+      }
+      else {
+        \Drupal::messenger()->addError($msg ?: 'Failed to remove you from the list.');
+      }
     }
     else {
+      // User is changing digest settings
       if ($path == 'daily') {
         $digest = 1;
       }
       if ($path == 'full') {
         $digest = 0;
       }
+
+      // First, make sure user is subscribed to the list
+      $userStatus = $simpleListsApi->getUserListStatus($listName, $userEmail, $msg);
+      if ($userStatus === 'none') {
+        // User is not subscribed - subscribe them first
+        $addSuccess = FALSE;
+        $simplelistsId = $simpleListsApi->getUserIdFromEmail($userEmail, $msg);
+        if ($simplelistsId) {
+          $addCurrentUser = $simpleListsApi->updateUserToList($simplelistsId, $listName, $msg);
+          if ($addCurrentUser) {
+            $addSuccess = TRUE;
+          }
+        }
+        else {
+          $addUser = $simpleListsApi->addUser($uid, $userEmail, $firstName, $lastName, $listName, $msg);
+          if ($addUser) {
+            $addSuccess = TRUE;
+          }
+        }
+
+        if (!$addSuccess) {
+          \Drupal::messenger()->addError($msg ?: 'Failed to subscribe you to the list.');
+          $this->killSwitch->trigger();
+          $destination = $param['redirect'] ? Xss::filter($param['redirect']) : '/';
+          return new RedirectResponse($destination);
+        }
+      }
+
+      // Now set the digest preference
       $set_digest = $simpleListsApi->setUserDigest($listName, $userEmail, $digest, $msg);
+      if ($set_digest) {
+        \Drupal::messenger()->addStatus($msg);
+      }
+      else {
+        \Drupal::messenger()->addError($msg ?: 'Failed to update digest preference.');
+      }
     }
     $this->killSwitch->trigger();
     // Get redirect destination from url.
     $destination = $param['redirect'] ? Xss::filter($param['redirect']) : '/';
-    // Redirect to destination.
-    $response = new RedirectResponse($destination);
-    $response->send();
-    return [
-      '#type' => 'markup',
-      '#markup' => "👋 " . $this->t("You shouldn't see this."),
-    ];
+    // Redirect to destination - return the response so Drupal handles it properly
+    // This ensures messages are saved to session before redirect
+    return new RedirectResponse($destination);
   }
 
 }
