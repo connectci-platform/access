@@ -271,3 +271,27 @@ function access_events_update_10004() {
     return t('Warning: Events search index not found or no items indexed. Manual reindexing may be required.');
   }
 }
+
+/**
+ * Migrate event_type field from 'other' to 'zz_other'.
+ */
+function access_events_update_10005() {
+  $database = Database::getConnection();
+
+  // Update the main field table
+  $updated = $database->update('eventseries__field_event_type')
+    ->fields(['field_event_type_value' => 'zz_other'])
+    ->condition('field_event_type_value', 'other')
+    ->execute();
+
+  // Update the revision table
+  $updated_revisions = $database->update('eventseries_revision__field_event_type')
+    ->fields(['field_event_type_value' => 'zz_other'])
+    ->condition('field_event_type_value', 'other')
+    ->execute();
+
+  return t('Migrated @count event series from "other" to "zz_other" event type (@revisions revisions updated).', [
+    '@count' => $updated,
+    '@revisions' => $updated_revisions,
+  ]);
+}
