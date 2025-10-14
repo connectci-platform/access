@@ -116,14 +116,13 @@ function access_affinitygroup_preprocess_views_view_field(&$variables) {
 
     $flag_ag = \Drupal::service('flag.link_builder')->build('taxonomy_term', $tid, 'affinity_group', 'full');
     $flag_ag['#attributes']['class'][] = 'btn-sm btn-small btn-secondary-outline py-0 px-4';
-    $flag_ag = \Drupal::service('renderer')->renderPlain($flag_ag);
 
     // Attach a custom cache tag to the output.
     $variables['#cache']['tags'][] = 'affinity_group_field_' . $tid;
 
     $current_user = \Drupal::currentUser();
     if ($current_user->isAnonymous()) {
-      $output['string'] = [
+      $variables['output'] = [
         '#type' => 'inline_template',
         '#template' => '<a href="{{ link_url }}" class="btn btn-sm btn-small btn-secondary-outline btn-md-teal py-0 px-4" title="{{ title }}"><small>{{ button_text }}</small></a>',
         '#context' => [
@@ -132,8 +131,8 @@ function access_affinitygroup_preprocess_views_view_field(&$variables) {
           'button_text' => t('Join'),
         ],
       ];
-      $variables['output'] = $output;
     } else {
+      // Keep as render array so CSRF tokens are generated fresh on each render
       $variables['output'] = $flag_ag;
     }
   }
