@@ -609,7 +609,7 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
 
           // If there's only one event instance, link to that instance instead of the series.
           if ($node->getInstanceCount() == 1) {
-            $instances = $node->getInstances();
+            $instances = $node->get('event_instances')->referencedEntities();
             if (!empty($instances)) {
               $first_instance = reset($instances);
               $newsUrl = _access_news_build_url_for_domain($first_instance, $currentDomainId);
