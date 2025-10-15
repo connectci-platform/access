@@ -636,12 +636,27 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
           );
 
           // Transform relative URLs to absolute using the current domain.
-          $domain = \Drupal::entityTypeManager()->getStorage('domain')->load($currentDomainId);
-          if ($domain) {
-            $domain_url = $domain->getScheme() . '://' . $domain->getHostname();
-            $body = Html::transformRootRelativeUrlsToAbsolute($body, $domain_url);
+          if (!empty($body)) {
+            $domain = \Drupal::entityTypeManager()->getStorage('domain')->load($currentDomainId);
+            if ($domain) {
+              // Build base URL: scheme + hostname.
+              // getScheme() returns 'https://' or 'http://' with the separator included.
+              $domain_url = $domain->getScheme() . $domain->getHostname();
+              $body = Html::transformRootRelativeUrlsToAbsolute($body, $domain_url);
+            }
+          }
+          else {
+            // Body is empty - something went wrong with rendering.
+            \Drupal::logger('access_news')->error('Event series @id rendered empty body, skipping email broadcast', ['@id' => $node->id()]);
+            return;
           }
 
+        }
+
+        // Check if body is empty before sending.
+        if (empty($body)) {
+          \Drupal::logger('access_news')->error('News/Event @id has empty body, skipping email broadcast', ['@id' => $node->id()]);
+          return;
         }
 
         // Now emailing the group; set option broadcast off. If user wants to email again after
