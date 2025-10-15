@@ -384,7 +384,7 @@ class EmailWrapper {
                                                                                       class="text text--padding-vertical">
                                                                                       <tbody>
                                                                                           <tr>
-                                                                                              <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1.2;display:block;word-wrap:break-word;padding:10px 40px;"
+                                                                                              <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1;display:block;word-wrap:break-word;padding:15px 40px;"
                                                                                                   align="left"
                                                                                                   valign="top"
                                                                                                   class="text_content-cell content-padding-horizontal">
