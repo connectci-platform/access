@@ -120,7 +120,7 @@ class EmailWrapper {
     if ($newsUrl != NULL) {
       $websiteButtonDisplay = <<<WEBSITEBUTTONHTML
         <div style="line-height:20px;min-height:20px;" class="spacer"> </div>
-        <div style="text-align:left; padding-top:10px;padding-bottom:15px;">
+        <div style="text-align:left; padding-left: 40px;padding-top:10px;padding-bottom:15px;">
             <a href="$newsUrl" rel="nofollow noopener noreferrer" class="view-on-website-btn">VIEW ON WEBSITE</a>
         </div>
     WEBSITEBUTTONHTML;

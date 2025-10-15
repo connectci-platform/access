@@ -628,9 +628,13 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
 
           $body = str_replace('Event Instances', 'Event Date & Time', $body);
 
-          // Make field labels bold in the email.
+          // Un-obfuscate email addresses for email broadcast.
+          // Convert "contact [at] example.com" back to "contact@example.com".
+          $body = preg_replace('/\s*\[at\]\s*/', '@', $body);
+
+          // Make field labels bold in the email (case-insensitive).
           $body = preg_replace(
-            '/<div class="field__label">(Location|Affiliation|Skill Level|Virtual Meeting Link|Contact|Tags|Affinity Group Node|Speakers)<\/div>/',
+            '/<div class="field__label">([^<]+)<\/div>/i',
             '<div class="field__label"><strong>$1</strong></div>',
             $body
           );
