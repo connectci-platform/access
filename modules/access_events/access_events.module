@@ -837,6 +837,17 @@ function access_events_preprocess_views_view_field(&$variables) {
     $variables['output'] = Markup::create($location);
   }
 
+  // Convert event_type value to label for inherited fields.
+  if ($field->options['id'] == 'event_type' && $field->options['entity_type'] == 'eventinstance') {
+    $value = strip_tags($variables['output']->__toString());
+    $field_storage = \Drupal::service('entity_field.manager')->getFieldStorageDefinitions('eventseries')['field_event_type'];
+    $allowed_values = options_allowed_values($field_storage);
+
+    if (isset($allowed_values[$value])) {
+      $variables['output'] = $allowed_values[$value];
+    }
+  }
+
 }
 
 /**

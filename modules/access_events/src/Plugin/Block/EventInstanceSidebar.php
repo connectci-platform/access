@@ -109,7 +109,16 @@ class EventInstanceSidebar extends BlockBase {
 
     $skill_image = \Drupal::service('access_misc.skillLevel')->getSkillsImage($skill_list);
 
-    $event_type = $series->get('field_event_type')->getValue();
+    $event_type_raw = $series->get('field_event_type')->getValue();
+    // Convert event_type values to labels.
+    $event_type_storage = $series->getFieldDefinition('field_event_type')->getFieldStorageDefinition();
+    $event_type_allowed_values = options_allowed_values($event_type_storage);
+    $event_type = [];
+    foreach ($event_type_raw as $type) {
+      $value = $type['value'];
+      $event_type[] = ['value' => $event_type_allowed_values[$value] ?? $value];
+    }
+
     $event_affiliation_id = $series->get('field_affiliation')->getValue();
     $event_affiliation_list = $series->getFieldDefinition('field_affiliation')->getFieldStorageDefinition()->getSetting('allowed_values');
 
