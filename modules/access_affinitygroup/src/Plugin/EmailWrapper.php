@@ -119,10 +119,15 @@ class EmailWrapper {
     $websiteButtonDisplay = '';
     if ($newsUrl != NULL) {
       $websiteButtonDisplay = <<<WEBSITEBUTTONHTML
-        <div style="line-height:20px;min-height:20px;" class="spacer"> </div>
-        <div style="text-align:left; padding-left: 40px;padding-top:10px;padding-bottom:15px;">
-            <a href="$newsUrl" rel="nofollow noopener noreferrer" class="view-on-website-btn">VIEW ON WEBSITE</a>
-        </div>
+        <table width="100%" border="0" cellpadding="0" cellspacing="0" style="table-layout:fixed;">
+            <tbody>
+                <tr>
+                    <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;padding:20px 40px 15px 40px;" align="left" valign="top">
+                        <a href="$newsUrl" rel="nofollow noopener noreferrer" class="view-on-website-btn">VIEW ON WEBSITE</a>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
     WEBSITEBUTTONHTML;
     }
 
@@ -384,11 +389,11 @@ class EmailWrapper {
                                                                                       class="text text--padding-vertical">
                                                                                       <tbody>
                                                                                           <tr>
-                                                                                              <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1;display:block;word-wrap:break-word;padding:15px 40px;"
+                                                                                              <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1;display:block;word-wrap:break-word;padding:12px 40px;"
                                                                                                   align="left"
                                                                                                   valign="top"
                                                                                                   class="text_content-cell content-padding-horizontal">
-                                                                                                  <p style="margin:0;">
+                                                                                                  <p style="margin:0 !important;">
                                                                                                       <span style="color:rgb(255, 255, 255);">
                                                                                                         $agText
                                                                                                       </span>
@@ -409,22 +414,8 @@ class EmailWrapper {
                                                                               <td style="width:100%;" align="center"
                                                                                   valign="top"
                                                                                   class="column column--1 scale stack">
-                                                                                  <div style="line-height:30px;min-height:30px;"
-                                                                                      class="spacer"> </div>
-                                                                              </td>
-                                                                          </tr>
-                                                                      </tbody>
-                                                                  </table>
-                                                                  <table style="table-layout:fixed;" width="100%"
-                                                                      border="0" cellpadding="0" cellspacing="0"
-                                                                      class="layout layout--1-column">
-                                                                      <tbody>
-                                                                          <tr>
-                                                                              <td style="width:100%;" align="center"
-                                                                                  valign="top"
-                                                                                  class="column column--1 scale stack">
                                                                                   $logoDisplay
-                                                                                  <div style="line-height:10px;min-height:10px;"
+                                                                                  <div style="line-height:20px;min-height:20px;"
                                                                                       class="spacer"> </div>
                                                                                   <table width="100%" border="0"
                                                                                       cellpadding="0" cellspacing="0"
