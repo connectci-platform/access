@@ -139,6 +139,9 @@ class XsedeApi {
     $headers = $this->headerKeys;
     if (count($headers) < 3) {
       $this->messenger->addMessage($this->t('No Allocations API keys found.'), 'warning');
+      $this->logger->warning('Allocations API keys not configured properly. Expected 3 keys, found @count', [
+        '@count' => count($headers),
+      ]);
       return;
     }
 
@@ -156,10 +159,44 @@ class XsedeApi {
       $response = Xss::filter($response);
 
       $this->apiResults = json_decode($response, TRUE);
+
+      // Log successful request for debugging.
+      $this->logger->info('Allocations API GET request successful. URL: @url', [
+        '@url' => $url,
+      ]);
     }
     catch (RequestException $e) {
-      $this->messenger->addMessage($this->t('An error occurred with the Allocations API.'), 'error');
-      $this->logger->error($e->getMessage());
+      // Get the full error response if available.
+      $response_body = '';
+      $status_code = 0;
+
+      if ($e->hasResponse()) {
+        $response = $e->getResponse();
+        $status_code = $response->getStatusCode();
+        $response_body = $response->getBody()->getContents();
+      }
+
+      // Log comprehensive error details.
+      $this->logger->error('Allocations API GET request failed. URL: @url, Status: @status, Response: @response, Exception: @exception', [
+        '@url' => $url,
+        '@status' => $status_code,
+        '@response' => $response_body,
+        '@exception' => $e->getMessage(),
+      ]);
+
+      // Show user-friendly error message.
+      if ($status_code == 404) {
+        $this->messenger->addMessage($this->t('Resource not found in Allocations API. Please verify the grant number or username.'), 'error');
+      }
+      elseif ($status_code == 403) {
+        $this->messenger->addMessage($this->t('Permission denied: Unable to access this allocation data.'), 'error');
+      }
+      elseif ($status_code >= 500) {
+        $this->messenger->addMessage($this->t('Allocations API server error. Please try again later.'), 'error');
+      }
+      else {
+        $this->messenger->addMessage($this->t('An error occurred with the Allocations API. Please check the logs for details.'), 'error');
+      }
     }
 
   }
@@ -173,7 +210,7 @@ class XsedeApi {
     $url = $this->apiBaseUrl . $path;
 
     try {
-      $this->httpClient->post($url, [
+      $response = $this->httpClient->post($url, [
         'verify' => TRUE,
         'headers' => [
           'XA-RESOURCE' => $headers[0],
@@ -184,18 +221,95 @@ class XsedeApi {
         'body' => $body,
       ])->getBody()->getContents();
 
+      // Log successful request for debugging.
+      $this->logger->info('Allocations API POST request successful. URL: @url, Body: @body', [
+        '@url' => $url,
+        '@body' => $body,
+      ]);
+
+      return $response;
     }
     catch (RequestException $e) {
-      $this->messenger->addMessage($this->t('An error occurred.'), 'error');
-      if (strpos($e->getMessage(), '400 Bad Request') !== FALSE) {
-        \Drupal::messenger()->addMessage(
-          $this->t('Username not found for Allocation'),
+      // Get the full error response if available.
+      $response_body = '';
+      $status_code = 0;
+
+      if ($e->hasResponse()) {
+        $response = $e->getResponse();
+        $status_code = $response->getStatusCode();
+        $response_body = $response->getBody()->getContents();
+      }
+
+      // Decode the request body to get username info for logging.
+      $request_data = json_decode($body, TRUE);
+      $usernames = isset($request_data['usernames']) ? implode(', ', $request_data['usernames']) : 'unknown';
+
+      // Log comprehensive error details.
+      $this->logger->error('Allocations API POST request failed. URL: @url, Status: @status, Request body: @request, Response: @response, Exception: @exception', [
+        '@url' => $url,
+        '@status' => $status_code,
+        '@request' => $body,
+        '@response' => $response_body,
+        '@exception' => $e->getMessage(),
+      ]);
+
+      // Parse response for better error messages.
+      $api_error_message = '';
+      if (!empty($response_body)) {
+        $response_data = json_decode($response_body, TRUE);
+        if (isset($response_data['message'])) {
+          $api_error_message = $response_data['message'];
+        }
+        elseif (isset($response_data['error'])) {
+          $api_error_message = $response_data['error'];
+        }
+      }
+
+      // Show user-friendly error messages based on status code.
+      if ($status_code == 400) {
+        if (!empty($api_error_message)) {
+          $this->messenger->addMessage(
+            $this->t('Allocations API error: @message (User: @user)', [
+              '@message' => $api_error_message,
+              '@user' => $usernames,
+            ]),
+            'error'
+          );
+        }
+        else {
+          $this->messenger->addMessage(
+            $this->t('Unable to add user @user to allocation. The user may already be on the project, the username may not exist, or the allocation may not accept new members.', [
+              '@user' => $usernames,
+            ]),
+            'error'
+          );
+        }
+      }
+      elseif ($status_code == 403) {
+        $this->messenger->addMessage(
+          $this->t('Permission denied: Unable to modify this allocation. Please check API credentials.'),
+          'error'
+        );
+      }
+      elseif ($status_code == 404) {
+        $this->messenger->addMessage(
+          $this->t('Allocation not found. Please verify the grant number is correct.'),
+          'error'
+        );
+      }
+      elseif ($status_code >= 500) {
+        $this->messenger->addMessage(
+          $this->t('Allocations API server error. Please try again later or contact support.'),
           'error'
         );
       }
       else {
-        \Drupal::messenger()->addMessage(
-          $this->t('An error occurred.'),
+        // Generic error with status code.
+        $this->messenger->addMessage(
+          $this->t('Failed to add user @user to allocation (Status: @status). Please check the logs for details.', [
+            '@user' => $usernames,
+            '@status' => $status_code ?: 'unknown',
+          ]),
           'error'
         );
       }
