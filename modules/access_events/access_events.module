@@ -634,7 +634,27 @@ function access_events_views_pre_build(ViewExecutable $view) {
 }
 
 /**
- * Implements hook_pre_view() for node templates.
+ * Implements hook_pre_render().
+ */
+function access_events_views_pre_render(ViewExecutable $view) {
+  // admin/structure/views/view/recurring_events_registrations/edit/event_registrant_list
+  if ($view->id() == 'recurring_events_registrations' && $view->current_display == 'event_registrant_list') {
+    // Grab url argument for event instance id.
+    $path = \Drupal::service('path.current')->getPath();
+    $path_args = explode('/', $path);
+    $instance_id = is_numeric($path_args[2]) ? $path_args[2] : '';
+
+    // Entity load 'eventinstance' to get event title.
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($instance_id);
+    // Load event series to get event title.
+    $event_title = $eventinstance->getEventSeries()->get('title')->value;
+
+    $view->setTitle(t('Registration - @title', ['@title' => $event_title]));
+  }
+}
+
+/**
+ * Implements hook_pre_view().
  */
 function access_events_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
   if ($view->id() == 'recurring_events_event_instances' && $display_id === 'block_3') {
@@ -650,6 +670,52 @@ function access_events_views_pre_view(ViewExecutable $view, $display_id, array &
     $footer = \Drupal::service('access_misc.viewstools');
     $footer->setFooter($view, 'All Events with this tag', '/events?f%5B0%5D=custom_event_tags%3A' . $term['title'], 'block_3');
   }
+
+  // admin/structure/views/view/recurring_events_registrations/edit/event_registrant_list
+  if ($view->id() == 'recurring_events_registrations' && $display_id == 'event_registrant_list') {
+    // Grab url argument for event instance id.
+    $path = \Drupal::service('path.current')->getPath();
+    $path_args = explode('/', $path);
+    $instance_id = is_numeric($path_args[2]) ? $path_args[2] : '';
+
+    // Entity load 'eventinstance' to get event title.
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($instance_id);
+    // Load event series to get event title.
+    $event_title = $eventinstance->getEventSeries()->get('title')->value;
+
+    $registrants = \Drupal::entityTypeManager()->getStorage('registrant')->loadByProperties(['eventinstance_id' => $instance_id]);
+
+    $registrant_count = count($registrants);
+
+    $header['string'] = [
+      '#type' => 'inline_template',
+      '#template' => '<p>{{ tot_text }}: {{ count }}</p>
+                      <div><a href="waitlist/approve" class="btn btn-primary my-2 ms-0 me-4 mr-4 ml-0">{{ approve_text }}</a></div>
+      ',
+      '#context' => [
+        'tot_text' => t('Total Registrants:'),
+        'approve_text' => t('Approve All'),
+        'count' => $registrant_count,
+      ],
+    ];
+
+    $header = Markup::create(\Drupal::service('renderer')->render($header));
+
+    $options = array(
+      'id' => 'area_text_custom',
+      'table' => 'views',
+      'field' => 'area_text_custom',
+      'relationship' => 'none',
+      'group_type' => 'none',
+      'admin_label' => '',
+      'empty' => TRUE,
+      'tokenize' => FALSE,
+      'content' => $header,
+      'plugin_id' => 'text_custom',
+    );
+    $view->setHandler('event_registrant_list', 'header', 'area_text_custom', $options);
+  }
+
 
   // Override registration csv /admin/structure/views/view/recurring_events_registrations/edit/data_export_1.
   if ($view->id() == 'recurring_events_registrations' && $view->getDisplay()->view->element['#display_id'] === 'data_export_1') {
