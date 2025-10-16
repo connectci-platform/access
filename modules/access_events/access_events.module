@@ -680,6 +680,26 @@ function access_events_preprocess_views_view_field(&$variables) {
   $view = $variables['view'];
   $field = $variables['field'];
 
+  // admin/structure/views/view/event_instance_mine/edit/my_events_page
+  if ($view->id() == 'event_instance_mine' && $view->current_display == 'my_events_page' && $field->options['id'] == 'id_1') {
+    $id = $variables['output']->__toString();
+
+    // Load registrants for the event instance.
+    $registrants = \Drupal::entityTypeManager()->getStorage('registrant')->loadByProperties(['eventinstance_id' => $id]);
+
+    $output = '';
+
+    foreach ($registrants as $registrant) {
+      $status = $registrant->get('status')->getValue()[0]['value'];
+      if ($status == 0) {
+        $output = "<a href='/events/$id/registrations' title='Needs Approval'><i class='bi bi-exclamation-square-fill'></i></a>";
+        break;
+      }
+    }
+
+    $variables['output'] = Markup::create($output);
+  }
+
   // /admin/structure/views/view/recurring_events_registrations/edit/event_registrant_list
   if ($view->id() == 'recurring_events_registrations' && $field->options['id'] == 'nothing_1') {
     $reg_data = explode(',', $variables['output']->__toString());
@@ -934,7 +954,8 @@ function access_events_entity_access(EntityInterface $entity, $operation, Accoun
     $other_author_allowed = FALSE;
 
     foreach ($other_authors as $key => $value) {
-      if ($value['target_id'] == $current_user_id) {
+      $target_id = $value['target_id'] ?? 0;
+      if ($target_id == $current_user_id) {
         $other_author_allowed = TRUE;
         break;
       }
