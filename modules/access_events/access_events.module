@@ -649,7 +649,7 @@ function access_events_views_pre_render(ViewExecutable $view) {
     // Load event series to get event title.
     $event_title = $eventinstance->getEventSeries()->get('title')->value;
 
-    $view->setTitle(t('Registration - @title', ['@title' => $event_title]));
+    $view->setTitle(t('Registrations - @title', ['@title' => $event_title]));
   }
 }
 
