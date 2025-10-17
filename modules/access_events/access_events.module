@@ -685,7 +685,20 @@ function access_events_views_pre_view(ViewExecutable $view, $display_id, array &
 
     $registrants = \Drupal::entityTypeManager()->getStorage('registrant')->loadByProperties(['eventinstance_id' => $instance_id]);
 
-    $registrant_count = count($registrants);
+    $registrants_count = count($registrants);
+
+    // Under '$registrants[1019]->waitlist->value' 0 = not waitlist, 1 = waitlist, lets count waitlist only.
+    foreach ($registrants as $key => $registrant) {
+      if ($registrant->get('waitlist')->value == 0) {
+        unset($registrants[$key]);
+      }
+    }
+
+    $waitlist_count = count($registrants);
+
+    $count = $registrants_count - $waitlist_count;
+
+    $count_text = $count == $registrants_count ? $registrants_count : "$count of $registrants_count";
 
     $header['string'] = [
       '#type' => 'inline_template',
@@ -693,9 +706,9 @@ function access_events_views_pre_view(ViewExecutable $view, $display_id, array &
                       <div><a href="waitlist/approve" class="btn btn-primary my-2 ms-0 me-4 mr-4 ml-0">{{ approve_text }}</a></div>
       ',
       '#context' => [
-        'tot_text' => t('Total Registrants:'),
+        'tot_text' => t('Total Registrants'),
         'approve_text' => t('Approve All'),
-        'count' => $registrant_count,
+        'count' => $count_text,
       ],
     ];
 
