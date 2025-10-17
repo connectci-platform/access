@@ -680,25 +680,33 @@ function access_events_views_pre_view(ViewExecutable $view, $display_id, array &
 
     // Entity load 'eventinstance' to get event title.
     $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($instance_id);
+
+    $eventseries = $eventinstance->getEventSeries();
+
     // Load event series to get event title.
-    $event_title = $eventinstance->getEventSeries()->get('title')->value;
+    $event_title = $eventseries->get('title')->value;
 
     $registrants = \Drupal::entityTypeManager()->getStorage('registrant')->loadByProperties(['eventinstance_id' => $instance_id]);
 
-    $registrants_count = count($registrants);
+    $registered_users = 0;
 
-    // Under '$registrants[1019]->waitlist->value' 0 = not waitlist, 1 = waitlist, lets count waitlist only.
+    $waitlist = $eventseries->get('event_registration')->waitlist;
+
     foreach ($registrants as $key => $registrant) {
-      if ($registrant->get('waitlist')->value == 0) {
-        unset($registrants[$key]);
+      if ($registrant->status->value) {
+        // Count only approved registrants.
+        $registered_users++;
       }
     }
 
-    $waitlist_count = count($registrants);
+    if ($waitlist) {
 
-    $count = $registrants_count - $waitlist_count;
-
-    $count_text = $count == $registrants_count ? $registrants_count : "$count of $registrants_count";
+      $capacity = $eventseries->get('event_registration')->capacity;
+      $count_text = $registered_users . ' of ' . $capacity;
+    }
+    else {
+      $count_text = $registered_users ;
+    }
 
     $header['string'] = [
       '#type' => 'inline_template',
@@ -706,7 +714,7 @@ function access_events_views_pre_view(ViewExecutable $view, $display_id, array &
                       <div><a href="waitlist/approve" class="btn btn-primary my-2 ms-0 me-4 mr-4 ml-0">{{ approve_text }}</a></div>
       ',
       '#context' => [
-        'tot_text' => t('Total Registrants'),
+        'tot_text' => t('Approved Registrants'),
         'approve_text' => t('Approve All'),
         'count' => $count_text,
       ],
