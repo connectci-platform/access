@@ -1,0 +1,7 @@
+name: Recurring Events Surveys
+description: "Provides pre and post surveys for recurring events."
+type: module
+core_version_requirement: ^10 || ^11
+package: Custom
+dependencies:
+  - access
