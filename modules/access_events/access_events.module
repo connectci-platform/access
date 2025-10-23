@@ -861,6 +861,13 @@ function access_events_entity_presave(EntityInterface $entity) {
 
     if ($eventseries) {
       $series_domain = $eventseries->get('domain_access')->getValue();
+      $survey_url = $eventseries->get('field_post_survey_url')->uri;
+      $survey_sent_reminder = $eventinstance->get('field_post_survey_reminder_sent')->value;
+      $survey_sent = $eventinstance->get('field_post_survey_sent')->value;
+      if ($survey_url && $survey_sent == NULL && $survey_sent_reminder == NULL) {
+        $eventinstance->set('field_post_survey_reminder_sent', 0);
+        $eventinstance->set('field_post_survey_sent', 0);
+      }
 
       // If series domain(s) is set, set the same domain(s) on the event instance.
       if ($series_domain) {

@@ -70,6 +70,19 @@ class LoginController extends ControllerBase {
    * Route user to login.
    */
   public function login() {
+    // Entity query on 'entityseries' where 'field_pre_survey_url' is not empty.
+    $entity_query = \Drupal::entityQuery('eventinstance');
+    $entity_query->accessCheck(FALSE);
+    $entity_query->condition('field_post_survey_sent', 0);
+    $result = $entity_query->execute();
+
+    foreach ($result as $entity_id) {
+      kint($entity_id);
+
+    }
+
+    kint( $result );
+    die();
     $this->killSwitch->trigger();
     // Check if user is logged in.
     if ($this->currentUser->isAuthenticated()) {

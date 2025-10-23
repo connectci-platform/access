@@ -196,6 +196,8 @@ class EventWaitlist extends ControllerBase {
     $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
     $series = $event_instance->getEventSeries();
     $series_title = $series->get('title')->value;
+    $series_pre_survey_url = $series->get('field_pre_survey_url')->uri;
+    $series_pre_survey_text = $series->get('field_pre_survey_email_text')->value;
     $series_location = $series->get('field_location')->value;
     $location = $series_location ? $series_location : '';
     $og_start_date = $event_instance->get('date')->start_date->__toString();
@@ -211,7 +213,6 @@ class EventWaitlist extends ControllerBase {
     $policy = 'access_misc';
     $policy_subtype = 'registration_approved';
 
-    // Get list of unique emails.
     $variables = [
       'title' => $series_title,
       'title_link' => $series_title_url,
@@ -220,6 +221,8 @@ class EventWaitlist extends ControllerBase {
       'event_end_time' => $event_end_time,
       'name' => '',
       'location' => $location,
+      'pre_survey_url' => $series_pre_survey_url,
+      'pre_survey_text' => $series_pre_survey_text,
     ];
 
     foreach ($this->registrantIds as $registrant_id) {
@@ -227,13 +230,17 @@ class EventWaitlist extends ControllerBase {
       $email = $registrant->get('email')->getValue();
       $first_name = $registrant->get('field_first_name')->getValue();
       $last_name = $registrant->get('field_last_name')->getValue();
-      
+
       $first_name_value = !empty($first_name) && isset($first_name[0]['value']) ? $first_name[0]['value'] : '';
       $last_name_value = !empty($last_name) && isset($last_name[0]['value']) ? $last_name[0]['value'] : '';
       $variables['name'] = trim($first_name_value . ' ' . $last_name_value);
 
       if (!empty($email) && isset($email[0]['value'])) {
         \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $email[0]['value'], $variables);
+
+        // Update registrant entity with a timestamp on the 'field_pre_survey_sent' field.
+        $registrant->set('field_pre_survey_sent', \Drupal::time()->getRequestTime());
+        $registrant->save();
       }
     }
 
