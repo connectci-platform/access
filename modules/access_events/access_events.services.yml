@@ -1,4 +1,23 @@
 services:
   access_events.XsedeApi:
     class: Drupal\access_events\Plugin\XsedeApi
-    arguments: ['@entity_type.manager', '@key.repository', '@http_client', '@logger.channel.default', '@messenger', '@string_translation']
+    arguments:
+      [
+        "@entity_type.manager",
+        "@key.repository",
+        "@http_client",
+        "@logger.channel.default",
+        "@messenger",
+        "@string_translation",
+      ]
+  access_events.post_survey:
+    class: Drupal\access_events\Plugin\PostSurvey
+    arguments:
+      [
+        "@entity_type.manager",
+        "@datetime.time",
+        "@request_stack",
+        "@access_misc.sitetools",
+        "@access_misc.symfony.mail",
+        "@logger.factory",
+      ]

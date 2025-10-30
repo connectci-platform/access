@@ -928,3 +928,11 @@ function access_events_entity_access(EntityInterface $entity, $operation, Accoun
   return AccessResult::neutral();
 }
 
+/**
+ * Implements hook_cron().
+ */
+function access_events_cron() {
+  // Send post survey emails.
+  \Drupal::service('access_events.post_survey')->postSurveyEmail();
+}
+
