@@ -361,7 +361,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
 
     // Attach javascript.
     $form['#attached']['library'][] = 'access_misc/node_add_tags';
-    $form['#attached']['library'][] = 'access_misc/events';
+    $form['#attached']['library'][] = 'access_events/events';
 
     // Registration form.
     $form['event_registration']['widget'][0]['unique_email_address']['#default_value'] = 1;
