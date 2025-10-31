@@ -247,7 +247,10 @@ function access_cilink_preprocess_views_view_field(&$variables) {
                         <details class="search-ci-links">
                           <summary class="flex items-center bg-light-teal p-4 relative after:right-8">
                             <div class="text-dark-teal m-0 pe-20 font-bold text-lg">{{ title }}</div>
-                            <div class="linkcount bg-white text-orange font-bold py-2 px-4 rounded-full ms-auto me-10 ml-auto border round border-radius">{{ likesCount }}</div>
+                            <div class="linkcount relative position-relative bg-white text-orange font-bold pr-4 pl-3 ps-2 pe-6 py-2 rounded-full ms-auto me-10 ml-auto border round border-radius">
+                              {{ likesCount }}
+                              <i class="bi bi-hand-thumbs-up absolute position-absolute"></i>
+                            </div>
                             {% if domainName == "ccmnet" %}
                               <i class="bi-chevron-down ml-3"></i>
                             {% endif %}
