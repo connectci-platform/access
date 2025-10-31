@@ -19,9 +19,6 @@ copyclip:
   version: 1.x
   js:
     js/copyclip.js: {}
-events:
-  js:
-    js/events.js: {}
 add_select:
   version: 1.x
   js:
