@@ -36,7 +36,10 @@ class FlagSubscriber implements EventSubscriberInterface {
       \Drupal::state()->set('resource_flags', $flag_resource);
     }
     if ($flag_id == 'upvote') {
-      Cache::invalidateTags(['webform_submission:' . $flagging->getFlaggable()->id()]);
+      Cache::invalidateTags([
+        'webform_submission:' . $flagging->getFlaggable()->id(),
+        'search_api_list:ci_links',
+      ]);
     }
   }
 
@@ -64,7 +67,10 @@ class FlagSubscriber implements EventSubscriberInterface {
       \Drupal::state()->set('resource_flags', $flag_resource);
     }
     if ($flag_id == 'upvote') {
-      Cache::invalidateTags(['webform_submission:' . $flagging->getFlaggable()->id()]);
+      Cache::invalidateTags([
+        'webform_submission:' . $flagging->getFlaggable()->id(),
+        'search_api_list:ci_links',
+      ]);
     }
   }
 
