@@ -795,15 +795,10 @@ function access_events_preprocess_views_view_field(&$variables) {
     $series = $eventinstance->getEventSeries();
 
     $title = $eventinstance->getEventSeries()->get('title')->value;
-    $instance = $series->getInstanceCount();
     $series_id = $series->id();
 
-    if ($instance > 1) {
-      $output = "<a href='/events/series/$series_id'>$title</a>";
-    }
-    else {
-      $output = "<a href='/events/$id'>$title</a>";
-    }
+    $output = "<a href='/events/$id'>$title</a> </br>
+               [<a href='/events/series/$series_id'>view series</a>] [<a href='/events/series/$series_id/edit'>edit series</a>]";
 
     $variables['output'] = Markup::create($output);
   }
