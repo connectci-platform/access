@@ -64,8 +64,15 @@ function ondemand_views_query_alter(ViewExecutable $view, QueryPluginBase $query
     $token = \Drupal::token();
     $domain_name = Html::getClass($token->replace(t('[domain:name]')));
 
-    if ($domain_name == 'open-ondemand') {
-      $query->addCondition('field_region', '901', '=');
+    // Check if this domain has a connected region/program.
+    $site_tools = \Drupal::service('access_misc.sitetools');
+    $program_ids = $site_tools->getProgram();
+
+    if ($domain_name == 'open-ondemand' || $domain_name == 'pa-science') {
+      // Filter by the domain's connected program.
+      if (!empty($program_ids)) {
+        $query->addCondition('field_region', reset($program_ids), '=');
+      }
     }
     else {
       // Filter to the following roles for other domains.
