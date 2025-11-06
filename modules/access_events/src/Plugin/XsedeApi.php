@@ -165,6 +165,68 @@ class XsedeApi {
   }
 
   /**
+   * Get the ramps API key for identity API calls.
+   *
+   * @return string|null
+   *   The API key or NULL if not found.
+   */
+  private function getRampsApiKey() {
+    $path = \Drupal::service('file_system')->realpath("private://") . '/.keys/secrets.json';
+    if (!file_exists($path)) {
+      $this->logger->error('Unable to get ramps API key. File not found: @path', ['@path' => $path]);
+      return NULL;
+    }
+    $secretsData = json_decode(file_get_contents($path), TRUE);
+    return $secretsData['ramps_api_key'] ?? NULL;
+  }
+
+  /**
+   * Make Api call to identity API endpoints.
+   */
+  private function identityApiCall($path) {
+    $apiKey = $this->getRampsApiKey();
+    if (!$apiKey) {
+      $this->messenger->addMessage($this->t('No Identity API key found.'), 'warning');
+      return;
+    }
+
+    $url = $this->apiBaseUrl . $path;
+
+    try {
+      $response = $this->httpClient->get($url, [
+        'verify' => TRUE,
+        'headers' => [
+          'XA-API-KEY' => $apiKey,
+          'XA-REQUESTER' => 'MATCH',
+          'Content-Type' => 'application/json',
+        ],
+      ])->getBody()->getContents();
+      $response = Xss::filter($response);
+
+      $this->apiResults = json_decode($response, TRUE);
+    }
+    catch (RequestException $e) {
+      $status_code = $e->hasResponse() ? $e->getResponse()->getStatusCode() : 'unknown';
+      $error_body = $e->hasResponse() ? $e->getResponse()->getBody()->getContents() : 'no response body';
+
+      $this->logger->error('Identity API call failed with status @status. URL: @url, Error: @error, Response: @response', [
+        '@status' => $status_code,
+        '@url' => $url,
+        '@error' => $e->getMessage(),
+        '@response' => $error_body,
+      ]);
+
+      if ($status_code == 401) {
+        $this->messenger->addMessage($this->t('Authentication failed for Allocations API. Please check API credentials.'), 'error');
+      }
+      else {
+        $this->messenger->addMessage($this->t('An error occurred with the Allocations API.'), 'error');
+      }
+    }
+
+  }
+
+  /**
    * Make Api post.
    */
   private function apiPost($path, $body) {
@@ -264,6 +326,63 @@ class XsedeApi {
         '@grant_id' => $grantId,
       ]);
     return NULL;
+  }
+
+  /**
+   * Get person profile from identity API.
+   *
+   * @param string $username
+   *   The username to look up.
+   *
+   * @return array|null
+   *   The person profile data or NULL if not found.
+   */
+  public function getPersonProfile($username) {
+    $this->identityApiCall('/identity/profiles/v1/people/' . $username);
+
+    if (!empty($this->apiResults)) {
+      return $this->apiResults;
+    }
+
+    $this->logger->warning('No profile data returned from identity API for username: @username', [
+      '@username' => $username,
+    ]);
+    return NULL;
+  }
+
+  /**
+   * Check if a person is eligible for allocation access.
+   *
+   * @param string $username
+   *   The username to check.
+   *
+   * @return array
+   *   An array with keys:
+   *   - 'eligible': (bool) TRUE if eligible, FALSE otherwise.
+   *   - 'reason': (string|null) The eligibleReason from the API, if available.
+   */
+  public function isPersonEligible($username) {
+    $profile = $this->getPersonProfile($username);
+
+    if ($profile && isset($profile['isEligible'])) {
+      // API returns "yes" or "no" as a string, not a boolean.
+      $is_eligible = ($profile['isEligible'] === 'yes');
+      $reason = $profile['eligibleReason'] ?? NULL;
+
+      return [
+        'eligible' => $is_eligible,
+        'reason' => $reason,
+      ];
+    }
+
+    // If we can't determine eligibility, default to FALSE for safety.
+    $this->logger->warning('Could not determine eligibility for @username (isEligible field missing). Defaulting to NOT ELIGIBLE.', [
+      '@username' => $username,
+    ]);
+    return [
+      'eligible' => FALSE,
+      'reason' => NULL,
+    ];
   }
 
   /**

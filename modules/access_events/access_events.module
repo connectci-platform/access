@@ -173,6 +173,9 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     // Add submit handler to registrant form to invalidate cache on Events
     // Facet view.
     $form['actions']['submit']['#submit'][] = 'access_misc_registrant_submit';
+
+    // Add validation handler for eligibility checking.
+    $form['#validate'][] = 'access_events_registrant_eligibility_validate';
   }
 
   if ( ($form_id == 'registrant_default_add_form' || $form_id == 'registrant_default_edit_form') && in_array('administrator', $roles)) {
@@ -1080,5 +1083,87 @@ function access_events_entity_access(EntityInterface $entity, $operation, Accoun
 
   // Return neutral for all other cases.
   return AccessResult::neutral();
+}
+
+/**
+ * Custom validation handler for registrant eligibility checking.
+ *
+ * Checks if user is eligible for events with allocation grants.
+ */
+function access_events_registrant_eligibility_validate($form, FormStateInterface $form_state) {
+  /** @var \Drupal\recurring_events_registration\Entity\Registrant $entity */
+  $entity = $form_state->getFormObject()->getEntity();
+
+  // Only check eligibility for new registrations.
+  if (!$entity->isNew()) {
+    return;
+  }
+
+  $route_match = \Drupal::routeMatch();
+  $event_instance = $route_match->getParameter('eventinstance');
+
+  if (!$event_instance) {
+    return;
+  }
+
+  $event_series = $event_instance->getEventSeries();
+
+  // Check if this event has an allocation grant configured.
+  if (!$event_series->hasField('field_event_allocation_grant') ||
+      $event_series->get('field_event_allocation_grant')->isEmpty()) {
+    return;
+  }
+
+  $grant = $event_series->get('field_event_allocation_grant')->value;
+
+  // Only check eligibility if there's a valid grant number.
+  if (!$grant || $grant == 0) {
+    return;
+  }
+
+  // Get the current user.
+  $current_user = \Drupal::currentUser();
+  $user = User::load($current_user->id());
+
+  if (!$user) {
+    return;
+  }
+
+  $username = $user->getAccountName();
+  // Strip @access-ci.org suffix if present.
+  $username = str_replace('@access-ci.org', '', $username);
+
+  // Check eligibility via the API.
+  try {
+    $xsede_api = \Drupal::service('access_events.XsedeApi');
+    $eligibility = $xsede_api->isPersonEligible($username);
+
+    if (!$eligibility['eligible']) {
+      \Drupal::logger('access_events')->notice('Registration blocked for user @username for event with grant @grant. Reason: @reason', [
+        '@username' => $username,
+        '@grant' => $grant,
+        '@reason' => $eligibility['reason'] ?? 'none provided',
+      ]);
+
+      // Build error message with reason if available.
+      if (!empty($eligibility['reason'])) {
+        $error_message = t('You are not eligible to register for this event. @reason', [
+          '@reason' => $eligibility['reason'],
+        ]);
+      }
+      else {
+        $error_message = t('You are not eligible to register for this event. Please contact support if you believe this is an error.');
+      }
+
+      $form_state->setError($form, $error_message);
+    }
+  }
+  catch (\Exception $e) {
+    // Log the error but don't block registration if API is unavailable.
+    \Drupal::logger('access_events')->error('Error checking eligibility for user @username: @message. Allowing registration to proceed.', [
+      '@username' => $username,
+      '@message' => $e->getMessage(),
+    ]);
+  }
 }
 
