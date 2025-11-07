@@ -2,10 +2,9 @@
 
 namespace Drupal\access_misc\EventSubscriber;
 
-use Drupal\Core\Cache\Cache;
+use Drupal\user\Entity\User;
 use Drupal\flag\Event\FlagEvents;
 use Drupal\flag\Event\FlaggingEvent;
-use Drupal\flag\Event\UnflaggingEvent;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 
 /**
@@ -37,7 +36,7 @@ class ProjectFlagSubscriber implements EventSubscriberInterface {
         // Get field 'project_title' of submission.
         $title = $webform_submission->getData()['project_title'];
         $author_uid = $webform_submission->getOwnerId();
-        $author_email = \Drupal\user\Entity\User::load($author_uid)->getEmail();
+        $author_email = User::load($author_uid)->getEmail();
 
         // Create url 'host/webform/project/submissions/$entity_id/edit'.
         $host = \Drupal::request()->getSchemeAndHttpHost();
@@ -45,7 +44,7 @@ class ProjectFlagSubscriber implements EventSubscriberInterface {
 
         // Get id of user flagging the project.
         $flagged_by = $flagging->getOwnerId();
-        $user = \Drupal\user\Entity\User::load($flagged_by);
+        $user = User::load($flagged_by);
 
         $field_user_first_name = $user->get('field_user_first_name')->value;
         $field_user_last_name = $user->get('field_user_last_name')->value;
