@@ -790,20 +790,6 @@ function access_events_preprocess_views_view_field(&$variables) {
     $variables['output'] = Markup::create($output);
   }
 
-  // admin/structure/views/view/event_instance_mine/edit/my_events_page
-  if ($view->id() == 'event_instance_mine' && $view->current_display == 'my_events_page' && $field->options['id'] == 'id_2') {
-    $id = $variables['output']->__toString();
-
-    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($id);
-    $series = $eventinstance->getEventSeries();
-
-    $series_id = $series->id();
-
-    $output = "<a href='/events/series/$series_id/edit' title='edit'><i class='bi bi-pencil-square'></i></a>";
-
-    $variables['output'] = Markup::create($output);
-  }
-
   // /admin/structure/views/view/recurring_events_registrations/edit/event_registrant_list
   if ($view->id() == 'recurring_events_registrations' && $field->options['id'] == 'nothing_1') {
     $reg_data = explode(',', $variables['output']->__toString());
