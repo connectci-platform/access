@@ -27,6 +27,12 @@ services:
 
   access_misc.project_flag_subscriber:
     class: Drupal\access_misc\EventSubscriber\ProjectFlagSubscriber
+    arguments:
+      - "@entity_type.manager"
+      - "@request_stack"
+      - "@access_misc.sitetools"
+      - "@access_misc.usertools"
+      - "@access_misc.symfony.mail"
     tags:
       - { name: event_subscriber }
 
