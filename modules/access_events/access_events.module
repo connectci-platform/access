@@ -797,11 +797,9 @@ function access_events_preprocess_views_view_field(&$variables) {
     $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($id);
     $series = $eventinstance->getEventSeries();
 
-    $title = $eventinstance->getEventSeries()->get('title')->value;
     $series_id = $series->id();
 
-    $output = "<a href='/events/$id'>$title</a> </br>
-               [<a href='/events/series/$series_id'>view series</a>] [<a href='/events/series/$series_id/edit'>edit series</a>]";
+    $output = "<a href='/events/series/$series_id/edit' title='edit'><i class='bi bi-pencil-square'></i></a>";
 
     $variables['output'] = Markup::create($output);
   }
