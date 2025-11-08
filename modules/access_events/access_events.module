@@ -180,6 +180,9 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     // Add submit handler to registrant form to invalidate cache on Events
     // Facet view.
     $form['actions']['submit']['#submit'][] = 'access_misc_registrant_submit';
+
+    // Add validation handler for eligibility checking.
+    $form['#validate'][] = 'access_events_registrant_eligibility_validate';
   }
 
   if ( ($form_id == 'registrant_default_add_form' || $form_id == 'registrant_default_edit_form') && in_array('administrator', $roles)) {
@@ -205,6 +208,15 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     // Add submit handler to registrant form to invalidate cache on Events
     // Facet view.
     $form['actions']['submit']['#submit'][] = 'access_misc_registrant_submit';
+  }
+
+  if ($form_id == 'eventinstance_default_add_form' || $form_id == 'eventinstance_default_edit_form' || $form_id == 'eventinstance_default_clone_form') {
+    // If user is not administrator, hide the field 'domain_access'.
+    $current_user = \Drupal::currentUser();
+    $roles = $current_user->getRoles();
+    if (!in_array('administrator', $roles)) {
+      $form['domain_access']['#access'] = FALSE;
+    }
   }
 
   // Custom tags on /events/add
@@ -632,7 +644,27 @@ function access_events_views_pre_build(ViewExecutable $view) {
 }
 
 /**
- * Implements hook_pre_view() for node templates.
+ * Implements hook_pre_render().
+ */
+function access_events_views_pre_render(ViewExecutable $view) {
+  // admin/structure/views/view/recurring_events_registrations/edit/event_registrant_list
+  if ($view->id() == 'recurring_events_registrations' && $view->current_display == 'event_registrant_list') {
+    // Grab url argument for event instance id.
+    $path = \Drupal::service('path.current')->getPath();
+    $path_args = explode('/', $path);
+    $instance_id = is_numeric($path_args[2]) ? $path_args[2] : '';
+
+    // Entity load 'eventinstance' to get event title.
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($instance_id);
+    // Load event series to get event title.
+    $event_title = $eventinstance->getEventSeries()->get('title')->value;
+
+    $view->setTitle(t('Registrations - @title', ['@title' => $event_title]));
+  }
+}
+
+/**
+ * Implements hook_pre_view().
  */
 function access_events_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
   if ($view->id() == 'recurring_events_event_instances' && $display_id === 'block_3') {
@@ -648,6 +680,84 @@ function access_events_views_pre_view(ViewExecutable $view, $display_id, array &
     $footer = \Drupal::service('access_misc.viewstools');
     $footer->setFooter($view, 'All Events with this tag', '/events?f%5B0%5D=custom_event_tags%3A' . $term['title'], 'block_3');
   }
+
+  // admin/structure/views/view/recurring_events_registrations/edit/event_registrant_list
+  if ($view->id() == 'recurring_events_registrations' && $display_id == 'event_registrant_list') {
+    // Grab url argument for event instance id.
+    $path = \Drupal::service('path.current')->getPath();
+    $path_args = explode('/', $path);
+    $instance_id = is_numeric($path_args[2]) ? $path_args[2] : '';
+
+    // Entity load 'eventinstance' to get event title.
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($instance_id);
+
+    $eventseries = $eventinstance->getEventSeries();
+
+    // Load event series to get event title.
+    $event_title = $eventseries->get('title')->value;
+
+    $registrants = \Drupal::entityTypeManager()->getStorage('registrant')->loadByProperties(['eventinstance_id' => $instance_id]);
+
+    $approved_count = 0;
+    $unapproved_count = 0;
+    $waitlist_count = 0;
+
+    $waitlist_enabled = $eventseries->get('event_registration')->waitlist;
+
+    foreach ($registrants as $key => $registrant) {
+      $is_approved = $registrant->status->value;
+      $is_waitlisted = $registrant->waitlist->value;
+
+      if ($is_approved) {
+        $approved_count++;
+      }
+      elseif ($is_waitlisted) {
+        $waitlist_count++;
+      }
+      else {
+        // Unapproved and not on waitlist (pending)
+        $unapproved_count++;
+      }
+    }
+
+    // Get capacity for display
+    $capacity = $eventseries->get('event_registration')->capacity;
+
+    $header['string'] = [
+      '#type' => 'inline_template',
+      '#template' => '<p>Capacity: {{ capacity }}</p>
+                      <p>Approved: {{ approved }}</p>
+                      <p>Unapproved: {{ unapproved }}</p>
+                      {% if waitlist_enabled %}<p>Waitlist: {{ waitlist }}</p>{% endif %}
+                      <div><a href="waitlist/approve" class="btn btn-primary my-2 ms-0 me-4 mr-4 ml-0">{{ approve_text }}</a></div>
+      ',
+      '#context' => [
+        'capacity' => $capacity,
+        'approved' => $approved_count,
+        'unapproved' => $unapproved_count,
+        'waitlist' => $waitlist_count,
+        'waitlist_enabled' => $waitlist_enabled,
+        'approve_text' => t('Approve All'),
+      ],
+    ];
+
+    $header = Markup::create(\Drupal::service('renderer')->render($header));
+
+    $options = array(
+      'id' => 'area_text_custom',
+      'table' => 'views',
+      'field' => 'area_text_custom',
+      'relationship' => 'none',
+      'group_type' => 'none',
+      'admin_label' => '',
+      'empty' => TRUE,
+      'tokenize' => FALSE,
+      'content' => $header,
+      'plugin_id' => 'text_custom',
+    );
+    $view->setHandler('event_registrant_list', 'header', 'area_text_custom', $options);
+  }
+
 
   // Override registration csv /admin/structure/views/view/recurring_events_registrations/edit/data_export_1.
   if ($view->id() == 'recurring_events_registrations' && $view->getDisplay()->view->element['#display_id'] === 'data_export_1') {
@@ -677,6 +787,26 @@ function access_events_views_pre_view(ViewExecutable $view, $display_id, array &
 function access_events_preprocess_views_view_field(&$variables) {
   $view = $variables['view'];
   $field = $variables['field'];
+
+  // admin/structure/views/view/event_instance_mine/edit/my_events_page
+  if ($view->id() == 'event_instance_mine' && $view->current_display == 'my_events_page' && $field->options['id'] == 'id_1') {
+    $id = $variables['output']->__toString();
+
+    // Load registrants for the event instance.
+    $registrants = \Drupal::entityTypeManager()->getStorage('registrant')->loadByProperties(['eventinstance_id' => $id]);
+
+    $output = '';
+
+    foreach ($registrants as $registrant) {
+      $status = $registrant->get('status')->getValue()[0]['value'];
+      if ($status == 0) {
+        $output = "<a href='/events/$id/registrations' title='Needs Approval'><i class='bi bi-exclamation-square-fill'></i></a>";
+        break;
+      }
+    }
+
+    $variables['output'] = Markup::create($output);
+  }
 
   // /admin/structure/views/view/recurring_events_registrations/edit/event_registrant_list
   if ($view->id() == 'recurring_events_registrations' && $field->options['id'] == 'nothing_1') {
@@ -903,12 +1033,43 @@ function access_events_views_query_alter(ViewExecutable $view, QueryPluginBase $
 function access_events_entity_access(EntityInterface $entity, $operation, AccountInterface $account) {
   if (($entity->getEntityTypeId() == 'eventinstance' || $entity->getEntityTypeId() == 'eventseries') && $entity->bundle() == 'default') {
     $author = $entity->getOwner();
+    if (!$author) {
+      return AccessResult::neutral();
+    }
     $author_id = $author->id();
     $current_user = \Drupal::currentUser();
     $current_user_id = $current_user->id();
 
+    // Get field 'field_other_authors'.
+    $other_authors = [];
+    if ($entity->getEntityTypeId() == 'eventseries') {
+      $other_authors = $entity->get('field_other_authors')->getValue();
+    }
+    elseif ($entity->getEntityTypeId() == 'eventinstance'){
+      // For eventinstance, get the parent eventseries and check its field_other_authors
+      // since other_authors is inherited via field_inheritance.
+      $eventseries = $entity->getEventSeries();
+      if ($eventseries && $eventseries->hasField('field_other_authors')) {
+        $other_authors = $eventseries->get('field_other_authors')->getValue();
+      }
+    }
+
+    $other_author_allowed = FALSE;
+
+    foreach ($other_authors as $key => $value) {
+      $target_id = $value['target_id'] ?? 0;
+      if ($target_id == $current_user_id) {
+        $other_author_allowed = TRUE;
+        break;
+      }
+    }
+
     if ($author_id == $current_user_id) {
       // Allow access if the user is the author of the event instance.
+      return AccessResult::allowed();
+    }
+    elseif($other_author_allowed) {
+      // Allow access if the user is listed as other author.
       return AccessResult::allowed();
     }
     else {
@@ -919,5 +1080,87 @@ function access_events_entity_access(EntityInterface $entity, $operation, Accoun
 
   // Return neutral for all other cases.
   return AccessResult::neutral();
+}
+
+/**
+ * Custom validation handler for registrant eligibility checking.
+ *
+ * Checks if user is eligible for events with allocation grants.
+ */
+function access_events_registrant_eligibility_validate($form, FormStateInterface $form_state) {
+  /** @var \Drupal\recurring_events_registration\Entity\Registrant $entity */
+  $entity = $form_state->getFormObject()->getEntity();
+
+  // Only check eligibility for new registrations.
+  if (!$entity->isNew()) {
+    return;
+  }
+
+  $route_match = \Drupal::routeMatch();
+  $event_instance = $route_match->getParameter('eventinstance');
+
+  if (!$event_instance) {
+    return;
+  }
+
+  $event_series = $event_instance->getEventSeries();
+
+  // Check if this event has an allocation grant configured.
+  if (!$event_series->hasField('field_event_allocation_grant') ||
+      $event_series->get('field_event_allocation_grant')->isEmpty()) {
+    return;
+  }
+
+  $grant = $event_series->get('field_event_allocation_grant')->value;
+
+  // Only check eligibility if there's a valid grant number.
+  if (!$grant || $grant == 0) {
+    return;
+  }
+
+  // Get the current user.
+  $current_user = \Drupal::currentUser();
+  $user = User::load($current_user->id());
+
+  if (!$user) {
+    return;
+  }
+
+  $username = $user->getAccountName();
+  // Strip @access-ci.org suffix if present.
+  $username = str_replace('@access-ci.org', '', $username);
+
+  // Check eligibility via the API.
+  try {
+    $xsede_api = \Drupal::service('access_events.XsedeApi');
+    $eligibility = $xsede_api->isPersonEligible($username);
+
+    if (!$eligibility['eligible']) {
+      \Drupal::logger('access_events')->notice('Registration blocked for user @username for event with grant @grant. Reason: @reason', [
+        '@username' => $username,
+        '@grant' => $grant,
+        '@reason' => $eligibility['reason'] ?? 'none provided',
+      ]);
+
+      // Build error message with reason if available.
+      if (!empty($eligibility['reason'])) {
+        $error_message = t('You are not eligible to register for this event. @reason', [
+          '@reason' => $eligibility['reason'],
+        ]);
+      }
+      else {
+        $error_message = t('You are not eligible to register for this event. Please contact support if you believe this is an error.');
+      }
+
+      $form_state->setError($form, $error_message);
+    }
+  }
+  catch (\Exception $e) {
+    // Log the error but don't block registration if API is unavailable.
+    \Drupal::logger('access_events')->error('Error checking eligibility for user @username: @message. Allowing registration to proceed.', [
+      '@username' => $username,
+      '@message' => $e->getMessage(),
+    ]);
+  }
 }
 
