@@ -691,35 +691,46 @@ function access_events_views_pre_view(ViewExecutable $view, $display_id, array &
 
     $registrants = \Drupal::entityTypeManager()->getStorage('registrant')->loadByProperties(['eventinstance_id' => $instance_id]);
 
-    $registered_users = 0;
+    $approved_count = 0;
+    $unapproved_count = 0;
+    $waitlist_count = 0;
 
-    $waitlist = $eventseries->get('event_registration')->waitlist;
+    $waitlist_enabled = $eventseries->get('event_registration')->waitlist;
 
     foreach ($registrants as $key => $registrant) {
-      if ($registrant->status->value) {
-        // Count only approved registrants.
-        $registered_users++;
+      $is_approved = $registrant->status->value;
+      $is_waitlisted = $registrant->waitlist->value;
+
+      if ($is_approved) {
+        $approved_count++;
+      }
+      elseif ($is_waitlisted) {
+        $waitlist_count++;
+      }
+      else {
+        // Unapproved and not on waitlist (pending)
+        $unapproved_count++;
       }
     }
 
-    if ($waitlist) {
-
-      $capacity = $eventseries->get('event_registration')->capacity;
-      $count_text = $registered_users . ' of ' . $capacity;
-    }
-    else {
-      $count_text = $registered_users ;
-    }
+    // Get capacity for display
+    $capacity = $eventseries->get('event_registration')->capacity;
 
     $header['string'] = [
       '#type' => 'inline_template',
-      '#template' => '<p>{{ tot_text }}: {{ count }}</p>
+      '#template' => '<p>Capacity: {{ capacity }}</p>
+                      <p>Approved: {{ approved }}</p>
+                      <p>Unapproved: {{ unapproved }}</p>
+                      {% if waitlist_enabled %}<p>Waitlist: {{ waitlist }}</p>{% endif %}
                       <div><a href="waitlist/approve" class="btn btn-primary my-2 ms-0 me-4 mr-4 ml-0">{{ approve_text }}</a></div>
       ',
       '#context' => [
-        'tot_text' => t('Approved Registrants'),
+        'capacity' => $capacity,
+        'approved' => $approved_count,
+        'unapproved' => $unapproved_count,
+        'waitlist' => $waitlist_count,
+        'waitlist_enabled' => $waitlist_enabled,
         'approve_text' => t('Approve All'),
-        'count' => $count_text,
       ],
     ];
 
