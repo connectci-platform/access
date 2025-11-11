@@ -493,6 +493,11 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     }
   }
 
+  if ($form_id == 'webform_submission_project_add_form' || $form_id == 'webform_submission_project_edit_form') {
+    // Submit hander to handle emails.
+    array_unshift($form['actions']['submit']['#submit'], 'access_misc_project_email_submit');
+  }
+
   if ($form_id == 'views_exposed_form' && array_key_exists('filter-search_api_fulltext', $form['#info'])) {
     if ($form['#info']['filter-search_api_fulltext']['value'] == 'search_api_fulltext') {
       $form['#suffix'] = '<h2 class="md--hidden d-block d-lg-none">' . t('Filters') . '</h2>';
@@ -512,6 +517,29 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
   if ($form_id == 'user_form') {
     $form['actions']['submit']['#submit'][] = 'access_misc_user_password_change';
   }
+}
+
+/**
+ * Submit handler for project form.
+ */
+function access_misc_project_email_submit(array &$form, FormStateInterface $form_state) {
+  $values = $form_state->getValues();
+  // Current user uid.
+  $current_user = \Drupal::currentUser();
+  $current_uid = $current_user->id();
+
+  if (!$values['received_sent'] && $values['approved_milestones']) {
+    // Add email Received email to author here.
+
+    $form_state->setValue('received_sent', 1);
+  }
+
+  if (!$values['accept_and_publish_sent'] && $values['approved']) {
+    // Add email Approved and Published email to author here.
+
+    $form_state->setValue('accept_and_publish_sent', 1);
+  }
+
 }
 
 /**
