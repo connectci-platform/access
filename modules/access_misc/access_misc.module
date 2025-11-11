@@ -654,6 +654,8 @@ function access_misc_user_password_change($form, FormStateInterface $form_state)
   $password = $form_state->getValue('pass');
   if ($password) {
     \Drupal::messenger()->addMessage(t('Password changed successfully.'));
+    // Redirect user to '/community-persona' after password change.
+    $form_state->setRedirect('cssn.page');
   }
 }
 
