@@ -216,7 +216,7 @@ class PersonaBlock extends BlockBase {
 
       $persona_block['string'] = [
         '#type' => 'inline_template',
-        '#template' => '<div class="persona">
+        '#template' => '<div class="persona prose">
                           {{ user_image | raw }}
 
                           {% if public %}
@@ -249,10 +249,10 @@ class PersonaBlock extends BlockBase {
                             <div class="py-3 flex flex-wrap">{{ user_badges | raw }}</div>
                           {% endif %}
 
-                          <div class="ml-3 ms-3">
+                          <div>
                             {% if askci or discourse_ood or github %}
                               <div class="mb-3 py-3">
-                                <h4 class="mt-0">{{ profile_text }}</h4>
+                                <h2 class="h4 text-lg font-bold leading-5 mt-0">{{ profile_text }}</h2>
 
                                 {% if askci %}
                                   <a href="https://ask.cyberinfrastructure.org/u/{{ askci }}" class="d-flex flex mt-1 text-decoration-none no-underline" target="_blank" rel="noopener noreferrer">
@@ -281,14 +281,14 @@ class PersonaBlock extends BlockBase {
 
                             <div class="d-flex justify-content-between flex justify-between mb-3 py-3">
                               {% if roles %}
-                                <div><h4>{{ role_text }}:</h4>{{ roles | raw }}</div>
+                                <div><h2 class="h4 text-lg font-bold leading-5 mt-0">{{ role_text }}:</h2>{{ roles | raw }}</div>
                               {% endif %}
                               {% if cssn_role %}
                                 <div><i class="text-dark bi-pencil-square"></i> {{ cssn_role }}</div>
                               {% endif %}
                             </div>
                             {% if program %}
-                              <div class="mb-3"><b>{{ program_text }}:</b><br />{{ program }}</div>
+                              <div class="mb-3"><h2 class="h4 text-lg font-bold leading-5 mt-0">{{ program_text }}:</h2>{{ program }}</div>
                             {% endif %}
                             <div class="w-100">
                              {{ send_email | raw }}
