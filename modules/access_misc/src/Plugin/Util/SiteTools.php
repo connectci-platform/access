@@ -77,4 +77,50 @@ class SiteTools {
     return $program;
   }
 
+  /**
+   * Get noreply email address for a domain.
+   *
+   * @param string|null $domain
+   *   The domain name (e.g., 'pa-science', 'ccmnet').
+   *   If NULL, uses the current domain.
+   *
+   * @return string
+   *   The noreply email address for the domain.
+   */
+  public function getNoreplyEmail($domain = NULL) {
+    if ($domain === NULL) {
+      $domain = $this->getDomain();
+    }
+
+    // Map domains to their noreply addresses.
+    $domain_emails = [
+      'pa-science' => 'noreply@pasciencedmz.connectci.org',
+      'ccmnet' => 'noreply@ccmnet.org',
+      'access-ci' => 'noreply@access-ci.org',
+    ];
+
+    // Return domain-specific email or default.
+    return $domain_emails[$domain] ?? 'noreply@support.access-ci.org';
+  }
+
+  /**
+   * Get manager role for a program/region.
+   *
+   * @param int|string $program_id
+   *   The taxonomy term ID for the region/program.
+   *
+   * @return string|null
+   *   The manager role name, or NULL if not configured.
+   */
+  public function getManagerRole($program_id) {
+    // Map program IDs to manager roles.
+    $program_roles = [
+      323 => 'careers_sc',         // CAREERS
+      933 => 'pascience_manager',  // PA Science
+      // Add other programs here as they are configured.
+    ];
+
+    return $program_roles[$program_id] ?? NULL;
+  }
+
 }
