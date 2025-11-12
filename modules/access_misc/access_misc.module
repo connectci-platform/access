@@ -493,6 +493,22 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     }
   }
 
+  if ($form_id == 'webform_submission_project_add_form' || $form_id == 'webform_submission_project_edit_form') {
+    // Submit hander to handle emails.
+    array_unshift($form['actions']['submit']['#submit'], 'access_misc_project_email_submit');
+
+    // Only show the notify managers checkbox to the submission owner.
+    if ($form_id == 'webform_submission_project_edit_form') {
+      $webform_submission = $form_state->getFormObject()->getEntity();
+      $current_user = \Drupal::currentUser();
+
+      // Hide the checkbox if the current user is not the submission owner.
+      if ($webform_submission->getOwnerId() != $current_user->id()) {
+        $form['elements']['notify_managers_of_update']['#access'] = FALSE;
+      }
+    }
+  }
+
   if ($form_id == 'views_exposed_form' && array_key_exists('filter-search_api_fulltext', $form['#info'])) {
     if ($form['#info']['filter-search_api_fulltext']['value'] == 'search_api_fulltext') {
       $form['#suffix'] = '<h2 class="md--hidden d-block d-lg-none">' . t('Filters') . '</h2>';
@@ -512,6 +528,283 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
   if ($form_id == 'user_form') {
     $form['actions']['submit']['#submit'][] = 'access_misc_user_password_change';
   }
+}
+
+/**
+ * Submit handler for project form.
+ */
+function access_misc_project_email_submit(array &$form, FormStateInterface $form_state) {
+  $values = $form_state->getValues();
+  $form_object = $form_state->getFormObject();
+
+  /** @var \Drupal\webform\WebformSubmissionInterface $webform_submission */
+  $webform_submission = $form_object->getEntity();
+
+  // Check if this is a configured program.
+  $program_id = _access_misc_check_project_program($webform_submission);
+  if (!$program_id) {
+    return;
+  }
+
+  // Get submission author email.
+  $author_uid = $webform_submission->getOwnerId();
+  $author = \Drupal::entityTypeManager()->getStorage('user')->load($author_uid);
+  if (!$author) {
+    return;
+  }
+  $author_email = $author->getEmail();
+  if (!$author_email) {
+    return;
+  }
+
+  // Get common email variables.
+  $variables = _access_misc_get_project_email_variables($webform_submission);
+  $symfony_mail = \Drupal::service('access_misc.symfony.mail');
+  $policy = 'access_misc_project';
+
+  // Determine region suffix for email subtype.
+  $region_suffix = _access_misc_get_region_suffix($program_id);
+
+  // Check if "Received" email should be sent.
+  if (!$values['received_sent'] && $values['approved_milestones']) {
+    $policy_subtype = 'project_received_' . $region_suffix;
+    $symfony_mail->email($policy, $policy_subtype, $author_email, $variables);
+    $form_state->setValue('received_sent', 1);
+    \Drupal::logger('access_misc')->info('Project received notification sent to @email for submission @sid', [
+      '@email' => $author_email,
+      '@sid' => $webform_submission->id(),
+    ]);
+  }
+
+  // Check if "Approved" email should be sent.
+  if (!$values['accept_and_publish_sent'] && $values['approved']) {
+    $policy_subtype = 'project_approved_' . $region_suffix;
+    $symfony_mail->email($policy, $policy_subtype, $author_email, $variables);
+    $form_state->setValue('accept_and_publish_sent', 1);
+    \Drupal::logger('access_misc')->info('Project approved notification sent to @email for submission @sid', [
+      '@email' => $author_email,
+      '@sid' => $webform_submission->id(),
+    ]);
+  }
+
+}
+
+/**
+ * Helper: Check if webform submission is for a configured program.
+ *
+ * @param \Drupal\webform\WebformSubmissionInterface $webform_submission
+ *   The webform submission.
+ *
+ * @return int|false
+ *   The program ID if configured, FALSE otherwise.
+ */
+function _access_misc_check_project_program(\Drupal\webform\WebformSubmissionInterface $webform_submission) {
+  // Get the region/program from the submission.
+  $submission_region = $webform_submission->getElementData('region');
+  $submission_region = is_array($submission_region) ? reset($submission_region) : $submission_region;
+
+  if (!$submission_region) {
+    return FALSE;
+  }
+
+  // Get current site program.
+  $site_tools = \Drupal::service('access_misc.sitetools');
+  $current_program = $site_tools->getProgram();
+  $current_program = is_array($current_program) ? reset($current_program) : $current_program;
+
+  // Only process if submission region matches current domain program.
+  if ($submission_region != $current_program) {
+    return FALSE;
+  }
+
+  // Check if this program has a manager role configured.
+  $manager_role = $site_tools->getManagerRole($current_program);
+  if (!$manager_role) {
+    return FALSE;
+  }
+
+  return $current_program;
+}
+
+/**
+ * Helper: Get region suffix for email subtype.
+ *
+ * @param int $program_id
+ *   The program/region taxonomy term ID.
+ *
+ * @return string
+ *   The region suffix (e.g., 'pascience').
+ */
+function _access_misc_get_region_suffix($program_id) {
+  $region_map = [
+    323 => 'careers',    // CAREERS
+    933 => 'pascience',  // PA Science
+    // Add other regions here as they are configured.
+  ];
+
+  return $region_map[$program_id] ?? 'default';
+}
+
+/**
+ * Helper: Get common email variables for project notifications.
+ *
+ * @param \Drupal\webform\WebformSubmissionInterface $webform_submission
+ *   The webform submission.
+ *
+ * @return array
+ *   Array of email variables.
+ */
+function _access_misc_get_project_email_variables(\Drupal\webform\WebformSubmissionInterface $webform_submission) {
+  // Get raw submission data to avoid spamspan markup.
+  $data = $webform_submission->getData();
+
+  $project_title = $data['project_title'] ?? '';
+  $project_leader_name = $data['project_leader'] ?? [];
+  $project_leader_first = $project_leader_name['first'] ?? '';
+  $project_leader_last = $project_leader_name['last'] ?? '';
+  $project_institution = $data['project_institution'] ?? '';
+  $project_description = $data['project_description'] ?? '';
+  $contact_email = $data['email'] ?? '';
+  $status = $data['status'] ?? 'Not set';
+
+  // Get submission author.
+  $author_uid = $webform_submission->getOwnerId();
+  $author = \Drupal::entityTypeManager()->getStorage('user')->load($author_uid);
+  $author_name = $author ? $author->getDisplayName() : 'Unknown';
+
+  // Get URLs.
+  $request = \Drupal::request();
+  $host = $request->getSchemeAndHttpHost();
+  $submission_id = $webform_submission->id();
+  $edit_url = $host . '/webform/project/submissions/' . $submission_id . '/edit';
+  $public_url = $host . '/project/' . $submission_id;
+
+  // Build approval status.
+  $approved_milestones = $webform_submission->getElementData('approved_milestones');
+  $approved = $webform_submission->getElementData('approved');
+
+  return [
+    'project_title' => $project_title,
+    'project_leader_first' => $project_leader_first,
+    'project_leader_last' => $project_leader_last,
+    'contact_email' => $contact_email,
+    'project_institution' => $project_institution,
+    'project_description' => $project_description,
+    'submitted_by' => $author_name,
+    'submission_id' => $submission_id,
+    'created_date' => date('F j, Y', $webform_submission->getCreatedTime()),
+    'updated_date' => date('F j, Y'),
+    'approved_date' => date('F j, Y'),
+    'status' => $status,
+    'received' => $approved_milestones ? 'Yes' : 'No',
+    'approved' => $approved ? 'Yes' : 'No',
+    'edit_url' => $edit_url,
+    'public_url' => $public_url,
+  ];
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_insert() for webform_submission entities.
+ */
+function access_misc_webform_submission_insert(\Drupal\webform\WebformSubmissionInterface $webform_submission) {
+  // Only process project webform.
+  if ($webform_submission->getWebform()->id() !== 'project') {
+    return;
+  }
+
+  // Check if this is a configured program.
+  $program_id = _access_misc_check_project_program($webform_submission);
+  if (!$program_id) {
+    \Drupal::logger('access_misc')->info('Project created notification skipped: submission @sid not for configured program', [
+      '@sid' => $webform_submission->id(),
+    ]);
+    return;
+  }
+
+  // Get manager emails for this program.
+  $site_tools = \Drupal::service('access_misc.sitetools');
+  $manager_role = $site_tools->getManagerRole($program_id);
+  $user_tools = \Drupal::service('access_misc.usertools');
+  $manager_emails = $user_tools->getEmails([$manager_role], []);
+
+  if (!$manager_emails) {
+    \Drupal::logger('access_misc')->warning('Project created notification skipped: no managers found for role @role (program @pid)', [
+      '@role' => $manager_role,
+      '@pid' => $program_id,
+    ]);
+    return;
+  }
+
+  // Send "Project Created" email to managers.
+  $region_suffix = _access_misc_get_region_suffix($program_id);
+  $variables = _access_misc_get_project_email_variables($webform_submission);
+  $symfony_mail = \Drupal::service('access_misc.symfony.mail');
+  $policy = 'access_misc_project';
+  $policy_subtype = 'project_created_' . $region_suffix;
+
+  $symfony_mail->email($policy, $policy_subtype, $manager_emails, $variables);
+
+  \Drupal::logger('access_misc')->info('Project created notification sent to @count managers for submission @sid', [
+    '@count' => is_array($manager_emails) ? count($manager_emails) : 1,
+    '@sid' => $webform_submission->id(),
+  ]);
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_update() for webform_submission entities.
+ *
+ * Only notifies PA Science DMZ Program Managers when the submitter explicitly
+ * checks the "Notify PA Science DMZ Program Managers of this update" checkbox.
+ */
+function access_misc_webform_submission_update(\Drupal\webform\WebformSubmissionInterface $webform_submission) {
+  // Only process project webform.
+  if ($webform_submission->getWebform()->id() !== 'project') {
+    return;
+  }
+
+  // Check if notification checkbox is checked.
+  $notify_managers = $webform_submission->getElementData('notify_managers_of_update');
+  if (!$notify_managers) {
+    return;
+  }
+
+  // Check if this is a configured program.
+  $program_id = _access_misc_check_project_program($webform_submission);
+  if (!$program_id) {
+    return;
+  }
+
+  // Get manager emails for this program.
+  $site_tools = \Drupal::service('access_misc.sitetools');
+  $manager_role = $site_tools->getManagerRole($program_id);
+  $user_tools = \Drupal::service('access_misc.usertools');
+  $manager_emails = $user_tools->getEmails([$manager_role], []);
+
+  if (!$manager_emails) {
+    \Drupal::logger('access_misc')->warning('Project updated notification skipped: no managers found for role @role (program @pid)', [
+      '@role' => $manager_role,
+      '@pid' => $program_id,
+    ]);
+    return;
+  }
+
+  // Send "Project Updated" email to PA Science DMZ Program Managers.
+  $region_suffix = _access_misc_get_region_suffix($program_id);
+  $variables = _access_misc_get_project_email_variables($webform_submission);
+  $symfony_mail = \Drupal::service('access_misc.symfony.mail');
+  $policy = 'access_misc_project';
+  $policy_subtype = 'project_updated_' . $region_suffix;
+
+  $symfony_mail->email($policy, $policy_subtype, $manager_emails, $variables);
+
+  \Drupal::logger('access_misc')->info('Project updated notification sent to @count managers for submission @sid', [
+    '@count' => is_array($manager_emails) ? count($manager_emails) : 1,
+    '@sid' => $webform_submission->id(),
+  ]);
+
+  // Reset the checkbox after sending.
+  $webform_submission->setElementData('notify_managers_of_update', 0);
+  $webform_submission->resave();
 }
 
 /**
