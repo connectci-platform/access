@@ -43,13 +43,17 @@ class PersonaBlock extends BlockBase {
       $user = $public ? $user : \Drupal::currentUser();
       $user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($user->id());
       $user_image = $user_entity->get('user_picture');
+      $first_name = $user_entity->get('field_user_first_name')->value;
+      $last_name = $user_entity->get('field_user_last_name')->value;
+      $pronouns = $user_entity->get('field_user_preferred_pronouns')->value;
+
       if ($user_image->entity !== NULL) {
         $user_image = $user_image->entity->getFileUri();
         $user_image = \Drupal::service('file_url_generator')->generateAbsoluteString($user_image);
-        $user_image = '<img src="' . $user_image . '" class="img-fluid mb-3 border border-black" />';
+        $user_image = '<img src="' . $user_image . '" alt="' . $first_name . ' ' . $last_name . ' profile photo" class="img-fluid mb-3 border border-black" />';
       }
       else {
-        $user_image = '<svg version="1.1" class="mb-3" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+        $user_image = '<svg version="1.1" class="mb-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
            viewBox="0 0 448 448" style="enable-background:new 0 0 448 448;" xml:space="preserve">
             <style type="text/css">
               .st0{fill:#ECF9F8;}
@@ -78,9 +82,6 @@ class PersonaBlock extends BlockBase {
         ],
       ];
       $edit_link = $public ? "" : $edit_link;
-      $first_name = $user_entity->get('field_user_first_name')->value;
-      $last_name = $user_entity->get('field_user_last_name')->value;
-      $pronouns = $user_entity->get('field_user_preferred_pronouns')->value;
 
       // Show access organization if set; use institution field if organization is "Other" (3695) or not set.
       $orgArray = $user_entity->get('field_access_organization')->getValue();
@@ -215,15 +216,23 @@ class PersonaBlock extends BlockBase {
 
       $persona_block['string'] = [
         '#type' => 'inline_template',
-        '#template' => '<div class="persona">
+        '#template' => '<div class="persona prose">
                           {{ user_image | raw }}
-                          <h2 {% if pronouns == "DONOTDISPLAY" %}class="m-0" {% endif %}>
-                            {{ first_name }} {{ last_name }}
-                          </h2>
+
+                          {% if public %}
+                            <h1 class="mt-0 mb-4 text-3xl font-bold">
+                              {{ first_name }} {{ last_name }}
+                            </h1>
+                          {% else %}
+                            <h2 {% if pronouns == "DONOTDISPLAY" %}class="m-0" {% endif %}>
+                              {{ first_name }} {{ last_name }}
+                            </h2>
+                          {% endif %}
+
                           {% if pronouns == "DONOTDISPLAY" %}
                             <div><strong>Pronouns:</strong> {{ pronouns }}</div>
                           {% endif %}
-                          <h4 class="institution text-md-teal">{{ institution }}</h4>
+                          <div class="institution text-md-teal text-lg font-bold">{{ institution }}</div>
                           {% if job_title %}
                             <div class="mb-3"><i>{{ job_title }}</i></div>
                           {% endif %}
@@ -240,10 +249,10 @@ class PersonaBlock extends BlockBase {
                             <div class="py-3 flex flex-wrap">{{ user_badges | raw }}</div>
                           {% endif %}
 
-                          <div class="ml-3 ms-3">
+                          <div>
                             {% if askci or discourse_ood or github %}
                               <div class="mb-3 py-3">
-                                <h4 class="mt-0">{{ profile_text }}</h4>
+                                <h2 class="h4 text-lg font-bold leading-5 mt-0">{{ profile_text }}</h2>
 
                                 {% if askci %}
                                   <a href="https://ask.cyberinfrastructure.org/u/{{ askci }}" class="d-flex flex mt-1 text-decoration-none no-underline" target="_blank" rel="noopener noreferrer">
@@ -272,14 +281,14 @@ class PersonaBlock extends BlockBase {
 
                             <div class="d-flex justify-content-between flex justify-between mb-3 py-3">
                               {% if roles %}
-                                <div><h4>{{ role_text }}:</h4>{{ roles | raw }}</div>
+                                <div><h2 class="h4 text-lg font-bold leading-5 mt-0">{{ role_text }}:</h2>{{ roles | raw }}</div>
                               {% endif %}
                               {% if cssn_role %}
                                 <div><i class="text-dark bi-pencil-square"></i> {{ cssn_role }}</div>
                               {% endif %}
                             </div>
                             {% if program %}
-                              <div class="mb-3"><b>{{ program_text }}:</b><br />{{ program }}</div>
+                              <div class="mb-3"><h2 class="h4 text-lg font-bold leading-5 mt-0">{{ program_text }}:</h2>{{ program }}</div>
                             {% endif %}
                             <div class="w-100">
                              {{ send_email | raw }}
@@ -310,6 +319,7 @@ class PersonaBlock extends BlockBase {
           'program' => $program,
           'program_text' => t('Programs'),
           'send_email' => $send_email,
+          'public' => $public,
         ],
       ];
       return $persona_block;
