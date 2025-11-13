@@ -550,6 +550,8 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
   $uid = Xss::filter($form_state->getValues()['user_id'][0]['target_id']);
   $waitlist = Xss::filter($form_state->getValues()['add_to_waitlist']);
 
+  $email_title = empty($series_screen_survey_text) ? t('Registration Pending for ') . $series_title : t('Please Complete a Pre-Screening Survey for ') . $series_title;
+
   $policy = 'access_misc';
 
   // Get list of unique emails.
@@ -561,6 +563,7 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
     'contact' => $contact,
     'screen_survey_text' => $series_screen_survey_text,
     'screen_survey_url' => $series_screen_survey_url,
+    'email_title' => $email_title,
   ];
 
   if ($waitlist) {
