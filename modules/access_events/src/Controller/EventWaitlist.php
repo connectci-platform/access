@@ -210,6 +210,9 @@ class EventWaitlist extends ControllerBase {
     $event_url = _access_misc_get_event_domain_url($event_instance_id);
     $series_title_url = "<a href='$event_url'>$series_title</a>";
 
+    // Subject for email.
+    $email_title = empty($series_pre_survey_url) ? t('Registration Confirmed for ') . $series_title : t('Registration accepted - please fill in survey before event for ') . $series_title;
+
     $policy = 'access_misc';
     $policy_subtype = 'registration_approved';
 
@@ -223,6 +226,7 @@ class EventWaitlist extends ControllerBase {
       'location' => $location,
       'pre_survey_url' => $series_pre_survey_url,
       'pre_survey_text' => $series_pre_survey_text,
+      'email_title' => $email_title,
     ];
 
     foreach ($this->registrantIds as $registrant_id) {
