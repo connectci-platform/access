@@ -91,14 +91,12 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
 
     foreach ($fields as $field) {
       $title = $form[$field]['widget']['#title'];
-      $form[$field]['widget']['#prefix'] = "<h4>$title</h4>";
-      $form[$field]['widget']['#title'] = "<span class='hidden'>$title</span>";
+      $form[$field]['widget']['#title'] = "<span class='text-xl font-bold text-dark-teal'>$title</span>";
     }
 
     // Replace title of 'External Link' with h4
     $el_title = $form['field_news_external_link']['widget'][0]['#title'];
-    $form['field_news_external_link']['widget'][0]['#prefix'] = "<h4>$el_title</h4>";
-    $form['field_news_external_link']['widget'][0]['#title'] = "<span class='hidden'>$el_title</span>";
+    $form['field_news_external_link']['widget'][0]['#title'] = "<span class='text-xl font-bold text-dark-teal'>$el_title</span>";
 
     // Field is hidden and replaced with custom UI
     // Element validation ensures proper error messages are shown
