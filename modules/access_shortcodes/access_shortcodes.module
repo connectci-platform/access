@@ -41,6 +41,7 @@ function access_shortcodes_theme() {
     'shortcode_square' => [
       'variables' => [
         'icon' => '',
+        'alt' => '',
         'title' => '',
         'text' => '',
         'link' => '',
