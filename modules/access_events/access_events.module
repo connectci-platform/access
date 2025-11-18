@@ -245,10 +245,6 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     ];
 
 
-    $form['field_summary_replace']['field_suggest_title'] = [
-      '#markup' => "<h4 class='label form-required mt-4'>Summary</h4>",
-    ];
-
     $form['field_summary_replace']['field_suggest'] = [
       '#type' => 'container',
       '#attributes' => [
