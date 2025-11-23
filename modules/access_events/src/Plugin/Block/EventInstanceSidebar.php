@@ -26,12 +26,12 @@ class EventInstanceSidebar extends BlockBase {
     $url = explode('/', $current_path);
     $event_instance_id = is_numeric($url[2]) ? $url[2] : '';
     $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
-    
+
     // Check if event instance exists before trying to get the series
     if (!$event_instance) {
       return [];
     }
-    
+
     $series = $event_instance->getEventSeries();
     $author = $series->getOwner();
     $current_user = \Drupal::currentUser();
@@ -206,7 +206,7 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if event_type %}
-          <h3 class="field__label">{{ event_type_title }}</h3>
+          <h2 class="field__label">{{ event_type_title }}</h2>
            <div class="field__items">
             {% for type in event_type %}
               <div class="field__item">
@@ -224,7 +224,7 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if event_affiliation %}
-          <h3 class="field__label">{{ event_affiliation_title }}</h3>
+          <h2 class="field__label">{{ event_affiliation_title }}</h2>
            <div class="field__items">
               <div class="field__item">
                 {{ event_affiliation|raw }}
