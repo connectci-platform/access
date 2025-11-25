@@ -30,6 +30,11 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
 
+    // Remove required from fieldset 'recur_type' for a11y.
+    $form['recur_type']['widget']['#required'] = FALSE;
+    $form['field_event_type']['widget']['#required'] = FALSE;
+
+
     // Hide the option to share in the ACCESS bi-weekly digest if not on Access.
     if ($domain_id != 'amp_cyberinfrastructure_org') {
       unset($form['field_choose_where_to_share_this']['widget']['#options']['in_the_access_support_bi_weekly_digest']);
