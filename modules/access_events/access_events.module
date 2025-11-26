@@ -1025,6 +1025,7 @@ function access_events_views_query_alter(ViewExecutable $view, QueryPluginBase $
       $query->addCondition('domain_access', $domain_id, '=');
     }
   }
+
 }
 
 /**
@@ -1066,15 +1067,21 @@ function access_events_entity_access(EntityInterface $entity, $operation, Accoun
 
     if ($author_id == $current_user_id) {
       // Allow access if the user is the author of the event instance.
-      return AccessResult::allowed();
+      return AccessResult::allowed()
+        ->addCacheContexts(['user'])
+        ->addCacheableDependency($entity);
     }
-    elseif($other_author_allowed) {
+    elseif ($other_author_allowed) {
       // Allow access if the user is listed as other author.
-      return AccessResult::allowed();
+      return AccessResult::allowed()
+        ->addCacheContexts(['user'])
+        ->addCacheableDependency($entity);
     }
     else {
       // Return neutral if not author.
-      return AccessResult::neutral();
+      return AccessResult::neutral()
+        ->addCacheContexts(['user'])
+        ->addCacheableDependency($entity);
     }
   }
 
