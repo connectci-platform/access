@@ -242,9 +242,11 @@ class EventWaitlist extends ControllerBase {
       if (!empty($email) && isset($email[0]['value'])) {
         \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $email[0]['value'], $variables);
 
-        // Update registrant entity with a timestamp on the 'field_pre_survey_sent' field.
-        $registrant->set('field_pre_survey_sent', \Drupal::time()->getRequestTime());
-        $registrant->save();
+        if (!empty($series_pre_survey_url)) {
+          // Update registrant entity with a timestamp on the 'field_pre_survey_sent' field.
+          $registrant->set('field_pre_survey_sent', \Drupal::time()->getRequestTime());
+          $registrant->save();
+        }
       }
     }
 
