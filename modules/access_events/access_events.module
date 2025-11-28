@@ -562,6 +562,20 @@ function access_misc_registrant_submit($form, FormStateInterface $form_state) {
   // Invalidate cache on Events Facet view.
   $cache_tags = ['config:views.view.events_facet'];
   \Drupal\Core\Cache\Cache::invalidateTags($cache_tags);
+
+  // Load eventseries entity to get event pre-survey.
+  $entity = $form_state->getFormObject()->getEntity();
+  $eventseries_id = $entity->eventseries_id->target_id;
+  $eventseries = \Drupal::entityTypeManager()->getStorage('eventseries')->load($eventseries_id);
+  // Get 'field_screen_survey_url' value.
+  $screen_survey = $eventseries->get('field_screen_survey_url')->getValue();
+
+  if ($screen_survey) {
+    \Drupal::messenger()->addMessage(t('You will receive a screening survey email shortly after registering. If you do not see it, please check your spam folder.'));
+  }
+  else {
+    \Drupal::messenger()->addMessage(t('Your registration was received. You will receive an email after your registration is approved.'));
+  }
 }
 
 /**
