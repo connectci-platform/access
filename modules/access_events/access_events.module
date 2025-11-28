@@ -571,6 +571,11 @@ function access_misc_registrant_submit($form, FormStateInterface $form_state) {
   $screen_survey = $eventseries->get('field_screen_survey_url')->getValue();
 
   if ($screen_survey) {
+    // This email is sent immediately after registration.
+    // Code in access_misc.module - 575.
+    $registrant_id = $entity->id();
+    $registrant = \Drupal::entityTypeManager()->getStorage('registrant')->load($registrant_id);
+    $registrant->set('field_screen_survey_sent', \Drupal::time()->getRequestTime());
     \Drupal::messenger()->addMessage(t('You will receive a screening survey email shortly after registering. If you do not see it, please check your spam folder.'));
   }
   else {
