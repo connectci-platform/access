@@ -160,7 +160,19 @@ class ConstantContactApi {
     $keys = $key_entity->getKeyValues();
     $env = $this->environment;
 
-    $decoded = json_decode($keys[0], true);
+    // Check if $keys is an array with elements, or handle as a string.
+    if (is_array($keys) && !empty($keys)) {
+      $key_value = $keys[0];
+    } elseif (is_string($keys)) {
+      $key_value = $keys;
+    } else {
+      \Drupal::logger('access_affinitygroup')->warning('Constant Contact key values are empty or invalid.');
+      $this->cc_key = '';
+      $this->key_secret = '';
+      return;
+    }
+
+    $decoded = json_decode($key_value, true);
     $cc_key = isset($decoded[$env]['id']) ? $decoded[$env]['id'] : null;
     $key_secret = isset($decoded[$env]['secret']) ? $decoded[$env]['secret'] : null;
 

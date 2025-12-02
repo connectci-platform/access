@@ -21,3 +21,9 @@ services:
         "@access_misc.symfony.mail",
         "@logger.factory",
       ]
+  access_events.latest_revision:
+    class: Drupal\access_events\Plugin\LatestRevisionCheck
+    decorates: access_check.latest_revision
+    arguments: ['@content_moderation.moderation_information']
+    tags:
+      - { name: access_check, applies_to: _content_moderation_latest_version }
