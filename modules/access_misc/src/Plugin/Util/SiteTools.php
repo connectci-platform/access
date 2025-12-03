@@ -78,6 +78,57 @@ class SiteTools {
   }
 
   /**
+   * Get current event domain URL.
+   */
+  public function getEventCurrentDomainUrl($event_instance_id) {
+    try {
+      // Load the event instance.
+      $event_instance = \Drupal::entityTypeManager()
+        ->getStorage('eventinstance')
+        ->load($event_instance_id);
+      if (!$event_instance) {
+        return '/events/' . $event_instance_id; // Fallback to relative URL.
+      }
+
+      // Get associated domains from the event instance.
+      $instance_domains = $event_instance->get('domain_access')->getValue();
+
+      // If instance doesn't have domains, get from the series.
+      if (empty($instance_domains)) {
+        $series = $event_instance->getEventSeries();
+        if ($series) {
+          $instance_domains = $series->get('domain_access')->getValue();
+        }
+      }
+
+      // Generate domain-specific URL if domains are found.
+      if (!empty($instance_domains)) {
+        $domain_id = $instance_domains[0]['target_id'];
+        $domain = \Drupal::entityTypeManager()
+          ->getStorage('domain')
+          ->load($domain_id);
+        if ($domain) {
+          return $domain->buildUrl('/events/' . $event_instance_id);
+        }
+      }
+
+      // Fallback to current domain if no specific domain found.
+      $current_domain = \Drupal::service('domain.negotiator')->getActiveDomain();
+      if ($current_domain) {
+        return $current_domain->buildUrl('/events/' . $event_instance_id);
+      }
+
+      // Final fallback to relative URL.
+      return '/events/' . $event_instance_id;
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('access_misc')
+        ->error('Error generating event domain URL: ' . $e->getMessage());
+      return '/events/' . $event_instance_id;
+    }
+  }
+
+  /**
    * Get noreply email address for a domain.
    *
    * @param string|null $domain

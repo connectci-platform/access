@@ -221,6 +221,17 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
 
   // Custom tags on /events/add
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
+    $screen_survey_email_text = t("The screening survey email goes to a person that registers as soon as they register for an event. The email will look like the following. The 'Screen Survey Email Text' and 'Screen Survey URL' that you fill in below will replace {{ pre_survey_text }} and {{ pre_survey_url }} respectively.<br /><br />");
+    $screen_survey_email_text  .= "<div class='p-4 border'><p class='text-sm'>Dear {{ name }},</p><p class='text-sm'>Thank you for registering for <strong>{{ title_link }}</strong> scheduled for {{ start_date }. Your registration has been submitted and is under review.</p><p class='text-sm'>You will receive another email once your registration has been reviewed and approved. Approval typically takes 1-2 business days.</p><p class='text-sm'>{{ screen_survey_text }}</p><p class='text-sm'><a href='{{ screen_survey_url }}'>{{ screen_survey_url }}</a></p><p class='text-sm'>Kind regards,<br>ACCESS Support</p></div>";
+    $form['field_screen_survey_email_text']['#prefix'] = $screen_survey_email_text;
+
+    $pre_survey_email_text = t("The pre survey email goes to a registered person as soon as they are accepted to the event. The email will look like the following. The 'Pre-survey Email Text' and 'Pre-survey url' that you fill in below will replace {{ screen_survey_text }} and {{ screen_survey_url }} respectively.<br /><br />");
+    $pre_survey_email_text .= "<div class='p-4 border'><p class='text-sm' dir='ltr'>Dear {{ name }},</p><p class='text-sm' dir='ltr'>Congratulations! Your registration for&nbsp; <strong>{{ title_link }}</strong> on {{ start_date }} has been confirmed.</p><p class='text-sm' dir='ltr'>Here are the details:</p><ul class='text-sm'><li dir='ltr'><strong>Location (if applicable):</strong> {{ location }}</li><li dir='ltr'><strong>Time:</strong> {{ event_start_time }} - {{ event_end_time }}</li></ul><p class='text-sm'>{{ pre_survey_text }}</p><p class='text-sm'><a href='{{ pre_survey_url }}'>{{ pre_survey_url }}</a></p><p class='text-sm' dir='ltr'>We are glad you are going to attend!</p><p class='text-sm'>Kind regards,<br>ACCESS Support</p></div>";
+    $form['field_pre_survey_email_text']['#prefix'] = $pre_survey_email_text;
+
+    $post_email_text = t("The post survey email goes to attendees around 30 minutes before the end of your event. They will also receive a reminder email 3 days after the end of your event with the survey link. The email will look like the following. The 'Post-survey Email Text' and 'Post-survey url' that you fill in below will replace {{ post_survey_text }} and {{ post_survey_url }} respectively.<br /><br />");
+    $post_email_text .= "<div class='p-4 border'><p class='text-sm'>Dear {{ name }},</p><p class='text-sm'>Thank you for participating in <a href=\"{{ title_link|raw }}\"><strong>{{ title }}</strong></a>. We'd appreciate it if you participated in our survey.</p><p></p><p class='text-sm'>{{ post_survey_text }}</p><p class='text-sm'><a href=\"{{ post_survey_url }}\">{{ post_survey_url }}</a></p><p></p><p class='text-sm'>Kind regards,<br>    ACCESS Support</p></div>";
+    $form['field_post_survey_email_text']['#prefix'] = $post_email_text;
 
     // If user is not administrator, hide the field 'domain_access'.
     $current_user = \Drupal::currentUser();
@@ -373,7 +384,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
 
     // Attach javascript.
     $form['#attached']['library'][] = 'access_misc/node_add_tags';
-    $form['#attached']['library'][] = 'access_misc/events';
+    $form['#attached']['library'][] = 'access_events/events';
 
     // Registration form.
     $form['event_registration']['widget'][0]['unique_email_address']['#default_value'] = 1;
@@ -563,6 +574,25 @@ function access_misc_registrant_submit($form, FormStateInterface $form_state) {
   // Invalidate cache on Events Facet view.
   $cache_tags = ['config:views.view.events_facet'];
   \Drupal\Core\Cache\Cache::invalidateTags($cache_tags);
+
+  // Load eventseries entity to get event pre-survey.
+  $entity = $form_state->getFormObject()->getEntity();
+  $eventseries_id = $entity->eventseries_id->target_id;
+  $eventseries = \Drupal::entityTypeManager()->getStorage('eventseries')->load($eventseries_id);
+  // Get 'field_screen_survey_url' value.
+  $screen_survey = $eventseries->get('field_screen_survey_url')->getValue();
+
+  if ($screen_survey) {
+    // This email is sent immediately after registration.
+    // Code in access_misc.module - 575.
+    $registrant_id = $entity->id();
+    $registrant = \Drupal::entityTypeManager()->getStorage('registrant')->load($registrant_id);
+    $registrant->set('field_screen_survey_sent', \Drupal::time()->getRequestTime());
+    \Drupal::messenger()->addMessage(t('You will receive a screening survey email shortly after registering. If you do not see it, please check your spam folder.'));
+  }
+  else {
+    \Drupal::messenger()->addMessage(t('Your registration was received. You will receive an email after your registration is approved.'));
+  }
 }
 
 /**
@@ -991,6 +1021,13 @@ function access_events_entity_presave(EntityInterface $entity) {
 
     if ($eventseries) {
       $series_domain = $eventseries->get('domain_access')->getValue();
+      $survey_url = $eventseries->get('field_post_survey_url')->uri;
+      $survey_sent_reminder = $eventinstance->get('field_post_survey_reminder_sent')->value;
+      $survey_sent = $eventinstance->get('field_post_survey_sent')->value;
+      if ($survey_url && $survey_sent == NULL && $survey_sent_reminder == NULL) {
+        $eventinstance->set('field_post_survey_reminder_sent', 0);
+        $eventinstance->set('field_post_survey_sent', 0);
+      }
 
       // If series domain(s) is set, set the same domain(s) on the event instance.
       if ($series_domain) {
@@ -1087,6 +1124,17 @@ function access_events_entity_access(EntityInterface $entity, $operation, Accoun
 
   // Return neutral for all other cases.
   return AccessResult::neutral();
+}
+
+/**
+ * Implements hook_cron().
+ */
+function access_events_cron() {
+  // Send post survey emails.
+  \Drupal::service('access_events.post_survey')->postSurveyEmail();
+
+  // Send post survey reminder emails.
+  \Drupal::service('access_events.post_survey')->postSurveyReminderEmail();
 }
 
 /**
