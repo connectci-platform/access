@@ -76,6 +76,7 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
  * Implements hook_form_alter().
  */
 function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  weeklyNewsReport(FALSE);
 
   $domain = \Drupal::service('access_misc.sitetools')->getDomain();
 
@@ -684,6 +685,9 @@ function weeklyNewsReport($noSend) {
 
     $emailHTML = $wrapper->ccNewsRollupHTML($newsHTML, $eventHTML);
 
+    kint($emailHTML); // For debugging.
+    die();
+
     // Create constant contact campaign. this does not send it.
     $campaignName = uniqid('Access Digest: ' . $dtTomorrow->format('n/j/y') . ' ', FALSE);
 
@@ -819,7 +823,8 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
         //  will have different spacing in the digest.  Or do something with css)
         if ($node->body[0] != NULL) {
           $body = $node->body[0]->view('teaser');
-          $bodyDisp = \Drupal::service('renderer')->renderPlain($body);
+          $bodyRendered = \Drupal::service('renderer')->renderPlain($body);
+          $bodyDisp = "<p>$bodyRendered</p>";
         }
         else {
           $bodyDisp = '<p></p>';
