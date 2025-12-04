@@ -76,8 +76,6 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
  * Implements hook_form_alter().
  */
 function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id) {
-  weeklyNewsReport(FALSE);
-
   $domain = \Drupal::service('access_misc.sitetools')->getDomain();
 
   if ($domain != 'access-support' && ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form')) {
@@ -684,9 +682,6 @@ function weeklyNewsReport($noSend) {
     $eventHTML = $conference . $trainings .  $office_hours . $other;
 
     $emailHTML = $wrapper->ccNewsRollupHTML($newsHTML, $eventHTML);
-
-    kint($emailHTML); // For debugging.
-    die();
 
     // Create constant contact campaign. this does not send it.
     $campaignName = uniqid('Access Digest: ' . $dtTomorrow->format('n/j/y') . ' ', FALSE);
