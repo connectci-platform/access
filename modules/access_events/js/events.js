@@ -38,20 +38,32 @@ let virtualTitle = document.querySelector('#edit-field-event-virtual-meeting-lin
 virtualTitle.insertAdjacentHTML('afterend', '<div class="form-item__description description form-item__description--label-help">Provide link to virtual meeting. If there is one.</div>');
 
 let registration = document.querySelector('#edit-event-registration-0-registration');
+
+// Initial check on page load.
+checkRegistration();
+
 registration.addEventListener('change', function() {
   checkRegistration();
-  console.log('changed');
 });
 
 function checkRegistration() {
   if (registration.checked) {
+    // Hide 'use external registration' text field.
     document.getElementById("edit-field-registration-0-uri").value = 'http://example.com';
     document.getElementById("edit-field-registration-wrapper").style.display = 'none';
     document.getElementById("edit-field-event-allocation-grant-wrapper").style.display = 'block';
+    // Show survey details wrappers.
+    document.getElementById("edit-group-screening-survey").style.display = 'block';
+    document.getElementById("edit-group-surveys").style.display = 'block';
+    document.getElementById("edit-group-post-survey").style.display = 'block';
   } else {
     document.getElementById("edit-field-registration-0-uri").value = '';
     document.getElementById("edit-field-registration-wrapper").style.display = 'block';
     document.getElementById("edit-field-event-allocation-grant-wrapper").style.display = 'none';
+    // Hide survey details wrappers.
+    document.getElementById("edit-group-screening-survey").style.display = 'none';
+    document.getElementById("edit-group-surveys").style.display = 'none';
+    document.getElementById("edit-group-post-survey").style.display = 'none';
   }
 }
 

@@ -22,6 +22,7 @@ class SquareShortcode extends ShortcodeBase {
   public function process(array $attributes, $text, $langcode = Language::LANGCODE_NOT_SPECIFIED) {
     $attributes = $this->getAttributes([
       'icon' => '',
+      'alt' => '',
       'title' => '',
       'text' => '',
       'link' => '',
@@ -33,6 +34,7 @@ class SquareShortcode extends ShortcodeBase {
     );
 
     $icon = $attributes['icon'];
+    $alt = $attributes['alt'];
     $title = $attributes['title'];
     $text = $attributes['text'];
     $link = $attributes['link'];
@@ -43,6 +45,7 @@ class SquareShortcode extends ShortcodeBase {
     $output = [
       '#theme' => 'shortcode_square',
       '#icon' => $icon,
+      '#alt' => $alt,
       '#title' => $title,
       '#text' => $text,
       '#link' => $link,
@@ -59,7 +62,7 @@ class SquareShortcode extends ShortcodeBase {
    */
   public function tips($long = FALSE) {
     $output = [];
-    $output[] = '<p><strong>' . $this->t('[square icon="/path/to/img" title="Title" text="Your text here" link="https://example.com" color="optional TailwindCSS color name" flipText="Optional flip text" flipBtnText="Optional text for flip button"][/square]') . '</strong>';
+    $output[] = '<p><strong>' . $this->t('[square icon="/path/to/img" alt="alt text" title="Title" text="Your text here" link="https://example.com" color="optional TailwindCSS color name" flipText="Optional flip text" flipBtnText="Optional text for flip button"][/square]') . '</strong>';
     if ($long) {
       $output[] = $this->t('Builds a square content box.') . '</p>';
     }

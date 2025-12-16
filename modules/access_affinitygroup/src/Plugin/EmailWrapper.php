@@ -636,7 +636,7 @@ SECTIONSUBHEADHTML;
             <div class="digest-news-text" style="margin-bottom: 10px; font-weight: bold;">$eventDate</div>
             $title
 
-              <div><span style="font-size: 14px;">$main</span></div>
+              <div><span style="font-size: 16px;">$main</span></div>
 
               $articleLink
           </td>
