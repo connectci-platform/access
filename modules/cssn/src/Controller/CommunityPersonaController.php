@@ -339,14 +339,14 @@ class CommunityPersonaController extends ControllerBase {
     $bio_summary = $bio;
     if (strlen($bio) > 450) {
       $more = "<div class='mt-4 inline-block bg-light-teal'>
-                  <button id='bio-more' onclick='bioMore()' style='border-width: 0 !important;' class='btn btn-link btn-sm text-dark-teal p-3'aria-hidden='TRUE' type='button'>
-                    <i class='bi-chevron-down'></i> More
+                  <button id='bio-more' onclick='bioMore()' style='border-width: 0 !important;' class='btn btn-link btn-sm text-dark-teal p-3' type='button' aria-expanded='false' aria-controls='full-bio'>
+                    <i class='bi-chevron-down' aria-hidden='true'></i> More
                   </button>
                 </div>";
       $bio_summary = substr($bio, 0, 450) . "... $more";
       $less = "<div class='mt-4 inline-block bg-light-teal'>
-                  <button id='bio-less' onclick='bioLess()' style='border-width: 0 !important;' class='btn btn-link btn-sm text-dark-teal p-3' aria-hidden='TRUE' type='button'>
-                    <i class='bi-chevron-up'></i> Less
+                  <button id='bio-less' onclick='bioLess()' style='border-width: 0 !important;' class='btn btn-link btn-sm text-dark-teal p-3' type='button' aria-expanded='true' aria-controls='full-bio'>
+                    <i class='bi-chevron-up' aria-hidden='true'></i> Less
                   </button>
                 </div>";
       $bio .= $less;
@@ -438,10 +438,10 @@ class CommunityPersonaController extends ControllerBase {
             <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ bio_title }}</h2>
           </div>
           <div class="d-flex flex flex-wrap p-3">
-            <div id="bio-summary" aria-hidden="TRUE">
+            <div id="bio-summary" aria-hidden="false">
               {{ bio_summary |raw }}
             </div>
-            <div id="full-bio" class="sr-only">
+            <div id="full-bio" class="sr-only" aria-hidden="true">
               {{ bio |raw }}
             </div>
           </div>
@@ -631,10 +631,10 @@ class CommunityPersonaController extends ControllerBase {
               <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ bio_title }}</h2>
             </div>
             <div class="d-flex flex flex-wrap p-3">
-              <div id="bio-summary" aria-hidden="TRUE">
+              <div id="bio-summary" aria-hidden="false">
                 {{ bio_summary |raw }}
               </div>
-              <div id="full-bio" class="sr-only">
+              <div id="full-bio" class="sr-only" aria-hidden="true">
                 {{ bio |raw }}
               </div>
             </div>
