@@ -251,7 +251,7 @@ function access_cilink_preprocess_views_view_field(&$variables) {
                               {{ likesCount }}
                               <i class="bi bi-hand-thumbs-up absolute position-absolute"></i>
                             </div>
-                            {% if domainName == "ccmnet" %}
+                            {% if domainName != "access-support" %}
                               <i class="bi-chevron-down ml-3"></i>
                             {% endif %}
                           </summary>
