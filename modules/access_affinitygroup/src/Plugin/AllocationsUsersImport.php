@@ -767,11 +767,15 @@ class AllocationsUsersImport {
       if ($needCCUpdate) {
         $ccIdField = $u->get('field_constant_contact_id')->getValue();
         if (!empty($ccIdField)) {
-          $ccId = $ccIdField[0]['value'];
-          if (!empty($ccId)) {
-            $ccIdArray = json_decode($ccId, TRUE);
-            $ccId = (is_array($ccIdArray) && isset($ccIdArray['support'])) ? $ccIdArray['support'] : null;
-            if (!$this->batchNoCC && !$this->batchNoUserDetSave) {
+          $ccIdRaw = $ccIdField[0]['value'];
+          if (!empty($ccIdRaw)) {
+            $ccIdArray = json_decode($ccIdRaw, TRUE);
+            // Log corrupted data where 'support' is not a string.
+            if (is_array($ccIdArray) && isset($ccIdArray['support']) && !is_string($ccIdArray['support'])) {
+              $this->collectCronLog("Corrupted CC data for user " . $a['username'] . " (uid " . $u->id() . "): 'support' is not a string. Raw value: " . $ccIdRaw, 'err', TRUE);
+            }
+            $ccId = (is_array($ccIdArray) && isset($ccIdArray['support']) && is_string($ccIdArray['support'])) ? $ccIdArray['support'] : null;
+            if ($ccId && !$this->batchNoCC && !$this->batchNoUserDetSave) {
               $cca = new ConstantContactApi('support');
               $cca->setSupressErrDisplay(TRUE);
               $cca->updateContact($ccId, $a['firstName'], $a['lastName'], $a['email']);
@@ -972,12 +976,16 @@ class AllocationsUsersImport {
 
           $field_val = $user->get('field_constant_contact_id')->getValue();
           if (!empty($field_val) && $field_val != 0) {
-            $ccId = $field_val[0]['value'];
-            $ccIdArray = json_decode($ccId, TRUE);
-            $ccId = (is_array($ccIdArray) && isset($ccIdArray['support'])) ? $ccIdArray['support'] : null;
+            $ccIdRaw = $field_val[0]['value'];
+            $ccIdArray = json_decode($ccIdRaw, TRUE);
+            // Log corrupted data where 'support' is not a string.
+            if (is_array($ccIdArray) && isset($ccIdArray['support']) && !is_string($ccIdArray['support'])) {
+              $this->collectCronLog("Corrupted CC data for user $uid: 'support' is not a string. Raw value: " . $ccIdRaw, 'err', TRUE);
+            }
+            $ccId = (is_array($ccIdArray) && isset($ccIdArray['support']) && is_string($ccIdArray['support'])) ? $ccIdArray['support'] : null;
             // Check to see of it's a good CC Id.
             // preventing attempts to work with an obfuscated CC Id.
-            if (strlen($ccId) == 36) {
+            if ($ccId !== null && strlen($ccId) == 36) {
               $agContacts[] = $ccId;
             }
             else {
