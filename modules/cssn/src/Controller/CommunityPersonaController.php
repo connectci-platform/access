@@ -127,10 +127,12 @@ class CommunityPersonaController extends ControllerBase {
       $my_skills = '<p>' . t('No skills added.') . "</p>";
     }
     if ($my_skills == "") {
+      $my_skills = "<ul class='ms-0 ml-0 d-flex flex flex-wrap'>";
       foreach ($flagged_skills as $flagged_skill) {
         $term_title = Term::load($flagged_skill)->get('name')->value;
-        $my_skills .= "<a class='no-underline font-normal mb-1 me-1 mr-1 px-2 py-1 hover--border-dark-teal border' href='/taxonomy/term/" . $flagged_skill . "'>" . $term_title . "</a>";
+        $my_skills .= "<li class='ps-0 list-none'><a class='no-underline font-normal mb-1 me-1 mr-1 px-2 py-1 hover--border-dark-teal border' href='/taxonomy/term/" . $flagged_skill . "'>" . $term_title . "</a></li>";
       }
+      $my_skills .= "</ul>";
     }
     return $my_skills;
   }
@@ -309,10 +311,12 @@ class CommunityPersonaController extends ControllerBase {
       $my_interests = '<p>' . t('No interests added.') . "</p>";
     }
     if ($my_interests == "") {
+      $my_skills = "<ul class='ms-0 ml-0 d-flex flex flex-wrap'>";
       foreach ($flagged_interests as $flagged_interest) {
         $term_title = Term::load($flagged_interest)->get('name')->value;
-        $my_interests .= "<a class='no-underline font-normal mb-1 me-1 mr-1 px-2 py-1 hover--border-dark-teal border' href='/taxonomy/term/" . $flagged_interest . "'>" . $term_title . "</a>";
+        $my_interests .= "<li class='ps-0 list-none'><a class='no-underline font-normal mb-1 me-1 mr-1 px-2 py-1 hover--border-dark-teal border' href='/taxonomy/term/" . $flagged_interest . "'>" . $term_title . "</a></li>";
       }
+      $my_interests .= "</ul>";
     }
     return $my_interests;
   }
