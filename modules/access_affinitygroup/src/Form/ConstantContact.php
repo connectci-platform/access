@@ -287,28 +287,22 @@ class ConstantContact extends FormBase {
     /* SYNC */
 
     $form['y6'] = [
-      '#markup' => '<br><br><h4>Sync Constant Constact Lists</h4>',
+      '#markup' => '<br><br><h4>Sync Constant Contact Lists</h4>',
     ];
     $form['i6'] = [
       '#markup' => 'This process checks each Affinity Group membership, and associated <br>
                     Constant Contact list, and then adds missing AG members to CC list.',
     ];
 
-    $form['maint_sync_param_start'] = [
-      '#type' => 'number',
-      '#min' => 1,
-      '#max' => 1000,
-      '#default_value' => 1,
-      '#description' => $this->t("Start count affinity groups."),
-      '#required' => FALSE,
-    ];
-    $form['maint_sync_param_stop'] = [
-      '#type' => 'number',
-      '#min' => 1,
-      '#max' => 1000,
-      '#default_value' => 1000,
-      '#description' => $this->t("Stop count affinity groups."),
-      '#required' => FALSE,
+    // Build dropdown options with affinity group names and member counts.
+    $ag_options = $this->getAffinityGroupOptions();
+
+    $form['maint_sync_ag_select'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Select Affinity Group'),
+      '#options' => ['_all' => '-- Sync All Groups --'] + $ag_options,
+      '#default_value' => '_all',
+      '#description' => $this->t("Select a specific affinity group to sync, or sync all groups. Large groups will be processed in batches."),
     ];
     $form['maint_sync_param_verbose'] = [
       '#type' => 'checkbox',
@@ -319,7 +313,7 @@ class ConstantContact extends FormBase {
     $form['maint_sync_run'] = [
       '#type' => 'submit',
       '#value' => $this->t('Sync AG and CC'),
-      '#submit' => [[$this, 'doRunMaintSync']],
+      '#submit' => [[$this, 'doRunMaintSyncBatch']],
     ];
 
     $form['y7'] = [
@@ -496,18 +490,6 @@ class ConstantContact extends FormBase {
   }
 
   /**
-   * Run the affinity group / constant contact membership list sync.
-   */
-  public function doRunMaintSync(array &$form, FormStateInterface $form_state) {
-    $aui = new AllocationsUsersImport();
-    $aui->syncAGandCC(
-      $form_state->getValue('maint_sync_param_start'),
-      $form_state->getValue('maint_sync_param_stop'),
-      $form_state->getValue('maint_sync_param_verbose')
-    );
-  }
-
-  /**
    * Clean out any obsolete user allocations for users no longer listed by
    * allocations api.
    */
@@ -518,6 +500,141 @@ class ConstantContact extends FormBase {
       $form_state->getValue('maint_obsclean_param_stop'),
       $form_state->getValue('maint_obsclean_param_verbose')
     );
+  }
+
+  /**
+   * Get affinity group options for the dropdown with member counts.
+   */
+  protected function getAffinityGroupOptions() {
+    $options = [];
+
+    // Get all published affinity groups.
+    $nids = \Drupal::entityQuery('node')
+      ->condition('status', 1)
+      ->condition('type', 'affinity_group')
+      ->accessCheck(FALSE)
+      ->execute();
+
+    $nodes = \Drupal\node\Entity\Node::loadMultiple($nids);
+
+    foreach ($nodes as $node) {
+      $title = $node->getTitle();
+      $nid = $node->id();
+
+      // Get member count from the flagging table.
+      $termField = $node->get('field_affinity_group');
+      $term = $termField->isEmpty() ? NULL : $termField->entity;
+      $memberCount = 0;
+      if ($term) {
+        $memberCount = \Drupal::database()->select('flagging', 'f')
+          ->condition('f.entity_type', 'taxonomy_term')
+          ->condition('f.entity_id', $term->id())
+          ->countQuery()
+          ->execute()
+          ->fetchField();
+      }
+
+      // Format: "Title (X members)"
+      $label = $title . ' (' . number_format($memberCount) . ' members)';
+      $options[$nid] = $label;
+    }
+
+    // Sort by title.
+    asort($options);
+
+    return $options;
+  }
+
+  /**
+   * Run the affinity group / constant contact sync using Batch API.
+   */
+  public function doRunMaintSyncBatch(array &$form, FormStateInterface $form_state) {
+    $selected = $form_state->getValue('maint_sync_ag_select');
+    $verbose = $form_state->getValue('maint_sync_param_verbose');
+
+    // Build list of node IDs to process.
+    if ($selected === '_all') {
+      $nids = \Drupal::entityQuery('node')
+        ->condition('status', 1)
+        ->condition('type', 'affinity_group')
+        ->accessCheck(FALSE)
+        ->execute();
+    }
+    else {
+      $nids = [$selected];
+    }
+
+    // Set up batch operations.
+    $operations = [];
+    foreach ($nids as $nid) {
+      $operations[] = [
+        [static::class, 'syncAffinityGroupBatch'],
+        [$nid, $verbose],
+      ];
+    }
+
+    $batch = [
+      'title' => $this->t('Syncing Affinity Groups with Constant Contact'),
+      'operations' => $operations,
+      'finished' => [static::class, 'syncAffinityGroupBatchFinished'],
+      'progress_message' => $this->t('Processing @current of @total affinity groups.'),
+    ];
+
+    batch_set($batch);
+  }
+
+  /**
+   * Batch operation callback for syncing a single affinity group.
+   */
+  public static function syncAffinityGroupBatch($nid, $verbose, &$context) {
+    $node = \Drupal\node\Entity\Node::load($nid);
+    if (!$node) {
+      $context['results']['errors'][] = t('Node @nid not found.', ['@nid' => $nid]);
+      return;
+    }
+
+    $title = $node->getTitle();
+    $context['message'] = t('Syncing: @title', ['@title' => $title]);
+
+    // Initialize results tracking.
+    if (!isset($context['results']['synced'])) {
+      $context['results']['synced'] = 0;
+      $context['results']['errors'] = [];
+      $context['results']['groups'] = [];
+    }
+
+    try {
+      $aui = new AllocationsUsersImport();
+      $aui->syncSingleAffinityGroup($node, $verbose);
+      $context['results']['synced']++;
+      $context['results']['groups'][] = $title;
+    }
+    catch (\Exception $e) {
+      $context['results']['errors'][] = $title . ': ' . $e->getMessage();
+      \Drupal::logger('access_affinitygroup')->error('Sync error for @title: @message', [
+        '@title' => $title,
+        '@message' => $e->getMessage(),
+      ]);
+    }
+  }
+
+  /**
+   * Batch finished callback.
+   */
+  public static function syncAffinityGroupBatchFinished($success, $results, $operations) {
+    if ($success) {
+      $synced = $results['synced'] ?? 0;
+      \Drupal::messenger()->addStatus(t('Successfully synced @count affinity group(s).', ['@count' => $synced]));
+
+      if (!empty($results['errors'])) {
+        foreach ($results['errors'] as $error) {
+          \Drupal::messenger()->addWarning($error);
+        }
+      }
+    }
+    else {
+      \Drupal::messenger()->addError(t('An error occurred during the sync process.'));
+    }
   }
 
 }

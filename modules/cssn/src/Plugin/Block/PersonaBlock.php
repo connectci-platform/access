@@ -50,7 +50,7 @@ class PersonaBlock extends BlockBase {
       if ($user_image->entity !== NULL) {
         $user_image = $user_image->entity->getFileUri();
         $user_image = \Drupal::service('file_url_generator')->generateAbsoluteString($user_image);
-        $user_image = '<img src="' . $user_image . '" alt="' . $first_name . ' ' . $last_name . ' profile photo" class="img-fluid mb-3 border border-black" />';
+        $user_image = '<img src="' . $user_image . '" alt="" class="img-fluid mb-3 border border-black" />';
       }
       else {
         $user_image = '<svg version="1.1" class="mb-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
@@ -178,11 +178,11 @@ class PersonaBlock extends BlockBase {
       // $ws_results = $ws_query->execute();
       $cssn_indicator = "";
       if ($cssn_member) {
-        $cssn_indicator = "<span class='text-primary'><i class='bi-square-fill text-orange'></i></span>";
+        $cssn_indicator = "<span class='text-primary'><i class='bi-square-fill text-orange' aria-hidden='true'></i></span>";
         $cssn = "CSSN Member";
       }
       elseif ($public) {
-        $cssn_indicator = "<span class='text-secondary'><i class='bi-square-fill'></i></span>";
+        $cssn_indicator = "<span class='text-secondary'><i class='bi-square-fill' aria-hidden='true'></i></span>";
         $cssn = "Not a CSSN Member";
       }
       else {
@@ -192,7 +192,7 @@ class PersonaBlock extends BlockBase {
         $cssn = $cssn_renderable;
         $cssn['#attributes']['class'] = ['btn', 'btn-primary', 'btn-sm', 'py-1', 'px-2'];
       }
-      $cssn_more_url = Url::fromUri('https://support.access-ci.org/community/cssn ');
+      $cssn_more_url = Url::fromUri('https://support.access-ci.org/community/cssn');
       $cssn_more_link = Link::fromTextAndUrl('info', $cssn_more_url);
       $cssn_more_renderable = $cssn_more_link->toRenderable();
       $cssn_more = $cssn_more_renderable;
@@ -201,11 +201,12 @@ class PersonaBlock extends BlockBase {
         'text-md-teal',
         'no-underline',
       ];
+      $cssn_more['#attributes']['aria-label'] = t('Information about CSSN');
 
       // Get the user's email address.
       $user_id = $user->id();
       // Show the email button on public profiles.
-      $send_email = $public ? "<a href='/user/$user_id/contact?destination=community-persona/$user_id' class='w-100 btn btn-primary btn-sm py-1 px-2'><i class='bi-envelope'></i> Send Email</a>" : "";
+      $send_email = $public ? "<a href='/user/$user_id/contact?destination=community-persona/$user_id' class='w-100 btn btn-primary btn-sm py-1 px-2'><i class='bi-envelope' aria-hidden='true'></i> Send Email</a>" : "";
 
       // Get Job title.
       $user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($user_id);
@@ -243,7 +244,7 @@ class PersonaBlock extends BlockBase {
                           {% if cssn != "Not a CSSN Member" %}
                             <div class="d-flex justify-content-between flex justify-between">
                               <p>{{ cssn_indicator | raw }} <strong>{{ cssn }}</strong></p>
-                              <div><i class="text-dark bi-info-circle text-md-teal"></i> {{ cssn_more }}</div>
+                              <div><i class="text-dark bi-info-circle text-md-teal" aria-hidden="true"></i> {{ cssn_more }}</div>
                             </div>
                           {% endif %}
                           {% if user_badges %}
@@ -285,7 +286,7 @@ class PersonaBlock extends BlockBase {
                                 <div><h2 class="h4 text-lg font-bold leading-5 mt-0">{{ role_text }}:</h2>{{ roles | raw }}</div>
                               {% endif %}
                               {% if cssn_role %}
-                                <div><i class="text-dark bi-pencil-square"></i> {{ cssn_role }}</div>
+                                <div><i class="text-dark bi-pencil-square" aria-hidden="true"></i> {{ cssn_role }}</div>
                               {% endif %}
                             </div>
                             {% if program %}

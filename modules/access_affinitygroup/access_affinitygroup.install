@@ -178,3 +178,59 @@ function access_affinitygroup_update_10007() {
 
   }
 }
+
+/**
+ * Fix corrupted Constant Contact IDs where 'support' is an array instead of a string.
+ *
+ * Some users have CC data like: {"support":["uuid"]} instead of {"support":"uuid"}
+ * This update extracts the first array element to fix the data structure.
+ */
+function access_affinitygroup_update_10008() {
+  $connection = \Drupal::database();
+
+  // Find all affected records where support is an array.
+  $query = $connection->select('user__field_constant_contact_id', 'cc')
+    ->fields('cc', ['entity_id', 'field_constant_contact_id_value'])
+    ->condition('field_constant_contact_id_value', '%support\":[%', 'LIKE');
+  $results = $query->execute()->fetchAll();
+
+  $fixed_count = 0;
+  $error_count = 0;
+
+  foreach ($results as $row) {
+    $user_id = $row->entity_id;
+    $cc_data = json_decode($row->field_constant_contact_id_value, TRUE);
+
+    if (!is_array($cc_data)) {
+      \Drupal::logger('access_affinitygroup')->warning(
+        'Update 10008: Could not decode CC data for user @uid',
+        ['@uid' => $user_id]
+      );
+      $error_count++;
+      continue;
+    }
+
+    // Check if 'support' is an array and fix it.
+    if (isset($cc_data['support']) && is_array($cc_data['support'])) {
+      // Extract the first element (the UUID string).
+      $cc_data['support'] = !empty($cc_data['support'][0]) ? $cc_data['support'][0] : '';
+
+      // Update the record.
+      $connection->update('user__field_constant_contact_id')
+        ->fields(['field_constant_contact_id_value' => json_encode($cc_data)])
+        ->condition('entity_id', $user_id)
+        ->execute();
+
+      $fixed_count++;
+    }
+  }
+
+  $message = "Fixed $fixed_count user(s) with corrupted Constant Contact data.";
+  if ($error_count > 0) {
+    $message .= " $error_count error(s) encountered.";
+  }
+
+  \Drupal::logger('access_affinitygroup')->info('Update 10008: @message', ['@message' => $message]);
+
+  return $message;
+}

@@ -57,15 +57,17 @@ class MentorshipPersonBlock extends BlockBase {
         if ($userImage->entity !== NULL) {
           $userImage = $userImage->entity->getFileUri();
           $userImage = \Drupal::service('file_url_generator')->generateAbsoluteString($userImage);
+          $alt = $user->getDisplayName() . ' profile picture';
         } else {
           $userImage = '/themes/nect-theme/img/user-picture.svg';
+          $alt = 'Default profile picture';
         }
-        $userImage = '<img src="' . $userImage . '" />';
+        $userImage = '<img alt="' . $alt . '" src="' . $userImage . '" />';
 
         // Show access organization if set and not "Other"; otherwise, use institution field.
         $orgArray = $user->get('field_access_organization')->getValue();
         $institution = '';
-        
+
         if (!empty($orgArray) && !empty($orgArray[0])) {
           $nodeId = $orgArray[0]['target_id'];
           if (!empty($nodeId)) {
@@ -81,7 +83,7 @@ class MentorshipPersonBlock extends BlockBase {
             }
           }
         }
-        
+
         // Fallback to institution field if no organization or if organization loading failed
         if (empty($institution)) {
           $institution = $user->get('field_institution')->value;
