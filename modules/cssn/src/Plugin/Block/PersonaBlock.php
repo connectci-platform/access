@@ -144,7 +144,7 @@ class PersonaBlock extends BlockBase {
       // Badges.
       $badges = $user_entity->get('field_user_badges')->getValue();
       $badge_name = [];
-      $user_badges = '';
+      $user_badges = '<ul class="flex flex-wrap p-0 m-0">';
       foreach ($badges as $badge) {
         $term_id = $badge['target_id'];
         if (Term::load($term_id)->get('field_badge')->entity) {
@@ -154,18 +154,19 @@ class PersonaBlock extends BlockBase {
           $image = \Drupal::service('file_url_generator')->generateAbsoluteString($image_url);
           if ($image) {
             if ($name) {
-              $user_badges .= "<div class='badge' data-placement='top' data-toggle='tooltip' title='$name'>";
+              $user_badges .= "<li class='badge mt-0 ms-0 p-0' data-placement='top' data-toggle='tooltip' title='$name'>";
             }
             else {
-              $user_badges .= "<div>";
+              $user_badges .= "<li>";
             }
 
-            $user_badges .= "<img src='$image' alt='$image_alt' title='$name' class='me-2 mb-2' width='55' height='55' />";
+            $user_badges .= "<img src='$image' alt='$image_alt' title='$name' class='mt-0 me-2 mb-2' width='55' height='55' />";
 
-            $user_badges .= "</div>";
+            $user_badges .= "</li>";
           }
         }
       }
+      $user_badges .= '</ul>';
 
       // Programs.
       $program = implode(', ', $terms);
@@ -246,7 +247,7 @@ class PersonaBlock extends BlockBase {
                             </div>
                           {% endif %}
                           {% if user_badges %}
-                            <div class="py-3 flex flex-wrap">{{ user_badges | raw }}</div>
+                            {{ user_badges | raw }}
                           {% endif %}
 
                           <div>
