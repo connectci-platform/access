@@ -74,7 +74,7 @@ class JsonApiEmailToUuidSubscriber implements EventSubscriberInterface {
     // Check for uid relationship with email instead of UUID.
     if (isset($data['data']['relationships']['uid']['data'])) {
       $uid_data = &$data['data']['relationships']['uid']['data'];
-      
+
       if (isset($uid_data['mail']) && !isset($uid_data['id'])) {
         $uuid = $this->getUserUuidByEmail($uid_data['mail']);
         if ($uuid) {
@@ -86,7 +86,7 @@ class JsonApiEmailToUuidSubscriber implements EventSubscriberInterface {
     }
 
     // Also check X-Acting-User header as fallback.
-    $acting_user_email = $request->headers->get('X-Acting-User');
+    $acting_user_email = $request->headers->get('X-Acting-User-Email');
     if ($acting_user_email && !isset($data['data']['relationships']['uid'])) {
       $uuid = $this->getUserUuidByEmail($acting_user_email);
       if ($uuid) {
@@ -128,7 +128,7 @@ class JsonApiEmailToUuidSubscriber implements EventSubscriberInterface {
       $users = $this->entityTypeManager
         ->getStorage('user')
         ->loadByProperties(['mail' => $email]);
-      
+
       if (!empty($users)) {
         $user = reset($users);
         return $user->uuid();
