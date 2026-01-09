@@ -310,6 +310,7 @@ function access_misc_deploy_10007() {
       'format' => 'full_html',
     ],
     'status' => 1,
+    'uid' => 1985,
   ]);
   $node->save();
 
