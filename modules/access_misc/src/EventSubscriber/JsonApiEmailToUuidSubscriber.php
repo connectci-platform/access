@@ -10,7 +10,7 @@ use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
- * Resolves user email to UUID in JSON:API requests.
+ * Resolves user email or username to UUID in JSON:API requests.
  */
 class JsonApiEmailToUuidSubscriber implements EventSubscriberInterface {
 
@@ -41,7 +41,7 @@ class JsonApiEmailToUuidSubscriber implements EventSubscriberInterface {
   }
 
   /**
-   * Resolves email to UUID in JSON:API POST/PATCH requests.
+   * Resolves email or username to UUID in JSON:API POST/PATCH requests.
    *
    * @param \Symfony\Component\HttpKernel\Event\RequestEvent $event
    *   The request event.
@@ -71,10 +71,11 @@ class JsonApiEmailToUuidSubscriber implements EventSubscriberInterface {
 
     $modified = FALSE;
 
-    // Check for uid relationship with email instead of UUID.
+    // Check for uid relationship with email or username instead of UUID.
     if (isset($data['data']['relationships']['uid']['data'])) {
       $uid_data = &$data['data']['relationships']['uid']['data'];
 
+      // Check for email.
       if (isset($uid_data['mail']) && !isset($uid_data['id'])) {
         $uuid = $this->getUserUuidByEmail($uid_data['mail']);
         if ($uuid) {
@@ -83,12 +84,30 @@ class JsonApiEmailToUuidSubscriber implements EventSubscriberInterface {
           $modified = TRUE;
         }
       }
+      // Check for username.
+      elseif (isset($uid_data['name']) && !isset($uid_data['id'])) {
+        $uuid = $this->getUserUuidByUsername($uid_data['name']);
+        if ($uuid) {
+          $uid_data['id'] = $uuid;
+          unset($uid_data['name']);
+          $modified = TRUE;
+        }
+      }
     }
 
-    // Also check X-Acting-User header as fallback.
-    $acting_user_email = $request->headers->get('X-Acting-User-Email');
-    if ($acting_user_email && !isset($data['data']['relationships']['uid'])) {
-      $uuid = $this->getUserUuidByEmail($acting_user_email);
+    // Also check X-Acting-User-Email or X-Acting-User header as fallback.
+    if (!isset($data['data']['relationships']['uid'])) {
+      $acting_user_email = $request->headers->get('X-Acting-User-Email');
+      $acting_user_name = $request->headers->get('X-Acting-User');
+
+      $uuid = NULL;
+      if ($acting_user_email) {
+        $uuid = $this->getUserUuidByEmail($acting_user_email);
+      }
+      elseif ($acting_user_name) {
+        $uuid = $this->getUserUuidByUsername($acting_user_name);
+      }
+
       if ($uuid) {
         $data['data']['relationships']['uid'] = [
           'data' => [
@@ -128,6 +147,33 @@ class JsonApiEmailToUuidSubscriber implements EventSubscriberInterface {
       $users = $this->entityTypeManager
         ->getStorage('user')
         ->loadByProperties(['mail' => $email]);
+
+      if (!empty($users)) {
+        $user = reset($users);
+        return $user->uuid();
+      }
+    }
+    catch (\Exception $e) {
+      // Log error silently.
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Gets user UUID by username.
+   *
+   * @param string $username
+   *   The username.
+   *
+   * @return string|null
+   *   The user UUID or NULL if not found.
+   */
+  protected function getUserUuidByUsername(string $username): ?string {
+    try {
+      $users = $this->entityTypeManager
+        ->getStorage('user')
+        ->loadByProperties(['name' => $username]);
 
       if (!empty($users)) {
         $user = reset($users);
