@@ -44,8 +44,8 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
 
-    // Some affiliations can only be set by match_pms or administrators.
-    if (!in_array('administrator', $roles) && !in_array('match_pm', $roles)) {
+    // Some affiliations can only be set by news_pms or administrators.
+    if (!in_array('administrator', $roles) && !in_array('news_pm', $roles)) {
       unset($form['field_affiliation']['widget']['#options']['access_nairr_office_hours']);
       unset($form['field_affiliation']['widget']['#options']['nairr_pilot_partner_series']);
       unset($form['field_affiliation']['widget']['#options']['cu_rmacc_webinars']);
