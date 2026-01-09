@@ -226,7 +226,8 @@ paths:
                 announcements_list:
                   summary: Example announcements response
                   value:
-                    - title: "New Funding Opportunity for AI Research"
+                    - uuid: "550e8400-e29b-41d4-a716-446655440000"
+                      title: "New Funding Opportunity for AI Research"
                       summary: "The NSF has announced a new funding opportunity for artificial intelligence research projects focusing on innovative applications..."
                       body: "<p>The NSF has announced a new funding opportunity for artificial intelligence research projects...</p>"
                       published_date: "2024-09-15"
@@ -264,6 +265,11 @@ components:
         - body
         - published_date
       properties:
+        uuid:
+          type: string
+          format: uuid
+          description: Unique identifier for the announcement (useful for programmatic follow-up operations)
+          example: "550e8400-e29b-41d4-a716-446655440000"
         title:
           type: string
           description: Announcement title

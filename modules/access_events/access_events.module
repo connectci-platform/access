@@ -30,6 +30,11 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
 
+    // Remove required from fieldset 'recur_type' for a11y.
+    $form['recur_type']['widget']['#required'] = FALSE;
+    $form['field_event_type']['widget']['#required'] = FALSE;
+
+
     // Hide the option to share in the ACCESS bi-weekly digest if not on Access.
     if ($domain_id != 'amp_cyberinfrastructure_org') {
       unset($form['field_choose_where_to_share_this']['widget']['#options']['in_the_access_support_bi_weekly_digest']);
@@ -255,10 +260,6 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
       '#weight' => 2,
     ];
 
-
-    $form['field_summary_replace']['field_suggest_title'] = [
-      '#markup' => "<h4 class='label form-required mt-4'>Summary</h4>",
-    ];
 
     $form['field_summary_replace']['field_suggest'] = [
       '#type' => 'container',
@@ -1127,6 +1128,66 @@ function access_events_entity_access(EntityInterface $entity, $operation, Accoun
 }
 
 /**
+ * Implements hook_module_implements_alter().
+ *
+ * Disable the recurring_events_reminders cron hook to replace it with our own
+ * implementation that includes a check for events that have already started.
+ */
+function access_events_module_implements_alter(&$implementations, $hook) {
+  if ($hook === 'cron' && isset($implementations['recurring_events_reminders'])) {
+    unset($implementations['recurring_events_reminders']);
+  }
+}
+
+/**
+ * Implements hook_tokens_alter().
+ *
+ * Fix the reminder_message token to return processed HTML instead of raw value.
+ * The contrib module returns ->value (raw text), but we need ->processed
+ * (HTML filtered through the text format). Note: Markup wrapping here doesn't
+ * prevent escaping in emails since Token::replace() converts to string;
+ * see access_events_mail_alter() for the email escaping fix.
+ */
+function access_events_tokens_alter(array &$replacements, array $context, \Drupal\Core\Render\BubbleableMetadata $bubbleable_metadata) {
+  if ($context['type'] === 'eventseries' && !empty($context['data']['eventseries'])) {
+    $event_series = $context['data']['eventseries'];
+    foreach ($context['tokens'] as $name => $original) {
+      if ($name === 'reminder_message' && isset($replacements[$original])) {
+        // Replace raw value with processed HTML (filtered through text format).
+        if ($event_series->hasField('registration_reminders') && !$event_series->registration_reminders->isEmpty()) {
+          $processed = $event_series->registration_reminders->processed;
+          if ($processed) {
+            $replacements[$original] = $processed;
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_mail_alter().
+ *
+ * Convert registration_reminder email body to Markup to prevent HTML escaping.
+ * The symfony_mailer LegacyMailerHelper::formatBody() preserves MarkupInterface
+ * objects but escapes plain strings through processed_text.
+ */
+function access_events_mail_alter(&$message) {
+  if ($message['module'] === 'recurring_events_registration' && $message['key'] === 'registration_reminder') {
+    if (is_array($message['body'])) {
+      foreach ($message['body'] as $key => $part) {
+        if (is_string($part)) {
+          $message['body'][$key] = Markup::create($part);
+        }
+      }
+    }
+    elseif (is_string($message['body'])) {
+      $message['body'] = [Markup::create($message['body'])];
+    }
+  }
+}
+
+/**
  * Implements hook_cron().
  */
 function access_events_cron() {
@@ -1135,6 +1196,82 @@ function access_events_cron() {
 
   // Send post survey reminder emails.
   \Drupal::service('access_events.post_survey')->postSurveyReminderEmail();
+
+  // Send registration reminder emails (replaces recurring_events_reminders_cron).
+  _access_events_send_registration_reminders();
+}
+
+/**
+ * Send registration reminder emails to registrants.
+ *
+ * This replaces recurring_events_reminders_cron() with additional logic
+ * to skip events that have already started.
+ */
+function _access_events_send_registration_reminders() {
+  $query = \Drupal::entityTypeManager()->getStorage('eventinstance')->getQuery();
+  $event_instances = $query
+    ->condition('reminder_date', NULL, 'IS NOT NULL')
+    ->condition('reminder_sent', NULL, 'IS NULL')
+    ->condition('reminder_date', time(), '<=')
+    ->accessCheck(FALSE)
+    ->execute();
+
+  if (empty($event_instances)) {
+    return;
+  }
+
+  $instances = \Drupal::entityTypeManager()->getStorage('eventinstance')->loadMultiple($event_instances);
+
+  /** @var \Drupal\recurring_events\Entity\EventInstance $instance */
+  foreach ($instances as $instance) {
+    // Skip sending reminder if the event has already started.
+    if ($instance->date->start_date->getTimestamp() <= time()) {
+      // Mark as sent to prevent future attempts.
+      $instance->set('reminder_sent', time());
+      $instance->setNewRevision(FALSE);
+      $instance->save();
+      \Drupal::logger('access_events')->notice('Skipped reminder for event instance @id - event has already started.', [
+        '@id' => $instance->id(),
+      ]);
+      continue;
+    }
+
+    $instance->set('reminder_sent', time());
+    $instance->setNewRevision(FALSE);
+    $instance->save();
+
+    /** @var \Drupal\recurring_events_registration\RegistrationCreationService $registration_creation_service */
+    $registration_creation_service = \Drupal::service('recurring_events_registration.creation_service');
+    $registration_creation_service->setEventInstance($instance);
+
+    $registrants = $registration_creation_service->retrieveRegisteredParties();
+
+    if (empty($registrants)) {
+      continue;
+    }
+
+    $key = 'registration_reminder';
+
+    $config = \Drupal::config('recurring_events_registration.registrant.config');
+    $queue_is_enabled = $config->get('email_notifications_queue');
+
+    // Send an email to all registrants.
+    foreach ($registrants as $registrant) {
+      if ($queue_is_enabled) {
+        // Add each notification to be sent to the queue.
+        \Drupal::service('recurring_events_registration.notification_service')->addEmailNotificationToQueue($key, $registrant);
+      }
+      else {
+        // If the queue is not enabled, send this notification immediately.
+        recurring_events_registration_send_notification($key, $registrant);
+      }
+    }
+
+    \Drupal::logger('access_events')->notice('Sent registration reminder for event instance @id to @count registrants.', [
+      '@id' => $instance->id(),
+      '@count' => count($registrants),
+    ]);
+  }
 }
 
 /**

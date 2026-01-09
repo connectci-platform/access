@@ -1034,6 +1034,9 @@ function get_domain_email() {
   return NULL; // Fallback if no domain match
 }
 
+/**
+ * Implements hook_mail_alter().
+ */
 function access_misc_mail_alter(&$message) {
   // If the domain-specific email exists, use it.
   $site_email = get_domain_email();

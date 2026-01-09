@@ -365,7 +365,7 @@ class ConstantContactApi {
   }
 
   /**
-   * Make api call.
+   * Make api call with retry logic for rate limiting.
    *
    * @param $endpoint
    *   - end of the URL api call.
@@ -373,6 +373,8 @@ class ConstantContactApi {
    *   - included with $type PUT json encoded.
    * @param $type
    *   - POST or GET, defaults to GET.
+   * @param $retryCount
+   *   - Internal: current retry attempt (used for recursion).
    *
    *   Returns result from CC call or NULL upon error.
    *   If error returned from Constant contact:
@@ -381,7 +383,8 @@ class ConstantContactApi {
    *   this->httpResponseCode set
    *   this->errorMessage set to CC error message as well.
    */
-  public function apiCall($endpoint, $post_data = NULL, $type = 'GET') {
+  public function apiCall($endpoint, $post_data = NULL, $type = 'GET', $retryCount = 0) {
+    $maxRetries = 3;
 
     $access_token = $this->accessToken;
     // Use cURL to get a new access token and refresh token.
@@ -426,6 +429,18 @@ class ConstantContactApi {
     // Log any http error code.
     $this->httpResponseCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     curl_close($ch);
+
+    // Handle 429 Too Many Requests with exponential backoff.
+    if ($this->httpResponseCode == 429 && $retryCount < $maxRetries) {
+      // Exponential backoff: 1s, 2s, 4s.
+      $waitSeconds = pow(2, $retryCount);
+      \Drupal::logger('access_affinitygroup')->notice(
+        'Rate limit hit (429). Waiting @seconds seconds before retry @retry of @max.',
+        ['@seconds' => $waitSeconds, '@retry' => $retryCount + 1, '@max' => $maxRetries]
+      );
+      sleep($waitSeconds);
+      return $this->apiCall($endpoint, $post_data, $type, $retryCount + 1);
+    }
 
     $errMsg = getHttpErrMsg($this->httpResponseCode);
     if (!empty($errMsg)) {
@@ -714,6 +729,10 @@ function getHttpErrMsg($httpCode) {
 
     case 415:
       $m = 'Unsupported Media Type; the payload must be in JSON format, and Content-Type must be application/json';
+      break;
+
+    case 429:
+      $m = 'Too Many Requests. Rate limit exceeded.';
       break;
 
     case 500:

@@ -76,7 +76,6 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
  * Implements hook_form_alter().
  */
 function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id) {
-
   $domain = \Drupal::service('access_misc.sitetools')->getDomain();
 
   if ($domain != 'access-support' && ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form')) {
@@ -91,14 +90,12 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
 
     foreach ($fields as $field) {
       $title = $form[$field]['widget']['#title'];
-      $form[$field]['widget']['#prefix'] = "<h4>$title</h4>";
-      $form[$field]['widget']['#title'] = "<span class='hidden'>$title</span>";
+      $form[$field]['widget']['#title'] = "<span class='text-xl font-bold text-dark-teal'>$title</span>";
     }
 
     // Replace title of 'External Link' with h4
     $el_title = $form['field_news_external_link']['widget'][0]['#title'];
-    $form['field_news_external_link']['widget'][0]['#prefix'] = "<h4>$el_title</h4>";
-    $form['field_news_external_link']['widget'][0]['#title'] = "<span class='hidden'>$el_title</span>";
+    $form['field_news_external_link']['widget'][0]['#title'] = "<span class='text-xl font-bold text-dark-teal'>$el_title</span>";
 
     // Field is hidden and replaced with custom UI
     // Element validation ensures proper error messages are shown
@@ -819,7 +816,8 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
         //  will have different spacing in the digest.  Or do something with css)
         if ($node->body[0] != NULL) {
           $body = $node->body[0]->view('teaser');
-          $bodyDisp = \Drupal::service('renderer')->renderPlain($body);
+          $bodyRendered = \Drupal::service('renderer')->renderPlain($body);
+          $bodyDisp = "<p>$bodyRendered</p>";
         }
         else {
           $bodyDisp = '<p></p>';

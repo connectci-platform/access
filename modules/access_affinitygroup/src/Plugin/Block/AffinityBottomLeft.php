@@ -124,8 +124,11 @@ class AffinityBottomLeft extends BlockBase {
     $output = '<div class="bg-md-teal mb-10 not-prose"><div class="p-4">';
     $output .= '<h2 class="text-white-er text-xl font-semibold mt-0 mb-3">Upcoming Events</h2>';
     $affinity_group_tax = '';
+    $affinity_group_title = '';
     if ($node) {
       $affinity_group_tax = $node->get('field_affinity_group')->getValue()[0]['target_id'];
+      // Get the affinity group title for use in facet URLs.
+      $affinity_group_title = $node->getTitle();
     }
     if (!empty($event_list)) {
       $n = 0;
@@ -141,13 +144,13 @@ class AffinityBottomLeft extends BlockBase {
         $output .= '<div class="mb-3 text-white-er font-medium leading-5">' . $edate . '<br/>' . $e['title'] . '</div>';
       }
       if (count($event_list) > 8) {
-        $output .= '<a class="text-sm uppercase text-white-er hover--text-light-teal no-underline hover--underline" href="/events-trainings?field_affinity_group_target_id_1=' . $affinity_group_tax . '">See more events</a><br />';
+        $output .= '<a class="text-sm uppercase text-white-er hover--text-light-teal no-underline hover--underline" href="/events?f[0]=affinity_group:' . urlencode($affinity_group_title) . '">See more events</a><br />';
       }
     }
     else {
       $output .= '<div class="text-white-er my-2">No upcoming events.</div>';
     }
-    $output .= '<a class="text-sm uppercase text-white-er hover--text-light-teal no-underline hover--underline" href="/past-events?field_affinity_group_target_id=' . $affinity_group_tax . '">See past events</a>';
+    $output .= '<a class="text-sm uppercase text-white-er hover--text-light-teal no-underline hover--underline" href="/events/past?f[0]=affinity_group:' . urlencode($affinity_group_title) . '">See past events</a>';
     $output .= '</div></div>';
 
     // Display Announcements that have been assigned to the Affinity Group

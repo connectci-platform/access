@@ -767,11 +767,15 @@ class AllocationsUsersImport {
       if ($needCCUpdate) {
         $ccIdField = $u->get('field_constant_contact_id')->getValue();
         if (!empty($ccIdField)) {
-          $ccId = $ccIdField[0]['value'];
-          if (!empty($ccId)) {
-            $ccIdArray = json_decode($ccId, TRUE);
-            $ccId = (is_array($ccIdArray) && isset($ccIdArray['support'])) ? $ccIdArray['support'] : null;
-            if (!$this->batchNoCC && !$this->batchNoUserDetSave) {
+          $ccIdRaw = $ccIdField[0]['value'];
+          if (!empty($ccIdRaw)) {
+            $ccIdArray = json_decode($ccIdRaw, TRUE);
+            // Log corrupted data where 'support' is not a string.
+            if (is_array($ccIdArray) && isset($ccIdArray['support']) && !is_string($ccIdArray['support'])) {
+              $this->collectCronLog("Corrupted CC data for user " . $a['username'] . " (uid " . $u->id() . "): 'support' is not a string. Raw value: " . $ccIdRaw, 'err', TRUE);
+            }
+            $ccId = (is_array($ccIdArray) && isset($ccIdArray['support']) && is_string($ccIdArray['support'])) ? $ccIdArray['support'] : null;
+            if ($ccId && !$this->batchNoCC && !$this->batchNoUserDetSave) {
               $cca = new ConstantContactApi('support');
               $cca->setSupressErrDisplay(TRUE);
               $cca->updateContact($ccId, $a['firstName'], $a['lastName'], $a['email']);
@@ -964,67 +968,94 @@ class AllocationsUsersImport {
           continue;
         }
 
-        // Assemble users belonging to this group (each stored on flag on the associated term),.
-        $term = $node->get('field_affinity_group');
-        $userIds = $this->getUserIdsFromFlags($term->entity);
-        foreach ($userIds as $uid) {
-          $user = User::load($uid);
+        // Assemble users belonging to this group (each stored on flag on the associated term).
+        $termField = $node->get('field_affinity_group');
+        if ($termField->isEmpty() || !$termField->entity) {
+          $this->collectCronLog("!! No taxonomy term for $agTitle", 'err');
+          continue;
+        }
+        $userIds = $this->getUserIdsFromFlags($termField->entity);
 
-          $field_val = $user->get('field_constant_contact_id')->getValue();
-          if (!empty($field_val) && $field_val != 0) {
-            $ccId = $field_val[0]['value'];
-            $ccIdArray = json_decode($ccId, TRUE);
-            $ccId = (is_array($ccIdArray) && isset($ccIdArray['support'])) ? $ccIdArray['support'] : null;
-            // Check to see of it's a good CC Id.
-            // preventing attempts to work with an obfuscated CC Id.
-            if (strlen($ccId) == 36) {
-              $agContacts[] = $ccId;
+        // Use direct database query for CC IDs instead of loading each user entity.
+        // Process in chunks to avoid database IN clause limits for large groups.
+        if (!empty($userIds)) {
+          $connection = \Drupal::database();
+          $ccResults = [];
+          $userIdChunks = array_chunk($userIds, 1000);
+          foreach ($userIdChunks as $chunk) {
+            $query = $connection->select('user__field_constant_contact_id', 'cc')
+              ->fields('cc', ['entity_id', 'field_constant_contact_id_value'])
+              ->condition('cc.entity_id', $chunk, 'IN');
+            $ccResults += $query->execute()->fetchAllKeyed();
+          }
+
+          foreach ($userIds as $uid) {
+            if (isset($ccResults[$uid]) && !empty($ccResults[$uid])) {
+              $ccIdRaw = $ccResults[$uid];
+              $ccIdArray = json_decode($ccIdRaw, TRUE);
+              // Log corrupted data where 'support' is not a string.
+              if (is_array($ccIdArray) && isset($ccIdArray['support']) && !is_string($ccIdArray['support'])) {
+                $this->collectCronLog("Corrupted CC data for user $uid: 'support' is not a string. Raw value: " . $ccIdRaw, 'err', TRUE);
+              }
+              $ccId = (is_array($ccIdArray) && isset($ccIdArray['support']) && is_string($ccIdArray['support'])) ? $ccIdArray['support'] : null;
+              // Check to see if it's a good CC Id.
+              // preventing attempts to work with an obfuscated CC Id.
+              if ($ccId !== null && strlen($ccId) == 36) {
+                $agContacts[] = $ccId;
+              }
+              else {
+                $agContactsNoCCid[] = $uid;
+              }
             }
             else {
+              // Users without cc id. might not do anything with this here, not sure yet.
               $agContactsNoCCid[] = $uid;
             }
-          }
-          else {
-            // Users without cc id. might not do anything with this here, not sure yet.
-            $agContactsNoCCid[] = $uid;
           }
         }
 
         $this->collectCronLog("Sync $agCount: users in this AG with no CC id- count : " . count($agContactsNoCCid), 'd', TRUE);
 
-        // Assemble list of users on the cc list. CC returns members of lists in batches of 50.
-        $resp = $cca->apiCall("/contacts?lists=$listId&limit=50&include_count=true");
-        if (empty($resp->contacts)) {
-          $this->collectCronLog("Sync: $agTitle CC list response: empty.", 'err', TRUE);
-          continue;
+        // Assemble list of users on the cc list. CC API supports up to 500 per page.
+        // Delay before first API call to respect rate limits across groups.
+        usleep(300000);
+        $resp = $cca->apiCall("/contacts?lists=$listId&limit=500&include_count=true");
+        if (empty($resp) || empty($resp->contacts)) {
+          $this->collectCronLog("Sync: $agTitle CC list response: empty or no contacts.", 'i', TRUE);
+          // Not necessarily an error - could be an empty list. Continue to add users.
         }
-        foreach ($resp->contacts as $contact) {
-          $ccContacts[] = $contact->contact_id;
-        }
+        else {
+          foreach ($resp->contacts as $contact) {
+            $ccContacts[] = $contact->contact_id;
+          }
 
-        // Loop through any paginated results.
-        do {
-          try {
-            $nextHref = NULL;
+          // Loop through any paginated results.
+          do {
+            try {
+              $nextHref = NULL;
 
-            if (!empty($resp->_links->next)) {
-              $nextHref = $resp->_links->next->href;
-              // Remove extra leading '/v3'.
-              $nextHref = substr($nextHref, 3);
-            }
+              if (!empty($resp->_links->next)) {
+                $nextHref = $resp->_links->next->href;
+                // Remove extra leading '/v3'.
+                $nextHref = substr($nextHref, 3);
+              }
 
-            if (!empty($nextHref)) {
-
-              $resp = $cca->apiCall($nextHref);
-              foreach ($resp->contacts as $contact) {
-                $ccContacts[] = $contact->contact_id;
+              if (!empty($nextHref)) {
+                // Delay for API rate limit (300ms = max 3.33 requests/second).
+                usleep(300000);
+                $resp = $cca->apiCall($nextHref);
+                if (!empty($resp->contacts)) {
+                  foreach ($resp->contacts as $contact) {
+                    $ccContacts[] = $contact->contact_id;
+                  }
+                }
               }
             }
-          }
-          catch (\Exception $e) {
-            $this->collectCronLog("Sync $agCount: error in links loop " . $e->getMessage(), 'err', TRUE);
-          }
-        } while (!empty($nextHref));
+            catch (\Exception $e) {
+              $this->collectCronLog("Sync $agCount: error in links loop " . $e->getMessage(), 'err', TRUE);
+            }
+          } while (!empty($nextHref));
+        }
         $notInCC = array_diff($agContacts, $ccContacts);
         $addAttemptAmt = count($notInCC);
         $this->collectCronLog("Sync $agCount: add " . $addAttemptAmt . ' (' . count($ccContacts) . ' cc; ' . count($agContacts) . " ag) $agTitle", 'i', TRUE);
@@ -1048,8 +1079,8 @@ class AllocationsUsersImport {
             $cca->apiCall('/activities/add_list_memberships', $postData, 'POST');
             $usersAddedAmt += count($oneChunk);
             $this->collectCronLog("Sync $agCount: at $usersAddedAmt", 'd', TRUE);
-            // Delay for api limit.
-            usleep(500);
+            // Delay for API rate limit (300ms = max 3.33 requests/second).
+            usleep(300000);
           }
         }
       }
@@ -1061,25 +1092,162 @@ class AllocationsUsersImport {
   }
 
   /**
+   * Sync a single affinity group with Constant Contact.
+   *
+   * @param \Drupal\node\Entity\Node $node
+   *   The affinity group node to sync.
+   * @param bool $verbose
+   *   Whether to enable verbose logging.
+   */
+  public function syncSingleAffinityGroup($node, $verbose = FALSE) {
+    $this->verboseLogging = $verbose;
+    $cca = new ConstantContactApi('support');
+
+    $ccContacts = [];
+    $agContacts = [];
+    $agContactsNoCCid = [];
+    $usersAddedAmt = 0;
+
+    $agTitle = $node->getTitle();
+    $this->collectCronLog("Sync: Starting $agTitle", 'i', TRUE);
+
+    // Get constant contact list id.
+    $listId = $node->get('field_list_id')->value;
+    if (!$listId || strlen($listId) < 1) {
+      $this->collectCronLog("!! No list id for $agTitle", 'err', TRUE);
+      throw new \Exception("No Constant Contact list ID configured for $agTitle");
+    }
+
+    // Assemble users belonging to this group (each stored on flag on the associated term).
+    $termField = $node->get('field_affinity_group');
+    if ($termField->isEmpty() || !$termField->entity) {
+      throw new \Exception("No affinity group taxonomy term found for $agTitle");
+    }
+    $userIds = $this->getUserIdsFromFlags($termField->entity);
+    $this->collectCronLog("Sync: $agTitle has " . count($userIds) . " members", 'i', TRUE);
+
+    // Use direct database query for CC IDs instead of loading each user entity.
+    // Process in chunks to avoid database IN clause limits for large groups.
+    if (!empty($userIds)) {
+      $connection = \Drupal::database();
+      $ccResults = [];
+      $userIdChunks = array_chunk($userIds, 1000);
+      foreach ($userIdChunks as $chunk) {
+        $query = $connection->select('user__field_constant_contact_id', 'cc')
+          ->fields('cc', ['entity_id', 'field_constant_contact_id_value'])
+          ->condition('cc.entity_id', $chunk, 'IN');
+        $ccResults += $query->execute()->fetchAllKeyed();
+      }
+
+      foreach ($userIds as $uid) {
+        if (isset($ccResults[$uid]) && !empty($ccResults[$uid])) {
+          $ccIdRaw = $ccResults[$uid];
+          $ccIdArray = json_decode($ccIdRaw, TRUE);
+          // Log corrupted data where 'support' is not a string.
+          if (is_array($ccIdArray) && isset($ccIdArray['support']) && !is_string($ccIdArray['support'])) {
+            $this->collectCronLog("Corrupted CC data for user $uid: 'support' is not a string. Raw value: " . $ccIdRaw, 'err', TRUE);
+          }
+          $ccId = (is_array($ccIdArray) && isset($ccIdArray['support']) && is_string($ccIdArray['support'])) ? $ccIdArray['support'] : null;
+          // Check to see if it's a good CC Id.
+          // preventing attempts to work with an obfuscated CC Id.
+          if ($ccId !== null && strlen($ccId) == 36) {
+            $agContacts[] = $ccId;
+          }
+          else {
+            $agContactsNoCCid[] = $uid;
+          }
+        }
+        else {
+          // Users without cc id. might not do anything with this here, not sure yet.
+          $agContactsNoCCid[] = $uid;
+        }
+      }
+    }
+
+    $this->collectCronLog("Sync: $agTitle - users with no CC id: " . count($agContactsNoCCid), 'd', TRUE);
+
+    // Assemble list of users on the cc list. CC API supports up to 500 per page.
+    // Delay before first API call to respect rate limits.
+    usleep(300000);
+    $resp = $cca->apiCall("/contacts?lists=$listId&limit=500&include_count=true");
+    if (empty($resp) || empty($resp->contacts)) {
+      $this->collectCronLog("Sync: $agTitle CC list response: empty or no contacts.", 'i', TRUE);
+      // Not necessarily an error - could be an empty list.
+    }
+    else {
+      foreach ($resp->contacts as $contact) {
+        $ccContacts[] = $contact->contact_id;
+      }
+
+      // Loop through any paginated results.
+      do {
+        $nextHref = NULL;
+
+        if (!empty($resp->_links->next)) {
+          $nextHref = $resp->_links->next->href;
+          // Remove extra leading '/v3'.
+          $nextHref = substr($nextHref, 3);
+        }
+
+        if (!empty($nextHref)) {
+          // Delay for API rate limit (300ms = max 3.33 requests/second).
+          usleep(300000);
+          $resp = $cca->apiCall($nextHref);
+          if (!empty($resp->contacts)) {
+            foreach ($resp->contacts as $contact) {
+              $ccContacts[] = $contact->contact_id;
+            }
+          }
+        }
+      } while (!empty($nextHref));
+    }
+
+    $this->collectCronLog("Sync: $agTitle - CC list has " . count($ccContacts) . " contacts", 'i', TRUE);
+
+    $notInCC = array_diff($agContacts, $ccContacts);
+    $addAttemptAmt = count($notInCC);
+    $this->collectCronLog("Sync: $agTitle - adding $addAttemptAmt users to CC list", 'i', TRUE);
+
+    // To add users to cc lists, call cc api with chunks.
+    $chunkSize = 40;
+    if (count($notInCC)) {
+      $chunked = array_chunk($notInCC, $chunkSize);
+      $chunked = array_values($chunked);
+
+      foreach ($chunked as $oneChunk) {
+        $postData = [
+          'source' => [
+            'contact_ids' => $oneChunk,
+          ],
+          'list_ids' => [$listId],
+        ];
+
+        $postData = json_encode($postData);
+        $cca->apiCall('/activities/add_list_memberships', $postData, 'POST');
+        $usersAddedAmt += count($oneChunk);
+        $this->collectCronLog("Sync: $agTitle - added $usersAddedAmt of $addAttemptAmt", 'd', TRUE);
+        // Delay for API rate limit (300ms = max 3.33 requests/second).
+        usleep(300000);
+      }
+    }
+
+    $this->collectCronLog("Sync: $agTitle - Completed. Added $usersAddedAmt users.", 'i', TRUE);
+  }
+
+  /**
    * Returns the user ids that have flagged an affinity group.
    * term: taxonomy term entity for the affinity group.
    */
   public function getUserIdsFromFlags(EntityInterface $term) {
+    // Use direct database query for better performance with large datasets.
+    $connection = \Drupal::database();
+    $query = $connection->select('flagging', 'f')
+      ->fields('f', ['uid'])
+      ->condition('f.entity_type', $term->getEntityTypeId())
+      ->condition('f.entity_id', $term->id());
 
-    $entityTypeManager = \Drupal::service('entity_type.manager');
-    $query = $entityTypeManager->getStorage('flagging')->getQuery();
-    $query->accessCheck();
-
-    $query->condition('entity_type', $term->getEntityTypeId())
-      ->condition('entity_id', $term->id());
-
-    $ids = $query->execute();
-    $userIds = [];
-    foreach ($ids as $flagId) {
-      $flagging = $entityTypeManager->getStorage('flagging')->load($flagId);
-      $userIds[] = $flagging->get('uid')->first()->getValue()['target_id'];
-    }
-    return ($userIds);
+    $userIds = $query->execute()->fetchCol();
+    return $userIds;
   }
 
   /**
