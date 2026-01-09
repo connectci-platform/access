@@ -894,6 +894,32 @@ function access_events_preprocess_views_view_field(&$variables) {
     }
   }
 
+  // Display event instance date in the right format for My Events view.
+  // The Twig |date() filter doesn't respect user timezone, so we handle it in PHP.
+  if ($view->id() == 'event_instance_mine' && $view->current_display == 'my_events_page') {
+    if ($field->field == 'date__value') {
+      $row = $variables['row'];
+      if (isset($row->_entity) && $row->_entity->hasField('date')) {
+        $entity = $row->_entity;
+        $date_field = $entity->get('date');
+
+        if (!$date_field->isEmpty()) {
+          $start_date = $date_field->start_date;
+
+          // Convert to user timezone.
+          $user = \Drupal::currentUser();
+          $user_timezone = $user->getTimeZone() ?: date_default_timezone_get();
+
+          if ($start_date) {
+            $start_date->setTimezone(new \DateTimeZone($user_timezone));
+            $formatted_output = $start_date->format('n/j/Y g:i A T');
+            $variables['output'] = Markup::create($formatted_output);
+          }
+        }
+      }
+    }
+  }
+
   // Display event instance date in the right format.
   if ($view->id() == 'recurring_events_event_instances' && ($view->current_display == 'block_1' || $view->current_display == 'block_2')) {
     if ($field->field == 'date__value' || $field->field == 'date__end_value') {
