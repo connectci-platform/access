@@ -920,6 +920,23 @@ function access_events_preprocess_views_view_field(&$variables) {
     }
   }
 
+  // Overwrite tags on full webinars:
+  // /admin/structure/views/view/events_facet/edit/recorded_webinars
+  if ($view->id() == 'events_facet' && $view->current_display == 'recorded_webinars') {
+    if ($field->field == 'custom_event_tags') {
+      $tags = explode(',', strip_tags($variables['output']));
+      $output = '<ul>';
+      foreach ($tags as $tag) {
+        $tag = trim($tag);
+        $tag_lower = strtolower(str_replace(' ', '-', $tag));
+        // Link the tag to /tags/$tag_lower
+        $output .= "<li><a href='/tags/$tag_lower'>$tag</a></li>";
+      }
+      $output .= '</ul>';
+      $variables['output'] = Markup::create($output);
+    }
+  }
+
   // Display event instance date in the right format.
   if ($view->id() == 'recurring_events_event_instances' && ($view->current_display == 'block_1' || $view->current_display == 'block_2')) {
     if ($field->field == 'date__value' || $field->field == 'date__end_value') {

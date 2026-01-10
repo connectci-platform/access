@@ -482,32 +482,6 @@ function access_misc_deploy_10007() {
   ]);
   $section2->appendComponent($component2_3);
 
-  $component2_4 = new SectionComponent('1f3eeff5-1ceb-4747-be35-1f8a4b1f90ec', 'first', [
-    'id' => 'facet_block:webinars_full_affinity_group',
-    'label' => 'Affinity Group',
-    'label_display' => 'visible',
-    'provider' => 'facets',
-    'context_mapping' => [],
-  ]);
-  $component2_4->setWeight(3);
-  $component2_4->set('additional', [
-    'layout_builder_styles_style' => [
-      'accordion_wrapper' => 0,
-      'bg_light_teal' => 0,
-      'mb_10' => 0,
-      'mb_3' => 0,
-      'mb_5' => 0,
-      'md_teal_box' => 0,
-      'page_title' => 0,
-      'pb_4' => 0,
-      'pe_3' => 0,
-      'pt_4' => 0,
-      'tags' => 0,
-      '__div_h_full' => 0,
-    ],
-  ]);
-  $section2->appendComponent($component2_4);
-
   $component2_5 = new SectionComponent('23c4b052-f4f0-4c5c-9067-8e917ecb61e1', 'first', [
     'id' => 'facet_block:webinars_full_skill_level',
     'label' => 'Skill Level',
@@ -533,6 +507,32 @@ function access_misc_deploy_10007() {
     ],
   ]);
   $section2->appendComponent($component2_5);
+
+  $component2_4 = new SectionComponent('1f3eeff5-1ceb-4747-be35-1f8a4b1f90ec', 'first', [
+    'id' => 'facet_block:webinars_full_affinity_group',
+    'label' => 'Affinity Group',
+    'label_display' => 'visible',
+    'provider' => 'facets',
+    'context_mapping' => [],
+  ]);
+  $component2_4->setWeight(3);
+  $component2_4->set('additional', [
+    'layout_builder_styles_style' => [
+      'accordion_wrapper' => 0,
+      'bg_light_teal' => 0,
+      'mb_10' => 0,
+      'mb_3' => 0,
+      'mb_5' => 0,
+      'md_teal_box' => 0,
+      'page_title' => 0,
+      'pb_4' => 0,
+      'pe_3' => 0,
+      'pt_4' => 0,
+      'tags' => 0,
+      '__div_h_full' => 0,
+    ],
+  ]);
+  $section2->appendComponent($component2_4);
 
   $node->get('layout_builder__layout')->appendSection($section2);
 
