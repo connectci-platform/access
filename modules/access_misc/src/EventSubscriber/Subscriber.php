@@ -32,8 +32,10 @@ class Subscriber implements EventSubscriberInterface {
     if ($route_name == 'misc.login' && !$user_is_authenticated) {
       $this->doRedirectToCilogon($event);
     }
-    // Redirect user.login to Cilogon.
-    if ($domain_verified && $route_name == 'user.login' && !$user_is_authenticated) {
+    // Redirect user.login to Cilogon (but allow API requests for service accounts).
+    $is_api_request = $event->getRequest()->getRequestFormat() === 'json'
+      || $event->getRequest()->query->get('_format') === 'json';
+    if ($domain_verified && $route_name == 'user.login' && !$user_is_authenticated && !$is_api_request) {
       $this->doRedirectToCilogon($event);
     }
 
