@@ -199,14 +199,14 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if skill_image %}
-          <h3 class="field__label">{{ skill_level_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ skill_level_title }}</h2>
           <div class="field__items">
             <div class="field__item">{{ skill_image | raw }}</div>
           </div>
         {% endif %}
 
         {% if event_type %}
-          <h2 class="field__label">{{ event_type_title }}</h2>
+          <h2 class="field__label mb-0 mt-6">{{ event_type_title }}</h2>
            <div class="field__items">
             {% for type in event_type %}
               <div class="field__item">
@@ -217,14 +217,14 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if affinity_groups %}
-          <h3 class="field__label">{{ affinity_group_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ affinity_group_title }}</h2>
            <div class="field__items">
             {{ affinity_groups }}
           </div>
         {% endif %}
 
         {% if event_affiliation %}
-          <h2 class="field__label">{{ event_affiliation_title }}</h2>
+          <h2 class="field__label mb-0 mt-6">{{ event_affiliation_title }}</h2>
            <div class="field__items">
               <div class="field__item">
                 {{ event_affiliation|raw }}
