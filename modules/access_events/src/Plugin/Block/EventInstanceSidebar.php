@@ -159,7 +159,7 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if my_registration_status %}
-          <h3 class="field__label">{{ my_registration_status_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ my_registration_status_title }}</h2>
           <div class="field__items">
             <strong>Approved: </strong>
             {% if my_registration_status.status %}
@@ -179,7 +179,7 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if speakers %}
-          <h3 class="field__label">{{ speakers_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ speakers_title }}</h2>
           <div class="field__items">
             {% for speaker in speakers %}
               <div class="field__item">{{ speaker.value }}</div>
@@ -188,7 +188,7 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if contacts %}
-          <h3 class="field__label">{{ contact_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ contact_title }}</h2>
           <div class="field__items">
             {% for contact in contacts %}
               <div class="field__item">
@@ -199,14 +199,14 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if skill_image %}
-          <h3 class="field__label">{{ skill_level_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ skill_level_title }}</h2>
           <div class="field__items">
             <div class="field__item">{{ skill_image | raw }}</div>
           </div>
         {% endif %}
 
         {% if event_type %}
-          <h2 class="field__label">{{ event_type_title }}</h2>
+          <h2 class="field__label mb-0 mt-6">{{ event_type_title }}</h2>
            <div class="field__items">
             {% for type in event_type %}
               <div class="field__item">
@@ -217,14 +217,14 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if affinity_groups %}
-          <h3 class="field__label">{{ affinity_group_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ affinity_group_title }}</h2>
            <div class="field__items">
             {{ affinity_groups }}
           </div>
         {% endif %}
 
         {% if event_affiliation %}
-          <h2 class="field__label">{{ event_affiliation_title }}</h2>
+          <h2 class="field__label mb-0 mt-6">{{ event_affiliation_title }}</h2>
            <div class="field__items">
               <div class="field__item">
                 {{ event_affiliation|raw }}
