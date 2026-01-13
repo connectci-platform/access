@@ -53,7 +53,11 @@ class ViewsRegistrationCustomAccess extends AccessPluginBase {
     // Get author of event series.
     $author = $eventseries->getOwner();
 
-    if ($author->id() == $account->id()) {
+    $other_authors = $eventseries->get('field_other_authors')->getValue();
+    $other_authors[] = ['target_id' => $author->id()];
+
+    // other_authors array contains $account->id().
+    if (array_search(['target_id' => $account->id()], $other_authors) !== FALSE) {
       $access = TRUE;
     }
 

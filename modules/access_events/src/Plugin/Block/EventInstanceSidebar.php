@@ -59,7 +59,11 @@ class EventInstanceSidebar extends BlockBase {
 
     $registrations_button = NULL;
 
-    if (($author->id() == $current_user->id() || $current_user->hasPermission('administer site configuration')) && $event_registration_on == 1) {
+    $other_authors = $series->get('field_other_authors')->getValue();
+
+    if (($author->id() == $current_user->id() ||
+      (array_search($current_user->id(), array_column($other_authors, 'target_id')) !== FALSE) ||
+      $current_user->hasPermission('administer site configuration')) && $event_registration_on == 1) {
       $registrations_button = "<a href='$current_path/registrations' class='btn btn-primary mb-4'>Registrations</a>";
     }
 
