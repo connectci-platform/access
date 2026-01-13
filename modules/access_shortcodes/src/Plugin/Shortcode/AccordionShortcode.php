@@ -20,7 +20,6 @@ class AccordionShortcode extends ShortcodeBase {
    * {@inheritdoc}
    */
   public function process(array $attributes, $text, $langcode = Language::LANGCODE_NOT_SPECIFIED) {
-    kint($attributes, $text);
     $attributes = $this->getAttributes([
       'summary' => '',
       'summarytag' => '',
@@ -42,8 +41,6 @@ class AccordionShortcode extends ShortcodeBase {
       '#text' => $text,
       '#color' => ($color == '') ? 'bg-light-teal' : $color,
     ];
-
-    kint($summary_tag, $output);
 
     return $this->render($output);
   }
