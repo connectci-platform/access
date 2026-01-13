@@ -924,16 +924,38 @@ function access_events_preprocess_views_view_field(&$variables) {
   // /admin/structure/views/view/events_facet/edit/recorded_webinars
   if ($view->id() == 'events_facet' && $view->current_display == 'recorded_webinars') {
     if ($field->field == 'custom_event_tags') {
-      $tags = explode(',', strip_tags($variables['output']));
-      $output = '<ul>';
-      foreach ($tags as $tag) {
-        $tag = trim($tag);
-        $tag_lower = strtolower(str_replace(' ', '-', $tag));
-        // Link the tag to /tags/$tag_lower
-        $output .= "<li><a href='/tags/$tag_lower'>$tag</a></li>";
+      $raw_output = strip_tags($variables['output']);
+      if (!empty(trim($raw_output))) {
+        $tags = explode(',', $raw_output);
+        $items = [];
+        $term_storage = \Drupal::entityTypeManager()->getStorage('taxonomy_term');
+        $path_alias_manager = \Drupal::service('path_alias.manager');
+
+        foreach ($tags as $tag) {
+          $tag = trim($tag);
+          if (empty($tag)) {
+            continue;
+          }
+
+          // Look up the tag term to get its real path alias.
+          $terms = $term_storage->loadByProperties([
+            'vid' => 'tags',
+            'name' => $tag,
+          ]);
+
+          if (!empty($terms)) {
+            $term = reset($terms);
+            $path = '/taxonomy/term/' . $term->id();
+            $alias = $path_alias_manager->getAliasByPath($path);
+            $items[] = "<li><a href='$alias'>$tag</a></li>";
+          }
+        }
+
+        if (!empty($items)) {
+          $output = '<ul>' . implode('', $items) . '</ul>';
+          $variables['output'] = Markup::create($output);
+        }
       }
-      $output .= '</ul>';
-      $variables['output'] = Markup::create($output);
     }
   }
 
