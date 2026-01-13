@@ -33,7 +33,6 @@ class EventInstanceSidebar extends BlockBase {
     }
 
     $series = $event_instance->getEventSeries();
-    $author = $series->getOwner();
     $current_user = \Drupal::currentUser();
 
     $speakers = $series->get('field_event_speakers')->getValue();
@@ -59,10 +58,10 @@ class EventInstanceSidebar extends BlockBase {
 
     $registrations_button = NULL;
 
-    $other_authors = $series->get('field_other_authors')->getValue();
+    /** @var \Drupal\access_events\Service\EventAccessService $event_access */
+    $event_access = \Drupal::service('access_events.event_access');
 
-    if (($author->id() == $current_user->id() ||
-      (array_search($current_user->id(), array_column($other_authors, 'target_id')) !== FALSE) ||
+    if (($event_access->isEventAuthor($series, $current_user) ||
       $current_user->hasPermission('administer site configuration')) && $event_registration_on == 1) {
       $registrations_button = "<a href='$current_path/registrations' class='btn btn-primary mb-4'>Registrations</a>";
     }

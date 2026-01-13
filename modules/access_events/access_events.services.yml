@@ -1,4 +1,6 @@
 services:
+  access_events.event_access:
+    class: Drupal\access_events\Service\EventAccessService
   access_events.XsedeApi:
     class: Drupal\access_events\Plugin\XsedeApi
     arguments:
