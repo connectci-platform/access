@@ -311,6 +311,10 @@ function access_misc_deploy_10007() {
     ],
     'status' => 1,
     'uid' => 1985,
+    'path' => [
+      'alias' => '/knowledge-base/recorded-events-and-trainings',
+      'pathauto' => 0,
+    ],
   ]);
   $node->save();
 
