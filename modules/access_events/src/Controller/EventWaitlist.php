@@ -307,7 +307,7 @@ class EventWaitlist extends ControllerBase {
   }
 
   /**
-   * Give access to author or administrator.
+   * Give access to author, other author, or administrator.
    */
   public function isAuthor() {
     $account = \Drupal::currentUser();
@@ -318,10 +318,11 @@ class EventWaitlist extends ControllerBase {
 
     $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_id);
     $eventseries = $eventinstance->getEventSeries();
-    // Get author of event series.
-    $author = $eventseries->getOwner();
 
-    if ($author->id() == $account->id()) {
+    /** @var \Drupal\access_events\Service\EventAccessService $event_access */
+    $event_access = \Drupal::service('access_events.event_access');
+
+    if ($event_access->isEventAuthor($eventseries, $account)) {
       return AccessResult::allowed();
     }
 
