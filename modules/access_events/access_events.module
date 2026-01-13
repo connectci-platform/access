@@ -920,6 +920,45 @@ function access_events_preprocess_views_view_field(&$variables) {
     }
   }
 
+  // Overwrite tags on full webinars:
+  // /admin/structure/views/view/events_facet/edit/recorded_webinars
+  if ($view->id() == 'events_facet' && $view->current_display == 'recorded_webinars') {
+    if ($field->field == 'custom_event_tags') {
+      $raw_output = strip_tags($variables['output']);
+      if (!empty(trim($raw_output))) {
+        $tags = explode(',', $raw_output);
+        $items = [];
+        $term_storage = \Drupal::entityTypeManager()->getStorage('taxonomy_term');
+        $path_alias_manager = \Drupal::service('path_alias.manager');
+
+        foreach ($tags as $tag) {
+          $tag = trim($tag);
+          if (empty($tag)) {
+            continue;
+          }
+
+          // Look up the tag term to get its real path alias.
+          $terms = $term_storage->loadByProperties([
+            'vid' => 'tags',
+            'name' => $tag,
+          ]);
+
+          if (!empty($terms)) {
+            $term = reset($terms);
+            $path = '/taxonomy/term/' . $term->id();
+            $alias = $path_alias_manager->getAliasByPath($path);
+            $items[] = "<li><a href='$alias'>$tag</a></li>";
+          }
+        }
+
+        if (!empty($items)) {
+          $output = '<ul>' . implode('', $items) . '</ul>';
+          $variables['output'] = Markup::create($output);
+        }
+      }
+    }
+  }
+
   // Display event instance date in the right format.
   if ($view->id() == 'recurring_events_event_instances' && ($view->current_display == 'block_1' || $view->current_display == 'block_2')) {
     if ($field->field == 'date__value' || $field->field == 'date__end_value') {

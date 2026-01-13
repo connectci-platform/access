@@ -4,6 +4,8 @@
  * @file
  */
 
+use Drupal\layout_builder\Section;
+use Drupal\layout_builder\SectionComponent;
 use Drupal\menu_link_content\Entity\MenuLinkContent;
 use Drupal\node\Entity\Node;
 use Drupal\redirect\Entity\Redirect;
@@ -291,4 +293,252 @@ function access_misc_deploy_10006() {
 
     }
   }
+}
+
+/**
+ * Create new webinars page with custom layout.
+ */
+function access_misc_deploy_10007() {
+  // Create new page node with body content.
+  $node = Node::create([
+    'type' => 'page',
+    'title' => 'Recorded Events and Trainings',
+    'body' => [
+      'value' => '<p class="prose text-dark-teal text-2xl leading-9 mb-10">
+    Watch videos from past events.
+</p>',
+      'format' => 'full_html',
+    ],
+    'status' => 1,
+    'uid' => 1985,
+    'path' => [
+      'alias' => '/knowledge-base/recorded-events-and-trainings',
+      'pathauto' => 0,
+    ],
+  ]);
+  $node->save();
+
+  // Clear existing layout.
+  $node->set('layout_builder__layout', []);
+
+  // Section 1: Single column layout with basic page fields.
+  $section1 = new Section('layout_onecol', ['label' => '']);
+
+  $component1_1 = new SectionComponent('80aa3e26-4b2d-448c-ad7f-fe9bc10276ff', 'content', [
+    'id' => 'field_block:node:page:field_image',
+    'label_display' => '0',
+    'context_mapping' => ['entity' => 'layout_builder.entity'],
+    'formatter' => [
+      'type' => 'image',
+      'label' => 'hidden',
+      'settings' => [
+        'image_link' => '',
+        'image_style' => '',
+        'image_loading' => ['attribute' => 'lazy'],
+      ],
+      'third_party_settings' => [],
+    ],
+  ]);
+  $component1_1->setWeight(0);
+  $section1->appendComponent($component1_1);
+
+  $component1_2 = new SectionComponent('c0ffbca3-1681-4cad-9785-aeddb3b5c326', 'content', [
+    'id' => 'field_block:node:page:body',
+    'label_display' => '0',
+    'context_mapping' => ['entity' => 'layout_builder.entity'],
+    'formatter' => [
+      'type' => 'text_default',
+      'label' => 'hidden',
+      'settings' => [],
+      'third_party_settings' => [],
+    ],
+  ]);
+  $component1_2->setWeight(1);
+  $section1->appendComponent($component1_2);
+
+  $component1_3 = new SectionComponent('c0324193-630b-4761-b004-dc050343ef9f', 'content', [
+    'id' => 'field_block:node:page:comment_node_page',
+    'label_display' => '0',
+    'context_mapping' => ['entity' => 'layout_builder.entity'],
+    'formatter' => [
+      'type' => 'comment_default',
+      'label' => 'hidden',
+      'settings' => [
+        'view_mode' => 'default',
+        'pager_id' => 0,
+      ],
+      'third_party_settings' => [],
+    ],
+  ]);
+  $component1_3->setWeight(2);
+  $section1->appendComponent($component1_3);
+
+  $component1_4 = new SectionComponent('b739b3bd-c34c-4648-ac1c-3629a02b3a3e', 'content', [
+    'id' => 'extra_field_block:node:page:links',
+    'label_display' => '0',
+    'context_mapping' => ['entity' => 'layout_builder.entity'],
+  ]);
+  $component1_4->setWeight(3);
+  $section1->appendComponent($component1_4);
+
+  $node->get('layout_builder__layout')->appendSection($section1);
+
+  // Section 2: Two column layout with webinar filters and results.
+  $section2 = new Section('layout_twocol_section', [
+    'label' => 'Webinar section',
+    'column_widths' => '25-75',
+    'layout_builder_styles_style' => [
+      'bg_light_teal_overflow_section' => 0,
+      'border_b_2' => 0,
+      'border_gray' => 0,
+      'mb_10_section' => 0,
+      'md_order_1' => 0,
+      'md_order_2' => 0,
+      'mobile_row_reverse' => 0,
+      'mt_4_section' => 0,
+      'order_1' => 0,
+      'order_2' => 0,
+      'pt_20' => 0,
+      '_layout__region_second_order_1' => 0,
+    ],
+    'context_mapping' => [],
+  ]);
+
+  $component2_1 = new SectionComponent('683af77f-9202-4529-a31c-7e01241918be', 'second', [
+    'id' => 'views_block:events_facet-recorded_webinars',
+    'label' => '',
+    'label_display' => '0',
+    'provider' => 'views',
+    'views_label' => '',
+    'items_per_page' => 'none',
+    'exposed' => [],
+    'context_mapping' => [],
+  ]);
+  $component2_1->setWeight(0);
+  $component2_1->set('additional', [
+    'layout_builder_styles_style' => [
+      'accordion_wrapper' => 0,
+      'bg_light_teal' => 0,
+      'mb_10' => 0,
+      'mb_3' => 0,
+      'mb_5' => 0,
+      'md_teal_box' => 0,
+      'page_title' => 0,
+      'pb_4' => 0,
+      'pe_3' => 0,
+      'pt_4' => 0,
+      'tags' => 0,
+      '__div_h_full' => 0,
+    ],
+  ]);
+  $section2->appendComponent($component2_1);
+
+  $component2_2 = new SectionComponent('1651dd17-ad1e-4942-8a82-8ccaf4994e20', 'first', [
+    'id' => 'views_exposed_filter_block:events_facet-recorded_webinars_block',
+    'label' => '',
+    'label_display' => '0',
+    'provider' => 'views',
+    'views_label' => '',
+    'context_mapping' => [],
+  ]);
+  $component2_2->setWeight(0);
+  $component2_2->set('additional', [
+    'layout_builder_styles_style' => [
+      'accordion_wrapper' => 0,
+      'bg_light_teal' => 0,
+      'mb_10' => 0,
+      'mb_3' => 0,
+      'mb_5' => 0,
+      'md_teal_box' => 0,
+      'page_title' => 0,
+      'pb_4' => 0,
+      'pe_3' => 0,
+      'pt_4' => 0,
+      'tags' => 0,
+      '__div_h_full' => 0,
+    ],
+  ]);
+  $section2->appendComponent($component2_2);
+
+  $component2_3 = new SectionComponent('e6c10e81-367a-4945-80ec-67d1c0361023', 'first', [
+    'id' => 'facet_block:topic_recorded_webinars_full_block',
+    'label' => 'Topic',
+    'label_display' => 'visible',
+    'provider' => 'facets',
+    'context_mapping' => [],
+  ]);
+  $component2_3->setWeight(2);
+  $component2_3->set('additional', [
+    'layout_builder_styles_style' => [
+      'accordion_wrapper' => 0,
+      'bg_light_teal' => 0,
+      'mb_10' => 0,
+      'mb_3' => 0,
+      'mb_5' => 0,
+      'md_teal_box' => 0,
+      'page_title' => 0,
+      'pb_4' => 0,
+      'pe_3' => 0,
+      'pt_4' => 0,
+      'tags' => 0,
+      '__div_h_full' => 0,
+    ],
+  ]);
+  $section2->appendComponent($component2_3);
+
+  $component2_5 = new SectionComponent('23c4b052-f4f0-4c5c-9067-8e917ecb61e1', 'first', [
+    'id' => 'facet_block:webinars_full_skill_level',
+    'label' => 'Skill Level',
+    'label_display' => 'visible',
+    'provider' => 'facets',
+    'context_mapping' => [],
+  ]);
+  $component2_5->setWeight(4);
+  $component2_5->set('additional', [
+    'layout_builder_styles_style' => [
+      '__div_h_full' => 0,
+      'accordion_wrapper' => 0,
+      'bg_light_teal' => 0,
+      'mb_10' => 0,
+      'mb_3' => 0,
+      'mb_5' => 0,
+      'md_teal_box' => 0,
+      'page_title' => 0,
+      'pb_4' => 0,
+      'pe_3' => 0,
+      'pt_4' => 0,
+      'tags' => 0,
+    ],
+  ]);
+  $section2->appendComponent($component2_5);
+
+  $component2_4 = new SectionComponent('1f3eeff5-1ceb-4747-be35-1f8a4b1f90ec', 'first', [
+    'id' => 'facet_block:webinars_full_affinity_group',
+    'label' => 'Affinity Group',
+    'label_display' => 'visible',
+    'provider' => 'facets',
+    'context_mapping' => [],
+  ]);
+  $component2_4->setWeight(3);
+  $component2_4->set('additional', [
+    'layout_builder_styles_style' => [
+      'accordion_wrapper' => 0,
+      'bg_light_teal' => 0,
+      'mb_10' => 0,
+      'mb_3' => 0,
+      'mb_5' => 0,
+      'md_teal_box' => 0,
+      'page_title' => 0,
+      'pb_4' => 0,
+      'pe_3' => 0,
+      'pt_4' => 0,
+      'tags' => 0,
+      '__div_h_full' => 0,
+    ],
+  ]);
+  $section2->appendComponent($component2_4);
+
+  $node->get('layout_builder__layout')->appendSection($section2);
+
+  $node->save();
 }
