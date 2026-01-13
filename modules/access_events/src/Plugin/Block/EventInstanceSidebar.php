@@ -159,7 +159,7 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if my_registration_status %}
-          <h3 class="field__label">{{ my_registration_status_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ my_registration_status_title }}</h2>
           <div class="field__items">
             <strong>Approved: </strong>
             {% if my_registration_status.status %}
@@ -179,7 +179,7 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if speakers %}
-          <h3 class="field__label">{{ speakers_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ speakers_title }}</h2>
           <div class="field__items">
             {% for speaker in speakers %}
               <div class="field__item">{{ speaker.value }}</div>
@@ -188,7 +188,7 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if contacts %}
-          <h3 class="field__label">{{ contact_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ contact_title }}</h2>
           <div class="field__items">
             {% for contact in contacts %}
               <div class="field__item">
