@@ -407,7 +407,7 @@ function access_misc_deploy_10007() {
   $component2_1 = new SectionComponent('683af77f-9202-4529-a31c-7e01241918be', 'second', [
     'id' => 'views_block:events_facet-recorded_webinars',
     'label' => '',
-    'label_display' => 0,
+    'label_display' => '0',
     'provider' => 'views',
     'views_label' => '',
     'items_per_page' => 'none',
@@ -436,7 +436,7 @@ function access_misc_deploy_10007() {
   $component2_2 = new SectionComponent('1651dd17-ad1e-4942-8a82-8ccaf4994e20', 'first', [
     'id' => 'views_exposed_filter_block:events_facet-recorded_webinars_block',
     'label' => '',
-    'label_display' => 'visible',
+    'label_display' => '0',
     'provider' => 'views',
     'views_label' => '',
     'context_mapping' => [],
