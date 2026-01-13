@@ -38,7 +38,8 @@ class EventInstanceSidebar extends BlockBase {
 
     $speakers = $series->get('field_event_speakers')->getValue();
 
-    $end_date = $event_instance->get('date')->getValue()[0]['end_value'];
+    // Get end date for checking if event is past.
+    $end_date = $event_instance->date->end_date;
 
     $contact = $series->get('field_contact')->getValue();
     // If $contact is an email address, create a mailto link.
@@ -105,7 +106,7 @@ class EventInstanceSidebar extends BlockBase {
     }
 
     // Don't show registration link if the event is past.
-    if (strtotime($end_date) < strtotime('now')) {
+    if ($end_date && $end_date->getTimestamp() < time()) {
       $reg_link = NULL;
     }
 
