@@ -1129,37 +1129,10 @@ function access_misc_user_update(\Drupal\user\UserInterface $account) {
       ->condition('email', $account->getEmail());
     $results = $query->execute()->fetchAll();
 
-    // Collect unique entity IDs and invalidate cache.
-    $eventseries_ids = [];
-    $eventinstance_ids = [];
-    foreach ($results as $result) {
-      if (!empty($result->eventseries_id)) {
-        $eventseries_ids[] = $result->eventseries_id;
-      }
-      if (!empty($result->eventinstance_id)) {
-        $eventinstance_ids[] = $result->eventinstance_id;
-      }
-    }
-
-    // Clear cache for event series entities.
-    if (!empty($eventseries_ids)) {
-      $eventseries_ids = array_unique($eventseries_ids);
-      foreach ($eventseries_ids as $id) {
-        \Drupal::service('cache_tags.invalidator')->invalidateTags(['eventseries:' . $id]);
-      }
-    }
-
-    // Clear cache for event instance entities.
-    if (!empty($eventinstance_ids)) {
-      $eventinstance_ids = array_unique($eventinstance_ids);
-      foreach ($eventinstance_ids as $id) {
-        \Drupal::service('cache_tags.invalidator')->invalidateTags(['eventinstance:' . $id]);
-      }
-    }
-
     // Clear cache for recurring_events_registrations view.
-    if (!empty($eventseries_ids) || !empty($eventinstance_ids)) {
-      \Drupal::service('cache_tags.invalidator')->invalidateTags(['config:views.view.recurring_events_registrations']);
-    }
+    \Drupal::service('cache_tags.invalidator')->invalidateTags(['config:views.view.recurring_events_registrations']);
+
+    // Also invalidate the registrant entity list cache to update views display.
+    \Drupal::entityTypeManager()->getStorage('registrant')->resetCache();
   }
 }
