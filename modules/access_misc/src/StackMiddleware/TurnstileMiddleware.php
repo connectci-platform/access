@@ -45,7 +45,13 @@ class TurnstileMiddleware implements HttpKernelInterface {
    * {@inheritdoc}
    */
   public function handle(Request $request, int $type = self::MAIN_REQUEST, bool $catch = TRUE): Response {
-    // Check if Turnstile protection should run.
+    // Let /turnstile-challenge and /turnstile-verify go through to controllers.
+    $uri = $request->getRequestUri();
+    if (strpos($uri, '/turnstile-challenge') === 0 || strpos($uri, '/turnstile-verify') === 0) {
+      return $this->httpKernel->handle($request, $type, $catch);
+    }
+
+    // Check if Turnstile protection should run for other requests.
     $response = $this->turnstileService->checkRequest($request);
     
     if ($response !== NULL) {

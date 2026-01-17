@@ -21,3 +21,21 @@ wvuf_api_integration.unmask:
     _title: 'Unmask'
   requirements:
     _user_is_masquerading: 'TRUE'
+access_misc.turnstile_challenge:
+  path: '/turnstile-challenge'
+  defaults:
+    _controller: '\Drupal\access_misc\Controller\TurnstileController::challenge'
+    _title: 'Verify You''re Human'
+  requirements:
+    _access: 'TRUE'
+  options:
+    no_cache: 'TRUE'
+access_misc.turnstile_verify:
+  path: '/turnstile-verify'
+  defaults:
+    _controller: '\Drupal\access_misc\Controller\TurnstileController::verify'
+    _title: ''
+  requirements:
+    _access: 'TRUE'
+  options:
+    no_cache: 'TRUE'

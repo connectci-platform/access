@@ -4,7 +4,6 @@ namespace Drupal\access_misc\Services;
 
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\Cookie;
 
 /**
  * Service for Turnstile bot protection.
@@ -31,18 +30,6 @@ class TurnstileService {
       return NULL;
     }
 
-    $uri = $request->getRequestUri();
-
-    // Handle Turnstile verification endpoint.
-    if (strpos($uri, '/turnstile-verify') === 0) {
-      return $this->handleVerifyEndpoint($request);
-    }
-
-    // Handle Turnstile challenge page.
-    if (strpos($uri, '/turnstile-challenge') === 0) {
-      return $this->serveChallengeForm($request);
-    }
-
     // Check faceted search requests.
     $query = $request->query->all();
     if (isset($query['f']) && is_array($query['f']) && count($query['f']) > 0) {
@@ -50,86 +37,6 @@ class TurnstileService {
     }
 
     return NULL;
-  }
-
-  /**
-   * Handle the Turnstile verification endpoint.
-   *
-   * @param \Symfony\Component\HttpFoundation\Request $request
-   *   The request object.
-   *
-   * @return \Symfony\Component\HttpFoundation\Response
-   *   The response.
-   */
-  protected function handleVerifyEndpoint(Request $request) {
-    $token = $request->query->get('token', '');
-    $return_url = $request->query->get('return', '/');
-    $secret_key = $this->getTurnstileSecret('TURNSTILE_SECRET_KEY');
-
-    // Sanitize return URL.
-    if (!preg_match('/^\/[a-zA-Z0-9\-\_\/\?\&\=\[\]\%\.\+\:\#\~\@\!\'\(\)\,\;\* ]*$/', $return_url)) {
-      $return_url = '/';
-    }
-
-    if (!empty($token) && !empty($secret_key)) {
-      $result = $this->verifyTurnstileToken($token, $secret_key, $request->getClientIp());
-
-      if ($result['success']) {
-        $response = new Response('', 302);
-        $response->headers->set('Location', $return_url);
-
-        $cookie_value = hash('sha256', $secret_key . $request->getClientIp());
-        $secure = $request->isSecure();
-        $cookie = Cookie::create(
-          self::COOKIE_NAME,
-          $cookie_value,
-          time() + self::COOKIE_DURATION,
-          '/',
-          NULL,
-          $secure,
-          TRUE,
-          FALSE,
-          Cookie::SAMESITE_LAX
-        );
-        $response->headers->setCookie($cookie);
-
-        return $response;
-      }
-    }
-
-    // Verification failed.
-    $challenge_url = '/turnstile-challenge?return=' . urlencode($return_url) . '&error=1';
-    $response = new Response('', 302);
-    $response->headers->set('Location', $challenge_url);
-    return $response;
-  }
-
-  /**
-   * Serve the Turnstile challenge form.
-   *
-   * @param \Symfony\Component\HttpFoundation\Request $request
-   *   The request object.
-   *
-   * @return \Symfony\Component\HttpFoundation\Response
-   *   The response.
-   */
-  protected function serveChallengeForm(Request $request) {
-    $return_url = $request->query->get('return', '/');
-    $site_key = $this->getTurnstileSecret('TURNSTILE_SITE_KEY');
-    $error = $request->query->has('error') ? 'Verification failed. Please try again.' : '';
-
-    // Sanitize return URL.
-    if (!preg_match('/^\/[a-zA-Z0-9\-\_\/\?\&\=\[\]\%\.\+\:\#\~\@\!\'\(\)\,\;\* ]*$/', $return_url)) {
-      $return_url = '/';
-    }
-
-    // Calculate base path for "skip" link.
-    $base_path = strtok($return_url, '?');
-    $show_skip_link = ($base_path !== $return_url);
-
-    $html = $this->getChallengePageHtml($site_key, $return_url, $error, $show_skip_link, $base_path);
-
-    return new Response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
   }
 
   /**
@@ -219,7 +126,7 @@ class TurnstileService {
    * @return string
    *   The secret value.
    */
-  protected function getTurnstileSecret($name) {
+  public function getTurnstileSecret($name) {
     static $secrets = NULL;
 
     if ($secrets === NULL) {
@@ -291,7 +198,7 @@ class TurnstileService {
    * @return array
    *   The verification result with 'success' key.
    */
-  protected function verifyTurnstileToken($token, $secret_key, $remote_ip) {
+  public function verifyTurnstileToken($token, $secret_key, $remote_ip) {
     $ch = curl_init('https://challenges.cloudflare.com/turnstile/v0/siteverify');
     curl_setopt_array($ch, [
       CURLOPT_POST => TRUE,
@@ -333,7 +240,7 @@ class TurnstileService {
    * @return string
    *   The HTML content.
    */
-  protected function getChallengePageHtml($site_key, $return_url, $error, $show_skip_link, $base_path) {
+  public function getChallengePageHtml($site_key, $return_url, $error, $show_skip_link, $base_path) {
     $site_key_html = htmlspecialchars($site_key);
     $return_url_json = json_encode($return_url);
     $error_html = $error ? '<div class="error">' . htmlspecialchars($error) . '</div>' : '';
