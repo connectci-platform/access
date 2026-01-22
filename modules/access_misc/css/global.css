@@ -17,3 +17,18 @@ button.webform-element-help {
   background: #bbb;
   border: 2px solid #bbb;
 }
+
+/**
+ * Increase tabledrag handle size for better visibility and touch targets.
+ */
+a.tabledrag-handle .handle {
+  width: 24px;
+  height: 24px;
+}
+
+/**
+ * Vertically center webform multiple table operation buttons.
+ */
+.webform-multiple-table--operations input[type="image"] {
+  vertical-align: middle;
+}
