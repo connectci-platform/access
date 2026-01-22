@@ -1108,31 +1108,27 @@ function access_misc_cron() {
 
 /**
  * Implements hook_user_update().
-*/
+ *
+ * Sync user email changes to their event registrations.
+ */
 function access_misc_user_update(\Drupal\user\UserInterface $account) {
-  $original_account = $account->original;
-  if ($original_account && $account->getEmail() != $original_account->getEmail()) {
-    // Update registrant email to latest email.
-    $connection = \Drupal::database();
-    $connection->update('registrant')
-      ->fields(['email' => $account->getEmail()])
-      ->condition('email', $original_account->getEmail())
-      ->execute();
-    $connection->update('registrant_revision')
-      ->fields(['email' => $account->getEmail()])
-      ->condition('email', $original_account->getEmail())
+  $original = $account->original;
+  if ($original && $account->getEmail() != $original->getEmail()) {
+    // Find registrations belonging to this user with the old email.
+    $storage = \Drupal::entityTypeManager()->getStorage('registrant');
+    $ids = $storage->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('user_id', $account->id())
+      ->condition('email', $original->getEmail())
       ->execute();
 
-    // Query for eventseries_id and eventinstance_id to invalidate cache.
-    $query = $connection->select('registrant', 'r')
-      ->fields('r', ['eventseries_id', 'eventinstance_id'])
-      ->condition('email', $account->getEmail());
-    $results = $query->execute()->fetchAll();
-
-    // Clear cache for recurring_events_registrations view.
-    \Drupal::service('cache_tags.invalidator')->invalidateTags(['config:views.view.recurring_events_registrations']);
-
-    // Also invalidate the registrant entity list cache to update views display.
-    \Drupal::entityTypeManager()->getStorage('registrant')->resetCache();
+    // Update each registrant entity through the proper API.
+    foreach ($ids as $id) {
+      $registrant = $storage->load($id);
+      if ($registrant) {
+        $registrant->set('email', $account->getEmail());
+        $registrant->save();
+      }
+    }
   }
 }
