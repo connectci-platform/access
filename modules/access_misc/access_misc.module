@@ -1107,3 +1107,30 @@ function access_misc_cron() {
     }
   }
 }
+
+/**
+ * Implements hook_user_update().
+ *
+ * Sync user email changes to their event registrations.
+ */
+function access_misc_user_update(\Drupal\user\UserInterface $account) {
+  $original = $account->original;
+  if ($original && $account->getEmail() != $original->getEmail()) {
+    // Find registrations belonging to this user with the old email.
+    $storage = \Drupal::entityTypeManager()->getStorage('registrant');
+    $ids = $storage->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('user_id', $account->id())
+      ->condition('email', $original->getEmail())
+      ->execute();
+
+    // Update each registrant entity through the proper API.
+    foreach ($ids as $id) {
+      $registrant = $storage->load($id);
+      if ($registrant) {
+        $registrant->set('email', $account->getEmail());
+        $registrant->save();
+      }
+    }
+  }
+}
