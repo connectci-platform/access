@@ -51,3 +51,7 @@ global:
       css/global.css: {}
   js:
     js/global.js: {}
+webform_help_a11y:
+  version: 1.x
+  js:
+    js/webform_help_a11y.js: {}

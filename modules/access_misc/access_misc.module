@@ -23,6 +23,8 @@ use Drupal\views\ViewExecutable;
 function access_misc_page_attachments(&$variables) {
   // Adding global library to all pages.
   $variables['#attached']['library'][] = 'access_misc/global';
+  // Accessibility fix for webform help tooltips.
+  $variables['#attached']['library'][] = 'access_misc/webform_help_a11y';
   // Adding css for non-admin users.
   $user = \Drupal::currentUser();
   $roles = $user->getRoles();
