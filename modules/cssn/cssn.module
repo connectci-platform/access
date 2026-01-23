@@ -40,8 +40,9 @@ function cssn_preprocess_views_view_field(&$variables) {
   if ($view->id() == 'cssn_directory' && $view->current_display == 'page_1' && $field->options['id'] == 'nothing') {
     $output = $variables['output']->__toString();
     $lines = explode("\n", $output);
+
     $new_output = '';
-    $badges = "";
+    $badges = "<ul class='list-none'>";
     foreach ($lines as $key => $line) {
       if ($key == 0) {
         $term_ids = explode(', ', $line);
@@ -57,16 +58,19 @@ function cssn_preprocess_views_view_field(&$variables) {
               $image = \Drupal::service('file_url_generator')->generateAbsoluteString($image_url);
               if ($image) {
                 if ($name) {
-                  $badges .= "<div class='me-2 mb-1 position-relative float-right' data-placement='left' data-toggle='tooltip' title='$name'>";
+                  $badges .= "<li class='me-2 mb-1 position-relative float-right' data-placement='left' data-toggle='tooltip' title='$name'>";
                 }
                 else {
-                  $badges .= "<div class='ms-2 mb-1'>";
+                  $badges .= "<li class='ms-2 mb-1'>";
                 }
                 $badges .= "<img src='$image' alt='$image_alt' title='$name' width='35' height='35' />";
-                $badges .= "</div>";
+                $badges .= "</li>";
               }
             }
           }
+          $badges .= "</ul>";
+        } else {
+          $badges = '';
         }
       }
       elseif (

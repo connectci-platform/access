@@ -34,6 +34,7 @@ function access_shortcodes_theme() {
     'shortcode_accordion' => [
       'variables' => [
         'summary' => '',
+        'summarytag' => '',
         'text' => '',
         'color' => '',
       ],

@@ -5,11 +5,20 @@
  *
  * Available variables:
  * - summary: Summary of the accordion.
+ * - summarytag: HTML tag to use for the summary (e.g., 'h2', 'span'). Optional.
  * - text: Main text of the accordion.
+ * - color: CSS classes for styling the summary.
  */
 #}
+
+{%
+  set tag = summarytag is defined and summarytag != '' ? summarytag : 'span'
+%}
+
 <details class="border-0 bg-light-teal open:bg-white duration-300 relative">
-	<summary class="{{ color }} ps-5 pe-10 py-4 text-lg text-dark-teal font-extrabold leading-5 cursor-pointer">{{ summary }}</summary>
+	<summary class="{{ color }} ps-5 pe-10 py-4 text-lg text-dark-teal font-extrabold leading-5 cursor-pointer">
+    <{{ tag }}>{{ summary }}</{{ tag }}>
+  </summary>
 	<div class="bg-white px-5 py-3">
 		{{ text | raw }}
 	</div>

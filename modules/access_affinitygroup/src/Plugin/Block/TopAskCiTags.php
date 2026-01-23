@@ -115,7 +115,7 @@ class TopAskCiTags extends BlockBase implements
     $result = json_decode($result);
     $tags = $result->topic_list->top_tags;
     $tags = array_slice($tags, 0, 10);
-    $output = '<div class="flex flex-wrap">';
+    $output = '<ul class="flex flex-wrap">';
     foreach ($tags as $tag) {
       $options = [
         'attributes' => [
@@ -126,9 +126,9 @@ class TopAskCiTags extends BlockBase implements
       ];
       $url = Url::fromUri("https://ask.cyberinfrastructure.org/tag/$tag", $options);
       $external_link = Link::fromTextAndUrl($tag, $url)->toString();
-      $output .= $external_link;
+      $output .= "<li class='ps-0 mt-0 list-none'>$external_link</li>";
     }
-    $output .= '</div>';
+    $output .= '</ul>';
     $ask_title = $this->t('Popular tags on Ask.CI');
     $ask_title = "<h4 class='mt-8'>$ask_title</h4>";
 

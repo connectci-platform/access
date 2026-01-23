@@ -150,16 +150,16 @@ function access_cilink_preprocess_views_view_field(&$variables) {
       $terms[] = $matches[0][0];
     }
 
-    $tags = '<div class="[&amp;_a]--inline-block [&amp;_a]--no-underline [&amp;_a]--font-normal [&amp;_a]--my-1 [&amp;_a]--me-1 [&amp;_a]--mr-1 [&amp;_a]--px-2 [&amp;_a]--py-1 [&amp;_a]--hover--border-dark-teal [&amp;_a]--border [&amp;_a]--whitespace-nowrap">';
+    $tags = '<ul class="d-flex flex flex-wrap [&amp;_a]--inline-block [&amp;_a]--no-underline [&amp;_a]--font-normal [&amp;_a]--my-1 [&amp;_a]--me-1 [&amp;_a]--mr-1 [&amp;_a]--px-2 [&amp;_a]--py-1 [&amp;_a]--hover--border-dark-teal [&amp;_a]--border [&amp;_a]--whitespace-nowrap">';
     foreach ($terms as $term) {
       $term = Term::load($term);
       if ($term == NULL) {
         continue;
       }
       $term_name = $term->getName();
-      $tags .= "<a class='me-1' href='/tags/$term_name'>$term_name</a>";
+      $tags .= "<li><a class='me-1' href='/tags/$term_name'>$term_name</a></li>";
     }
-    $tags .= '</div>';
+    $tags .= '</ul>';
 
     // Resource links.
     $link_to_resource = '<ul class="list-none mb-5 mx-0 p-0">';
