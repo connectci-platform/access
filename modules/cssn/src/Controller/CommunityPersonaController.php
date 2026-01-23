@@ -426,6 +426,10 @@ class CommunityPersonaController extends ControllerBase {
       $total_items = $view->total_rows;
     }
 
+    // Load 'field_github_graph' value.
+    $user_fields = \Drupal::entityTypeManager()->getStorage('user')->load($current_user->id());
+    $github_graph = $user_fields->get('field_github_graph')->value;
+
     $persona_page['string'] = [
       '#type' => 'inline_template',
       '#attached' => [
@@ -531,6 +535,17 @@ class CommunityPersonaController extends ControllerBase {
             </div>
           </div>
         {% endif %}
+
+        {% if gh_graph %}
+          <div class="border border-secondary border-md-teal my-3 mb-6">
+            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
+            </div>
+            <div class="p-3">
+              {{ gh_graph|raw }}
+            </div>
+          </div>
+        {% endif %}
         ',
       '#context' => [
         'bio_title' => t('Bio'),
@@ -559,6 +574,8 @@ class CommunityPersonaController extends ControllerBase {
         'user_event_title' => t('My Event Registrations'),
         'user_event_registrations' => $user_event_registrations,
         'user_event_total_items' => $total_items,
+        'gh_title' => t('My GitHub Contributions'),
+        'gh_graph' => $github_graph,
       ],
     ];
 
@@ -617,6 +634,9 @@ class CommunityPersonaController extends ControllerBase {
       $mentorships = $this->mentorList($user, TRUE);
       // My Projects.
       $projects = $this->projectList($user, TRUE);
+
+      // Load 'field_github_graph' value.
+      $github_graph = $user->get('field_github_graph')->value;
 
       $persona_page['#title'] = "$user_first_name $user_last_name";
       $persona_page['string'] = [
@@ -707,6 +727,17 @@ class CommunityPersonaController extends ControllerBase {
               </div>
             </div>
           {% endif %}
+
+          {% if gh_graph %}
+            <div class="border border-secondary border-md-teal my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
+              </div>
+              <div class="p-3">
+                {{ gh_graph|raw }}
+              </div>
+            </div>
+          {% endif %}
           ',
         '#context' => [
           'bio_title' => t('Bio'),
@@ -726,6 +757,8 @@ class CommunityPersonaController extends ControllerBase {
           'mentorships' => $mentorships,
           'project_title' => t('Projects'),
           'projects' => $projects,
+          'gh_title' => t('GitHub Contributions'),
+          'gh_graph' => $github_graph,
         ],
         '#cache' => [
           'tags' => ['community_persona'],
