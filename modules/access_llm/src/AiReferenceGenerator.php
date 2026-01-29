@@ -306,7 +306,7 @@ class AiReferenceGenerator {
 
     $prompt = 'For the contents within brackets: ({BODY}) ';
     $prompt .= 'Return a summary of the text.';
-    $prompt .= 'It is very important that you do not exceed 15 tokens.';
+    $prompt .= 'It is very important that you do not exceed 150 characters.';
 
     $prompt = str_replace('{BODY}', $text, $prompt);
 
