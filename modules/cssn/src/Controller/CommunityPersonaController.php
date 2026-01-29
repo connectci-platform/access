@@ -574,7 +574,7 @@ class CommunityPersonaController extends ControllerBase {
         'user_event_title' => t('My Event Registrations'),
         'user_event_registrations' => $user_event_registrations,
         'user_event_total_items' => $total_items,
-        'gh_title' => t('My GitHub Contributions'),
+        'gh_title' => t('My Open OnDemand GitHub Contributions'),
         'gh_graph' => $github_graph,
       ],
     ];
@@ -757,7 +757,7 @@ class CommunityPersonaController extends ControllerBase {
           'mentorships' => $mentorships,
           'project_title' => t('Projects'),
           'projects' => $projects,
-          'gh_title' => t('GitHub Contributions'),
+          'gh_title' => t('Open OnDemand GitHub Contributions'),
           'gh_graph' => $github_graph,
         ],
         '#cache' => [
