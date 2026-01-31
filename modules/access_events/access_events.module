@@ -87,6 +87,9 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
 
+    // If domain doesn't get set, force current domain after submit.
+    array_unshift($form['actions']['submit']['#submit'], 'access_events_eventseries_domain_submit');
+
     $form['#validate'][] = 'access_events_ag_validate';
 
   }
@@ -396,6 +399,18 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   }
 }
 
+/**
+ * Custom submit handler to set domain access based on current domain.
+ */
+function access_events_eventseries_domain_submit($form, FormStateInterface $form_state) {
+  $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
+  $set_domain = $form_state->getValue('domain_access');
+
+  if ($domain_id && empty($set_domain)) {
+    $set_domain[] = $domain_id;
+    $form_state->setValue('domain_access', $set_domain);
+  }
+}
 
 /**
  * Custom validation handler for webform_submission_resource_add_form.
