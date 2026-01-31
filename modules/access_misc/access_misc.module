@@ -740,8 +740,10 @@ function access_misc_webform_submission_insert(\Drupal\webform\WebformSubmission
 
   $symfony_mail->email($policy, $policy_subtype, $manager_emails, $variables);
 
+  // Count recipients: if array use count(), if string count commas + 1.
+  $recipient_count = is_array($manager_emails) ? count($manager_emails) : substr_count($manager_emails, ',') + 1;
   \Drupal::logger('access_misc')->info('Project created notification sent to @count managers for submission @sid', [
-    '@count' => is_array($manager_emails) ? count($manager_emails) : 1,
+    '@count' => $recipient_count,
     '@sid' => $webform_submission->id(),
   ]);
 }
@@ -793,8 +795,10 @@ function access_misc_webform_submission_update(\Drupal\webform\WebformSubmission
 
   $symfony_mail->email($policy, $policy_subtype, $manager_emails, $variables);
 
+  // Count recipients: if array use count(), if string count commas + 1.
+  $recipient_count = is_array($manager_emails) ? count($manager_emails) : substr_count($manager_emails, ',') + 1;
   \Drupal::logger('access_misc')->info('Project updated notification sent to @count managers for submission @sid', [
-    '@count' => is_array($manager_emails) ? count($manager_emails) : 1,
+    '@count' => $recipient_count,
     '@sid' => $webform_submission->id(),
   ]);
 
