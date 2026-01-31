@@ -544,6 +544,10 @@ function access_events_replace_summary_section_callback(array &$form, FormStateI
       $llm = \Drupal::service('access_llm.ai_references_generator');
       $llm->generateSummaryPrompt($body_filter);
       $result = $llm->summarySuggested();
+      // Truncate to 150 characters. If truncated add ellipsis.
+      if (strlen($result) > 150) {
+        $result = substr($result, 0, 147) . '...';
+      }
       $form['field_summary_replace']['field_suggest']['summary_text']['#value'] = $result;
       $form['field_summary_replace']['user_message'] = [
         '#markup' => '',
