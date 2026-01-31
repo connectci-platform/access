@@ -698,12 +698,17 @@ function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
     $link = $here->toString(TRUE)->getGeneratedUrl();
 
     $field_looking = $entity->get('field_me_looking_for')->getValue();
+    $field_looking_value = $field_looking[0]['value'] ?? NULL;
 
-    $state = $entity->get('field_me_state')->getValue()[0]['target_id'];
-    $prev_state = $entity->original->get('field_me_state')->getValue()[0]['target_id'];
+    $state_values = $entity->get('field_me_state')->getValue();
+    $state = $state_values[0]['target_id'] ?? NULL;
+    $prev_state_values = $entity->original->get('field_me_state')->getValue();
+    $prev_state = $prev_state_values[0]['target_id'] ?? NULL;
 
-    $approved_state = $entity->get('field_ccmnet_approved')->getValue()[0]['value'];
-    $prev_approved_state = $entity->original->get('field_ccmnet_approved')->getValue()[0]['value'];
+    $approved_values = $entity->get('field_ccmnet_approved')->getValue();
+    $approved_state = $approved_values[0]['value'] ?? NULL;
+    $prev_approved_values = $entity->original->get('field_ccmnet_approved')->getValue();
+    $prev_approved_state = $prev_approved_values[0]['value'] ?? NULL;
 
     // If state is changed to 'Approved', send email to ccmnet pm.
     if ($approved_state == 1 && $prev_approved_state != $approved_state) {
@@ -726,7 +731,7 @@ function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
     }
 
     // If mentor is added or changed, send email to new mentor and liaison.
-    if ($field_looking[0]['value'] == 'mentor') {
+    if ($field_looking_value === 'mentor') {
       $policy_subtype = 'mentor_changed';
       $mentor = $entity->get('field_mentor')->getValue();
       $mentor_update = 0;
@@ -764,8 +769,8 @@ function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
       }
     }
 
-    // if mentee is added or changed, send email to new mentee and liaison.
-    if ($field_looking[0]['value'] == 'mentee') {
+    // If mentee is added or changed, send email to new mentee and liaison.
+    if ($field_looking_value === 'mentee') {
       $policy_subtype = 'mentee_changed';
       $mentee = $entity->get('field_mentee')->getValue();
       $mentee_update = 0;
@@ -804,9 +809,16 @@ function ccmnet_entity_presave(\Drupal\Core\Entity\EntityInterface $entity) {
     }
 
     // If state is changed to 'In Progress', send email to ccmnet pm and liaison.
-    if (($state != $prev_state) && ($state == 829)) {
-      $liaison = $entity->get('field_me_ccmnet_leadership')->getValue()[0]['target_id'];
+    if ($state && $prev_state && ($state != $prev_state) && ($state == 829)) {
+      $liaison_values = $entity->get('field_me_ccmnet_leadership')->getValue();
+      $liaison = $liaison_values[0]['target_id'] ?? NULL;
+      if (!$liaison) {
+        return;
+      }
       $liaison_user = \Drupal\user\Entity\User::load($liaison);
+      if (!$liaison_user) {
+        return;
+      }
       $liaison_email = $liaison_user->getEmail();
       $policy_subtype = 'mentorship_in_progress';
 
