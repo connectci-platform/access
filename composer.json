@@ -10,7 +10,7 @@
         }
     ],
   "require": {
-    "openai-php/client": "^0.4.1",
+    "openai-php/client": "^0.10",
     "gioni06/gpt3-tokenizer": "^1.2"
 
   },
