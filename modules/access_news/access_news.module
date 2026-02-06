@@ -511,7 +511,6 @@ function access_news_entity_update(EntityInterface $node) {
  * $newsType is eventseries or access_news (or tdb: eventinstance)
  */
 function affinityGroupBroadcast(EntityInterface $node, $newsType) {
-
   $getFields = $node->getFields();
   $broadcastArray = $getFields['field_choose_where_to_share_this']->getValue();
   $broadcast = 0;
@@ -573,7 +572,10 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
         $title = $titleArray[0]['value'];
 
         // Make link to item, including utm for analytics.
-        $newsUrl = ACCESS_SUPPPORT_URL . $node->toUrl()->toString();
+        $domain = $getFields['domain_access']->getValue()[0]['target_id'];
+        $url = \Drupal::service('access_misc.sitetools')->getDomainUrl($domain);
+
+        $newsUrl = $url . $node->toUrl()->toString();
         $utmCampaign = filter_var($agNames[0], FILTER_SANITIZE_URL) . '-' . date('mdy');
         $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
 
