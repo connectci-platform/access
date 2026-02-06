@@ -49,7 +49,16 @@ class Subscriber implements EventSubscriberInterface {
       if ($query_set) {
         $session->remove('cilogon_destination');
         \Drupal::logger('access_misc')->notice("Redirecting to $query_set");
-        $event->setResponse(new RedirectResponse($query_set));
+        // Use Url::fromUserInput() to validate the redirect is internal
+        try {
+          $url = \Drupal\Core\Url::fromUserInput($query_set);
+          $event->setResponse(new RedirectResponse($url->toString()));
+        }
+        catch (\InvalidArgumentException $e) {
+          // Invalid URL, redirect to homepage instead
+          \Drupal::logger('access_misc')->warning("Invalid redirect destination: $query_set");
+          $event->setResponse(new RedirectResponse('/'));
+        }
       }
     }
   }
