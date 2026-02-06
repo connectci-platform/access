@@ -78,7 +78,6 @@ class Subscriber implements EventSubscriberInterface {
       $client = $pluginManager->createInstance($client_name, $configuration);
       
       // Set destination in session for openid_connect
-      $destination = $request->getRequestUri();
       $query = NULL;
       if (NULL !== \Drupal::request()->query->get('redirect')) {
         $query = Xss::filter(\Drupal::request()->query->get('redirect'));
@@ -89,7 +88,8 @@ class Subscriber implements EventSubscriberInterface {
       }
       
       $_SESSION['openid_connect_op'] = 'login';
-      $_SESSION['openid_connect_destination'] = [$destination, ['query' => $query]];
+      // Use a special destination that will trigger our redirect handler
+      $_SESSION['openid_connect_destination'] = 'login?check_logged_in=1';
       
       // Get scopes from client
       $scopes = implode(' ', $client->getClientScopes());
@@ -104,7 +104,6 @@ class Subscriber implements EventSubscriberInterface {
       $client = $pluginManager->createInstance($client_name, $configuration);
       $scopes = $claims->getScopes();
       
-      $destination = $request->getRequestUri();
       $query = NULL;
       if (NULL !== \Drupal::request()->query->get('redirect')) {
         $query = Xss::filter(\Drupal::request()->query->get('redirect'));
@@ -115,7 +114,8 @@ class Subscriber implements EventSubscriberInterface {
       }
       
       $_SESSION['cilogon_auth_op'] = 'login';
-      $_SESSION['cilogon_auth_destination'] = [$destination, ['query' => $query]];
+      // Use a special destination that will trigger our redirect handler
+      $_SESSION['cilogon_auth_destination'] = 'login?check_logged_in=1';
       
       $response = $client->authorize($scopes);
     }
