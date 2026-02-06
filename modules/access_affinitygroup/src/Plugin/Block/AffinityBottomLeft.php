@@ -211,7 +211,7 @@ class AffinityBottomLeft extends BlockBase {
           break;
         }
         $pub_date = $announcement->get('field_published_date')->value;
-        $formatted_date = $pub_date ? date('n/d/y', strtotime($pub_date)) : '';
+        $formatted_date = $pub_date ? date('m/d/y', strtotime($pub_date)) : '';
         $title = $announcement->getTitle();
         $url = $announcement->toUrl()->toString();
 
