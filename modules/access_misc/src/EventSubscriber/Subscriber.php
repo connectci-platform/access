@@ -39,19 +39,10 @@ class Subscriber implements EventSubscriberInterface {
       $this->doRedirectToCilogon($event);
     }
 
-    // Get destination query.
-    $query = \Drupal::request()->query->get('redirect') ? Xss::filter(\Drupal::request()->query->get('redirect')) : '';
     // Get url query 'check_logged_in'.
     $logged_in = \Drupal::request()->query->get('check_logged_in') ? Xss::filter(\Drupal::request()->query->get('check_logged_in')) : '';
 
-    if ($query) {
-      $request = \Drupal::request();
-      $session = $request->getSession();
-      $session->set('cilogon_destination', $query);
-      \Drupal::logger('access_misc')->notice("Destination set to $query");
-    }
-
-    if ($logged_in) {
+    if ($logged_in && $user_is_authenticated) {
       $request = \Drupal::request();
       $session = $request->getSession();
       $query_set = $session->get('cilogon_destination');
@@ -91,6 +82,10 @@ class Subscriber implements EventSubscriberInterface {
       $query = NULL;
       if (NULL !== \Drupal::request()->query->get('redirect')) {
         $query = Xss::filter(\Drupal::request()->query->get('redirect'));
+        // Store the redirect destination in session for after login
+        $session = $request->getSession();
+        $session->set('cilogon_destination', $query);
+        \Drupal::logger('access_misc')->notice("Destination set to $query");
       }
       
       $_SESSION['openid_connect_op'] = 'login';
@@ -113,6 +108,10 @@ class Subscriber implements EventSubscriberInterface {
       $query = NULL;
       if (NULL !== \Drupal::request()->query->get('redirect')) {
         $query = Xss::filter(\Drupal::request()->query->get('redirect'));
+        // Store the redirect destination in session for after login
+        $session = $request->getSession();
+        $session->set('cilogon_destination', $query);
+        \Drupal::logger('access_misc')->notice("Destination set to $query");
       }
       
       $_SESSION['cilogon_auth_op'] = 'login';
