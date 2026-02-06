@@ -517,12 +517,30 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     $form['field_affiliation']['#access'] = FALSE;
   }
 
+  if ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form') {
+    // If domain doesn't get set, force current domain after submit.
+    array_unshift($form['actions']['submit']['#submit'], 'access_announcements_domain_submit');
+  }
+
   if ($form_id == 'user_login_form') {
     $form['#title'] = t('Join or Login');
   }
 
   if ($form_id == 'user_form') {
     $form['actions']['submit']['#submit'][] = 'access_misc_user_password_change';
+  }
+}
+
+/**
+ * Custom submit handler to set domain access based on current domain.
+ */
+function access_announcements_domain_submit($form, FormStateInterface $form_state) {
+  $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
+  $set_domain = $form_state->getValue('field_domain_access');
+
+  if ($domain_id && empty($set_domain)) {
+    $set_domain[] = $domain_id;
+    $form_state->setValue('field_domain_access', $set_domain);
   }
 }
 
