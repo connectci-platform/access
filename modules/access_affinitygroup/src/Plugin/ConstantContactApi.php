@@ -530,6 +530,12 @@ class ConstantContactApi {
     }
 
     if (empty($new_contact)) {
+      // Log the HTTP response code for debugging intermittent failures
+      \Drupal::logger('access_affinitygroup')->warning('addContact failed for @mail: HTTP @code - @msg', [
+        '@mail' => $mail,
+        '@code' => $this->httpResponseCode,
+        '@msg' => $this->errorMessage ?? 'no error message',
+      ]);
       return 0;
     }
     else {

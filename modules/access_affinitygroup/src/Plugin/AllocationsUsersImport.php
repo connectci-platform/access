@@ -477,6 +477,9 @@ class AllocationsUsersImport {
             $this->collectCronLog("...need CC id: $userName", 'd');
 
             if (!$this->batchNoCC) {
+              // Add delay before CC API call to help avoid rate limiting.
+              // CC allows ~4 requests/second; 300ms gives us headroom.
+              usleep(300000);
               if ($this->cronAddToConstantContact($userDetails, $aUser['email'], $aUser['firstName'], $aUser['lastName'])) {
                 $newCCIds++;
                 $context['results']['newCCIds']++;
@@ -578,9 +581,10 @@ class AllocationsUsersImport {
 
   /**
    * Send in userdetail to check for absent cc id. If not there, attempt to add.
+   * Updates the user entity in place so the caller has the updated CC ID.
    * return boolean success.
    */
-  private function cronAddToConstantContact($u, $uEmail, $firstName, $lastName) {
+  private function cronAddToConstantContact(&$u, $uEmail, $firstName, $lastName) {
     $ccId = addUserToConstantContact($uEmail, $firstName, $lastName, TRUE);
     if (empty($ccId)) {
       $this->collectCronLog("Could not add user to Constant Contact:  $uEmail");
@@ -595,6 +599,9 @@ class AllocationsUsersImport {
       $user_cc_id = json_encode($user_cc_id);
       $u->set('field_constant_contact_id', $user_cc_id);
       $u->save();
+      // Reload the user entity so the caller has the updated CC ID.
+      // This is critical for the subsequent allocSubscribeToCCList() calls.
+      $u = User::load($u->id());
       $this->collectCronLog("Id from Constant Contact:  $uEmail", 'd');
       return TRUE;
     }
@@ -873,12 +880,13 @@ class AllocationsUsersImport {
   }
 
   /**
-   *
+   * Add user to Constant Contact list for an affinity group.
    */
   private function allocSubscribeToCCList($taxonomyId, $userDetails) {
     $postJSON = makeListMembershipJSON($taxonomyId, $userDetails);
     if (empty($postJSON)) {
-      $this->collectCronLog("...error in subscribe; possible missing CC ID", 'err');
+      // Only log as debug since the parent function already logged the CC add failure
+      $this->collectCronLog("...skipping CC list add for " . $userDetails->getEmail() . " (no CC ID)", 'd');
     }
     else {
       $cca = new ConstantContactApi('support');
