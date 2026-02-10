@@ -30,6 +30,9 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
 
+    $form['event_registration']['widget'][0]['registration']['#description'] = t('Check this box to enable event registration. You can set capacity, add surveys, and enable a waitlist if needed.');
+    $form['registration_reminders']['widget'][0]['data']['reminder_data']['reminder_units']['#default_value'] = 'day';
+
     // Remove required from fieldset 'recur_type' for a11y.
     $form['recur_type']['widget']['#required'] = FALSE;
     $form['field_event_type']['widget']['#required'] = FALSE;
