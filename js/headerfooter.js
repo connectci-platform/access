@@ -10,7 +10,7 @@ import {
   qaBot,
   siteMenus,
   universalMenus,
-} from "https://unpkg.com/@access-ci/ui@0.16.0/dist/access-ci-ui.js";
+} from "https://unpkg.com/@access-ci/ui@0.17.0/dist/access-ci-ui.js";
 
 (function (Drupal, drupalSettings) {
 
@@ -117,6 +117,7 @@ async function setMenu(menu, currentUri) {
       userName: name,
       accessId: accessId,
       loginUrl: "/login?redirect=" + currentUri,
+      onAnalyticsEvent: onAnalyticsEvent,
     });
     floatingTarget.setAttribute('data-initialized', 'true');
   }
@@ -133,6 +134,7 @@ async function setMenu(menu, currentUri) {
       userName: name,
       accessId: accessId,
       loginUrl: "/login?redirect=" + currentUri,
+      onAnalyticsEvent: onAnalyticsEvent,
     });
     embeddedTarget.setAttribute('data-initialized', 'true');
   }
