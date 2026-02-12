@@ -8,12 +8,11 @@ namespace Drupal\access;
  * Shared by AccessAuthCookieSubscriber (signing) and JwksController
  * (public key publishing) so key loading logic lives in one place.
  *
- * The private key is loaded from environment variables:
- *   1. ACCESS_JWT_PRIVATE_KEY — PEM-encoded string
- *   2. ACCESS_JWT_PRIVATE_KEY_FILE — path to a PEM file
- *
- * On Pantheon, set ACCESS_JWT_PRIVATE_KEY via the dashboard. For DDEV,
- * either env var works.
+ * The private key is loaded in order:
+ *   1. Pantheon secrets.json — access_jwt_private_key in
+ *      sites/default/files/private/.keys/secrets.json
+ *   2. ACCESS_JWT_PRIVATE_KEY env var — PEM-encoded string (DDEV/local)
+ *   3. ACCESS_JWT_PRIVATE_KEY_FILE env var — path to a PEM file
  */
 class AccessJwtKeyProvider {
 
@@ -63,7 +62,22 @@ class AccessJwtKeyProvider {
     }
     self::$loaded = TRUE;
 
-    // Try PEM string from env var first.
+    // Try Pantheon secrets.json first (same pattern as Turnstile keys).
+    $pem = $this->getSecretFromFile('access_jwt_private_key');
+    if (!empty($pem)) {
+      $key = openssl_pkey_get_private($pem);
+      if ($key === FALSE) {
+        \Drupal::logger('access')->warning(
+          'access_jwt_private_key in secrets.json is not a valid EC private key.'
+        );
+        self::$privateKey = FALSE;
+        return NULL;
+      }
+      self::$privateKey = $key;
+      return $key;
+    }
+
+    // Try PEM string from env var (DDEV / local dev).
     $pem = getenv('ACCESS_JWT_PRIVATE_KEY');
     if (!empty($pem)) {
       $key = openssl_pkey_get_private($pem);
@@ -101,6 +115,36 @@ class AccessJwtKeyProvider {
     );
     self::$privateKey = FALSE;
     return NULL;
+  }
+
+  /**
+   * Reads a named secret from the Pantheon private secrets file.
+   *
+   * Mirrors the _get_turnstile_secret() pattern in settings.php.
+   *
+   * @param string $name
+   *   The key name in secrets.json.
+   *
+   * @return string|null
+   *   The secret value, or NULL if not found.
+   */
+  protected function getSecretFromFile(string $name): ?string {
+    static $secrets = NULL;
+
+    if ($secrets === NULL) {
+      $secrets = [];
+      // Use Drupal's private file path setting (same location as Turnstile secrets).
+      $private_path = \Drupal::service('file_system')->realpath('private://');
+      if ($private_path) {
+        $file = $private_path . '/.keys/secrets.json';
+        if (file_exists($file)) {
+          $raw = file_get_contents($file);
+          $secrets = json_decode($raw, TRUE) ?: [];
+        }
+      }
+    }
+
+    return $secrets[$name] ?? NULL;
   }
 
   /**
