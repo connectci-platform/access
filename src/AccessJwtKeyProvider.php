@@ -44,6 +44,10 @@ class AccessJwtKeyProvider {
    *   The issuer URL.
    */
   public function getIssuer(): string {
+    $issuer = $this->getSecretFromFile('access_jwt_issuer');
+    if (!empty($issuer)) {
+      return $issuer;
+    }
     $issuer = getenv('ACCESS_JWT_ISSUER');
     return !empty($issuer) ? $issuer : self::JWT_ISSUER_DEFAULT;
   }
