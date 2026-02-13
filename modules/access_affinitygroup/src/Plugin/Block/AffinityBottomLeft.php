@@ -225,6 +225,9 @@ class AffinityBottomLeft extends BlockBase {
         $output .= '<a class="text-sm uppercase text-white-er hover--text-light-teal no-underline hover--underline" href="/announcements?field_affinity_group_target_id=' . $affinity_group_tax . '">See More</a>';
       }
     }
+    else {
+      $output .= '<div class="text-white-er my-2">No announcements for this group.</div>';
+    }
     $output .= '</div></div>';
     $domain = \Drupal::service('access_misc.sitetools')->getDomain();
     if ($domain == 'open-ondemand') {
