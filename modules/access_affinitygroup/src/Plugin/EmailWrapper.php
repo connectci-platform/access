@@ -1345,7 +1345,7 @@ DIVIDERHTML;
       <a href="$newsUrl">announcement</a>
       <span> or </span>
       <a href="$eventsUrl">event</a>
-      <span> on the ACCESS Support website and we will include it in our digest.</span>
+      <span> on the ACCESS website and we will include it in our digest.</span>
     BODY;
 
     $html = <<<ROLLUPSTATIC2
