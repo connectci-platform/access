@@ -820,7 +820,7 @@ DIVIDERHTML;
    * and also the weekly news+events rollup.
    */
   private function ccNewsCommonHTML($newsBody, $topExtra) {
-    $imgLogo = $this->imageUrl('access_support_masthead.jpg');
+    $imgLogo = $this->imageUrl('access_support_masthead.gif');
     $fbIcon = $this->imageUrl('circleIconFacebook.png');
     $twIcon = $this->imageUrl('circleIconTwitter.png');
     $ytIcon = $this->imageUrl('circleIconYoutube.png');
