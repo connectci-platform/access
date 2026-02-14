@@ -820,7 +820,7 @@ DIVIDERHTML;
    * and also the weekly news+events rollup.
    */
   private function ccNewsCommonHTML($newsBody, $topExtra) {
-    $imgLogo = $this->imageUrl('access_support_masthead.jpg');
+    $imgLogo = $this->imageUrl('access_support_masthead.gif');
     $fbIcon = $this->imageUrl('circleIconFacebook.png');
     $twIcon = $this->imageUrl('circleIconTwitter.png');
     $ytIcon = $this->imageUrl('circleIconYoutube.png');
@@ -1345,7 +1345,7 @@ DIVIDERHTML;
       <a href="$newsUrl">announcement</a>
       <span> or </span>
       <a href="$eventsUrl">event</a>
-      <span> on the ACCESS Support website and we will include it in our digest.</span>
+      <span> on the ACCESS website and we will include it in our digest.</span>
     BODY;
 
     $html = <<<ROLLUPSTATIC2
