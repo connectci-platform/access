@@ -59,8 +59,15 @@ class EventType extends ProcessorPluginBase {
 
       $type = $series->get('field_event_type')->getValue();
 
+      // Get the allowed values (labels) for the event_type field.
+      $field_storage = \Drupal::service('entity_field.manager')->getFieldStorageDefinitions('eventseries')['field_event_type'];
+      $allowed_values = options_allowed_values($field_storage);
+
       foreach ($type as $value) {
-        $field->addValue($value['value']);
+        // Add the label instead of the raw value.
+        $raw_value = $value['value'];
+        $label = $allowed_values[$raw_value] ?? $raw_value;
+        $field->addValue($label);
       }
 
 

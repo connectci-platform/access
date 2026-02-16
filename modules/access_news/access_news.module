@@ -17,7 +17,7 @@ use Drupal\user\Entity\User;
 use Drupal\views\ViewExecutable;
 use Drupal\access_misc\Plugin\Util\SiteTools;
 
-define('ACCESS_SUPPPORT_URL', "https://support.access-ci.org");
+define('ACCESS_SUPPORT_URL', "https://support.access-ci.org");
 
 /**
  * Implements hook_views_pre_view() for node templates.
@@ -76,7 +76,6 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
  * Implements hook_form_alter().
  */
 function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id) {
-
   $domain = \Drupal::service('access_misc.sitetools')->getDomain();
 
   if ($domain != 'access-support' && ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form')) {
@@ -91,14 +90,12 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
 
     foreach ($fields as $field) {
       $title = $form[$field]['widget']['#title'];
-      $form[$field]['widget']['#prefix'] = "<h4>$title</h4>";
-      $form[$field]['widget']['#title'] = "<span class='hidden'>$title</span>";
+      $form[$field]['widget']['#title'] = "<span class='text-xl font-bold text-dark-teal'>$title</span>";
     }
 
     // Replace title of 'External Link' with h4
     $el_title = $form['field_news_external_link']['widget'][0]['#title'];
-    $form['field_news_external_link']['widget'][0]['#prefix'] = "<h4>$el_title</h4>";
-    $form['field_news_external_link']['widget'][0]['#title'] = "<span class='hidden'>$el_title</span>";
+    $form['field_news_external_link']['widget'][0]['#title'] = "<span class='text-xl font-bold text-dark-teal'>$el_title</span>";
 
     // Field is hidden and replaced with custom UI
     // Element validation ensures proper error messages are shown
@@ -514,7 +511,6 @@ function access_news_entity_update(EntityInterface $node) {
  * $newsType is eventseries or access_news (or tdb: eventinstance)
  */
 function affinityGroupBroadcast(EntityInterface $node, $newsType) {
-
   $getFields = $node->getFields();
   $broadcastArray = $getFields['field_choose_where_to_share_this']->getValue();
   $broadcast = 0;
@@ -710,7 +706,7 @@ function weeklyNewsReport($noSend) {
 
     $wrapper = new EmailWrapper();
     $newsHTML = newsRangeView($d1, $d2, $utmCampaign);
-    $mainHeader = $wrapper->mainHeadHTML("The ACCESS Support Digest // " . $dtTomorrow->format('F j, Y'));
+    $mainHeader = $wrapper->mainHeadHTML("The ACCESS Digest // " . $dtTomorrow->format('F j, Y'));
     $sectionHeader = $wrapper->sectionHeadHTML(t('Announcements'));
     $newsHTML = $newsHTML != '' ? $mainHeader . $sectionHeader . $newsHTML : $mainHeader;
     Drupal::logger('cron_accessnews')->notice('Digest: news from: ' . $d1 . ' to: ' . $d2);
@@ -738,7 +734,7 @@ function weeklyNewsReport($noSend) {
     // Create constant contact campaign. this does not send it.
     $campaignName = uniqid('Access Digest: ' . $dtTomorrow->format('n/j/y') . ' ', FALSE);
 
-    $ccResponse = setupEmailCampaign('The ACCESS Support Digest // ' . $dtTomorrow->format('F j, Y'), $emailHTML, $campaignName);
+    $ccResponse = setupEmailCampaign('The ACCESS Digest // ' . $dtTomorrow->format('F j, Y'), $emailHTML, $campaignName);
     if (!$ccResponse) {
       \Drupal::logger('cron_accessnews')->error('weeklyNewsReport: error setting up campaign. Make sure Constant Contact calls are not disabled.');
     }
@@ -870,13 +866,14 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
         //  will have different spacing in the digest.  Or do something with css)
         if ($node->body[0] != NULL) {
           $body = $node->body[0]->view('teaser');
-          $bodyDisp = \Drupal::service('renderer')->renderPlain($body);
+          $bodyRendered = \Drupal::service('renderer')->renderPlain($body);
+          $bodyDisp = "<p>$bodyRendered</p>";
         }
         else {
           $bodyDisp = '<p></p>';
         }
 
-        $newsUrl = ACCESS_SUPPPORT_URL . $node->toUrl()->toString();
+        $newsUrl = ACCESS_SUPPORT_URL . $node->toUrl()->toString();
         $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
 
         $itemDisplay = $wrapper->newsItemHTML($title, $pubDateDisp, $bodyDisp, $newsUrl);
@@ -952,7 +949,7 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
         $titleArray = $fields['title']->getValue();
         $title = $titleArray[0]['value'];
 
-        $eventUrl = ACCESS_SUPPPORT_URL . $enode->toUrl()->toString();
+        $eventUrl = ACCESS_SUPPORT_URL . $enode->toUrl()->toString();
         $eventUrl = appendUtmCC($eventUrl, $utmCampaign);
 
         // Event date-time is stored as array of 'value' and
@@ -1119,12 +1116,12 @@ function _access_news_build_url_for_domain($entity, $domain_id) {
     }
 
     // Fallback to ACCESS Support URL if domain load fails.
-    return ACCESS_SUPPPORT_URL . $entity->toUrl()->toString();
+    return ACCESS_SUPPORT_URL . $entity->toUrl()->toString();
   }
   catch (\Exception $e) {
     \Drupal::logger('access_news')
       ->error('Error building URL for domain: ' . $e->getMessage());
-    return ACCESS_SUPPPORT_URL . $entity->toUrl()->toString();
+    return ACCESS_SUPPORT_URL . $entity->toUrl()->toString();
   }
 }
 

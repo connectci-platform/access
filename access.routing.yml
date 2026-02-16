@@ -1,3 +1,10 @@
+access.jwks:
+  path: '/.well-known/jwks.json'
+  defaults:
+    _controller: 'access.jwks_controller:jwks'
+  requirements:
+    _access: 'TRUE'
+
 access.autocomplete:
     path: '/autocomplete/organizations'
     defaults:

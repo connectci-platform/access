@@ -124,8 +124,11 @@ class AffinityBottomLeft extends BlockBase {
     $output = '<div class="bg-md-teal mb-10 not-prose"><div class="p-4">';
     $output .= '<h2 class="text-white-er text-xl font-semibold mt-0 mb-3">Upcoming Events</h2>';
     $affinity_group_tax = '';
+    $affinity_group_title = '';
     if ($node) {
       $affinity_group_tax = $node->get('field_affinity_group')->getValue()[0]['target_id'];
+      // Get the affinity group title for use in facet URLs.
+      $affinity_group_title = $node->getTitle();
     }
     if (!empty($event_list)) {
       $n = 0;
@@ -141,44 +144,89 @@ class AffinityBottomLeft extends BlockBase {
         $output .= '<div class="mb-3 text-white-er font-medium leading-5">' . $edate . '<br/>' . $e['title'] . '</div>';
       }
       if (count($event_list) > 8) {
-        $output .= '<a class="text-sm uppercase text-white-er hover--text-light-teal no-underline hover--underline" href="/events-trainings?field_affinity_group_target_id_1=' . $affinity_group_tax . '">See more events</a><br />';
+        $output .= '<a class="text-sm uppercase text-white-er hover--text-light-teal no-underline hover--underline" href="/events?f[0]=affinity_group:' . urlencode($affinity_group_title) . '">See more events</a><br />';
       }
     }
     else {
       $output .= '<div class="text-white-er my-2">No upcoming events.</div>';
     }
-    $output .= '<a class="text-sm uppercase text-white-er hover--text-light-teal no-underline hover--underline" href="/past-events?field_affinity_group_target_id=' . $affinity_group_tax . '">See past events</a>';
+    $output .= '<a class="text-sm uppercase text-white-er hover--text-light-teal no-underline hover--underline" href="/events/past?f[0]=affinity_group:' . urlencode($affinity_group_title) . '">See past events</a>';
     $output .= '</div></div>';
 
     // Display Announcements that have been assigned to the Affinity Group
     // and Announcements added as entity references to the Affinity Group.
-    // @todo add announcements added to the Affinity Group as entity references.
 
     /**
     * Adding a default for layout page.
     */
     $nid = $node ? $node->id() : 291;
 
-    // Get field_affinity_announcements from node.
-    //$node = \Drupal\node\Entity\Node::load($nid);
-    //$ag_announcements = $node->get('field_affinity_announcements')->getValue();
+    // Build combined announcement list from both sources.
+    $announcement_nids = [];
 
-    /**
-    * Load Announcement view.
-    */
+    // Get announcements added as entity references to the Affinity Group.
+    if ($node && $node->hasField('field_affinity_announcements')) {
+      $ag_announcements = $node->get('field_affinity_announcements')->getValue();
+      foreach ($ag_announcements as $announcement) {
+        $announcement_nids[$announcement['target_id']] = $announcement['target_id'];
+      }
+    }
+
+    // Get announcements from the view (those that reference this affinity group).
     $announcement_view = Views::getView('access_news');
     $announcement_view->setDisplay('block_2');
     $announcement_view->setArguments([$nid]);
     $announcement_view->execute();
-    $announcement_list = $announcement_view->render();
-    $output .= '<div class="bg-md-teal mb-10"><div class="p-4">';
-    $output .= \Drupal::service('renderer')->render($announcement_list);
 
-    if ($announcement_list['#rows']) {
-      $announcment_count = count($announcement_list['#rows'][0]['#rows']);
-      if ($announcment_count > 4) {
+    // Extract nids from view results.
+    foreach ($announcement_view->result as $row) {
+      if (isset($row->nid)) {
+        $announcement_nids[$row->nid] = $row->nid;
+      }
+    }
+
+    // Build the announcement output.
+    $output .= '<div class="bg-md-teal mb-10"><div class="p-4">';
+    $output .= '<h2 class="border-bottom pb-2 text-xl text-white-er font-semibold mt-0">Announcements</h2>';
+
+    if (!empty($announcement_nids)) {
+      // Load and render announcements.
+      $announcements = \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($announcement_nids);
+
+      // Sort by published date descending.
+      uasort($announcements, function ($a, $b) {
+        $date_a = $a->get('field_published_date')->value ?? $a->getCreatedTime();
+        $date_b = $b->get('field_published_date')->value ?? $b->getCreatedTime();
+        return $date_b <=> $date_a;
+      });
+
+      $count = 0;
+      foreach ($announcements as $announcement) {
+        // Only show published announcements.
+        if (!$announcement->isPublished()) {
+          continue;
+        }
+        $count++;
+        if ($count > 4) {
+          break;
+        }
+        $pub_date = $announcement->get('field_published_date')->value;
+        $formatted_date = $pub_date ? date('m/d/y', strtotime($pub_date)) : '';
+        $title = $announcement->getTitle();
+        $url = $announcement->toUrl()->toString();
+
+        $output .= '<div class="mb-3 not-prose">';
+        $output .= '<div class="text-white-er leading-5 font-medium"><span class="text-white-er">' . $formatted_date . '</span><br /></div>';
+        $output .= '<div><a href="' . $url . '" class="block text-white-er hover--text-light-teal font-medium leading-5 no-underline hover--underline" title="' . htmlspecialchars($title) . '">' . htmlspecialchars($title) . '</a></div>';
+        $output .= '</div>';
+      }
+
+      if (count($announcement_nids) > 4) {
         $output .= '<a class="text-sm uppercase text-white-er hover--text-light-teal no-underline hover--underline" href="/announcements?field_affinity_group_target_id=' . $affinity_group_tax . '">See More</a>';
       }
+    }
+    else {
+      $output .= '<div class="text-white-er my-2">No announcements for this group.</div>';
     }
     $output .= '</div></div>';
     $domain = \Drupal::service('access_misc.sitetools')->getDomain();
@@ -207,12 +255,13 @@ class AffinityBottomLeft extends BlockBase {
    * {@inheritdoc}
    */
   public function getCacheTags() {
+    $tags = parent::getCacheTags();
+    // Add node_list tag to invalidate when any node (including announcements) changes.
+    $tags = Cache::mergeTags($tags, ['node_list:access_news']);
     if ($node = \Drupal::routeMatch()->getParameter('node')) {
-      return Cache::mergeTags(parent::getCacheTags(), ['node:' . $node->id()]);
+      $tags = Cache::mergeTags($tags, ['node:' . $node->id()]);
     }
-    else {
-      return parent::getCacheTags();
-    }
+    return $tags;
   }
 
   /**

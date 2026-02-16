@@ -50,10 +50,11 @@ class ViewsRegistrationCustomAccess extends AccessPluginBase {
     }
 
     $eventseries = $eventinstance->getEventSeries();
-    // Get author of event series.
-    $author = $eventseries->getOwner();
 
-    if ($author->id() == $account->id()) {
+    /** @var \Drupal\access_events\Service\EventAccessService $event_access */
+    $event_access = \Drupal::service('access_events.event_access');
+
+    if ($event_access->isEventAuthor($eventseries, $account)) {
       $access = TRUE;
     }
 

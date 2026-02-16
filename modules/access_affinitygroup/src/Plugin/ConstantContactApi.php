@@ -160,7 +160,19 @@ class ConstantContactApi {
     $keys = $key_entity->getKeyValues();
     $env = $this->environment;
 
-    $decoded = json_decode($keys[0], true);
+    // Check if $keys is an array with elements, or handle as a string.
+    if (is_array($keys) && !empty($keys)) {
+      $key_value = $keys[0];
+    } elseif (is_string($keys)) {
+      $key_value = $keys;
+    } else {
+      \Drupal::logger('access_affinitygroup')->warning('Constant Contact key values are empty or invalid.');
+      $this->cc_key = '';
+      $this->key_secret = '';
+      return;
+    }
+
+    $decoded = json_decode($key_value, true);
     $cc_key = isset($decoded[$env]['id']) ? $decoded[$env]['id'] : null;
     $key_secret = isset($decoded[$env]['secret']) ? $decoded[$env]['secret'] : null;
 
@@ -353,7 +365,7 @@ class ConstantContactApi {
   }
 
   /**
-   * Make api call.
+   * Make api call with retry logic for rate limiting.
    *
    * @param $endpoint
    *   - end of the URL api call.
@@ -361,6 +373,8 @@ class ConstantContactApi {
    *   - included with $type PUT json encoded.
    * @param $type
    *   - POST or GET, defaults to GET.
+   * @param $retryCount
+   *   - Internal: current retry attempt (used for recursion).
    *
    *   Returns result from CC call or NULL upon error.
    *   If error returned from Constant contact:
@@ -369,7 +383,8 @@ class ConstantContactApi {
    *   this->httpResponseCode set
    *   this->errorMessage set to CC error message as well.
    */
-  public function apiCall($endpoint, $post_data = NULL, $type = 'GET') {
+  public function apiCall($endpoint, $post_data = NULL, $type = 'GET', $retryCount = 0) {
+    $maxRetries = 3;
 
     $access_token = $this->accessToken;
     // Use cURL to get a new access token and refresh token.
@@ -414,6 +429,22 @@ class ConstantContactApi {
     // Log any http error code.
     $this->httpResponseCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     curl_close($ch);
+
+    // Handle retryable errors with exponential backoff.
+    // 429 = Too Many Requests (rate limit)
+    // 500 = Internal Server Error (transient)
+    // 504 = Gateway Timeout (transient)
+    $retryableCodes = [429, 500, 504];
+    if (in_array($this->httpResponseCode, $retryableCodes) && $retryCount < $maxRetries) {
+      // Exponential backoff: 1s, 2s, 4s.
+      $waitSeconds = pow(2, $retryCount);
+      \Drupal::logger('access_affinitygroup')->notice(
+        'Constant Contact API error (@code). Waiting @seconds seconds before retry @retry of @max.',
+        ['@code' => $this->httpResponseCode, '@seconds' => $waitSeconds, '@retry' => $retryCount + 1, '@max' => $maxRetries]
+      );
+      sleep($waitSeconds);
+      return $this->apiCall($endpoint, $post_data, $type, $retryCount + 1);
+    }
 
     $errMsg = getHttpErrMsg($this->httpResponseCode);
     if (!empty($errMsg)) {
@@ -498,11 +529,17 @@ class ConstantContactApi {
       // See if the error message contains a contact id. Message will look like this:
       // Validation failed: Email already exists for contact 61d00338-4bd5-11ed-8c0a-fa163ec17584.
       if (preg_match('/.{8}-.{4}-.{4}-.{4}-.{12}/', $this->errorMessage, $match)) {
-        return $match;
+        return $match[0];
       }
     }
 
     if (empty($new_contact)) {
+      // Log the HTTP response code for debugging intermittent failures
+      \Drupal::logger('access_affinitygroup')->warning('addContact failed for @mail: HTTP @code - @msg', [
+        '@mail' => $mail,
+        '@code' => $this->httpResponseCode,
+        '@msg' => $this->errorMessage ?? 'no error message',
+      ]);
       return 0;
     }
     else {
@@ -702,6 +739,10 @@ function getHttpErrMsg($httpCode) {
 
     case 415:
       $m = 'Unsupported Media Type; the payload must be in JSON format, and Content-Type must be application/json';
+      break;
+
+    case 429:
+      $m = 'Too Many Requests. Rate limit exceeded.';
       break;
 
     case 500:

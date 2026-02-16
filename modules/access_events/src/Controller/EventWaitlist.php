@@ -196,6 +196,8 @@ class EventWaitlist extends ControllerBase {
     $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
     $series = $event_instance->getEventSeries();
     $series_title = $series->get('title')->value;
+    $series_pre_survey_url = $series->get('field_pre_survey_url')->uri;
+    $series_pre_survey_text = $series->get('field_pre_survey_email_text')->value;
     $series_location = $series->get('field_location')->value;
     $location = $series_location ? $series_location : '';
     $og_start_date = $event_instance->get('date')->start_date->__toString();
@@ -208,10 +210,12 @@ class EventWaitlist extends ControllerBase {
     $event_url = _access_misc_get_event_domain_url($event_instance_id);
     $series_title_url = "<a href='$event_url'>$series_title</a>";
 
+    // Subject for email.
+    $email_title = empty($series_pre_survey_url) ? t('Registration Confirmed for ') . $series_title : t('Registration accepted - please fill in survey before event for ') . $series_title;
+
     $policy = 'access_misc';
     $policy_subtype = 'registration_approved';
 
-    // Get list of unique emails.
     $variables = [
       'title' => $series_title,
       'title_link' => $series_title_url,
@@ -220,6 +224,9 @@ class EventWaitlist extends ControllerBase {
       'event_end_time' => $event_end_time,
       'name' => '',
       'location' => $location,
+      'pre_survey_url' => $series_pre_survey_url,
+      'pre_survey_text' => $series_pre_survey_text,
+      'email_title' => $email_title,
     ];
 
     foreach ($this->registrantIds as $registrant_id) {
@@ -227,13 +234,19 @@ class EventWaitlist extends ControllerBase {
       $email = $registrant->get('email')->getValue();
       $first_name = $registrant->get('field_first_name')->getValue();
       $last_name = $registrant->get('field_last_name')->getValue();
-      
+
       $first_name_value = !empty($first_name) && isset($first_name[0]['value']) ? $first_name[0]['value'] : '';
       $last_name_value = !empty($last_name) && isset($last_name[0]['value']) ? $last_name[0]['value'] : '';
       $variables['name'] = trim($first_name_value . ' ' . $last_name_value);
 
       if (!empty($email) && isset($email[0]['value'])) {
         \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $email[0]['value'], $variables);
+
+        if (!empty($series_pre_survey_url)) {
+          // Update registrant entity with a timestamp on the 'field_pre_survey_sent' field.
+          $registrant->set('field_pre_survey_sent', \Drupal::time()->getRequestTime());
+          $registrant->save();
+        }
       }
     }
 
@@ -294,7 +307,7 @@ class EventWaitlist extends ControllerBase {
   }
 
   /**
-   * Give access to author or administrator.
+   * Give access to author, other author, or administrator.
    */
   public function isAuthor() {
     $account = \Drupal::currentUser();
@@ -305,10 +318,11 @@ class EventWaitlist extends ControllerBase {
 
     $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_id);
     $eventseries = $eventinstance->getEventSeries();
-    // Get author of event series.
-    $author = $eventseries->getOwner();
 
-    if ($author->id() == $account->id()) {
+    /** @var \Drupal\access_events\Service\EventAccessService $event_access */
+    $event_access = \Drupal::service('access_events.event_access');
+
+    if ($event_access->isEventAuthor($eventseries, $account)) {
       return AccessResult::allowed();
     }
 

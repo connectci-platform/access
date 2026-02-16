@@ -16,3 +16,12 @@ event.eventDeny:
     _custom_access:  '\Drupal\access_events\Controller\EventWaitlist::isAuthor'
   options:
     no_cache: 'TRUE'
+event.postsurvey:
+  path: '/events/{entity}/post_survey/{user}'
+  defaults:
+    _controller: '\Drupal\access_events\Controller\EventPostSurvey::clicked'
+    _title: 'Survey Clicked'
+  requirements:
+    _permission: 'access content'
+  options:
+    no_cache: 'TRUE'

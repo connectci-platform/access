@@ -25,6 +25,31 @@ services:
     class: Drupal\access_misc\Plugin\Util\UserTools
     arguments: ["@entity_type.manager"]
 
+  access_misc.project_flag_subscriber:
+    class: Drupal\access_misc\EventSubscriber\ProjectFlagSubscriber
+    arguments:
+      - "@entity_type.manager"
+      - "@request_stack"
+      - "@access_misc.sitetools"
+      - "@access_misc.usertools"
+      - "@access_misc.symfony.mail"
+    tags:
+      - { name: event_subscriber }
+
+  access_misc.jsonapi_email_to_uuid_subscriber:
+    class: Drupal\access_misc\EventSubscriber\JsonApiEmailToUuidSubscriber
+    arguments:
+      - "@entity_type.manager"
+    tags:
+      - { name: event_subscriber }
+
+  access_misc.jsonapi_views_user_parameter_subscriber:
+    class: Drupal\access_misc\EventSubscriber\JsonApiViewsUserParameterSubscriber
+    arguments:
+      - "@entity_type.manager"
+    tags:
+      - { name: event_subscriber }
+
   access_misc.viewstools:
     class: Drupal\access_misc\Plugin\Util\ViewsTools
     arguments: ["@entity_type.manager"]

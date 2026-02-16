@@ -10,9 +10,9 @@
         }
     ],
   "require": {
-    "openai-php/client": "^0.4.1",
-    "gioni06/gpt3-tokenizer": "^1.2"
-
+    "openai-php/client": "^0.10",
+    "gioni06/gpt3-tokenizer": "^1.2",
+    "firebase/php-jwt": "^6.0 || ^7.0"
   },
     "support": {
         "issues": "https://github.com/necyberteam/access/issues",

@@ -26,17 +26,19 @@ class EventInstanceSidebar extends BlockBase {
     $url = explode('/', $current_path);
     $event_instance_id = is_numeric($url[2]) ? $url[2] : '';
     $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
-    
+
     // Check if event instance exists before trying to get the series
     if (!$event_instance) {
       return [];
     }
-    
+
     $series = $event_instance->getEventSeries();
-    $author = $series->getOwner();
     $current_user = \Drupal::currentUser();
 
     $speakers = $series->get('field_event_speakers')->getValue();
+
+    // Get end date for checking if event is past.
+    $end_date = $event_instance->date->end_date;
 
     $contact = $series->get('field_contact')->getValue();
     // If $contact is an email address, create a mailto link.
@@ -59,7 +61,11 @@ class EventInstanceSidebar extends BlockBase {
 
     $registrations_button = NULL;
 
-    if (($author->id() == $current_user->id() || $current_user->hasPermission('administer site configuration')) && $event_registration_on == 1) {
+    /** @var \Drupal\access_events\Service\EventAccessService $event_access */
+    $event_access = \Drupal::service('access_events.event_access');
+
+    if (($event_access->isEventAuthor($series, $current_user) ||
+      $current_user->hasPermission('administer site configuration')) && $event_registration_on == 1) {
       $registrations_button = "<a href='$current_path/registrations' class='btn btn-primary mb-4'>Registrations</a>";
     }
 
@@ -102,6 +108,11 @@ class EventInstanceSidebar extends BlockBase {
       }
     }
 
+    // Don't show registration link if the event is past.
+    if ($end_date && $end_date->getTimestamp() < time()) {
+      $reg_link = NULL;
+    }
+
     $skill_list = [];
     foreach ($skill_level as $skill) {
       $skill_list[] = $skill['value'];
@@ -109,7 +120,16 @@ class EventInstanceSidebar extends BlockBase {
 
     $skill_image = \Drupal::service('access_misc.skillLevel')->getSkillsImage($skill_list);
 
-    $event_type = $series->get('field_event_type')->getValue();
+    $event_type_raw = $series->get('field_event_type')->getValue();
+    // Convert event_type values to labels.
+    $event_type_storage = $series->getFieldDefinition('field_event_type')->getFieldStorageDefinition();
+    $event_type_allowed_values = options_allowed_values($event_type_storage);
+    $event_type = [];
+    foreach ($event_type_raw as $type) {
+      $value = $type['value'];
+      $event_type[] = ['value' => $event_type_allowed_values[$value] ?? $value];
+    }
+
     $event_affiliation_id = $series->get('field_affiliation')->getValue();
     $event_affiliation_list = $series->getFieldDefinition('field_affiliation')->getFieldStorageDefinition()->getSetting('allowed_values');
 
@@ -150,7 +170,7 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if my_registration_status %}
-          <h3 class="field__label">{{ my_registration_status_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ my_registration_status_title }}</h2>
           <div class="field__items">
             <strong>Approved: </strong>
             {% if my_registration_status.status %}
@@ -170,7 +190,7 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if speakers %}
-          <h3 class="field__label">{{ speakers_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ speakers_title }}</h2>
           <div class="field__items">
             {% for speaker in speakers %}
               <div class="field__item">{{ speaker.value }}</div>
@@ -179,7 +199,7 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if contacts %}
-          <h3 class="field__label">{{ contact_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ contact_title }}</h2>
           <div class="field__items">
             {% for contact in contacts %}
               <div class="field__item">
@@ -190,14 +210,14 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if skill_image %}
-          <h3 class="field__label">{{ skill_level_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ skill_level_title }}</h2>
           <div class="field__items">
             <div class="field__item">{{ skill_image | raw }}</div>
           </div>
         {% endif %}
 
         {% if event_type %}
-          <h3 class="field__label">{{ event_type_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ event_type_title }}</h2>
            <div class="field__items">
             {% for type in event_type %}
               <div class="field__item">
@@ -208,14 +228,14 @@ class EventInstanceSidebar extends BlockBase {
         {% endif %}
 
         {% if affinity_groups %}
-          <h3 class="field__label">{{ affinity_group_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ affinity_group_title }}</h2>
            <div class="field__items">
             {{ affinity_groups }}
           </div>
         {% endif %}
 
         {% if event_affiliation %}
-          <h3 class="field__label">{{ event_affiliation_title }}</h3>
+          <h2 class="field__label mb-0 mt-6">{{ event_affiliation_title }}</h2>
            <div class="field__items">
               <div class="field__item">
                 {{ event_affiliation|raw }}

@@ -19,9 +19,6 @@ copyclip:
   version: 1.x
   js:
     js/copyclip.js: {}
-events:
-  js:
-    js/events.js: {}
 add_select:
   version: 1.x
   js:
@@ -52,3 +49,9 @@ global:
   css:
     theme:
       css/global.css: {}
+  js:
+    js/global.js: {}
+webform_help_a11y:
+  version: 1.x
+  js:
+    js/webform_help_a11y.js: {}

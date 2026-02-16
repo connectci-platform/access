@@ -22,3 +22,12 @@
 .list-image-link a {
   padding-left: 8px;
 }
+
+/* Search CI Links accordion chevron */
+details.search-ci-links summary .bi-chevron-down {
+  display: inline-block;
+  transition: transform 0.3s;
+}
+details[open].search-ci-links summary .bi-chevron-down {
+  transform: rotate(180deg);
+}

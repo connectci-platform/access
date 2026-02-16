@@ -627,7 +627,7 @@ SECTIONSUBHEADHTML;
             <div class="digest-news-text" style="margin-bottom: 10px; font-weight: bold;">$eventDate</div>
             $title
 
-              <div><span style="font-size: 14px;">$main</span></div>
+              <div><span style="font-size: 16px;">$main</span></div>
 
               $articleLink
           </td>
@@ -810,11 +810,11 @@ DIVIDERHTML;
    * and also the weekly news+events rollup.
    */
   private function ccNewsCommonHTML($newsBody, $topExtra) {
-    $imgLogo = $this->imageUrl('access_support_masthead.jpg');
+    $imgLogo = $this->imageUrl('access_support_masthead.gif');
     $fbIcon = $this->imageUrl('circleIconFacebook.png');
     $twIcon = $this->imageUrl('circleIconTwitter.png');
     $ytIcon = $this->imageUrl('circleIconYoutube.png');
-    $nsfLogo = ACCESS_SUPPPORT_URL . '/themes/custom/accesstheme/assets/NSF_4-Color_bitmap_Logo_350x350.png';
+    $nsfLogo = ACCESS_SUPPORT_URL . '/themes/custom/accesstheme/assets/NSF_4-Color_bitmap_Logo_350x350.png';
 
     $emailText = <<<EMAILTEXT1
     <html lang="en-US">
@@ -1256,7 +1256,7 @@ DIVIDERHTML;
                 When you join the ACCESS Support Affinity Group you'll receive these weekly digests.";
 
     $buttonText = "See Affinity Groups";
-    $buttonUrl = ACCESS_SUPPPORT_URL . '/affinity-groups';
+    $buttonUrl = ACCESS_SUPPORT_URL . '/affinity-groups';
 
     $html = <<<ROLLUPSTATIC1
     <table class="layout" style="table-layout:fixed" width="100%" border="0" cellpadding="0" cellspacing="0">
@@ -1327,15 +1327,15 @@ DIVIDERHTML;
    */
   private function ccRollupBottomStatic2() {
     $title = $this->titleHTML('Do you have announcements or trainings to share?');
-    $newsUrl = ACCESS_SUPPPORT_URL . '/announcements';
-    $eventsUrl = ACCESS_SUPPPORT_URL . '/events';
+    $newsUrl = ACCESS_SUPPORT_URL . '/announcements';
+    $eventsUrl = ACCESS_SUPPORT_URL . '/events';
 
     $bodyHtml = <<<BODY
       <span>Add your </span>
       <a href="$newsUrl">announcement</a>
       <span> or </span>
       <a href="$eventsUrl">event</a>
-      <span> on the ACCESS Support website and we will include it in our digest.</span>
+      <span> on the ACCESS website and we will include it in our digest.</span>
     BODY;
 
     $html = <<<ROLLUPSTATIC2

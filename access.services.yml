@@ -1,0 +1,13 @@
+services:
+  access.jwt_key_provider:
+    class: Drupal\access\AccessJwtKeyProvider
+
+  access.auth_cookie_subscriber:
+    class: Drupal\access\EventSubscriber\AccessAuthCookieSubscriber
+    arguments: ['@access.jwt_key_provider']
+    tags:
+      - { name: event_subscriber }
+
+  access.jwks_controller:
+    class: Drupal\access\Controller\JwksController
+    arguments: ['@access.jwt_key_provider']

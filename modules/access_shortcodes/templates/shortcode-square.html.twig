@@ -5,6 +5,7 @@
  *
  * Available variables:
  * - icon: image for the square.
+ * - alt: Alt text for the image .
  * - title: Title.
  * - text: Main text.
  * - link: Link.
@@ -29,9 +30,15 @@
 	{% endif %}
 {% endif %}
 
-<a class=" {{ classes }}" href="{{ link }}">
-	<img class="{{ img_classes }}" src="{{ icon }}">
-	<h3 class="{{ text_classes }} uppercase">{{ title }}</h3>
+<a class="{{ classes }}" href="{{ link }}">
+	<img alt="{{ alt }}" class="{{ img_classes }}" src="{{ icon }}">
+
+	{% if title  is not empty %}
+    <h3 class="{{ text_classes }} uppercase">{{ title }}</h3>
+  {% else %}
+    <p>&nbsp;</p>
+	{% endif %}
+
 	{% if text is not empty %}
 		<p class="{{ text_classes }} text-sm leading-tight">{{ text }}</p>
 	{% endif %}
