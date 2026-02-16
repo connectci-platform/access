@@ -1287,6 +1287,12 @@ function emailToAffinityGroups($emailText, $emailTitle, $pubDate, $agNames, $new
   // For CC, must be unique name for campaign.
   $campaignName = uniqid('Community Announcement: ' . $agNames[0] . '- ' . $pubDate . ' ', FALSE);
 
+  \Drupal::logger('access_affinitygroup')->notice('Email broadcast initiated: "@title" to @count affinity group(s): @groups', [
+    '@title' => $emailTitle,
+    '@count' => count($agNames),
+    '@groups' => implode(', ', $agNames),
+  ]);
+
   // Either use email template for access or community.
   $wrapper = new EmailWrapper();
   if ($communityTemplate) {
@@ -1301,6 +1307,11 @@ function emailToAffinityGroups($emailText, $emailTitle, $pubDate, $agNames, $new
     $campaignId = $ccResponse->campaign_id;
     $campaignActivityId = $ccResponse->campaign_activities[0]->campaign_activity_id;
     sendEmailCampaign($campaignId, $campaignActivityId, $ccListIds);
+  }
+  else {
+    \Drupal::logger('access_affinitygroup')->error('Email broadcast failed: setupEmailCampaign returned empty response for "@title"', [
+      '@title' => $emailTitle,
+    ]);
   }
 }
 
@@ -1341,6 +1352,13 @@ function setupEmailCampaign($emailSubject, $emailHtml, $campaignName) {
   $cca = new ConstantContactApi();
   $ccResponse = $cca->apiCall('/emails', $postData, 'POST');
 
+  if (!empty($ccResponse) && isset($ccResponse->campaign_id)) {
+    \Drupal::logger('access_affinitygroup')->notice('Email campaign created: "@name" (Campaign ID: @id)', [
+      '@name' => $campaignName,
+      '@id' => $ccResponse->campaign_id,
+    ]);
+  }
+
   return $ccResponse;
 }
 
@@ -1377,8 +1395,16 @@ function sendEmailCampaign($campaignId, $campaignActivityId, $ccListIds) {
     }
   }
   if ($sent) {
+    \Drupal::logger('access_affinitygroup')->notice('Email campaign scheduled and sent: Campaign ID @campaign_id, Activity ID @activity_id', [
+      '@campaign_id' => $campaignId,
+      '@activity_id' => $campaignActivityId,
+    ]);
     showStatus("Your message was sent to this Affinity Group.");
   } else {
+    \Drupal::logger('access_affinitygroup')->error('Failed to send email campaign: Campaign ID @campaign_id, Activity ID @activity_id', [
+      '@campaign_id' => $campaignId,
+      '@activity_id' => $campaignActivityId,
+    ]);
     showStatus("Error while trying to email announcement to affinity group.");
   }
 }

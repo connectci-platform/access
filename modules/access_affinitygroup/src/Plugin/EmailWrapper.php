@@ -83,7 +83,7 @@ class EmailWrapper {
             class="text text--padding-vertical">
             <tbody>
                 <tr>
-                    <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1.2;display:block;word-wrap:break-word;padding:10px 40px;"
+                    <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1.2;display:block;word-wrap:break-word;padding:0px 40px;"
                         align="left"
                         valign="top"
                         class="text_content-cell content-padding-horizontal">
@@ -119,10 +119,15 @@ class EmailWrapper {
     $websiteButtonDisplay = '';
     if ($newsUrl != NULL) {
       $websiteButtonDisplay = <<<WEBSITEBUTTONHTML
-        <div style="line-height:20px;min-height:20px;" class="spacer"> </div>
-        <div style="text-align:left; padding-left: 40px;padding-top:10px;padding-bottom:15px;">
-            <a href="$newsUrl" rel="nofollow noopener noreferrer" class="view-on-website-btn">VIEW ON WEBSITE</a>
-        </div>
+        <table width="100%" border="0" cellpadding="0" cellspacing="0" style="table-layout:fixed;">
+            <tbody>
+                <tr>
+                    <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;padding:20px 40px 15px 40px;" align="left" valign="top">
+                        <a href="$newsUrl" rel="nofollow noopener noreferrer" class="view-on-website-btn">VIEW ON WEBSITE</a>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
     WEBSITEBUTTONHTML;
     }
 
@@ -384,11 +389,11 @@ class EmailWrapper {
                                                                                       class="text text--padding-vertical">
                                                                                       <tbody>
                                                                                           <tr>
-                                                                                              <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1.2;display:block;word-wrap:break-word;padding:10px 40px;"
+                                                                                              <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1;display:block;word-wrap:break-word;padding:12px 40px;"
                                                                                                   align="left"
                                                                                                   valign="top"
                                                                                                   class="text_content-cell content-padding-horizontal">
-                                                                                                  <p style="margin:0;">
+                                                                                                  <p style="margin:0 !important;">
                                                                                                       <span style="color:rgb(255, 255, 255);">
                                                                                                         $agText
                                                                                                       </span>
@@ -409,22 +414,8 @@ class EmailWrapper {
                                                                               <td style="width:100%;" align="center"
                                                                                   valign="top"
                                                                                   class="column column--1 scale stack">
-                                                                                  <div style="line-height:30px;min-height:30px;"
-                                                                                      class="spacer"> </div>
-                                                                              </td>
-                                                                          </tr>
-                                                                      </tbody>
-                                                                  </table>
-                                                                  <table style="table-layout:fixed;" width="100%"
-                                                                      border="0" cellpadding="0" cellspacing="0"
-                                                                      class="layout layout--1-column">
-                                                                      <tbody>
-                                                                          <tr>
-                                                                              <td style="width:100%;" align="center"
-                                                                                  valign="top"
-                                                                                  class="column column--1 scale stack">
                                                                                   $logoDisplay
-                                                                                  <div style="line-height:10px;min-height:10px;"
+                                                                                  <div style="line-height:20px;min-height:20px;"
                                                                                       class="spacer"> </div>
                                                                                   <table width="100%" border="0"
                                                                                       cellpadding="0" cellspacing="0"
@@ -432,7 +423,7 @@ class EmailWrapper {
                                                                                       class="text text--padding-vertical">
                                                                                       <tbody>
                                                                                           <tr>
-                                                                                              <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1.2;display:block;word-wrap:break-word;padding:10px 40px;"
+                                                                                              <td style="text-align:left;font-family:Arial, Verdana, Helvetica, sans-serif;color:#3E3E3E;font-size:14px;line-height:1.2;display:block;word-wrap:break-word;padding:10px 40px 0px 40px;"
                                                                                                   align="left"
                                                                                                   valign="top"
                                                                                                   class="text_content-cell content-padding-horizontal">
@@ -761,7 +752,7 @@ DIVIDERHTML;
     $websiteButtonDisplay = '';
     if ($newsUrl != NULL) {
       $websiteButtonDisplay = <<<WEBSITEBUTTONHTML2
-      <div style="padding-top:10px;padding-bottom:15px;">
+      <div style="text-align:left; padding-top:10px;padding-bottom:15px;">
         <a href="$newsUrl" rel="nofollow noopener noreferrer" class="view-on-website-btn">VIEW ON WEBSITE</a>
       </div>
     WEBSITEBUTTONHTML2;
@@ -776,7 +767,6 @@ DIVIDERHTML;
                 <td class="text_content-cell content-padding-horizontal" style="text-align: left; font-family:Roboto,sans-serif; color: #4d4d4d;
                       font-size: 14px; line-height: 1.2; display: block; word-wrap: break-word; padding: 20px 40px 10px 40px;" align="left" valign="top">
                 $titleDisplay
-                <br>
                 $pubDateDisplay
                 <span style="font-size: 14px;">$main</span>
                 <p style="margin: 0;">
@@ -799,7 +789,7 @@ DIVIDERHTML;
    */
   private function titleHTML($titleText) {
     $t = <<<TITLE
-    <h3 style="font-family:Roboto,sans-serif; color: #f07537; font-size: 18px; font-weight: bold; margin: 0; padding: 0px 0px 8px 0px">
+    <h3 style="font-family:Roboto,sans-serif; color: #f07537; font-size: 18px; font-weight: bold; margin: 0; padding: 0px 0px 4px 0px">
       $titleText
     </h3>
   TITLE;
@@ -824,7 +814,7 @@ DIVIDERHTML;
     $fbIcon = $this->imageUrl('circleIconFacebook.png');
     $twIcon = $this->imageUrl('circleIconTwitter.png');
     $ytIcon = $this->imageUrl('circleIconYoutube.png');
-    $nsfLogo = ACCESS_SUPPPORT_URL . '/themes/custom/accesstheme/assets/NSF_4-Color_bitmap_Logo_350x350.png';
+    $nsfLogo = ACCESS_SUPPORT_URL . '/themes/custom/accesstheme/assets/NSF_4-Color_bitmap_Logo_350x350.png';
 
     $emailText = <<<EMAILTEXT1
     <html lang="en-US">
@@ -1266,7 +1256,7 @@ DIVIDERHTML;
                 When you join the ACCESS Support Affinity Group you'll receive these weekly digests.";
 
     $buttonText = "See Affinity Groups";
-    $buttonUrl = ACCESS_SUPPPORT_URL . '/affinity-groups';
+    $buttonUrl = ACCESS_SUPPORT_URL . '/affinity-groups';
 
     $html = <<<ROLLUPSTATIC1
     <table class="layout" style="table-layout:fixed" width="100%" border="0" cellpadding="0" cellspacing="0">
@@ -1337,8 +1327,8 @@ DIVIDERHTML;
    */
   private function ccRollupBottomStatic2() {
     $title = $this->titleHTML('Do you have announcements or trainings to share?');
-    $newsUrl = ACCESS_SUPPPORT_URL . '/announcements';
-    $eventsUrl = ACCESS_SUPPPORT_URL . '/events';
+    $newsUrl = ACCESS_SUPPORT_URL . '/announcements';
+    $eventsUrl = ACCESS_SUPPORT_URL . '/events';
 
     $bodyHtml = <<<BODY
       <span>Add your </span>
