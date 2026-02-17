@@ -1242,7 +1242,7 @@ function _access_misc_get_site_logo_url() {
       // Using default logo from theme.
       $theme_path = \Drupal::service('extension.list.theme')->getPath($theme_name);
       $logo_path = $theme_path . '/logo.svg';
-      
+
       // Check if SVG exists, otherwise try PNG.
       if (!file_exists(DRUPAL_ROOT . '/' . $logo_path)) {
         $logo_path = $theme_path . '/logo.png';
@@ -1291,5 +1291,146 @@ function _access_misc_get_domain_logo_url() {
     \Drupal::logger('access_misc')->error('Error getting domain logo: ' . $e->getMessage());
     return NULL;
   }
+}
+
+/**
+ * Implements hook_metatags_attachments_alter().
+ *
+ * Add JSON-LD structured data for Google Rich Results.
+ */
+function access_misc_metatags_attachments_alter(array &$attachments) {
+  if (!\Drupal::service('path.matcher')->isFrontPage()) {
+    $route_match = \Drupal::routeMatch();
+    $entity = NULL;
+
+    // Try to get entity from route.
+    if ($route_match->getParameter('node')) {
+      $entity = $route_match->getParameter('node');
+    }
+    elseif ($route_match->getParameter('eventinstance')) {
+      $entity = $route_match->getParameter('eventinstance');
+    }
+    elseif ($route_match->getParameter('eventseries')) {
+      $entity = $route_match->getParameter('eventseries');
+    }
+
+    if ($entity) {
+      $json_ld = _access_misc_build_json_ld($entity);
+      if ($json_ld) {
+        $attachments['#attached']['html_head'][] = [
+          [
+            '#type' => 'html_tag',
+            '#tag' => 'script',
+            '#attributes' => ['type' => 'application/ld+json'],
+            '#value' => json_encode($json_ld, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),
+          ],
+          'json_ld_structured_data',
+        ];
+      }
+    }
+  }
+}
+
+/**
+ * Helper function to build JSON-LD structured data based on entity type.
+ *
+ * @param \Drupal\Core\Entity\EntityInterface $entity
+ *   The entity to build JSON-LD for.
+ *
+ * @return array|null
+ *   The JSON-LD array or NULL.
+ */
+function _access_misc_build_json_ld($entity) {
+  $json_ld = [
+    '@context' => 'https://schema.org',
+  ];
+
+  $entity_type = $entity->getEntityTypeId();
+  $bundle = $entity->bundle();
+
+  // Handle different entity types and bundles.
+  switch ($entity_type) {
+    case 'node':
+      switch ($bundle) {
+        case 'access_news':
+        case 'article':
+          $json_ld['@type'] = 'Article';
+          $json_ld['headline'] = $entity->label();
+
+          if ($entity->hasField('body') && !$entity->get('body')->isEmpty()) {
+            $body = $entity->get('body')->value;
+            $json_ld['articleBody'] = strip_tags($body);
+          }
+
+          if ($entity->hasField('created')) {
+            $json_ld['datePublished'] = date('c', $entity->getCreatedTime());
+          }
+
+          if ($entity->hasField('changed')) {
+            $json_ld['dateModified'] = date('c', $entity->getChangedTime());
+          }
+
+          if ($entity->hasField('uid') && $entity->get('uid')->entity) {
+            $author = $entity->get('uid')->entity;
+            $json_ld['author'] = [
+              '@type' => 'Person',
+              'name' => $author->getDisplayName(),
+            ];
+          }
+
+          $request = \Drupal::request();
+          $json_ld['url'] = $request->getSchemeAndHttpHost() . $entity->toUrl()->toString();
+          break;
+
+        case 'affinity_group':
+          $json_ld['@type'] = 'Organization';
+          $json_ld['name'] = $entity->label();
+
+          if ($entity->hasField('body') && !$entity->get('body')->isEmpty()) {
+            $json_ld['description'] = strip_tags($entity->get('body')->value);
+          }
+
+          $request = \Drupal::request();
+          $json_ld['url'] = $request->getSchemeAndHttpHost() . $entity->toUrl()->toString();
+          break;
+      }
+      break;
+
+    case 'eventinstance':
+    case 'eventseries':
+      $json_ld['@type'] = 'Event';
+
+      if ($entity_type == 'eventinstance') {
+        $series = $entity->getEventSeries();
+        $json_ld['name'] = $series ? $series->get('title')->value : 'Event';
+
+        if ($entity->hasField('date') && !$entity->get('date')->isEmpty()) {
+          $date_value = $entity->get('date')->getValue()[0];
+          $json_ld['startDate'] = date('c', strtotime($date_value['value']));
+          $json_ld['endDate'] = date('c', strtotime($date_value['end_value']));
+        }
+      }
+      else {
+        $json_ld['name'] = $entity->label();
+      }
+
+      if ($entity->hasField('body') && !$entity->get('body')->isEmpty()) {
+        $json_ld['description'] = strip_tags($entity->get('body')->value);
+      }
+
+      $request = \Drupal::request();
+      $json_ld['url'] = $request->getSchemeAndHttpHost() . $entity->toUrl()->toString();
+
+      if ($entity->hasField('field_location') && !$entity->get('field_location')->isEmpty()) {
+        $location = $entity->get('field_location')->value;
+        $json_ld['location'] = [
+          '@type' => 'Place',
+          'name' => $location,
+        ];
+      }
+      break;
+  }
+
+  return !empty($json_ld['@type']) ? $json_ld : NULL;
 }
 
