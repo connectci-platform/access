@@ -363,3 +363,116 @@ function cssn_entity_update(EntityInterface $entity) {
     \Drupal::service('cache_tags.invalidator')->invalidateTags(['community_persona']);
   }
 }
+
+/**
+ * Implements hook_page_attachments_alter().
+ */
+function cssn_page_attachments_alter(array &$attachments) {
+  $route_match = \Drupal::routeMatch();
+
+  if ($route_match->getRouteName() === 'cssn.public_page') {
+    $uid = $route_match->getParameter('uid');
+
+    if (is_numeric($uid)) {
+      $user = User::load($uid);
+
+      if ($user && count($user->field_region->getValue()) > 0) {
+        $first_name = $user->get('field_user_first_name')->value ?? '';
+        $last_name = $user->get('field_user_last_name')->value ?? '';
+        $full_name = trim("$first_name $last_name");
+
+        // Get current URL.
+        $request = \Drupal::request();
+        $current_url = $request->getSchemeAndHttpHost() . $request->getRequestUri();
+
+        // Get site name from config.
+        $site_config = \Drupal::config('system.site');
+        $site_name = $site_config->get('name') ?? 'ACCESS';
+
+        // Get user bio for description.
+        $bio = $user->get('field_user_bio')->value ?? '';
+        $description = !empty($bio) ? strip_tags($bio) : "View $full_name's community persona profile on $site_name.";
+        // Trim description to 160 characters for meta description best practice.
+        if (strlen($description) > 160) {
+          $description = substr($description, 0, 157) . '...';
+        }
+
+        $title = "$full_name | Community Persona";
+
+        // Standard meta tags.
+        $meta_tags = [
+          'description' => $description,
+        ];
+
+        // Open Graph tags.
+        $og_tags = [
+          'og:site_name' => $site_name,
+          'og:type' => 'profile',
+          'og:url' => $current_url,
+          'og:title' => $title,
+          'og:description' => $description,
+        ];
+
+        // Optional: Add user image if available.
+        if ($user->hasField('user_picture') && !$user->get('user_picture')->isEmpty()) {
+          $user_picture = $user->get('user_picture')->entity;
+          if ($user_picture) {
+            $image_uri = $user_picture->getFileUri();
+            $image_url = \Drupal::service('file_url_generator')->generateAbsoluteString($image_uri);
+            $og_tags['og:image'] = $image_url;
+            $meta_tags['image'] = $image_url;
+          }
+        }
+
+        // Add standard meta tags.
+        foreach ($meta_tags as $key => $value) {
+          $attachments['#attached']['html_head'][] = [
+            [
+              '#tag' => 'meta',
+              '#attributes' => [
+                'name' => $key,
+                'content' => $value,
+              ],
+            ],
+            'cssn_meta_' . $key,
+          ];
+        }
+
+        // Add Open Graph tags.
+        foreach ($og_tags as $property => $content) {
+          $attachments['#attached']['html_head'][] = [
+            [
+              '#tag' => 'meta',
+              '#attributes' => [
+                'property' => $property,
+                'content' => $content,
+              ],
+            ],
+            'cssn_' . str_replace(':', '_', $property),
+          ];
+        }
+
+        // Add canonical URL.
+        $attachments['#attached']['html_head'][] = [
+          [
+            '#tag' => 'link',
+            '#attributes' => [
+              'rel' => 'canonical',
+              'href' => $current_url,
+            ],
+          ],
+          'cssn_canonical_url',
+        ];
+
+        // Update page title.
+        $attachments['#attached']['html_head'][] = [
+          [
+            '#tag' => 'title',
+            '#value' => $title,
+          ],
+          'cssn_title',
+        ];
+      }
+    }
+  }
+}
