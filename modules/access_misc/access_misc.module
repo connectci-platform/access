@@ -1156,3 +1156,140 @@ function access_misc_user_update(\Drupal\user\UserInterface $account) {
     }
   }
 }
+
+/**
+ * Implements hook_token_info().
+ */
+function access_misc_token_info() {
+  $info = [];
+
+  $info['types']['access_misc'] = [
+    'name' => t('ACCESS Misc'),
+    'description' => t('Custom tokens for ACCESS site functionality.'),
+  ];
+
+  $info['tokens']['access_misc']['site_logo'] = [
+    'name' => t('Site Logo URL'),
+    'description' => t('The URL of the site logo for the current domain and theme.'),
+  ];
+
+  $info['tokens']['access_misc']['domain_logo'] = [
+    'name' => t('Domain Logo URL'),
+    'description' => t('The configured logo URL for the current domain.'),
+  ];
+
+  return $info;
+}
+
+/**
+ * Implements hook_tokens().
+ */
+function access_misc_tokens($type, $tokens, array $data, array $options) {
+  $replacements = [];
+
+  if ($type == 'access_misc') {
+    foreach ($tokens as $name => $original) {
+      switch ($name) {
+        case 'site_logo':
+          $logo_url = _access_misc_get_site_logo_url();
+          if ($logo_url) {
+            $replacements[$original] = $logo_url;
+          }
+          break;
+
+        case 'domain_logo':
+          $logo_url = _access_misc_get_domain_logo_url();
+          if ($logo_url) {
+            $replacements[$original] = $logo_url;
+          }
+          break;
+      }
+    }
+  }
+
+  return $replacements;
+}
+
+/**
+ * Helper function to get the site logo URL for the current domain and theme.
+ *
+ * @return string|null
+ *   The logo URL or NULL if not found.
+ */
+function _access_misc_get_site_logo_url() {
+  try {
+    // Get the active domain.
+    $domain_negotiator = \Drupal::service('domain.negotiator');
+    $active_domain = $domain_negotiator->getActiveDomain();
+
+    // Get the theme for the current domain.
+    $theme_name = NULL;
+    if ($active_domain) {
+      $domain_theme_lookup = \Drupal::service('domain_theme_switch.domain_theme_lookup');
+      $theme_name = $domain_theme_lookup->getDefaultTheme($active_domain->id());
+    }
+
+    // Fallback to default theme if no domain-specific theme.
+    if (!$theme_name) {
+      $theme_name = \Drupal::config('system.theme')->get('default');
+    }
+
+    // Get the theme config for logo settings.
+    $theme_config = \Drupal::config($theme_name . '.settings');
+
+    // Check if logo is set and get the path.
+    if ($theme_config->get('logo.use_default')) {
+      // Using default logo from theme.
+      $theme_path = \Drupal::service('extension.list.theme')->getPath($theme_name);
+      $logo_path = $theme_path . '/logo.svg';
+      
+      // Check if SVG exists, otherwise try PNG.
+      if (!file_exists(DRUPAL_ROOT . '/' . $logo_path)) {
+        $logo_path = $theme_path . '/logo.png';
+      }
+    }
+    else {
+      // Using custom logo.
+      $logo_path = $theme_config->get('logo.path');
+    }
+
+    if ($logo_path) {
+      // Convert to absolute URL.
+      $base_url = \Drupal::request()->getSchemeAndHttpHost();
+      return $base_url . '/' . $logo_path;
+    }
+
+    return NULL;
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('access_misc')->error('Error getting site logo: ' . $e->getMessage());
+    return NULL;
+  }
+}
+
+/**
+ * Helper function to get the configured domain logo URL.
+ *
+ * @return string|null
+ *   The logo URL or NULL if not found.
+ */
+function _access_misc_get_domain_logo_url() {
+  try {
+    $domain_negotiator = \Drupal::service('domain.negotiator');
+    $active_domain = $domain_negotiator->getActiveDomain();
+
+    if (!$active_domain) {
+      return NULL;
+    }
+
+    $config = \Drupal::config('access_misc.domain_logos');
+    $logo_url = $config->get('logos.' . $active_domain->id());
+
+    return $logo_url ?: NULL;
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('access_misc')->error('Error getting domain logo: ' . $e->getMessage());
+    return NULL;
+  }
+}
+

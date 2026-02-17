@@ -1,0 +1,10 @@
+access_misc.domain_logos:
+  type: config_object
+  label: 'Domain Logos Configuration'
+  mapping:
+    logos:
+      type: sequence
+      label: 'Domain Logo URLs'
+      sequence:
+        type: string
+        label: 'Logo URL'
