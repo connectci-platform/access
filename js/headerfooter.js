@@ -10,7 +10,7 @@ import {
   qaBot,
   siteMenus,
   universalMenus,
-} from "https://unpkg.com/@access-ci/ui@0.18.3/dist/access-ci-ui.js";
+} from "https://unpkg.com/@access-ci/ui@0.18.4/dist/access-ci-ui.js";
 
 (function (Drupal, drupalSettings) {
 
@@ -118,6 +118,7 @@ async function setMenu(menu, currentUri) {
       accessId: accessId,
       loginUrl: "/login?redirect=" + currentUri,
       onAnalyticsEvent: onAnalyticsEvent,
+      ...(drupalSettings.access.qaEndpoint && { qaEndpoint: drupalSettings.access.qaEndpoint }),
     });
     floatingTarget.setAttribute('data-initialized', 'true');
   }
@@ -135,6 +136,7 @@ async function setMenu(menu, currentUri) {
       accessId: accessId,
       loginUrl: "/login?redirect=" + currentUri,
       onAnalyticsEvent: onAnalyticsEvent,
+      ...(drupalSettings.access.qaEndpoint && { qaEndpoint: drupalSettings.access.qaEndpoint }),
     });
     embeddedTarget.setAttribute('data-initialized', 'true');
   }
