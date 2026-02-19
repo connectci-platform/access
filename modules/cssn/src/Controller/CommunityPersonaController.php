@@ -430,6 +430,12 @@ class CommunityPersonaController extends ControllerBase {
     $user_fields = \Drupal::entityTypeManager()->getStorage('user')->load($current_user->id());
     $github_graph = $user_fields->get('field_github_graph')->value;
 
+    // Discourse Participation.
+    $query = \Drupal::database()->select('ood_disc_contrib', 'odc');
+    $query->condition('odc.uid', $current_user->id());
+    $query->fields('odc', ['post_count', 'topic_count', 'likes_given', 'likes_received', 'days_visited', 'solved_count']);
+    $result = $query->execute()->fetch();
+
     $persona_page['string'] = [
       '#type' => 'inline_template',
       '#attached' => [
@@ -473,6 +479,49 @@ class CommunityPersonaController extends ControllerBase {
           </div>
           <div class="p-3 pt-0">{{ edit_interest_link }}</div>
         </div>
+        {% if gh_graph %}
+          <div class="border border-secondary border-md-teal my-3 mb-6">
+            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
+            </div>
+            <div class="p-3">
+              {{ gh_graph|raw }}
+            </div>
+          </div>
+        {% endif %}
+        {% if discourse_posts %}
+          <div class="border border-secondary border-md-teal my-3 mb-6">
+            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ discourse_title }}</h2>
+            </div>
+            <div class="p-3 d-flex flex justify-content-between">
+              <div class="d-flex flex-column">
+                <h2 class="order-2 text-center h6">{{ discourse_post_title }}</h2>
+                <p class="order-1 text-center h1">{{ discourse_posts }}</p>
+              </div>
+              <div class="d-flex flex-column">
+                <h2 class="order-2 text-center h6">{{ discourse_topic_title }}</h2>
+                <p class="order-1 text-center h1">{{ discourse_topics }}</p>
+              </div>
+              <div class="d-flex flex-column">
+                <h2 class="order-2 text-center h6">{{ discourse_solved_title }}</h2>
+                <p class="order-1 text-center h1">{{ discourse_solved }}</p>
+              </div>
+              <div class="d-flex flex-column">
+                <h2 class="order-2 text-center h6">{{ discourse_likes_given_title }}</h2>
+                <p class="order-1 text-center h1">{{ discourse_likes_given }}</p>
+              </div>
+              <div class="d-flex flex-column">
+                <h2 class="order-2 text-center h6">{{ discourse_likes_received_title }}</h2>
+                <p class="order-1 text-center h1">{{ discourse_likes_received }}</p>
+              </div>
+              <div class="d-flex flex-column">
+                <h2 class="order-2 text-center h6">{{ discourse_days_visited_title }}</h2>
+                <p class="order-1 text-center h1">{{ discourse_days_visited }}</p>
+              </div>
+            </div>
+          </div>
+        {% endif %}
         <div class="border border-secondary border-md-teal my-3 mb-6">
           <h2 class="h4 text-lg font-bold leading-5 text-white py-2 px-3 m-0 bg-dark bg-md-teal p-4">{{ ag_title }}</h2>
             <div class="p-3">
@@ -535,17 +584,6 @@ class CommunityPersonaController extends ControllerBase {
             </div>
           </div>
         {% endif %}
-
-        {% if gh_graph %}
-          <div class="border border-secondary border-md-teal my-3 mb-6">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
-            </div>
-            <div class="p-3">
-              {{ gh_graph|raw }}
-            </div>
-          </div>
-        {% endif %}
         ',
       '#context' => [
         'bio_title' => t('Bio'),
@@ -574,8 +612,21 @@ class CommunityPersonaController extends ControllerBase {
         'user_event_title' => t('My Event Registrations'),
         'user_event_registrations' => $user_event_registrations,
         'user_event_total_items' => $total_items,
-        'gh_title' => t('My Open OnDemand GitHub Contributions'),
+        'gh_title' => t('Code & Documentation Contributions'),
         'gh_graph' => $github_graph,
+        'discourse_title' => t('Discourse Participation'),
+        'discourse_post_title' => t('Posts'),
+        'discourse_posts' => $result->post_count,
+        'discourse_topic_title' => t('Topics'),
+        'discourse_topics' => $result->topic_count,
+        'discourse_likes_given_title' => t('Likes Given'),
+        'discourse_likes_given' => $result->likes_given,
+        'discourse_likes_received_title' => t('Likes Received'),
+        'discourse_likes_received' => $result->likes_received,
+        'discourse_days_visited_title' => t('Days Visited'),
+        'discourse_days_visited' => $result->days_visited,
+        'discourse_solved_title' => t('Solutions'),
+        'discourse_solved' => $result->solved_count,
       ],
     ];
 
@@ -638,6 +689,12 @@ class CommunityPersonaController extends ControllerBase {
       // Load 'field_github_graph' value.
       $github_graph = $user->get('field_github_graph')->value;
 
+      // Discourse Participation.
+      $query = \Drupal::database()->select('ood_disc_contrib', 'odc');
+      $query->condition('odc.uid', $user->id());
+      $query->fields('odc', ['post_count', 'topic_count', 'likes_given', 'likes_received', 'days_visited', 'solved_count']);
+      $result = $query->execute()->fetch();
+
       $persona_page['#title'] = "$user_first_name $user_last_name";
       $persona_page['string'] = [
         '#type' => 'inline_template',
@@ -680,6 +737,49 @@ class CommunityPersonaController extends ControllerBase {
               {{ my_interests|raw }}
             </div>
           </div>
+          {% if gh_graph %}
+            <div class="border border-secondary border-md-teal my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
+              </div>
+              <div class="p-3">
+                {{ gh_graph|raw }}
+              </div>
+            </div>
+          {% endif %}
+          {% if discourse_posts %}
+            <div class="border border-secondary border-md-teal my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ discourse_title }}</h2>
+              </div>
+              <div class="p-3 d-flex flex justify-content-between">
+                <div class="d-flex flex-column">
+                  <h2 class="order-2 text-center h6">{{ discourse_post_title }}</h2>
+                  <p class="order-1 text-center h1">{{ discourse_posts }}</p>
+                </div>
+                <div class="d-flex flex-column">
+                  <h2 class="order-2 text-center h6">{{ discourse_topic_title }}</h2>
+                  <p class="order-1 text-center h1">{{ discourse_topics }}</p>
+                </div>
+                <div class="d-flex flex-column">
+                  <h2 class="order-2 text-center h6">{{ discourse_solved_title }}</h2>
+                  <p class="order-1 text-center h1">{{ discourse_solved }}</p>
+                </div>
+                <div class="d-flex flex-column">
+                  <h2 class="order-2 text-center h6">{{ discourse_likes_given_title }}</h2>
+                  <p class="order-1 text-center h1">{{ discourse_likes_given }}</p>
+                </div>
+                <div class="d-flex flex-column">
+                  <h2 class="order-2 text-center h6">{{ discourse_likes_received_title }}</h2>
+                  <p class="order-1 text-center h1">{{ discourse_likes_received }}</p>
+                </div>
+                <div class="d-flex flex-column">
+                  <h2 class="order-2 text-center h6">{{ discourse_days_visited_title }}</h2>
+                  <p class="order-1 text-center h1">{{ discourse_days_visited }}</p>
+                </div>
+              </div>
+            </div>
+          {% endif %}
           <div class="border border-secondary border-md-teal my-3 mb-6">
             <h2 class="h4 text-lg font-bold leading-5 text-white py-2 px-3 m-0 bg-dark bg-md-teal p-4">{{ ag_title }}</h2>
               <div class="p-3">
@@ -727,17 +827,6 @@ class CommunityPersonaController extends ControllerBase {
               </div>
             </div>
           {% endif %}
-
-          {% if gh_graph %}
-            <div class="border border-secondary border-md-teal my-3 mb-6">
-              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
-              </div>
-              <div class="p-3">
-                {{ gh_graph|raw }}
-              </div>
-            </div>
-          {% endif %}
           ',
         '#context' => [
           'bio_title' => t('Bio'),
@@ -757,8 +846,21 @@ class CommunityPersonaController extends ControllerBase {
           'mentorships' => $mentorships,
           'project_title' => t('Projects'),
           'projects' => $projects,
-          'gh_title' => t('Open OnDemand GitHub Contributions'),
+          'gh_title' => t('Code & Documentation Contributions'),
           'gh_graph' => $github_graph,
+          'discourse_title' => t('Discourse Participation'),
+          'discourse_post_title' => t('Posts'),
+          'discourse_posts' => $result->post_count,
+          'discourse_topic_title' => t('Topics'),
+          'discourse_topics' => $result->topic_count,
+          'discourse_likes_given_title' => t('Likes Given'),
+          'discourse_likes_given' => $result->likes_given,
+          'discourse_likes_received_title' => t('Likes Received'),
+          'discourse_likes_received' => $result->likes_received,
+          'discourse_days_visited_title' => t('Days Visited'),
+          'discourse_days_visited' => $result->days_visited,
+          'discourse_solved_title' => t('Solutions'),
+          'discourse_solved' => $result->solved_count,
         ],
         '#cache' => [
           'tags' => ['community_persona'],
