@@ -103,7 +103,7 @@ async function setMenu(menu, currentUri) {
   // GTM dataLayer event handler for QA bot analytics
   const onAnalyticsEvent = (event) => {
     window.dataLayer = window.dataLayer || [];
-    window.dataLayer.push(event);
+    window.dataLayer.push({ event: event.type, ...event });
   };
 
   // Initialize floating qa-bot if target exists (using npm version)
