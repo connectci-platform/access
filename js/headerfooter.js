@@ -101,9 +101,10 @@ async function setMenu(menu, currentUri) {
   const apiKey = "4nn5l4T4TnkMdzsK0AwAtnGRcheBDnjawuAT42LaOLc";
 
   // GTM dataLayer event handler for QA bot analytics
+  const chatbotEnv = drupalSettings.access.environment || 'unknown';
   const onAnalyticsEvent = (event) => {
     window.dataLayer = window.dataLayer || [];
-    window.dataLayer.push({ event: event.type, ...event });
+    window.dataLayer.push({ event: event.type, ...event, chatbot_env: chatbotEnv });
   };
 
   // Initialize floating qa-bot if target exists (using npm version)

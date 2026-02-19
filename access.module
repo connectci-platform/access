@@ -103,6 +103,9 @@ function access_page_attachments(array &$attachments) {
     $attachments['#attached']['drupalSettings']['access']['current_menu'] = $js_menu;
     $attachments['#attached']['drupalSettings']['access']['user'] = $user_data;
 
+    // Pass environment for analytics differentiation.
+    $attachments['#attached']['drupalSettings']['access']['environment'] = getenv('PANTHEON_ENVIRONMENT') ?: 'local';
+
     // Allow overriding the QA bot endpoint via environment variable (for local dev).
     $qa_endpoint = getenv('ACCESS_QA_ENDPOINT');
     if ($qa_endpoint) {
