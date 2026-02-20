@@ -494,28 +494,28 @@ class CommunityPersonaController extends ControllerBase {
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
               <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ discourse_title }}</h2>
             </div>
-            <div class="p-3 d-flex flex justify-content-between">
-              <div class="d-flex flex-column">
+            <div class="p-3 d-flex flex justify-content-between flex-wrap">
+              <div class="d-flex flex-column pr-2">
                 <h2 class="order-2 text-center h6">{{ discourse_post_title }}</h2>
                 <p class="order-1 text-center h1">{{ discourse_posts }}</p>
               </div>
-              <div class="d-flex flex-column">
+              <div class="d-flex flex-column flex-wrap pr-2">
                 <h2 class="order-2 text-center h6">{{ discourse_topic_title }}</h2>
                 <p class="order-1 text-center h1">{{ discourse_topics }}</p>
               </div>
-              <div class="d-flex flex-column">
+              <div class="d-flex flex-column flex-wrap pr-2">
                 <h2 class="order-2 text-center h6">{{ discourse_solved_title }}</h2>
                 <p class="order-1 text-center h1">{{ discourse_solved }}</p>
               </div>
-              <div class="d-flex flex-column">
+              <div class="d-flex flex-column flex-wrap pr-2">
                 <h2 class="order-2 text-center h6">{{ discourse_likes_given_title }}</h2>
                 <p class="order-1 text-center h1">{{ discourse_likes_given }}</p>
               </div>
-              <div class="d-flex flex-column">
+              <div class="d-flex flex-column flex-wrap pr-2">
                 <h2 class="order-2 text-center h6">{{ discourse_likes_received_title }}</h2>
                 <p class="order-1 text-center h1">{{ discourse_likes_received }}</p>
               </div>
-              <div class="d-flex flex-column">
+              <div class="d-flex flex-column flex-wrap">
                 <h2 class="order-2 text-center h6">{{ discourse_days_visited_title }}</h2>
                 <p class="order-1 text-center h1">{{ discourse_days_visited }}</p>
               </div>
