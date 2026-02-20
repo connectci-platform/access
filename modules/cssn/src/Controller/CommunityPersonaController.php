@@ -322,6 +322,68 @@ class CommunityPersonaController extends ControllerBase {
   }
 
   /**
+   * Return list of Appverse Contributions for a user.
+   *
+   * @return string
+   *   List of appverse app contributions.
+   */
+  public function appverseContributions($user, $public = FALSE) {
+    $nids = \Drupal::entityQuery('node')
+      ->condition('type', 'appverse_app')
+      ->condition('uid', $user->id())
+      ->accessCheck(FALSE)
+      ->execute();
+
+    if (empty($nids)) {
+      return '';
+    }
+
+    $nodes = \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($nids);
+    $items = '';
+    $n = 1;
+    foreach ($nodes as $node) {
+      $title = $node->getTitle();
+      $url = Url::fromRoute('entity.node.canonical', ['node' => $node->id()]);
+      $class = ['font-bold', 'underline', 'hover--no-underline', 'hover--text-dark-teal'];
+      $link = Link::fromTextAndUrl($title, $url)->toRenderable();
+      $link['#attributes'] = ['class' => $class];
+      $rendered_link = \Drupal::service('renderer')->render($link);
+
+      $logo_html = '';
+      if (!$node->get('field_appverse_software_implemen')->isEmpty()) {
+        $software_node = $node->get('field_appverse_software_implemen')->entity;
+        if ($software_node && !$software_node->get('field_appverse_logo')->isEmpty()) {
+          $media = $software_node->get('field_appverse_logo')->entity;
+          if ($media) {
+            $file = NULL;
+            if ($media->bundle() === 'svg' && $media->hasField('field_media_image_1') && !$media->get('field_media_image_1')->isEmpty()) {
+              $file = $media->get('field_media_image_1')->entity;
+            }
+            elseif ($media->hasField('field_media_image') && !$media->get('field_media_image')->isEmpty()) {
+              $file = $media->get('field_media_image')->entity;
+            }
+            if ($file) {
+              $file_url = \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri());
+              $alt = Html::escape($software_node->getTitle() . ' logo');
+              $logo_html = '<img src="' . $file_url . '" alt="' . $alt . '" class="me-2 mr-2" style="width:24px;height:24px;object-fit:contain;" />';
+            }
+          }
+        }
+      else {
+        // First letter of software name if no logo image is available.
+        $first_letter = strtoupper(substr($title, -1));
+        $logo_html = '<div class="me-2 mr-2 d-flex align-items-center justify-content-center rounded text-gray-dark bg-header-gray font-weight-bold" style="width:24px;height:24px;font-size:14px;">' . $first_letter . '</div>';
+      }
+
+      }
+      $items .= '<li class="p-3 d-flex flex align-items-center">' . $logo_html . $rendered_link . '</li>';
+      $n++;
+    }
+
+    return '<ul class="list-unstyled list-none mx-0 my-3 p-0" style="columns: 3;">' . $items . '</ul>';
+  }
+
+  /**
    * Return bio and bio summary.
    *
    * @return array
@@ -357,6 +419,29 @@ class CommunityPersonaController extends ControllerBase {
     }
 
     return [$bio_summary, $bio];
+  }
+
+  /**
+   * Return discourse contribution.
+   *
+   * @return array
+   *   Discourse contribution data.
+   */
+  public function discourseContrib($uid) {
+    $query = \Drupal::database()->select('ood_disc_contrib', 'odc');
+    $query->condition('odc.uid', $uid);
+    $query->fields('odc', ['post_count', 'topic_count', 'likes_given', 'likes_received', 'days_visited', 'solved_count']);
+    $result = $query->execute()->fetch();
+
+    $contrib = [
+      'posts' => $result->post_count ?? 0,
+      'topics' => $result->topic_count ?? 0,
+      'likes_given' => $result->likes_given ?? 0,
+      'likes_received' => $result->likes_received ?? 0,
+      'days_visited' => $result->days_visited ?? 0,
+      'solved' => $result->solved_count ?? 0,
+    ];
+    return $contrib;
   }
 
   /**
@@ -431,10 +516,10 @@ class CommunityPersonaController extends ControllerBase {
     $github_graph = $user_fields->get('field_github_graph')->value;
 
     // Discourse Participation.
-    $query = \Drupal::database()->select('ood_disc_contrib', 'odc');
-    $query->condition('odc.uid', $current_user->id());
-    $query->fields('odc', ['post_count', 'topic_count', 'likes_given', 'likes_received', 'days_visited', 'solved_count']);
-    $result = $query->execute()->fetch();
+    $discourse_contrib = $this->discourseContrib($current_user->id());
+
+    // Appverse Contributions.
+    $appverse_contributions = $this->appverseContributions($current_user);
 
     $persona_page['string'] = [
       '#type' => 'inline_template',
@@ -519,6 +604,16 @@ class CommunityPersonaController extends ControllerBase {
                 <h2 class="order-2 text-center h6">{{ discourse_days_visited_title }}</h2>
                 <p class="order-1 text-center h1">{{ discourse_days_visited }}</p>
               </div>
+            </div>
+          </div>
+        {% endif %}
+        {% if appverse_contributions %}
+          <div class="border border-secondary border-md-teal my-3 mb-6">
+            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ appverse_title }}</h2>
+            </div>
+            <div class="p-3">
+              {{ appverse_contributions|raw }}
             </div>
           </div>
         {% endif %}
@@ -616,17 +711,19 @@ class CommunityPersonaController extends ControllerBase {
         'gh_graph' => $github_graph,
         'discourse_title' => t('Discourse Participation'),
         'discourse_post_title' => t('Posts'),
-        'discourse_posts' => $result->post_count,
+        'discourse_posts' => $discourse_contrib['posts'],
         'discourse_topic_title' => t('Topics'),
-        'discourse_topics' => $result->topic_count,
+        'discourse_topics' => $discourse_contrib['topics'],
         'discourse_likes_given_title' => t('Likes Given'),
-        'discourse_likes_given' => $result->likes_given,
+        'discourse_likes_given' => $discourse_contrib['likes_given'],
         'discourse_likes_received_title' => t('Likes Received'),
-        'discourse_likes_received' => $result->likes_received,
+        'discourse_likes_received' => $discourse_contrib['likes_received'],
         'discourse_days_visited_title' => t('Days Visited'),
-        'discourse_days_visited' => $result->days_visited,
+        'discourse_days_visited' => $discourse_contrib['days_visited'],
         'discourse_solved_title' => t('Solutions'),
-        'discourse_solved' => $result->solved_count,
+        'discourse_solved' => $discourse_contrib['solved'],
+        'appverse_title' => t('My Appverse Contributions'),
+        'appverse_contributions' => $appverse_contributions,
       ],
     ];
 
@@ -690,10 +787,10 @@ class CommunityPersonaController extends ControllerBase {
       $github_graph = $user->get('field_github_graph')->value;
 
       // Discourse Participation.
-      $query = \Drupal::database()->select('ood_disc_contrib', 'odc');
-      $query->condition('odc.uid', $user->id());
-      $query->fields('odc', ['post_count', 'topic_count', 'likes_given', 'likes_received', 'days_visited', 'solved_count']);
-      $result = $query->execute()->fetch();
+      $discourse_contrib = $this->discourseContrib($user->id());
+
+      // Appverse Contributions.
+      $appverse_contributions = $this->appverseContributions($user, TRUE);
 
       $persona_page['#title'] = "$user_first_name $user_last_name";
       $persona_page['string'] = [
@@ -780,6 +877,16 @@ class CommunityPersonaController extends ControllerBase {
               </div>
             </div>
           {% endif %}
+          {% if appverse_contributions %}
+            <div class="border border-secondary border-md-teal my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ appverse_title }}</h2>
+              </div>
+              <div class="p-3">
+                {{ appverse_contributions|raw }}
+              </div>
+            </div>
+          {% endif %}
           <div class="border border-secondary border-md-teal my-3 mb-6">
             <h2 class="h4 text-lg font-bold leading-5 text-white py-2 px-3 m-0 bg-dark bg-md-teal p-4">{{ ag_title }}</h2>
               <div class="p-3">
@@ -850,17 +957,19 @@ class CommunityPersonaController extends ControllerBase {
           'gh_graph' => $github_graph,
           'discourse_title' => t('Discourse Participation'),
           'discourse_post_title' => t('Posts'),
-          'discourse_posts' => $result->post_count,
+          'discourse_posts' => $discourse_contrib['posts'],
           'discourse_topic_title' => t('Topics'),
-          'discourse_topics' => $result->topic_count,
+          'discourse_topics' => $discourse_contrib['topics'],
           'discourse_likes_given_title' => t('Likes Given'),
-          'discourse_likes_given' => $result->likes_given,
+          'discourse_likes_given' => $discourse_contrib['likes_given'],
           'discourse_likes_received_title' => t('Likes Received'),
-          'discourse_likes_received' => $result->likes_received,
+          'discourse_likes_received' => $discourse_contrib['likes_received'],
           'discourse_days_visited_title' => t('Days Visited'),
-          'discourse_days_visited' => $result->days_visited,
+          'discourse_days_visited' => $discourse_contrib['days_visited'],
           'discourse_solved_title' => t('Solutions'),
-          'discourse_solved' => $result->solved_count,
+          'discourse_solved' => $discourse_contrib['solved'],
+          'appverse_title' => t('Appverse Contributions'),
+          'appverse_contributions' => $appverse_contributions,
         ],
         '#cache' => [
           'tags' => ['community_persona'],
