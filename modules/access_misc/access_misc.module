@@ -12,6 +12,7 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Drupal\taxonomy\Entity\Term;
+use Drupal\node\NodeInterface;
 use Drupal\user\UserInterface;
 use Drupal\user\Entity\User;
 use Drupal\views\ViewExecutable;
@@ -1154,5 +1155,92 @@ function access_misc_user_update(\Drupal\user\UserInterface $account) {
         $registrant->save();
       }
     }
+  }
+}
+
+/**
+ * Normalize a string for comparison: lowercase, strip dashes/spaces.
+ */
+function _access_misc_normalize_term(string $name): string {
+  return strtolower(preg_replace('/[\s\-_]+/', '', $name));
+}
+
+/**
+ * Implements hook_node_presave().
+ *
+ * For appverse_software nodes, move tags that match a topic (normalized) from
+ * field_tags to field_appverse_topics. This prevents duplication between the
+ * two vocabularies.
+ */
+function access_misc_node_presave(NodeInterface $node) {
+  if ($node->bundle() !== 'appverse_software') {
+    return;
+  }
+
+  if (!$node->hasField('field_tags') || !$node->hasField('field_appverse_topics')) {
+    return;
+  }
+
+  // Build a lookup of normalized topic names → term IDs.
+  $topic_terms = \Drupal::entityTypeManager()
+    ->getStorage('taxonomy_term')
+    ->loadTree('appverse_science_domains', 0, NULL, TRUE);
+
+  $topic_map = [];
+  foreach ($topic_terms as $term) {
+    $normalized = _access_misc_normalize_term($term->getName());
+    $topic_map[$normalized] = (int) $term->id();
+  }
+
+  // Collect current topic IDs already on the node.
+  $current_topic_ids = array_map(function ($item) {
+    return (int) $item['target_id'];
+  }, $node->get('field_appverse_topics')->getValue());
+
+  $tags = $node->get('field_tags')->getValue();
+  $remaining_tags = [];
+  $topics_to_add = [];
+
+  foreach ($tags as $tag_item) {
+    $tag_term = Term::load($tag_item['target_id']);
+    if (!$tag_term) {
+      continue;
+    }
+
+    $normalized_tag = _access_misc_normalize_term($tag_term->getName());
+
+    if (isset($topic_map[$normalized_tag])) {
+      // This tag matches a topic — add the topic if not already present.
+      $topic_id = $topic_map[$normalized_tag];
+      if (!in_array($topic_id, $current_topic_ids) && !in_array($topic_id, $topics_to_add)) {
+        $topics_to_add[] = $topic_id;
+      }
+      // Don't keep this tag.
+    }
+    else {
+      // Keep tags that don't match any topic.
+      $remaining_tags[] = $tag_item;
+    }
+  }
+
+  // Update fields if anything changed.
+  if (count($remaining_tags) !== count($tags)) {
+    $node->set('field_tags', $remaining_tags);
+
+    if ($topics_to_add) {
+      $topic_values = $node->get('field_appverse_topics')->getValue();
+      foreach ($topics_to_add as $tid) {
+        $topic_values[] = ['target_id' => $tid];
+      }
+      $node->set('field_appverse_topics', $topic_values);
+    }
+
+    \Drupal::logger('access_misc')->notice(
+      'Appverse software "@title": moved @count tag(s) to topics.',
+      [
+        '@title' => $node->getTitle(),
+        '@count' => count($tags) - count($remaining_tags),
+      ]
+    );
   }
 }
