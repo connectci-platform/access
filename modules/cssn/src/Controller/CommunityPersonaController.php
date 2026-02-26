@@ -532,11 +532,11 @@ class CommunityPersonaController extends ControllerBase {
         {% set skill_margin = "mb-3" %}
         {% if bio %}
         {% set skill_margin = "my-3" %}
-        <div class="border border-secondary border-md-teal mb-3 mb-6">
+        <div class="mb-3 mb-6">
           <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
             <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ bio_title }}</h2>
           </div>
-          <div class="d-flex flex flex-wrap p-3">
+          <div class="d-flex flex flex-wrap py-3">
             <div id="bio-summary" aria-hidden="false">
               {{ bio_summary |raw }}
             </div>
@@ -546,40 +546,40 @@ class CommunityPersonaController extends ControllerBase {
           </div>
         </div>
         {% endif %}
-        <div class="border border-secondary border-md-teal {{ skill_margin }} mb-6">
+        <div class="{{ skill_margin }} mb-6">
           <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
             <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ me_title }}</h2>
           </div>
-          <div class="d-flex flex flex-wrap p-3">
+          <div class="d-flex flex flex-wrap py-3">
             {{ my_skills|raw }}
           </div>
-          <div class="p-3 pt-0">{{ edit_skill_link }}</div>
+          <div class="pt-0">{{ edit_skill_link }}</div>
         </div>
-        <div class="border border-secondary border-md-teal my-3 mb-6">
+        <div class="my-3 mb-6">
           <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
             <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mi_title }}</h2>
           </div>
-          <div class="d-flex flex flex-wrap p-3">
+          <div class="d-flex flex flex-wrap py-3">
             {{ my_interests|raw }}
           </div>
-          <div class="p-3 pt-0">{{ edit_interest_link }}</div>
+          <div class="pt-0">{{ edit_interest_link }}</div>
         </div>
         {% if gh_graph %}
-          <div class="border border-secondary border-md-teal my-3 mb-6">
+          <div class="my-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
               <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
             </div>
-            <div class="p-3">
+            <div class="py-3">
               {{ gh_graph|raw }}
             </div>
           </div>
         {% endif %}
         {% if discourse_posts %}
-          <div class="border border-secondary border-md-teal my-3 mb-6">
+          <div class="my-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
               <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ discourse_title }}</h2>
             </div>
-            <div class="p-3 d-flex flex justify-content-between flex-wrap">
+            <div class="py-3 d-flex flex justify-content-between flex-wrap">
               <div class="d-flex flex-column pr-2">
                 <h2 class="order-2 text-center h6">{{ discourse_post_title }}</h2>
                 <p class="order-1 text-center h1">{{ discourse_posts }}</p>
@@ -608,39 +608,39 @@ class CommunityPersonaController extends ControllerBase {
           </div>
         {% endif %}
         {% if appverse_contributions %}
-          <div class="border border-secondary border-md-teal my-3 mb-6">
+          <div class="my-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
               <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ appverse_title }}</h2>
             </div>
-            <div class="p-3">
+            <div class="py-3">
               {{ appverse_contributions|raw }}
             </div>
           </div>
         {% endif %}
-        <div class="border border-secondary border-md-teal my-3 mb-6">
+        <div class="my-3 mb-6">
           <h2 class="h4 text-lg font-bold leading-5 text-white py-2 px-3 m-0 bg-dark bg-md-teal p-4">{{ ag_title }}</h2>
-            <div class="p-3">
+            <div class="py-3">
               <p>{{ ag_intro }}</p>
               {{ user_affinity_groups|raw }}
               {{ affinity_link }}
             </div>
         </div>
-        <div class="border border-secondary border-md-teal my-3 mb-6">
+        <div class="my-3 mb-6">
           <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
             <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ ws_title }}</h2>
           </div>
-          <div class="p-3">
+          <div class="py-3">
             {{ ws_links|raw }}
             {{ request_webform_link }}
           </div>
         </div>
 
         {% if match_links != "" %}
-          <div class="border border-secondary border-md-teal my-3 mb-6">
+          <div class="my-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
               <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ match_title }}</h2>
             </div>
-            <div class="p-3">
+            <div class="py-3">
               {{ match_links|raw }}
               {{ request_match_link }}
             </div>
@@ -648,33 +648,33 @@ class CommunityPersonaController extends ControllerBase {
         {% endif %}
 
         {% if mentorships != "" %}
-          <div class="border border-secondary border-md-teal my-3 mb-6">
+          <div class="my-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
               <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mentorships_title }}</h2>
             </div>
-            <div class="p-3">
+            <div class="py-3">
               {{ mentorships|raw }}
             </div>
           </div>
         {% endif %}
 
         {% if projects != "na" %}
-          <div class="border border-secondary border-md-teal my-3 mb-6">
+          <div class="my-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
               <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ project_title }}</h2>
             </div>
-            <div class="p-3">
+            <div class="py-3">
               {{ projects|raw }}
             </div>
           </div>
         {% endif %}
 
         {% if user_event_total_items >= 1 %}
-          <div class="border border-secondary border-md-teal my-3 mb-6 prose max-w-full">
+          <div class="my-3 mb-6 prose max-w-full">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
               <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ user_event_title }}</h2>
             </div>
-            <div class="p-3">
+            <div class="py-3">
               {{ user_event_registrations }}
             </div>
           </div>
@@ -804,11 +804,11 @@ class CommunityPersonaController extends ControllerBase {
           {% set skill_margin = "mb-3" %}
           {% if bio %}
           {% set skill_margin = "my-3" %}
-          <div class="border border-secondary border-md-teal mb-3 mb-6">
+          <div class="mb-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
               <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ bio_title }}</h2>
             </div>
-            <div class="d-flex flex flex-wrap p-3">
+            <div class="d-flex flex flex-wrap py-3">
               <div id="bio-summary" aria-hidden="false">
                 {{ bio_summary |raw }}
               </div>
@@ -818,38 +818,38 @@ class CommunityPersonaController extends ControllerBase {
             </div>
           </div>
           {% endif %}
-          <div class="border border-secondary border-md-teal {{ skill_margin }} mb-6">
+          <div class="{{ skill_margin }} mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
               <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ me_title }}</h2>
             </div>
-            <div class="d-flex flex flex-wrap p-3">
+            <div class="d-flex flex flex-wrap py-3">
               {{ my_skills|raw }}
             </div>
           </div>
-          <div class="border border-secondary border-md-teal my-3 mb-6">
+          <div class="my-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
               <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ mi_title }}</h2>
             </div>
-            <div class="d-flex flex flex-wrap p-3">
+            <div class="d-flex flex flex-wrap py-3">
               {{ my_interests|raw }}
             </div>
           </div>
           {% if gh_graph %}
-            <div class="border border-secondary border-md-teal my-3 mb-6">
+            <div class="my-3 mb-6">
               <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
                 <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
               </div>
-              <div class="p-3">
+              <div class="py-3">
                 {{ gh_graph|raw }}
               </div>
             </div>
           {% endif %}
           {% if discourse_posts %}
-            <div class="border border-secondary border-md-teal my-3 mb-6">
+            <div class="my-3 mb-6">
               <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
                 <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ discourse_title }}</h2>
               </div>
-              <div class="p-3 d-flex flex justify-content-between">
+              <div class="py-3 d-flex flex justify-content-between">
                 <div class="d-flex flex-column">
                   <h2 class="order-2 text-center h6">{{ discourse_post_title }}</h2>
                   <p class="order-1 text-center h1">{{ discourse_posts }}</p>
@@ -878,58 +878,58 @@ class CommunityPersonaController extends ControllerBase {
             </div>
           {% endif %}
           {% if appverse_contributions %}
-            <div class="border border-secondary border-md-teal my-3 mb-6">
+            <div class="my-3 mb-6">
               <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
                 <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ appverse_title }}</h2>
               </div>
-              <div class="p-3">
+              <div class="py-3">
                 {{ appverse_contributions|raw }}
               </div>
             </div>
           {% endif %}
-          <div class="border border-secondary border-md-teal my-3 mb-6">
+          <div class="my-3 mb-6">
             <h2 class="h4 text-lg font-bold leading-5 text-white py-2 px-3 m-0 bg-dark bg-md-teal p-4">{{ ag_title }}</h2>
-              <div class="p-3">
+              <div class="py-3">
                 {{ user_affinity_groups|raw }}
               </div>
           </div>
-          <div class="border border-secondary border-md-teal my-3 mb-6">
+          <div class="my-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
               <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ ws_title }}</h2>
             </div>
-            <div class="p-3">
+            <div class="py-3">
               {{ ws_links|raw }}
             </div>
           </div>
 
           {% if match_links != "" %}
-            <div class="border border-secondary border-md-teal my-3 mb-6">
+            <div class="my-3 mb-6">
               <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
                 <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ match_title }}</h2>
               </div>
-              <div class="p-3">
+              <div class="py-3">
                 {{ match_links|raw }}
               </div>
             </div>
           {% endif %}
 
           {% if mentorships != "" %}
-            <div class="border border-secondary border-md-teal my-3 mb-6">
+            <div class="my-3 mb-6">
               <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
                 <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mentorship_title }}</h2>
               </div>
-              <div class="p-3">
+              <div class="py-3">
                 {{ mentorships|raw }}
               </div>
             </div>
           {% endif %}
 
           {% if projects != "na" %}
-            <div class="border border-secondary border-md-teal my-3 mb-6">
+            <div class="my-3 mb-6">
               <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
                 <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ project_title }}</h2>
               </div>
-              <div class="p-3">
+              <div class="py-3">
                 {{ projects|raw }}
               </div>
             </div>
