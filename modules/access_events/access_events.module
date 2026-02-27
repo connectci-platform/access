@@ -1442,3 +1442,95 @@ function access_events_registrant_eligibility_validate($form, FormStateInterface
   }
 }
 
+/**
+ * Implements hook_entity_view().
+ *
+ * Adds JSON-LD structured data for eventinstance entities.
+ */
+function access_events_entity_view(array &$build, EntityInterface $entity, $display, $view_mode) {
+  if ($entity->getEntityTypeId() !== 'eventinstance' || $view_mode !== 'full') {
+    return;
+  }
+
+  $event_series = $entity->getEventSeries();
+
+  // Build the Event structured data.
+  $structured_data = [
+    '@context' => 'https://schema.org',
+    '@type' => 'Event',
+    'name' => $entity->get('title')->value ?? $entity->label(),
+    'url' => $entity->toUrl('canonical', ['absolute' => TRUE])->toString(),
+    'eventStatus' => 'https://schema.org/EventScheduled',
+  ];
+
+  // Start and end dates.
+  $date_field = $entity->get('date');
+  if (!$date_field->isEmpty()) {
+    $start = $date_field->value;
+    $end = $date_field->end_value;
+    if ($start) {
+      $structured_data['startDate'] = $start;
+    }
+    if ($end) {
+      $structured_data['endDate'] = $end;
+    }
+  }
+
+  // Description from inherited field or body.
+  $description = NULL;
+  if ($entity->hasField('description') && !$entity->get('description')->isEmpty()) {
+    $description = strip_tags($entity->get('description')->value);
+  }
+  elseif ($entity->hasField('body') && !$entity->get('body')->isEmpty()) {
+    $description = strip_tags($entity->get('body')->value);
+  }
+  if ($description) {
+    $structured_data['description'] = $description;
+  }
+
+  // Event attendance mode and location based on virtual meeting link.
+  if ($event_series && $event_series->hasField('field_event_virtual_meeting_link')
+    && !$event_series->get('field_event_virtual_meeting_link')->isEmpty()) {
+    $structured_data['eventAttendanceMode'] = 'https://schema.org/OnlineEventAttendanceMode';
+    $structured_data['location'] = [
+      '@type' => 'VirtualLocation',
+      'url' => $event_series->get('field_event_virtual_meeting_link')->uri
+        ?? $event_series->get('field_event_virtual_meeting_link')->value,
+    ];
+  }
+
+  // Organizer.
+  $structured_data['organizer'] = [
+    '@type' => 'Organization',
+    'name' => \Drupal::config('system.site')->get('name'),
+    'url' => \Drupal::request()->getSchemeAndHttpHost(),
+  ];
+
+  // Image from event series.
+  if ($event_series) {
+    $image_url = NULL;
+    foreach (['field_image', 'field_project_image'] as $image_field) {
+      if ($event_series->hasField($image_field) && !$event_series->get($image_field)->isEmpty()) {
+        $file = $event_series->get($image_field)->entity;
+        if ($file) {
+          $image_url = \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri());
+          break;
+        }
+      }
+    }
+    if ($image_url) {
+      $structured_data['image'] = $image_url;
+    }
+  }
+
+  $build['#attached']['html_head'][] = [
+    [
+      '#type' => 'html_tag',
+      '#tag' => 'script',
+      '#attributes' => ['type' => 'application/ld+json'],
+      '#value' => json_encode($structured_data, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+    ],
+    'eventinstance_jsonld',
+  ];
+}
+
