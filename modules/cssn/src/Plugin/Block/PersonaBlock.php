@@ -4,6 +4,7 @@ namespace Drupal\cssn\Plugin\Block;
 
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Link;
+use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Drupal\access_misc\Plugin\Util\RolesLabelLookup;
 use Drupal\cssn\Plugin\Util\EndUrl;
@@ -132,7 +133,7 @@ class PersonaBlock extends BlockBase {
       }
       if (!$public) {
         $cssn_role_url = Url::fromUri('internal:/form/edit-your-cssn-roles?destination=community-persona');
-        $cssn_role_link = Link::fromTextAndUrl('Edit Roles', $cssn_role_url);
+        $cssn_role_link = Link::fromTextAndUrl(Markup::create('<i class="text-dark bi-pencil-square" aria-hidden="true"></i> Edit Roles'), $cssn_role_url);
         $cssn_role_renderable = $cssn_role_link->toRenderable();
         $cssn_role = $cssn_role_renderable;
         $cssn_role['#attributes']['class'] = ['text-dark'];
@@ -193,7 +194,7 @@ class PersonaBlock extends BlockBase {
         $cssn['#attributes']['class'] = ['btn', 'btn-primary', 'btn-sm', 'py-1', 'px-2'];
       }
       $cssn_more_url = Url::fromUri('https://support.access-ci.org/community/cssn');
-      $cssn_more_link = Link::fromTextAndUrl('info', $cssn_more_url);
+      $cssn_more_link = Link::fromTextAndUrl(Markup::create('<i class="text-dark bi-info-circle text-md-teal" aria-hidden="true"></i> info'), $cssn_more_url);
       $cssn_more_renderable = $cssn_more_link->toRenderable();
       $cssn_more = $cssn_more_renderable;
       $cssn_more['#attributes']['class'] = [
@@ -244,7 +245,7 @@ class PersonaBlock extends BlockBase {
                           {% if cssn != "Not a CSSN Member" %}
                             <div class="d-flex justify-content-between flex justify-between">
                               <p>{{ cssn_indicator | raw }} <strong>{{ cssn }}</strong></p>
-                              <div><i class="text-dark bi-info-circle text-md-teal" aria-hidden="true"></i> {{ cssn_more }}</div>
+                              <div>{{ cssn_more }}</div>
                             </div>
                           {% endif %}
                           {% if user_badges %}
@@ -286,7 +287,7 @@ class PersonaBlock extends BlockBase {
                                 <div><h2 class="h4 text-lg font-bold leading-5 mt-0">{{ role_text }}:</h2>{{ roles | raw }}</div>
                               {% endif %}
                               {% if cssn_role %}
-                                <div><i class="text-dark bi-pencil-square" aria-hidden="true"></i> {{ cssn_role }}</div>
+                                <div>{{ cssn_role }}</div>
                               {% endif %}
                             </div>
                             {% if program %}
