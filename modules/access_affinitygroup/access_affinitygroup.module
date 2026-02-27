@@ -1475,6 +1475,8 @@ function access_affinitygroup_form_alter(&$form, FormStateInterface $form_state,
                     </details>",
       '#weight' => 3,
       '#allowed_tags' => [
+        'ul',
+        'li',
         'button',
         'details',
         'summary',
