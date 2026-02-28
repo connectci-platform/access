@@ -1,4 +1,12 @@
 services:
+  access_misc.turnstile_service:
+    class: Drupal\access_misc\Services\TurnstileService
+
+  access_misc.turnstile_middleware:
+    class: Drupal\access_misc\StackMiddleware\TurnstileMiddleware
+    decorates: http_kernel
+    arguments: ['@access_misc.turnstile_middleware.inner', '@access_misc.turnstile_service']
+
   access_misc.subscriber:
     class: '\Drupal\access_misc\EventSubscriber\Subscriber'
     tags:
