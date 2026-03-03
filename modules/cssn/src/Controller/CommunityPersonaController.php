@@ -380,7 +380,7 @@ class CommunityPersonaController extends ControllerBase {
       $n++;
     }
 
-    return '<ul class="list-unstyled list-none mx-0 my-3 p-0" style="columns: 3;">' . $items . '</ul>';
+    return '<ul class="appverse-contribs list-unstyled list-none mx-0 my-3 p-0">' . $items . '</ul>';
   }
 
   /**
@@ -529,157 +529,158 @@ class CommunityPersonaController extends ControllerBase {
         ],
       ],
       '#template' => '
-        {% set skill_margin = "mb-3" %}
-        {% if bio %}
-        {% set skill_margin = "my-3" %}
-        <div class="mb-3 mb-6">
-          <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-            <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ bio_title }}</h2>
-          </div>
-          <div class="d-flex flex flex-wrap py-3">
-            <div id="bio-summary" aria-hidden="false">
-              {{ bio_summary |raw }}
+        <div id="community-persona">
+          {% set skill_margin = "mb-3" %}
+          {% if bio %}
+          {% set skill_margin = "my-3" %}
+          <div class="mb-3 mb-6">
+            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ bio_title }}</h2>
             </div>
-            <div id="full-bio" class="sr-only" aria-hidden="true">
-              {{ bio |raw }}
+            <div class="d-flex flex flex-wrap py-3">
+              <div id="bio-summary" aria-hidden="false">
+                {{ bio_summary |raw }}
+              </div>
+              <div id="full-bio" class="sr-only" aria-hidden="true">
+                {{ bio |raw }}
+              </div>
             </div>
           </div>
-        </div>
-        {% endif %}
-        <div class="{{ skill_margin }} mb-6">
-          <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-            <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ me_title }}</h2>
+          {% endif %}
+          <div class="{{ skill_margin }} mb-6">
+            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ me_title }}</h2>
+            </div>
+            <div class="d-flex flex flex-wrap py-3">
+              {{ my_skills|raw }}
+            </div>
+            <div class="pt-0">{{ edit_skill_link }}</div>
           </div>
-          <div class="d-flex flex flex-wrap py-3">
-            {{ my_skills|raw }}
-          </div>
-          <div class="pt-0">{{ edit_skill_link }}</div>
-        </div>
-        <div class="my-3 mb-6">
-          <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-            <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mi_title }}</h2>
-          </div>
-          <div class="d-flex flex flex-wrap py-3">
-            {{ my_interests|raw }}
-          </div>
-          <div class="pt-0">{{ edit_interest_link }}</div>
-        </div>
-        {% if gh_graph %}
           <div class="my-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
+              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mi_title }}</h2>
             </div>
-            <div class="py-3">
-              {{ gh_graph|raw }}
+            <div class="d-flex flex flex-wrap py-3">
+              {{ my_interests|raw }}
             </div>
+            <div class="pt-0">{{ edit_interest_link }}</div>
           </div>
-        {% endif %}
-        {% if discourse_posts %}
+          {% if gh_graph %}
+            <div class="my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
+              </div>
+              <div class="py-3">
+                {{ gh_graph|raw }}
+              </div>
+            </div>
+          {% endif %}
+          {% if discourse_posts %}
+            <div class="my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ discourse_title }}</h2>
+              </div>
+              <div class="py-3 d-flex flex justify-content-between flex-wrap">
+                <div class="d-flex flex-column pr-2">
+                  <h2 class="order-2 text-center h6">{{ discourse_post_title }}</h2>
+                  <p class="order-1 text-center h1">{{ discourse_posts }}</p>
+                </div>
+                <div class="d-flex flex-column flex-wrap pr-2">
+                  <h2 class="order-2 text-center h6">{{ discourse_topic_title }}</h2>
+                  <p class="order-1 text-center h1">{{ discourse_topics }}</p>
+                </div>
+                <div class="d-flex flex-column flex-wrap pr-2">
+                  <h2 class="order-2 text-center h6">{{ discourse_solved_title }}</h2>
+                  <p class="order-1 text-center h1">{{ discourse_solved }}</p>
+                </div>
+                <div class="d-flex flex-column flex-wrap pr-2">
+                  <h2 class="order-2 text-center h6">{{ discourse_likes_given_title }}</h2>
+                  <p class="order-1 text-center h1">{{ discourse_likes_given }}</p>
+                </div>
+                <div class="d-flex flex-column flex-wrap pr-2">
+                  <h2 class="order-2 text-center h6">{{ discourse_likes_received_title }}</h2>
+                  <p class="order-1 text-center h1">{{ discourse_likes_received }}</p>
+                </div>
+                <div class="d-flex flex-column flex-wrap">
+                  <h2 class="order-2 text-center h6">{{ discourse_days_visited_title }}</h2>
+                  <p class="order-1 text-center h1">{{ discourse_days_visited }}</p>
+                </div>
+              </div>
+            </div>
+          {% endif %}
+          {% if appverse_contributions %}
+            <div class="my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ appverse_title }}</h2>
+              </div>
+              <div class="py-3">
+                {{ appverse_contributions|raw }}
+              </div>
+            </div>
+          {% endif %}
+          <div class="my-3 mb-6">
+            <h2 class="h4 text-lg font-bold leading-5 text-white py-2 px-3 m-0 bg-dark bg-md-teal p-4">{{ ag_title }}</h2>
+              <div class="py-3">
+                <p>{{ ag_intro }}</p>
+                {{ user_affinity_groups|raw }}
+                {{ affinity_link }}
+              </div>
+          </div>
           <div class="my-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ discourse_title }}</h2>
-            </div>
-            <div class="py-3 d-flex flex justify-content-between flex-wrap">
-              <div class="d-flex flex-column pr-2">
-                <h2 class="order-2 text-center h6">{{ discourse_post_title }}</h2>
-                <p class="order-1 text-center h1">{{ discourse_posts }}</p>
-              </div>
-              <div class="d-flex flex-column flex-wrap pr-2">
-                <h2 class="order-2 text-center h6">{{ discourse_topic_title }}</h2>
-                <p class="order-1 text-center h1">{{ discourse_topics }}</p>
-              </div>
-              <div class="d-flex flex-column flex-wrap pr-2">
-                <h2 class="order-2 text-center h6">{{ discourse_solved_title }}</h2>
-                <p class="order-1 text-center h1">{{ discourse_solved }}</p>
-              </div>
-              <div class="d-flex flex-column flex-wrap pr-2">
-                <h2 class="order-2 text-center h6">{{ discourse_likes_given_title }}</h2>
-                <p class="order-1 text-center h1">{{ discourse_likes_given }}</p>
-              </div>
-              <div class="d-flex flex-column flex-wrap pr-2">
-                <h2 class="order-2 text-center h6">{{ discourse_likes_received_title }}</h2>
-                <p class="order-1 text-center h1">{{ discourse_likes_received }}</p>
-              </div>
-              <div class="d-flex flex-column flex-wrap">
-                <h2 class="order-2 text-center h6">{{ discourse_days_visited_title }}</h2>
-                <p class="order-1 text-center h1">{{ discourse_days_visited }}</p>
-              </div>
-            </div>
-          </div>
-        {% endif %}
-        {% if appverse_contributions %}
-          <div class="my-3 mb-6">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ appverse_title }}</h2>
+              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ ws_title }}</h2>
             </div>
             <div class="py-3">
-              {{ appverse_contributions|raw }}
+              {{ ws_links|raw }}
+              {{ request_webform_link }}
             </div>
           </div>
-        {% endif %}
-        <div class="my-3 mb-6">
-          <h2 class="h4 text-lg font-bold leading-5 text-white py-2 px-3 m-0 bg-dark bg-md-teal p-4">{{ ag_title }}</h2>
-            <div class="py-3">
-              <p>{{ ag_intro }}</p>
-              {{ user_affinity_groups|raw }}
-              {{ affinity_link }}
-            </div>
-        </div>
-        <div class="my-3 mb-6">
-          <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-            <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ ws_title }}</h2>
-          </div>
-          <div class="py-3">
-            {{ ws_links|raw }}
-            {{ request_webform_link }}
-          </div>
-        </div>
 
-        {% if match_links != "" %}
-          <div class="my-3 mb-6">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ match_title }}</h2>
+          {% if match_links != "" %}
+            <div class="my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ match_title }}</h2>
+              </div>
+              <div class="py-3">
+                {{ match_links|raw }}
+                {{ request_match_link }}
+              </div>
             </div>
-            <div class="py-3">
-              {{ match_links|raw }}
-              {{ request_match_link }}
-            </div>
-          </div>
-        {% endif %}
+          {% endif %}
 
-        {% if mentorships != "" %}
-          <div class="my-3 mb-6">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mentorships_title }}</h2>
+          {% if mentorships != "" %}
+            <div class="my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mentorships_title }}</h2>
+              </div>
+              <div class="py-3">
+                {{ mentorships|raw }}
+              </div>
             </div>
-            <div class="py-3">
-              {{ mentorships|raw }}
-            </div>
-          </div>
-        {% endif %}
+          {% endif %}
 
-        {% if projects != "na" %}
-          <div class="my-3 mb-6">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ project_title }}</h2>
+          {% if projects != "na" %}
+            <div class="my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ project_title }}</h2>
+              </div>
+              <div class="py-3">
+                {{ projects|raw }}
+              </div>
             </div>
-            <div class="py-3">
-              {{ projects|raw }}
-            </div>
-          </div>
-        {% endif %}
+          {% endif %}
 
-        {% if user_event_total_items >= 1 %}
-          <div class="my-3 mb-6 prose max-w-full">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ user_event_title }}</h2>
+          {% if user_event_total_items >= 1 %}
+            <div class="my-3 mb-6 prose max-w-full">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ user_event_title }}</h2>
+              </div>
+              <div class="py-3">
+                {{ user_event_registrations }}
+              </div>
             </div>
-            <div class="py-3">
-              {{ user_event_registrations }}
-            </div>
-          </div>
-        {% endif %}
-        ',
+          {% endif %}
+        </div>',
       '#context' => [
         'bio_title' => t('Bio'),
         'bio_summary' => $bio_summary,
@@ -801,140 +802,141 @@ class CommunityPersonaController extends ControllerBase {
           ],
         ],
         '#template' => '
-          {% set skill_margin = "mb-3" %}
-          {% if bio %}
-          {% set skill_margin = "my-3" %}
-          <div class="mb-3 mb-6">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ bio_title }}</h2>
-            </div>
-            <div class="d-flex flex flex-wrap py-3">
-              <div id="bio-summary" aria-hidden="false">
-                {{ bio_summary |raw }}
+          <div id="community-persona">
+            {% set skill_margin = "mb-3" %}
+            {% if bio %}
+            {% set skill_margin = "my-3" %}
+            <div class="mb-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ bio_title }}</h2>
               </div>
-              <div id="full-bio" class="sr-only" aria-hidden="true">
-                {{ bio |raw }}
+              <div class="d-flex flex flex-wrap py-3">
+                <div id="bio-summary" aria-hidden="false">
+                  {{ bio_summary |raw }}
+                </div>
+                <div id="full-bio" class="sr-only" aria-hidden="true">
+                  {{ bio |raw }}
+                </div>
               </div>
             </div>
-          </div>
-          {% endif %}
-          <div class="{{ skill_margin }} mb-6">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ me_title }}</h2>
+            {% endif %}
+            <div class="{{ skill_margin }} mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ me_title }}</h2>
+              </div>
+              <div class="d-flex flex flex-wrap py-3">
+                {{ my_skills|raw }}
+              </div>
             </div>
-            <div class="d-flex flex flex-wrap py-3">
-              {{ my_skills|raw }}
-            </div>
-          </div>
-          <div class="my-3 mb-6">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ mi_title }}</h2>
-            </div>
-            <div class="d-flex flex flex-wrap py-3">
-              {{ my_interests|raw }}
-            </div>
-          </div>
-          {% if gh_graph %}
             <div class="my-3 mb-6">
               <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
+                <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ mi_title }}</h2>
               </div>
-              <div class="py-3">
-                {{ gh_graph|raw }}
+              <div class="d-flex flex flex-wrap py-3">
+                {{ my_interests|raw }}
               </div>
             </div>
-          {% endif %}
-          {% if discourse_posts %}
+            {% if gh_graph %}
+              <div class="my-3 mb-6">
+                <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                  <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
+                </div>
+                <div class="py-3">
+                  {{ gh_graph|raw }}
+                </div>
+              </div>
+            {% endif %}
+            {% if discourse_posts %}
+              <div class="my-3 mb-6">
+                <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                  <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ discourse_title }}</h2>
+                </div>
+                <div class="py-3 d-flex flex justify-content-between">
+                  <div class="d-flex flex-column">
+                    <h2 class="order-2 text-center h6">{{ discourse_post_title }}</h2>
+                    <p class="order-1 text-center h1">{{ discourse_posts }}</p>
+                  </div>
+                  <div class="d-flex flex-column">
+                    <h2 class="order-2 text-center h6">{{ discourse_topic_title }}</h2>
+                    <p class="order-1 text-center h1">{{ discourse_topics }}</p>
+                  </div>
+                  <div class="d-flex flex-column">
+                    <h2 class="order-2 text-center h6">{{ discourse_solved_title }}</h2>
+                    <p class="order-1 text-center h1">{{ discourse_solved }}</p>
+                  </div>
+                  <div class="d-flex flex-column">
+                    <h2 class="order-2 text-center h6">{{ discourse_likes_given_title }}</h2>
+                    <p class="order-1 text-center h1">{{ discourse_likes_given }}</p>
+                  </div>
+                  <div class="d-flex flex-column">
+                    <h2 class="order-2 text-center h6">{{ discourse_likes_received_title }}</h2>
+                    <p class="order-1 text-center h1">{{ discourse_likes_received }}</p>
+                  </div>
+                  <div class="d-flex flex-column">
+                    <h2 class="order-2 text-center h6">{{ discourse_days_visited_title }}</h2>
+                    <p class="order-1 text-center h1">{{ discourse_days_visited }}</p>
+                  </div>
+                </div>
+              </div>
+            {% endif %}
+            {% if appverse_contributions %}
+              <div class="my-3 mb-6">
+                <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                  <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ appverse_title }}</h2>
+                </div>
+                <div class="py-3">
+                  {{ appverse_contributions|raw }}
+                </div>
+              </div>
+            {% endif %}
+            <div class="my-3 mb-6">
+              <h2 class="h4 text-lg font-bold leading-5 text-white py-2 px-3 m-0 bg-dark bg-md-teal p-4">{{ ag_title }}</h2>
+                <div class="py-3">
+                  {{ user_affinity_groups|raw }}
+                </div>
+            </div>
             <div class="my-3 mb-6">
               <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ discourse_title }}</h2>
-              </div>
-              <div class="py-3 d-flex flex justify-content-between">
-                <div class="d-flex flex-column">
-                  <h2 class="order-2 text-center h6">{{ discourse_post_title }}</h2>
-                  <p class="order-1 text-center h1">{{ discourse_posts }}</p>
-                </div>
-                <div class="d-flex flex-column">
-                  <h2 class="order-2 text-center h6">{{ discourse_topic_title }}</h2>
-                  <p class="order-1 text-center h1">{{ discourse_topics }}</p>
-                </div>
-                <div class="d-flex flex-column">
-                  <h2 class="order-2 text-center h6">{{ discourse_solved_title }}</h2>
-                  <p class="order-1 text-center h1">{{ discourse_solved }}</p>
-                </div>
-                <div class="d-flex flex-column">
-                  <h2 class="order-2 text-center h6">{{ discourse_likes_given_title }}</h2>
-                  <p class="order-1 text-center h1">{{ discourse_likes_given }}</p>
-                </div>
-                <div class="d-flex flex-column">
-                  <h2 class="order-2 text-center h6">{{ discourse_likes_received_title }}</h2>
-                  <p class="order-1 text-center h1">{{ discourse_likes_received }}</p>
-                </div>
-                <div class="d-flex flex-column">
-                  <h2 class="order-2 text-center h6">{{ discourse_days_visited_title }}</h2>
-                  <p class="order-1 text-center h1">{{ discourse_days_visited }}</p>
-                </div>
-              </div>
-            </div>
-          {% endif %}
-          {% if appverse_contributions %}
-            <div class="my-3 mb-6">
-              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ appverse_title }}</h2>
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ ws_title }}</h2>
               </div>
               <div class="py-3">
-                {{ appverse_contributions|raw }}
+                {{ ws_links|raw }}
               </div>
             </div>
-          {% endif %}
-          <div class="my-3 mb-6">
-            <h2 class="h4 text-lg font-bold leading-5 text-white py-2 px-3 m-0 bg-dark bg-md-teal p-4">{{ ag_title }}</h2>
-              <div class="py-3">
-                {{ user_affinity_groups|raw }}
-              </div>
-          </div>
-          <div class="my-3 mb-6">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ ws_title }}</h2>
-            </div>
-            <div class="py-3">
-              {{ ws_links|raw }}
-            </div>
-          </div>
 
-          {% if match_links != "" %}
-            <div class="my-3 mb-6">
-              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ match_title }}</h2>
+            {% if match_links != "" %}
+              <div class="my-3 mb-6">
+                <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                  <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ match_title }}</h2>
+                </div>
+                <div class="py-3">
+                  {{ match_links|raw }}
+                </div>
               </div>
-              <div class="py-3">
-                {{ match_links|raw }}
-              </div>
-            </div>
-          {% endif %}
+            {% endif %}
 
-          {% if mentorships != "" %}
-            <div class="my-3 mb-6">
-              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mentorship_title }}</h2>
+            {% if mentorships != "" %}
+              <div class="my-3 mb-6">
+                <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                  <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mentorship_title }}</h2>
+                </div>
+                <div class="py-3">
+                  {{ mentorships|raw }}
+                </div>
               </div>
-              <div class="py-3">
-                {{ mentorships|raw }}
-              </div>
-            </div>
-          {% endif %}
+            {% endif %}
 
-          {% if projects != "na" %}
-            <div class="my-3 mb-6">
-              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ project_title }}</h2>
+            {% if projects != "na" %}
+              <div class="my-3 mb-6">
+                <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                  <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ project_title }}</h2>
+                </div>
+                <div class="py-3">
+                  {{ projects|raw }}
+                </div>
               </div>
-              <div class="py-3">
-                {{ projects|raw }}
-              </div>
-            </div>
-          {% endif %}
-          ',
+            {% endif %}
+          </div>',
         '#context' => [
           'bio_title' => t('Bio'),
           'bio_summary' => $bio_summary,
