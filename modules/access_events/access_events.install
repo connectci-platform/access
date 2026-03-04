@@ -295,3 +295,88 @@ function access_events_update_10005() {
     '@revisions' => $updated_revisions,
   ]);
 }
+
+/**
+ * Migrate event email text fields from fragments to full email body templates.
+ */
+function access_events_update_10006() {
+  $templates = _access_events_email_templates();
+
+  // Map: field_name => [template_key, old fragment insertion token].
+  $field_map = [
+    'field_screen_survey_email_text' => 'registration',
+    'field_pre_survey_email_text' => 'approval',
+    'field_post_survey_email_text' => 'post_survey',
+  ];
+
+  // The old templates with a placeholder where the fragment was inserted.
+  // We'll wrap existing fragments into the full template at this marker.
+  $old_templates = [
+    'field_screen_survey_email_text' => [
+      'before' => '<p>Dear {{ name }},</p>' . "\n"
+        . '<p>Thank you for registering for <strong>{{ title_link }}</strong> scheduled for {{ start_date }}. Your registration has been submitted and is under review.</p>' . "\n"
+        . '<p>You will receive another email once your registration has been reviewed and approved. Approval typically takes 1-2 business days.</p>' . "\n",
+      'after' => '{% if screen_survey_url %}<p><a href="{{ screen_survey_url }}">{{ screen_survey_url }}</a></p>{% endif %}' . "\n"
+        . '<p>____<br>This message is sent through the ACCESS-CI event registration system.</p>',
+    ],
+    'field_pre_survey_email_text' => [
+      'before' => '<p>Dear {{ name }},</p>' . "\n"
+        . '<p>Congratulations! Your registration for <strong>{{ title_link }}</strong> on {{ start_date }} has been confirmed.</p>' . "\n"
+        . '<p>Here are the details:</p>' . "\n"
+        . '<ul><li><strong>Location (if applicable):</strong> {{ location }}</li>' . "\n"
+        . '<li><strong>Time:</strong> {{ event_start_time }} - {{ event_end_time }}</li></ul>' . "\n",
+      'after' => '{% if pre_survey_url %}<p><a href="{{ pre_survey_url }}">{{ pre_survey_url }}</a></p>{% endif %}' . "\n"
+        . '<p>We are glad you are going to attend!</p>' . "\n"
+        . '<p>____<br>This message is sent through the ACCESS-CI event registration system.</p>',
+    ],
+    'field_post_survey_email_text' => [
+      'before' => '<p>Dear {{ name }},</p>' . "\n"
+        . '<p>Thank you for participating in <strong>{{ title }}</strong>. We\'d appreciate it if you participated in our survey.</p>' . "\n",
+      'after' => '{% if post_survey_url %}<p><a href="{{ post_survey_url }}">{{ post_survey_url }}</a></p>{% endif %}' . "\n"
+        . '<p>____<br>This message is sent through the ACCESS-CI event registration system.</p>',
+    ],
+  ];
+
+  $entity_query = \Drupal::entityTypeManager()->getStorage('eventseries')->getQuery();
+  $entity_query->accessCheck(FALSE);
+  $series_ids = $entity_query->execute();
+
+  $migrated = 0;
+  $populated = 0;
+
+  foreach ($series_ids as $series_id) {
+    $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($series_id);
+    $changed = FALSE;
+
+    foreach ($field_map as $field_name => $template_key) {
+      $value = $series->get($field_name)->value;
+
+      if (!empty($value)) {
+        // Wrap existing fragment into full template.
+        // Fragment already has block-level tags from CKEditor.
+        $full = $old_templates[$field_name]['before']
+          . $value . "\n"
+          . $old_templates[$field_name]['after'];
+        $series->set($field_name, $full);
+        $changed = TRUE;
+        $migrated++;
+      }
+      else {
+        // Populate with default template.
+        $series->set($field_name, $templates[$template_key]);
+        $changed = TRUE;
+        $populated++;
+      }
+    }
+
+    if ($changed) {
+      $series->save();
+    }
+  }
+
+  return t('Migrated email templates for @total event series: @migrated fields wrapped with full template, @populated empty fields populated with defaults.', [
+    '@total' => count($series_ids),
+    '@migrated' => $migrated,
+    '@populated' => $populated,
+  ]);
+}
