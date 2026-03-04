@@ -529,7 +529,41 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
 
   if ($form_id == 'user_form') {
     $form['actions']['submit']['#submit'][] = 'access_misc_user_password_change';
+
+    // Hide the current password field and make the password field optional
+    // so users can save profile changes without setting a new password.
+    // Uses #after_build to ensure it runs after the form is fully built.
+    $form['#after_build'][] = 'access_misc_user_form_after_build';
   }
+}
+
+/**
+ * After build callback for user_form.
+ *
+ * Users authenticate via CILogon/social auth and don't have Drupal passwords,
+ * so we hide the current password field and make the password field optional.
+ * The user_pass_reset flag tells core's ProtectedUserFieldConstraint validator
+ * to skip the current password check on submit. User 1 is exempt so the
+ * superadmin account retains the current password requirement.
+ */
+function access_misc_user_form_after_build($form, FormStateInterface $form_state) {
+  // Do not bypass current password for the superadmin (user 1).
+  $account = $form_state->getFormObject()->getEntity();
+  if (!empty($account) && (int) $account->id() === 1) {
+    return $form;
+  }
+  if (isset($form['account']['current_pass'])) {
+    $form['account']['current_pass']['#access'] = FALSE;
+  }
+  if (isset($form['account']['pass'])) {
+    $form['account']['pass']['#required'] = FALSE;
+  }
+  // Ensure user_pass_reset is set so core's ProtectedUserFieldConstraint
+  // validator skips the current password check on submit. This is safe for
+  // admin-editing-other-user because the validator only checks when the
+  // current user is editing their own account.
+  $form_state->set('user_pass_reset', 1);
+  return $form;
 }
 
 /**
