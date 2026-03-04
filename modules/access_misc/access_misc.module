@@ -910,9 +910,10 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
   $policy = 'access_misc';
 
   // Render the full email body from the event's template field.
+  // Mark title_link as safe since it contains an <a> tag.
   $template_variables = [
     'name' => $name,
-    'title_link' => $series_title_url,
+    'title_link' => new \Twig\Markup($series_title_url, 'UTF-8'),
     'start_date' => $start_date,
     'screen_survey_url' => $series_screen_survey_url,
   ];
