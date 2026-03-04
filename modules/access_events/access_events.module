@@ -230,19 +230,26 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     }
   }
 
-  // Custom tags on /events/add
+  // Email body fields on event series forms.
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
-    $on_registration_email_text = t("An automated email is sent when someone registers for an event. It can be used to link to a screening survey or send other registration-related notifications. The email will appear as shown below. The <strong>Email Text</strong> and <strong>URL</strong> you enter will replace {{ on_registration_text }} and {{ screen_survey_url }}.");
-    $on_registration_email_text  .= "<br /><br /><div class='p-4 border'><p class='text-sm'>Dear {{ name }},</p><p class='text-sm'>Thank you for registering for {{ title_link }} scheduled for {{ start_date }}. Your registration has been submitted and is under review.</p><p class='text-sm'>You will receive another email once your registration has been reviewed and approved. Approval typically takes 1-2 business days.</p><p class='text-sm'>{{ on_registration_text }}</p><p class='text-sm'>{{ screen_survey_url }}</p><p class='text-sm'>____</p><p class='text-sm'>This message is sent through the ACCESS-CI event registration system.</p></div>";
-    $form['field_screen_survey_email_text']['#prefix'] = $on_registration_email_text;
+    $templates = _access_events_email_templates();
 
-    $on_approval_email_text = t("An automated email is sent when a registrant is approved. It can include a link to a pre-survey or other approval-related notifications. The email will appear as shown below. The <strong>Registration Approved Email Text</strong> and <strong>Pre-survey URL</strong> you enter will replace {{ on_approval_text }} and {{ pre_survey_url }}.");
-    $on_approval_email_text .= "<br /><br /><div class='p-4 border'><p class='text-sm' dir='ltr'>Dear {{ name }},</p><p class='text-sm' dir='ltr'>Congratulations! Your registration for {{ title_link }} on {{ start_date }} has been confirmed.</p><p class='text-sm' dir='ltr'>Here are the details:</p><p class='text-sm' dir='ltr'>Location (if applicable): {{ location }}</p><p class='text-sm' dir='ltr'>Time: {{ event_start_time }} - {{ event_end_time }}</p><p class='text-sm' dir='ltr'>{{ on_approval_text }}</p><p class='text-sm' dir='ltr'>{{ pre_survey_url }}</p><p class='text-sm' dir='ltr'>We are glad you are going to attend!</p><p class='text-sm' dir='ltr'>____</p><p class='text-sm' dir='ltr'>This message is sent through the ACCESS-CI event registration system.</p></div>";
-    $form['field_pre_survey_email_text']['#prefix'] = $on_approval_email_text;
+    // Token documentation for each email field.
+    $registration_tokens = '<p class="text-sm mt-2"><strong>Available tokens:</strong> <code>{{ name }}</code>, <code>{{ title_link }}</code>, <code>{{ start_date }}</code>, <code>{{ screen_survey_url }}</code></p>';
+    $form['field_screen_survey_email_text']['#prefix'] = t('This is the full email body sent when someone registers. You can customize the entire email using the tokens below.') . $registration_tokens;
 
-    $post_email_text = t("An automated email is sent to attendees near the end of the event. It can include a link to a post-event survey or other end-of-event notifications. A reminder is sent 3 days after the event if the link isn’t used. The Event End Email Text and Post-survey URL you enter will replace {{ post_event_text }} and {{ post_survey_url }}.");
-    $post_email_text .= "<br /><br /><div class='p-4 border'><p class='text-sm'>Dear {{ name }},</p><p class='text-sm'>Thank you for participating in {{ title }}. We'd appreciate it if you participated in our survey.</p><p class='text-sm'>{{ post_event_text }}</p><p class='text-sm'>{{ post_survey_url }}</p><p class='text-sm'>____</p><p class='text-sm'>This message is sent through the ACCESS-CI event registration system.</p></div>";
-    $form['field_post_survey_email_text']['#prefix'] = $post_email_text;
+    $approval_tokens = '<p class="text-sm mt-2"><strong>Available tokens:</strong> <code>{{ name }}</code>, <code>{{ title_link }}</code>, <code>{{ start_date }}</code>, <code>{{ location }}</code>, <code>{{ event_start_time }}</code>, <code>{{ event_end_time }}</code>, <code>{{ pre_survey_url }}</code></p>';
+    $form['field_pre_survey_email_text']['#prefix'] = t('This is the full email body sent when a registration is approved. You can customize the entire email using the tokens below.') . $approval_tokens;
+
+    $post_survey_tokens = '<p class="text-sm mt-2"><strong>Available tokens:</strong> <code>{{ name }}</code>, <code>{{ title }}</code>, <code>{{ post_survey_url }}</code></p>';
+    $form['field_post_survey_email_text']['#prefix'] = t('This is the full email body sent near the end of the event with a post-survey link. A reminder is sent 3 days later if unused. You can customize the entire email using the tokens below.') . $post_survey_tokens;
+
+    // Pre-populate with default templates on add form only.
+    if ($form_id == 'eventseries_default_add_form') {
+      $form['field_screen_survey_email_text']['widget'][0]['#default_value'] = $templates['registration'];
+      $form['field_pre_survey_email_text']['widget'][0]['#default_value'] = $templates['approval'];
+      $form['field_post_survey_email_text']['widget'][0]['#default_value'] = $templates['post_survey'];
+    }
 
     // If user is not administrator, hide the field 'domain_access'.
     $current_user = \Drupal::currentUser();
@@ -1439,6 +1446,62 @@ function access_events_registrant_eligibility_validate($form, FormStateInterface
       '@username' => $username,
       '@message' => $e->getMessage(),
     ]);
+  }
+}
+
+/**
+ * Returns default email body templates for event registration emails.
+ *
+ * @return array
+ *   Keyed by 'registration', 'approval', 'post_survey'.
+ */
+function _access_events_email_templates() {
+  return [
+    'registration' => '<p>Dear {{ name }},</p>
+<p>Thank you for registering for <strong>{{ title_link }}</strong> scheduled for {{ start_date }}. Your registration has been submitted and is under review.</p>
+<p>You will receive another email once your registration has been reviewed and approved. Approval typically takes 1-2 business days.</p>
+{% if screen_survey_url %}<p><a href="{{ screen_survey_url }}">{{ screen_survey_url }}</a></p>{% endif %}
+<p>____<br>This message is sent through the ACCESS-CI event registration system.</p>',
+
+    'approval' => '<p>Dear {{ name }},</p>
+<p>Congratulations! Your registration for <strong>{{ title_link }}</strong> on {{ start_date }} has been confirmed.</p>
+<p>Here are the details:</p>
+<ul><li><strong>Location (if applicable):</strong> {{ location }}</li>
+<li><strong>Time:</strong> {{ event_start_time }} - {{ event_end_time }}</li></ul>
+{% if pre_survey_url %}<p><a href="{{ pre_survey_url }}">{{ pre_survey_url }}</a></p>{% endif %}
+<p>We are glad you are going to attend!</p>
+<p>____<br>This message is sent through the ACCESS-CI event registration system.</p>',
+
+    'post_survey' => '<p>Dear {{ name }},</p>
+<p>Thank you for participating in <strong>{{ title }}</strong>. We\'d appreciate it if you participated in our survey.</p>
+{% if post_survey_url %}<p><a href="{{ post_survey_url }}">{{ post_survey_url }}</a></p>{% endif %}
+<p>____<br>This message is sent through the ACCESS-CI event registration system.</p>',
+  ];
+}
+
+/**
+ * Render an email body template with Twig variables.
+ *
+ * @param string $template_text
+ *   The Twig template string (HTML with {{ tokens }}).
+ * @param array $variables
+ *   Variables to pass to the template.
+ *
+ * @return string
+ *   The rendered HTML.
+ */
+function _access_events_render_email_template($template_text, array $variables) {
+  if (empty($template_text)) {
+    return '';
+  }
+  try {
+    $twig = \Drupal::service('twig');
+    $template = $twig->createTemplate($template_text);
+    return $template->render($variables);
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('access_events')->error('Failed to render email template: @error', ['@error' => $e->getMessage()]);
+    return $template_text;
   }
 }
 

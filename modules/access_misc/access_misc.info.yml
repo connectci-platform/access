@@ -5,6 +5,7 @@ core_version_requirement: ^9.3 || ^10
 package: Custom
 dependencies:
   - access
+  - access_events
 
 libraries:
   - access_misc/misc_library
