@@ -217,9 +217,10 @@ class EventWaitlist extends ControllerBase {
     $policy_subtype = 'registration_approved';
 
     // Base template variables (name set per-registrant below).
+    // Mark title_link as safe since it contains an <a> tag.
     $template_variables = [
       'name' => '',
-      'title_link' => $series_title_url,
+      'title_link' => new \Twig\Markup($series_title_url, 'UTF-8'),
       'start_date' => $start_date,
       'location' => $location,
       'event_start_time' => $event_start_time,
