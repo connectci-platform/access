@@ -22,6 +22,10 @@ use Drupal\symfony_mailer\EmailInterface;
  * )
  */
 class ProjectEmailBuilder extends EmailBuilderBase {
+
+  /**
+   * Builds the project email.
+   */
   public function build(EmailInterface $email) {
     $subtype = $email->getSubType();
 
@@ -31,11 +35,11 @@ class ProjectEmailBuilder extends EmailBuilderBase {
       $domain = 'pa-science';
     }
     // Add other domain mappings here as needed.
-
     // Get noreply email for the domain.
     $site_tools = \Drupal::service('access_misc.sitetools');
     $from_email = $site_tools->getNoreplyEmail($domain);
 
     $email->setFrom($from_email);
   }
+
 }

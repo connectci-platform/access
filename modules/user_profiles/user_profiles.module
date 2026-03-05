@@ -358,7 +358,7 @@ function user_profiles_cilogon_auth_userinfo_save(UserInterface $account, array 
       }
       if (array_key_exists('organizationId', $api_account_array)) {
         $findAccessOrg = new FindAccessOrg();
-        $accessOrg = $findAccessOrg->get($aUser['organizationId']);
+        $accessOrg = $findAccessOrg->get($api_account_array['organizationId']);
         $account->set('field_access_organization', $accessOrg);
       }
       if (array_key_exists('citizenships', $api_account_array)) {

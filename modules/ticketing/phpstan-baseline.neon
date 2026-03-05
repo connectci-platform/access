@@ -1,0 +1,41 @@
+parameters:
+	ignoreErrors:
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/ticketing/src/Controller/TicketingController.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: ../../../../../../docroot/modules/custom/access/modules/ticketing/src/Plugin/Block/TicketingBlock.php
+
+		-
+			message: "#^Function twig_render_template not found\\.$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/ticketing/src/Plugin/WebformHandler/AccountSupportHandler.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 6
+			path: ../../../../../../docroot/modules/custom/access/modules/ticketing/src/Plugin/WebformHandler/AccountSupportHandler.php
+
+		-
+			message: "#^Function twig_render_template not found\\.$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/ticketing/src/Plugin/WebformHandler/RequestOrgsListAddHandler.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 6
+			path: ../../../../../../docroot/modules/custom/access/modules/ticketing/src/Plugin/WebformHandler/RequestOrgsListAddHandler.php
+
+		-
+			message: "#^Function twig_render_template not found\\.$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/ticketing/src/Plugin/WebformHandler/TicketingSendEmailHandler.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 13
+			path: ../../../../../../docroot/modules/custom/access/modules/ticketing/src/Plugin/WebformHandler/TicketingSendEmailHandler.php

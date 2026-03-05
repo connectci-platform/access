@@ -11,7 +11,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Render\Renderer;
 use Drupal\Component\Utility\Xss;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
-use Drupal\Core\File\FileSystemInterface;
+use Drupal\Core\File\FileExists;
 
 /**
  * Filter users by flagged skill or interest.
@@ -94,7 +94,7 @@ class FilterPeopleByTags extends ConfigFormBase {
     MessengerInterface $messenger,
     Renderer $renderer,
     EntityTypeManagerInterface $entity_type_manager,
-    Connection $database
+    Connection $database,
   ) {
     $this->messengerInterface = $messenger;
     $this->render = $renderer;
@@ -391,7 +391,7 @@ class FilterPeopleByTags extends ConfigFormBase {
           $fname = isset($first_name[0]) && $first_name[0] !== NULL ? $first_name[0]['value'] : '';
           $lname = isset($last_name[0]) && $last_name[0] !== NULL ? $last_name[0]['value'] : '';
           $inst = isset($institution[0]) && $institution[0] !== NULL ? $institution[0]['value'] : '';
-          $csv_rows .= "\"$fname $lname\"," . "\"$inst\"," . "\"$email\",\"" . implode(', ', $roles) . "\",\"$tags\" \n";
+          $csv_rows .= "\"$fname $lname\",\"$inst\",\"$email\",\"" . implode(', ', $roles) . "\",\"$tags\" \n";
           $rows[] = [
             'Name' => [
               'data' => [
@@ -524,10 +524,13 @@ class FilterPeopleByTags extends ConfigFormBase {
       // Create comma separated variable from $data.
       $first_tags = $this->formState['first_tags'];
       $second_tags = $this->formState['second_tags'];
-      $this->createTable($form, $form_state, $first_tags, $second_tags, $third_tags, $fourth_tags);
+      $third_tags = $this->formState['third_tags'];
+      $fourth_tags = $this->formState['fourth_tags'];
+      $fifth_tags = $this->formState['fifth_tags'];
+      $this->createTable($form, $form_state, $first_tags, $second_tags, $third_tags, $fourth_tags, $fifth_tags);
       $csv = $this->csv;
 
-      \Drupal::service('file_system')->saveData($csv, "/tmp/export.csv", FileSystemInterface::EXISTS_REPLACE);
+      \Drupal::service('file_system')->saveData($csv, "/tmp/export.csv", FileExists::Replace); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
       $form_state->setResponse(new BinaryFileResponse('/tmp/export.csv', 200, $headers, TRUE));
 

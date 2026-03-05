@@ -208,7 +208,7 @@ class XsedeApi {
    *   The API key or NULL if not found.
    */
   private function getRampsApiKey() {
-    $path = \Drupal::service('file_system')->realpath("private://") . '/.keys/secrets.json';
+    $path = \Drupal::service('file_system')->realpath("private://") . '/.keys/secrets.json'; // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     if (!file_exists($path)) {
       $this->logger->error('Unable to get ramps API key. File not found: @path', ['@path' => $path]);
       return NULL;
@@ -435,7 +435,7 @@ class XsedeApi {
       return $this->apiResults['result']['masters'][0]['requests'][0]['projectTitle'];
     }
 
-    \Drupal::logger('access_events')
+    \Drupal::logger('access_events') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->warning('XSEDE API getTitle() failed to retrieve title for grant @grant_id', [
         '@grant_id' => $grantId,
       ]);

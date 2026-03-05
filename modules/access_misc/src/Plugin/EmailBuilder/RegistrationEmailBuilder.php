@@ -22,7 +22,12 @@ use Drupal\symfony_mailer\EmailInterface;
  * )
  */
 class RegistrationEmailBuilder extends EmailBuilderBase {
+
+  /**
+   * Builds the registration email.
+   */
   public function build(EmailInterface $email) {
     $email->setFrom('noreply@support.access-ci.org');
   }
+
 }

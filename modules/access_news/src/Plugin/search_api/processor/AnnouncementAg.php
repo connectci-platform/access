@@ -7,6 +7,7 @@ use Drupal\search_api\Item\ItemInterface;
 use Drupal\search_api\Processor\ProcessorPluginBase;
 use Drupal\search_api\Processor\ProcessorProperty;
 
+// phpcs:disable Drupal.Files.LineLength.TooLong
 /**
  * Search API Processor for indexing custom Affinity Group field for Announcement.
  *
@@ -21,12 +22,13 @@ use Drupal\search_api\Processor\ProcessorProperty;
  *   hidden = true,
  * )
  */
+// phpcs:enable Drupal.Files.LineLength.TooLong
 class AnnouncementAg extends ProcessorPluginBase {
 
   /**
    * {@inheritdoc}
    */
-  public function getPropertyDefinitions(DatasourceInterface $datasource = NULL) {
+  public function getPropertyDefinitions(?DatasourceInterface $datasource = NULL) {
     $properties = [];
 
     if (!$datasource) {

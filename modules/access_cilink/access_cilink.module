@@ -174,7 +174,7 @@ function access_cilink_preprocess_views_view_field(&$variables) {
 
     // Upvote widget.
     $flag_upvote = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'upvote', 'full');
-    $flag_upvote = \Drupal::service('renderer')->renderPlain($flag_upvote);
+    $flag_upvote = \Drupal::service('renderer')->renderInIsolation($flag_upvote);
     $flag_upvote = "<div class=''>$flag_upvote</div>";
 
     $likes_count = "<span class='text-[32px] inline-block text-center me-2' style='min-width: 32px;'>$flag_upvote_count</span>";
@@ -216,13 +216,13 @@ function access_cilink_preprocess_views_view_field(&$variables) {
     $flag_classes = 'no-underline text-dark-teal hover--underline';
     $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'outdated', 'full');
     $flag_outdated['#attributes']['class'][] = $flag_classes;
-    $flag_outdated = \Drupal::service('renderer')->renderPlain($flag_outdated);
+    $flag_outdated = \Drupal::service('renderer')->renderInIsolation($flag_outdated);
     $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'not_useful', 'full');
     $flag_not_useful['#attributes']['class'][] = $flag_classes;
-    $flag_not_useful = \Drupal::service('renderer')->renderPlain($flag_not_useful);
+    $flag_not_useful = \Drupal::service('renderer')->renderInIsolation($flag_not_useful);
     $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'inaccurate', 'full');
     $flag_inaccurate['#attributes']['class'][] = $flag_classes;
-    $flag_inaccurate = \Drupal::service('renderer')->renderPlain($flag_inaccurate);
+    $flag_inaccurate = \Drupal::service('renderer')->renderInIsolation($flag_inaccurate);
 
     // Get full url including domain.
     $url = \Drupal::request()->getSchemeAndHttpHost() . '/knowledge-base/resources?f%5B0%5D=submission_id%3A' . $sid;
@@ -382,13 +382,13 @@ function access_cilink_preprocess_views_view_field(&$variables) {
         $sid = $matches[1];
         $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'outdated', 'full');
         $flag_outdated['#attributes']['class'][] = 'dropdown-item';
-        $flag_outdated = \Drupal::service('renderer')->renderPlain($flag_outdated);
+        $flag_outdated = \Drupal::service('renderer')->renderInIsolation($flag_outdated);
         $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'not_useful', 'full');
         $flag_not_useful['#attributes']['class'][] = 'dropdown-item';
-        $flag_not_useful = \Drupal::service('renderer')->renderPlain($flag_not_useful);
+        $flag_not_useful = \Drupal::service('renderer')->renderInIsolation($flag_not_useful);
         $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'inaccurate', 'full');
         $flag_inaccurate['#attributes']['class'][] = 'dropdown-item';
-        $flag_inaccurate = \Drupal::service('renderer')->renderPlain($flag_inaccurate);
+        $flag_inaccurate = \Drupal::service('renderer')->renderInIsolation($flag_inaccurate);
 
         $replaced_text = "<li>$flag_outdated</li><li>$flag_not_useful</li><li>$flag_inaccurate</li>";
 
@@ -469,7 +469,7 @@ function access_cilink_resource_email() {
       '#rows' => $rows,
       '#attributes' => ['id' => 'ask-ci', 'class' => ['border-0']],
     ];
-    $output = \Drupal::service('renderer')->renderPlain($html);
+    $output = \Drupal::service('renderer')->renderInIsolation($html);
 
     // Lookup users by role.
     $uids = \Drupal::entityQuery('user')

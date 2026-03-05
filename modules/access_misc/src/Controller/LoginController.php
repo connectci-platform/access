@@ -41,14 +41,15 @@ class LoginController extends ControllerBase {
    *
    * @param \Drupal\Core\Session\AccountProxyInterface $current_user
    *   Used to get current active user.
-   * @param \Drupal\Core\Routing\RedirectDestinationInterface $redirect_destination
-   *   The redirect destination service.
    * @param \Drupal\Core\PageCache\ResponsePolicy\KillSwitch $kill_switch
    *   Kill switch.
+   * @param \Drupal\Core\Routing\RedirectDestinationInterface $redirect_destination
+   *   The redirect destination service.
    */
-  public function __construct(AccountProxyInterface $current_user,
-                              KillSwitch $kill_switch,
-                              RedirectDestinationInterface $redirect_destination
+  public function __construct(
+    AccountProxyInterface $current_user,
+    KillSwitch $kill_switch,
+    RedirectDestinationInterface $redirect_destination,
   ) {
     $this->currentUser = $current_user;
     $this->redirectDestination = $redirect_destination;
@@ -77,7 +78,7 @@ class LoginController extends ControllerBase {
       $destination = $this->redirectDestination->get() ? Xss::filter($this->redirectDestination->get()) : '';
       if (empty($destination) || str_starts_with($destination, '/login')) {
         // Get destination url query.
-        $query = \Drupal::request()->query->all();
+        $query = \Drupal::request()->query->all(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         $redirect = $query['redirect'] ?? '';
         $destination = '/';
 

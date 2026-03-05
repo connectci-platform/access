@@ -1,4 +1,3 @@
-
 var item = document.querySelectorAll('.cssn-directory-item');
 item.forEach(addCount);
 function addCount(item) {

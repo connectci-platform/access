@@ -17,7 +17,7 @@ class AccessCommands extends DrushCommands {
    * @options limit The number of records to process
    */
   public function ingestOrganizations($verbose = FALSE) {
-    \Drupal::service('access_misc.import_access_orgs')->ingest($verbose);
+    \Drupal::service('access_misc.import_access_orgs')->ingest($verbose);  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
   }
 
 }

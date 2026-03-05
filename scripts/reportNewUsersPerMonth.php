@@ -37,6 +37,6 @@ for ($y = $startYear; $y <= $endYear; $y++) {
       ->countQuery()
       ->execute()
       ->fetchField();
-    echo var_dump($users);
+    var_dump($users);
   }
 }

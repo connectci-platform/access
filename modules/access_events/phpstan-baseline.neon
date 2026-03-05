@@ -1,0 +1,21 @@
+parameters:
+	ignoreErrors:
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: ../../../../../../docroot/modules/custom/access/modules/access_events/src/Controller/EventPostSurvey.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 11
+			path: ../../../../../../docroot/modules/custom/access/modules/access_events/src/Controller/EventWaitlist.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 8
+			path: ../../../../../../docroot/modules/custom/access/modules/access_events/src/Plugin/Block/EventInstanceSidebar.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: ../../../../../../docroot/modules/custom/access/modules/access_events/src/Plugin/XsedeApi.php

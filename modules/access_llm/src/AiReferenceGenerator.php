@@ -143,6 +143,31 @@ class AiReferenceGenerator {
   }
 
   /**
+   * Gets the allowed values for a taxonomy entity reference field.
+   *
+   * @param \Drupal\node\NodeInterface $node
+   *   Node object.
+   * @param string $field_name
+   *   Field machine name.
+   *
+   * @return array
+   *   Array of term IDs keyed by term name.
+   */
+  protected function getFieldAllowedValues(NodeInterface $node, string $field_name): array {
+    $field_definition = $node->getFieldDefinition($field_name);
+    $handler_settings = $field_definition->getSetting('handler_settings');
+    $target_bundles = $handler_settings['target_bundles'] ?? [];
+    $values = [];
+    foreach ($target_bundles as $vid) {
+      $terms = $this->entityTypeManager->getStorage('taxonomy_term')->loadTree($vid);
+      foreach ($terms as $term) {
+        $values[$term->tid] = $term->name;
+      }
+    }
+    return $values;
+  }
+
+  /**
    * Gets AI auto-reference suggestions.
    *
    * @param \Drupal\node\NodeInterface $node
@@ -157,6 +182,7 @@ class AiReferenceGenerator {
    */
   public function getAiSuggestions(NodeInterface $node, $field_name, $view_mode) {
     $config = $this->config->get('ai_auto_reference.settings');
+    $node_edit_link = Link::fromTextAndUrl($node->label(), Url::fromRoute('entity.node.edit_form', ['node' => $node->id()]))->toString();
 
     try {
       // Might be 4000, 8000, 32000 depending on version used and
@@ -177,7 +203,7 @@ class AiReferenceGenerator {
 
       // Get the rendered contents of the node.
       $render_output = $render_controller->view($node, $view_mode);
-      $rendered_output = $this->renderer->renderPlain($render_output);
+      $rendered_output = $this->renderer->renderInIsolation($render_output);
       $contents = strip_tags($rendered_output);
 
       // Switching back to admin theme.
@@ -192,9 +218,6 @@ class AiReferenceGenerator {
       $prompt = 'For the contents within brackets: ({CONTENTS})';
       $prompt .= 'Which two to four of the following | separated options are highly relevant and moderately relevant? [{POSSIBLE_RESULTS}]';
       $prompt .= 'Return selections from within the square brackets only and as a valid json array within two array keys "highly" and "moderately" for your relevance';
-
-      // Node edit link to use in logs.
-      $node_edit_link = Link::fromTextAndUrl($node->label(), Url::fromRoute('entity.node.edit_form', ['node' => $node->id()]))->toString();
 
       // If the prompt is longer than the limit, get a summary of the contents.
       $prompt_length = $tokenizer->count($prompt);
@@ -255,10 +278,10 @@ class AiReferenceGenerator {
   }
 
   /**
-   *
+   * Generates a taxonomy prompt for AI classification.
    */
   public function generateTaxonomyPrompt($vid, $depth, $contents) {
-    $terms = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadTree($vid);
+    $terms = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadTree($vid);  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     foreach ($terms as $term) {
       if ($depth === 0) {
         $term_data[$term->tid] = $term->name;
@@ -284,7 +307,7 @@ class AiReferenceGenerator {
   }
 
   /**
-   *
+   * Returns suggested taxonomy IDs based on AI classification.
    */
   public function taxonomyIdSuggested() {
     $suggestion = $this->aiApiCall();

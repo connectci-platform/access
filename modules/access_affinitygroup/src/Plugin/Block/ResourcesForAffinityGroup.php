@@ -22,8 +22,8 @@ class ResourcesForAffinityGroup extends BlockBase {
    * {@inheritdoc}
    */
   public function build() {
-    $node = \Drupal::routeMatch()->getParameter('node');
-    $node = $node ? $node : \Drupal::entityTypeManager()->getStorage('node')->load(327);
+    $node = \Drupal::routeMatch()->getParameter('node'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $node = $node ? $node : \Drupal::entityTypeManager()->getStorage('node')->load(327); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     // Load field_resources_entity_reference field.
     $field_resources_entity_reference = $node->get('field_resources_entity_reference')->getValue();
     // Create empty string in case the following if statement is not true.
@@ -32,7 +32,7 @@ class ResourcesForAffinityGroup extends BlockBase {
     // Get field field_affinity_group_category.
     $affinity_group_tag = $node->get('field_affinity_group')->getValue()[0]['target_id'];
 
-    $webform_submissions = \Drupal::database()->select('webform_submission_data', 'wsd')
+    $webform_submissions = \Drupal::database()->select('webform_submission_data', 'wsd') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->fields('wsd', ['sid'])
       ->condition('name', 'affinity_group')
       ->condition('value', $affinity_group_tag)
@@ -105,10 +105,11 @@ class ResourcesForAffinityGroup extends BlockBase {
             }
 
             // Get user roles.
-            $user = \Drupal::currentUser();
+            $user = \Drupal::currentUser(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
             $roles = $user->getRoles();
 
-            // Only show if user is admin or affinity group leader when resource is not approved.
+            // Only show if user is admin or affinity group leader when
+            // resource is not approved.
             if (
                 ($submission_data['resource_allowed_on_affinity_group'] == 0) &&
                 (!in_array('administrator', $roles) &&
@@ -119,18 +120,22 @@ class ResourcesForAffinityGroup extends BlockBase {
                   !in_array('ra', $roles)
                 )
             ) {
-              // If resource_allowed_on_affinity_group checkbox doesn't exist, skip.
+              // If resource_allowed_on_affinity_group checkbox
+              // doesn't exist, skip.
               continue;
             }
             elseif ($submission_data['resource_allowed_on_affinity_group'] == 0) {
               $needs_approval = [
                 '#type' => 'link',
                 '#title' => '⚠️ Allow on this Affinity Group ⚠️ ',
-                '#url' => Url::fromRoute('entity.webform_submission.edit_form', ['webform' => 'resource', 'webform_submission' => $value['target_id']]),
+                '#url' => Url::fromRoute('entity.webform_submission.edit_form', [
+                  'webform' => 'resource',
+                  'webform_submission' => $value['target_id'],
+                ]),
                 '#attributes' => ['class' => ['text-red-500', 'font-bold']],
               ];
 
-              $needs_approval = \Drupal::service('renderer')->render($needs_approval)->__toString();
+              $needs_approval = \Drupal::service('renderer')->render($needs_approval)->__toString(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
             }
 
           }
@@ -139,8 +144,8 @@ class ResourcesForAffinityGroup extends BlockBase {
         // Ci link name and url.
         // On ASP, use /knowledge-base/ci-links/{sid}.
         // On other domains, use /ci-links/{sid}.
-        $token = \Drupal::token();
-        $domainName = Html::getClass($token->replace(t('[domain:name]')));
+        $token = \Drupal::token(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+        $domainName = Html::getClass($token->replace($this->t('[domain:name]')));
         if ($domainName == 'access-support') {
           $ci_link_path = '/knowledge-base/resources/';
         }
@@ -152,20 +157,26 @@ class ResourcesForAffinityGroup extends BlockBase {
           '#title' => $submission_data['title'],
           '#url' => Url::fromUri('internal:' . $ci_link_path . $value['target_id']),
         ];
-        $ci_link_name = '<div>' . \Drupal::service('renderer')->render($ci_link)->__toString() . '</div>';
+        $ci_link_name = '<div>' . \Drupal::service('renderer')->render($ci_link)->__toString() . '</div>'; // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
         $tags = '';
         foreach ($submission_data['tags'] as $tag) {
           // Lookup tags.
-          $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($tag);
+          $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($tag); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           if ($term !== NULL) {
             $link = [
               '#type' => 'link',
               '#title' => $term->getName(),
               '#url' => Url::fromRoute('entity.taxonomy_term.canonical', ['taxonomy_term' => $tag]),
-              '#attributes' => ['class' => ['px-2', 'py-1', 'font-normal', 'no-underline', 'border', 'border-black', 'border-solid', 'hover--border-dark-teal', 'hover--text-dark-teal', 'w-fit']],
+              '#attributes' => [
+                'class' => [
+                  'px-2', 'py-1', 'font-normal', 'no-underline', 'border',
+                  'border-black', 'border-solid', 'hover--border-dark-teal',
+                  'hover--text-dark-teal', 'w-fit',
+                ],
+              ],
             ];
-            $tags .= '<div class="mr-2 me-4 mb-2">' . \Drupal::service('renderer')->render($link)->__toString() . '</div>';
+            $tags .= '<div class="mr-2 me-4 mb-2">' . \Drupal::service('renderer')->render($link)->__toString() . '</div>'; // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           }
         }
         $tags = '<div class="square-tags d-flex flex flex-wrap">' . $tags . '</div>';
@@ -173,13 +184,13 @@ class ResourcesForAffinityGroup extends BlockBase {
         $skills = '';
         $skill_list = [];
         foreach ($submission_data['skill_level'] as $skill) {
-          $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($skill);
+          $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($skill); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           if ($term !== NULL) {
             array_push($skill_list, $term->getName());
           }
         }
 
-        $skills = \Drupal::service('access_misc.skillLevel')->getSkillsImage($skill_list);
+        $skills = \Drupal::service('access_misc.skillLevel')->getSkillsImage($skill_list); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
         $rows[] = [
           'name' => [
@@ -231,7 +242,7 @@ class ResourcesForAffinityGroup extends BlockBase {
         '#rows' => $rows,
         '#attributes' => ['id' => 'ci-links', 'class' => ['table-search border-spacing-0']],
       ];
-      $rendered .= \Drupal::service('renderer')->render($html['ci-links']);
+      $rendered .= \Drupal::service('renderer')->render($html['ci-links']); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     }
 
     return [

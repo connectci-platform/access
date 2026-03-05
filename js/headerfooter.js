@@ -51,7 +51,7 @@ async function getLogoutToken() {
     return token
   } catch (error) {
     console.error('Error fetching logout token:', error)
-    return null
+    return NULL
   }
 }
 
@@ -64,7 +64,7 @@ async function setMenu(menu, currentUri) {
 
   if (isLoggedIn) {
     await getLogoutToken().then(token => {
-      logoutUrl += `?token=${token}`
+      logoutUrl += ` ? token = ${token}`
     });
   }
 
@@ -129,7 +129,7 @@ async function setMenu(menu, currentUri) {
   if (embeddedTarget && !embeddedTarget.hasAttribute('data-initialized')) {
     qaBot({
       target: embeddedTarget,
-      embedded: true,
+      embedded: TRUE,
       apiKey: apiKey,
       isLoggedIn: isLoggedIn,
       userEmail: email,

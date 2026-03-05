@@ -12,32 +12,40 @@ use GuzzleHttp\Client;
 
 /**
  * @file
- * Import users using allocations api.
+ * Imports users using allocations api.
+ *
  * The purpose is that each user working with an allocation:
  *  1) should have a user account here
  *  2) their email on constant contact
- *  3) get added to affinity groups: access-support and the one that is associated
- *    with the allocation.
- *  4) user details such as citizenship are updated in our database's user profiles
+ *  3) get added to affinity groups: access-support and the one
+ *    that is associated with the allocation.
+ *  4) user details such as citizenship are updated in our
+ *    database's user profiles
  * This is done during a daily cron job.  We get all the active users from the
- * allocations api. Once we get all the usernames into arrays, we call the api for each
+ * allocations api. Once we get all the usernames into arrays,
+ * we call the api for each
  * one to get the user's current list of resources (aka allocations aka ciders).
- * The allocations import can also be run manually, referred to as "batch" in this file.
+ * The allocations import can also be run manually, referred to
+ * as "batch" in this file.
  *
- * This file also contains ancillary cleanup processes Sync and Remove Obsolete Allocations.
+ * This file also contains ancillary cleanup processes Sync and
+ * Remove Obsolete Allocations.
  */
 /**
- *
+ * Manages user imports from the allocations API and Constant Contact sync.
  */
 class AllocationsUsersImport {
 
   // Default if not set: how many users to process in each batch.
   const DEFAULT_SIZE = 5;
-  // Stop processing after this amount. total is > 100k, will be 12k when api updated.
+  // Stop processing after this amount. total is > 100k,
+  // will be 12k when api updated.
   const DEFAULT_IMPORTLIMIT = 100;
-  // If true, don't create new constant contact user or attempt to add to cc list. For dev.
+  // If true, don't create new constant contact user or attempt
+  // to add to cc list. For dev.
   const DEFAULT_NOCC = TRUE;
-  // If true, don't save user detail changes. Needed for dev testing because user details
+  // If true, don't save user detail changes. Needed for dev
+  // testing because user details
   // such as name and email are encoded in test db.
   const DEFAULT_NOUSERDETSAVE = TRUE;
   const DEFAULT_STARTAT = 0;
@@ -45,29 +53,86 @@ class AllocationsUsersImport {
 
   /**
    * Where to start processing in case we must restart a large operation.
+   *
    * These are set in the constant contact form.
+   *
+   * @var int
    */
   private $sliceSize;
-  private $batchImportLimit;
-  private $batchNoCC;
-  private $batchNoUserDetSave;
-  private $batchStartAt;
-  private $verboseLogging;
-  private $isCronJob;
-  private $currentNumber;
+
   /**
-   * For devtest, put in front of emails and uname for dev; set to '' to use real names.
+   * The batch import limit.
+   *
+   * @var int
+   */
+  private $batchImportLimit;
+
+  /**
+   * If true, skip Constant Contact operations during batch.
+   *
+   * @var bool
+   */
+  private $batchNoCC;
+
+  /**
+   * If true, skip saving user detail changes during batch.
+   *
+   * @var bool
+   */
+  private $batchNoUserDetSave;
+
+  /**
+   * The index in the user list to start processing at.
+   *
+   * @var int
+   */
+  private $batchStartAt;
+
+  /**
+   * If true, log additional detail during processing.
+   *
+   * @var bool
+   */
+  private $verboseLogging;
+
+  /**
+   * True when running as a cron job (vs batch).
+   *
+   * @var bool
+   */
+  private $isCronJob;
+
+  /**
+   * The current user number being processed.
+   *
+   * @var int
+   */
+  private $currentNumber;
+
+  /**
+   * Dev prefix string for emails/usernames; empty string for real names.
+   *
+   * @var string
    */
   private $cDevUname = '';
+
+  /**
+   * The node ID of the ACCESS Support affinity group node.
+   *
+   * @var int
+   */
   private $accessSupportNodeId;
 
   /**
    * For $this->collectCronLog for dev status email.
+   *
+   * @var array
    */
   private $logCronErrors = [];
 
   /**
-   * IMPORT ALLOCATIONS via cron job.
+   * Imports allocations via cron job.
+   *
    * Parameters are set and saved on the constant contact admin form.
    */
   public function runCronSlice() {
@@ -97,10 +162,12 @@ class AllocationsUsersImport {
     $msg1 = "Alloc start:$this->batchStartAt size:$this->sliceSize  noCC:$this->batchNoCC noUserDet:$this->batchNoUserDetSave verbose:$this->verboseLogging";
     $this->collectCronLog($msg1, 'i', TRUE);
 
-    // Get ready to process imports, and retrieve initial list of portal user names.
+    // Get ready to process imports, and retrieve initial list
+    // of portal user names.
     $portalUserNames = $this->setupForImports();
 
-    // If we don't get any more names , reset start to 0 for the next round of alloc cron runs.
+    // If we don't get any more names , reset start to 0 for the
+    // next round of alloc cron runs.
     if (empty($portalUserNames)) {
       \Drupal::state()->set('access_affinitygroup.allocCronStartAt', 0);
       return;
@@ -127,7 +194,8 @@ class AllocationsUsersImport {
   }
 
   /**
-   * IMPORT ALLOCATIONS using batch api. Meant to run manually from UI.
+   * Imports allocations using batch api, meant to run manually from UI.
+   *
    * Parameters are set for this one run the constant contact admin form.
    * Must run as user 1.
    */
@@ -220,7 +288,8 @@ class AllocationsUsersImport {
   }
 
   /**
-   * Common setup for batch + cron allocations import
+   * Common setup for batch + cron allocations import.
+   *
    * Return list of portal user names; null if not ready to go.
    */
   private function setupForImports() {
@@ -264,7 +333,7 @@ class AllocationsUsersImport {
   }
 
   /**
-   *
+   * Returns the API key for the allocations API.
    */
   private function getApiKey() {
     $path = \Drupal::service('file_system')->realpath("private://") . '/.keys/secrets.json';
@@ -278,7 +347,8 @@ class AllocationsUsersImport {
   }
 
   /**
-   * Call the allocations api to get a list of all the users in the system.
+   * Calls the allocations api to get a list of all the users in the system.
+   *
    * This gets just a list of the names. Later, we get details of each user
    * as-needed.
    */
@@ -310,9 +380,10 @@ class AllocationsUsersImport {
   }
 
   /**
-   * For cron job only, make array of slice of portal names of number requested.
-   * Sort list returned from api becasue their list changes order.
-   * 0-based startIndex
+   * For cron job only, makes array of slice of portal names.
+   *
+   * Number requested. Sort list returned from api becasue their list
+   * changes order. 0-based startIndex.
    */
   private function getApiPortalUserNamesForCron($startIndex, $sliceSize) {
 
@@ -343,7 +414,7 @@ class AllocationsUsersImport {
   }
 
   /**
-   * For manual batch only, make array of portal names of number requested, don't sort .
+   * For manual batch only, makes array of portal names requested.
    */
   private function getApiPortalUserNamesForBatch($startIndex = 0, $processLimit = NULL) {
 
@@ -415,7 +486,7 @@ class AllocationsUsersImport {
   }
 
   /**
-   *
+   * Performs the allocations import work for a batch of users.
    */
   private function allocationsImportWork($userNameArray, &$context = NULL, &$sandbox = NULL) {
 
@@ -427,7 +498,8 @@ class AllocationsUsersImport {
     try {
       // Process each user in the chunk
       // call api to get resources, get user, (add user + add to cc if needed)
-      // update user's resources if needed, check if they are members of associated ags.
+      // update user's resources if needed, check if they are members
+      // of associated ags.
       $this->collectCronLog("Slice " . $bnum . " start", 'i', TRUE);
 
       foreach ($userNameArray as $userName) {
@@ -455,7 +527,8 @@ class AllocationsUsersImport {
           $userDetails = user_load_by_name($accessUserName);
 
           // If we already have user, make sure they are all set with the cc id.
-          // Check for diffs and update user profile with email, names, citizenship, email, institution.
+          // Check for diffs and update user profile with email, names,
+          // citizenship, email, institution.
           $needCCId = TRUE;
           if ($userDetails) {
             $this->userDetailUpdates($userDetails, $aUser);
@@ -473,7 +546,8 @@ class AllocationsUsersImport {
           }
 
           if ($needCCId && $userDetails) {
-            // Either new user just created, or existing user missing constant contact id.
+            // Either new user just created, or existing user missing
+            // constant contact id.
             $this->collectCronLog("...need CC id: $userName", 'd');
 
             if (!$this->batchNoCC) {
@@ -513,22 +587,26 @@ class AllocationsUsersImport {
             }
           }
 
-          // Now we have a loaded userDetails whether existing or newly created. Check the user's Resources to see if they still match.
-          // now from list of resource_id for this user, check each to see which AG they are associated with. build list of AGs for this user.
+          // Now we have a loaded userDetails whether existing or newly
+          // created. Check the user's Resources to see if they still match.
+          // now from list of resource_id for this user, check each to see
+          // which AG they are associated with. build list of AGs for this user.
           $userCiderRefnums = [];
           $userCiderArray = $userDetails->get('field_cider_resources')->getValue();
           foreach ($userCiderArray as $userCider) {
             $userCiderRefnums[] = $userCider['target_id'];
           }
 
-          // Is incoming list different from what user already has? if so, reset the user list.
+          // Is incoming list different from what user already has?
+          // if so, reset the user list.
           $intersect = array_intersect(array_values($newCiderRefnums), array_values($userCiderRefnums));
           if (count($intersect) !== count($newCiderRefnums) || count($intersect) !== count($userCiderRefnums)) {
 
             $this->collectCronLog('---updating user ciders; count new: ' . count($newCiderRefnums) . ' was ' . count($userCiderRefnums), 'd');
             $this->updateUserCiderList($userDetails, $newCiderRefnums);
           }
-          // Finally, check for AG membership in each AG corresponding to the ciderRefnum.
+          // Finally, check for AG membership in each AG corresponding
+          // to the ciderRefnum.
           // Gather a list of associated affinity groups (unique)
           // The Cider Refs might be associated with multiples AGs;
           // an AG has 0 to many Cider Refs.
@@ -551,8 +629,10 @@ class AllocationsUsersImport {
           // and, we add every user to ACCESS Support AG.
           $agNodes[] = $this->accessSupportNodeId;
 
-          // Now we have agNodes, which is a list of all affinity groups having to do with the user's allocations.
-          // set membership will add the user to the group unless they previously blocked automembership to the ag by leaving.
+          // Now we have agNodes, which is a list of all affinity groups
+          // having to do with the user's allocations.
+          // set membership will add the user to the group unless they
+          // previously blocked automembership to the ag by leaving.
           $userBlockedArray = $userDetails->get('field_blocked_ag_tax')->getValue();
           $userBlockedAgTids = [];
           foreach ($userBlockedArray as $userBlock) {
@@ -570,7 +650,6 @@ class AllocationsUsersImport {
           $this->collectCronLog($msg, 'err');
         }
       } // end foreach userName
-
     }
     catch (\Exception $e) {
       $this->collectCronLog("Exception while processing api results at $userCount " . $e->getMessage(), 'err');
@@ -580,9 +659,10 @@ class AllocationsUsersImport {
   }
 
   /**
-   * Send in userdetail to check for absent cc id. If not there, attempt to add.
+   * Checks userdetail for absent CC id and attempts to add if not there.
+   *
    * Updates the user entity in place so the caller has the updated CC ID.
-   * return boolean success.
+   * Return boolean success.
    */
   private function cronAddToConstantContact(&$u, $uEmail, $firstName, $lastName) {
     $ccId = addUserToConstantContact($uEmail, $firstName, $lastName, TRUE);
@@ -600,7 +680,7 @@ class AllocationsUsersImport {
       $u->set('field_constant_contact_id', $user_cc_id);
       $u->save();
       // Reload the user entity so the caller has the updated CC ID.
-      // This is critical for the subsequent allocSubscribeToCCList() calls.
+      // This is critical for the subsequent allocSubscribeToCcList() calls.
       $u = User::load($u->id());
       $this->collectCronLog("Id from Constant Contact:  $uEmail", 'd');
       return TRUE;
@@ -608,8 +688,7 @@ class AllocationsUsersImport {
   }
 
   /**
-   * Collect severe problems (logtype=err) to send as a developer alert
-   * email at end of the processing.
+   * Collects severe problems to send as a developer alert email.
    *
    * $logType: err, i, d.  Determines logging category.
    * Category d is not logged unless verboseLogging is true.
@@ -639,9 +718,9 @@ class AllocationsUsersImport {
   }
 
   /**
-   * Send an email with the collected cron errors to users with
-   * role site_developer.  $errorList is an array of strings with
-   * the collected errors.
+   * Sends an email with collected cron errors to site_developer users.
+   *
+   * $errorList is an array of strings with the collected errors.
    */
   private function emailDevCronLog($errorList) {
 
@@ -704,8 +783,10 @@ class AllocationsUsersImport {
   }
 
   /**
-   * Compare incoming details to see if anything changed. If so, write to user profile.
-   * If email or name changed, update in constant contact, if user already has a CC Id.
+   * Compares incoming details and writes changes to user profile.
+   *
+   * If email or name changed, update in constant contact, if user
+   * already has a CC Id.
    * For import allocations.
    */
   private function userDetailUpdates($u, $a) {
@@ -735,7 +816,8 @@ class AllocationsUsersImport {
         $needCCUpdate = TRUE;
       }
 
-      // This field will go away once we have the new field_access_organization in place.
+      // This field will go away once we have the new
+      // field_access_organization in place.
       if ($a['organizationName'] !== $u->get('field_institution')->getString()) {
         $log .= ' org: ' . $u->get('field_institution')->getString() . ' to ' . $a['organizationName'];
         $u->set('field_institution', $a['organizationName']);
@@ -749,7 +831,8 @@ class AllocationsUsersImport {
         $needProfileUpdate = TRUE;
       }
 
-      // If organization id changed, update the organzation entity refernce field.
+      // If organization id changed, update the organzation entity
+      // refernce field.
       $nid = $u->get('field_access_organization')->getValue();
       if ($nid != NULL) {
 
@@ -770,7 +853,8 @@ class AllocationsUsersImport {
         }
         $this->collectCronLog('Updating user ' . $a['username'] . ': ' . $log, 'd');
       }
-      // If name or email changed, and user already has constant contact account, update there.
+      // If name or email changed, and user already has constant
+      // contact account, update there.
       if ($needCCUpdate) {
         $ccIdField = $u->get('field_constant_contact_id')->getValue();
         if (!empty($ccIdField)) {
@@ -781,7 +865,7 @@ class AllocationsUsersImport {
             if (is_array($ccIdArray) && isset($ccIdArray['support']) && !is_string($ccIdArray['support'])) {
               $this->collectCronLog("Corrupted CC data for user " . $a['username'] . " (uid " . $u->id() . "): 'support' is not a string. Raw value: " . $ccIdRaw, 'err', TRUE);
             }
-            $ccId = (is_array($ccIdArray) && isset($ccIdArray['support']) && is_string($ccIdArray['support'])) ? $ccIdArray['support'] : null;
+            $ccId = (is_array($ccIdArray) && isset($ccIdArray['support']) && is_string($ccIdArray['support'])) ? $ccIdArray['support'] : NULL;
             if ($ccId && !$this->batchNoCC && !$this->batchNoUserDetSave) {
               $cca = new ConstantContactApi('support');
               $cca->setSupressErrDisplay(TRUE);
@@ -795,11 +879,11 @@ class AllocationsUsersImport {
     catch (\Exception $e) {
       $this->collectCronLog('Exception in UserDetailUpdates for ' . $a['username'] . ': ' . $e->getMessage(), 'err');
     }
-    return;
   }
 
   /**
-   * Citizenships are stored on user as single display string.
+   * Formats citizenships as a stored on user as single display string.
+   *
    * $citJson: citzenships json section from api.
    */
   private function formatCitizenships($citJson) {
@@ -836,7 +920,8 @@ class AllocationsUsersImport {
   }
 
   /**
-   * User membership for an affinity group is stored in a per-user flag (not global) on the ag.
+   * Sets user membership for an affinity group via per-user flag.
+   *
    * $agNid - AG node id
    * $blocklist - array of taxonomy ids for blocked ags.
    */
@@ -870,22 +955,24 @@ class AllocationsUsersImport {
       $flagService->flag($flag, $agTax, $userDetails);
 
       if (!$this->batchNoCC) {
-        $this->allocSubscribeToCCList($agTax->id(), $userDetails);
+        $this->allocSubscribeToCcList($agTax->id(), $userDetails);
       }
       $this->collectCronLog("...add member: " . $ag->get('title')->value . ': ' . $userDetails->get('field_user_last_name')->getString(), 'd');
     }
     else {
-      // $this->collectCronLog("...already  member: ".$ag->get('title')->value, 'd');
+      // $this->collectCronLog("...already  member: "
+      // . $ag->get('title')->value, 'd');
     }
   }
 
   /**
    * Add user to Constant Contact list for an affinity group.
    */
-  private function allocSubscribeToCCList($taxonomyId, $userDetails) {
+  private function allocSubscribeToCcList($taxonomyId, $userDetails) {
     $postJSON = makeListMembershipJSON($taxonomyId, $userDetails);
     if (empty($postJSON)) {
-      // Only log as debug since the parent function already logged the CC add failure
+      // Only log as debug since the parent function already logged
+      // the CC add failure.
       $this->collectCronLog("...skipping CC list add for " . $userDetails->getEmail() . " (no CC ID)", 'd');
     }
     else {
@@ -939,9 +1026,10 @@ class AllocationsUsersImport {
    * Constant Contact to add the user to the corresponsing CC email list.
    * If CC was not hooked up at the time the user joins the AG, they will
    * not be on the CC list. This function syncs the lists.
-   * This can be run on demand from the CC admin form, and it is also run on cron.
+   * This can be run on demand from the CC admin form, and it is
+   * also run on cron.
    */
-  public function syncAGandCC($agBegin = 0, $agEnd = 1000, $verbose = FALSE) {
+  public function syncAgAndCc($agBegin = 0, $agEnd = 1000, $verbose = FALSE) {
     // Get all the Affinity Groups.
     $this->verboseLogging = $verbose;
     $agCount = 0;
@@ -976,7 +1064,8 @@ class AllocationsUsersImport {
           continue;
         }
 
-        // Assemble users belonging to this group (each stored on flag on the associated term).
+        // Assemble users belonging to this group (each stored on flag
+        // on the associated term).
         $termField = $node->get('field_affinity_group');
         if ($termField->isEmpty() || !$termField->entity) {
           $this->collectCronLog("!! No taxonomy term for $agTitle", 'err');
@@ -984,8 +1073,10 @@ class AllocationsUsersImport {
         }
         $userIds = $this->getUserIdsFromFlags($termField->entity);
 
-        // Use direct database query for CC IDs instead of loading each user entity.
-        // Process in chunks to avoid database IN clause limits for large groups.
+        // Use direct database query for CC IDs instead of loading
+        // each user entity.
+        // Process in chunks to avoid database IN clause limits
+        // for large groups.
         if (!empty($userIds)) {
           $connection = \Drupal::database();
           $ccResults = [];
@@ -1005,10 +1096,10 @@ class AllocationsUsersImport {
               if (is_array($ccIdArray) && isset($ccIdArray['support']) && !is_string($ccIdArray['support'])) {
                 $this->collectCronLog("Corrupted CC data for user $uid: 'support' is not a string. Raw value: " . $ccIdRaw, 'err', TRUE);
               }
-              $ccId = (is_array($ccIdArray) && isset($ccIdArray['support']) && is_string($ccIdArray['support'])) ? $ccIdArray['support'] : null;
+              $ccId = (is_array($ccIdArray) && isset($ccIdArray['support']) && is_string($ccIdArray['support'])) ? $ccIdArray['support'] : NULL;
               // Check to see if it's a good CC Id.
               // preventing attempts to work with an obfuscated CC Id.
-              if ($ccId !== null && strlen($ccId) == 36) {
+              if ($ccId !== NULL && strlen($ccId) == 36) {
                 $agContacts[] = $ccId;
               }
               else {
@@ -1016,7 +1107,8 @@ class AllocationsUsersImport {
               }
             }
             else {
-              // Users without cc id. might not do anything with this here, not sure yet.
+              // Users without cc id. might not do anything with this
+              // here, not sure yet.
               $agContactsNoCCid[] = $uid;
             }
           }
@@ -1024,13 +1116,15 @@ class AllocationsUsersImport {
 
         $this->collectCronLog("Sync $agCount: users in this AG with no CC id- count : " . count($agContactsNoCCid), 'd', TRUE);
 
-        // Assemble list of users on the cc list. CC API supports up to 500 per page.
+        // Assemble list of users on the cc list. CC API supports
+        // up to 500 per page.
         // Delay before first API call to respect rate limits across groups.
         usleep(300000);
         $resp = $cca->apiCall("/contacts?lists=$listId&limit=500&include_count=true");
         if (empty($resp) || empty($resp->contacts)) {
           $this->collectCronLog("Sync: $agTitle CC list response: empty or no contacts.", 'i', TRUE);
-          // Not necessarily an error - could be an empty list. Continue to add users.
+          // Not necessarily an error - could be an empty list.
+          // Continue to add users.
         }
         else {
           foreach ($resp->contacts as $contact) {
@@ -1126,7 +1220,8 @@ class AllocationsUsersImport {
       throw new \Exception("No Constant Contact list ID configured for $agTitle");
     }
 
-    // Assemble users belonging to this group (each stored on flag on the associated term).
+    // Assemble users belonging to this group (each stored on flag
+    // on the associated term).
     $termField = $node->get('field_affinity_group');
     if ($termField->isEmpty() || !$termField->entity) {
       throw new \Exception("No affinity group taxonomy term found for $agTitle");
@@ -1155,10 +1250,10 @@ class AllocationsUsersImport {
           if (is_array($ccIdArray) && isset($ccIdArray['support']) && !is_string($ccIdArray['support'])) {
             $this->collectCronLog("Corrupted CC data for user $uid: 'support' is not a string. Raw value: " . $ccIdRaw, 'err', TRUE);
           }
-          $ccId = (is_array($ccIdArray) && isset($ccIdArray['support']) && is_string($ccIdArray['support'])) ? $ccIdArray['support'] : null;
+          $ccId = (is_array($ccIdArray) && isset($ccIdArray['support']) && is_string($ccIdArray['support'])) ? $ccIdArray['support'] : NULL;
           // Check to see if it's a good CC Id.
           // preventing attempts to work with an obfuscated CC Id.
-          if ($ccId !== null && strlen($ccId) == 36) {
+          if ($ccId !== NULL && strlen($ccId) == 36) {
             $agContacts[] = $ccId;
           }
           else {
@@ -1166,7 +1261,8 @@ class AllocationsUsersImport {
           }
         }
         else {
-          // Users without cc id. might not do anything with this here, not sure yet.
+          // Users without cc id. might not do anything with this
+          // here, not sure yet.
           $agContactsNoCCid[] = $uid;
         }
       }
@@ -1174,7 +1270,8 @@ class AllocationsUsersImport {
 
     $this->collectCronLog("Sync: $agTitle - users with no CC id: " . count($agContactsNoCCid), 'd', TRUE);
 
-    // Assemble list of users on the cc list. CC API supports up to 500 per page.
+    // Assemble list of users on the cc list. CC API supports
+    // up to 500 per page.
     // Delay before first API call to respect rate limits.
     usleep(300000);
     $resp = $cca->apiCall("/contacts?lists=$listId&limit=500&include_count=true");
@@ -1244,7 +1341,8 @@ class AllocationsUsersImport {
 
   /**
    * Returns the user ids that have flagged an affinity group.
-   * term: taxonomy term entity for the affinity group.
+   *
+   * Term: taxonomy term entity for the affinity group.
    */
   public function getUserIdsFromFlags(EntityInterface $term) {
     // Use direct database query for better performance with large datasets.
@@ -1268,9 +1366,11 @@ class AllocationsUsersImport {
    * we run the import, so we have this utility function which will run less
    * often.
    * Here, we get the active users list, and find users in our database who are
-   * not on this list but who do have have lingering allocations on their profile.
+   * not on this list but who do have have lingering allocations
+   * on their profile.
    *
-   * start/stop - integer index in list of users where to start and stop processing
+   * start/stop - integer index in list of users where to start
+   * and stop processing
    */
   public function cleanObsoleteAllocations($indexStart, $indexStop, $verbose = FALSE) {
     $this->verboseLogging = $verbose;
@@ -1304,7 +1404,8 @@ class AllocationsUsersImport {
 
           $userCiderArray = $user->get('field_cider_resources')->getValue();
 
-          // If ciders are listed on user's account, see if they are on the allocations api list
+          // If ciders are listed on user's account, see if they are
+          // on the allocations api list
           // of active users.
           if (count($userCiderArray) > 0) {
 

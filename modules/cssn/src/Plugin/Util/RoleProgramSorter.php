@@ -14,9 +14,13 @@ use Drupal\user\Entity\User;
  * )
  */
 class RoleProgramSorter {
+
+  use \Drupal\Core\StringTranslation\StringTranslationTrait;
+
   /**
    * Store user object.
-   * $var object
+   *
+   * @var object
    */
   private $storedUser;
 
@@ -79,7 +83,7 @@ class RoleProgramSorter {
       $account->field_region->appendItem($region);
       $account->save();
     }
-    \Drupal::messenger()->addMessage(t('Thanks for updating your CSSN membership.'));
+    \Drupal::messenger()->addMessage($this->t('Thanks for updating your CSSN membership.'));
   }
 
   /**
@@ -91,10 +95,11 @@ class RoleProgramSorter {
     foreach ($values as $key => $value) {
       if ($value['target_id'] == $region) {
         unset($values[$key]);
-        \Drupal::messenger()->addMessage(t('Thanks for updating your CSSN membership.'));
+        \Drupal::messenger()->addMessage($this->t('Thanks for updating your CSSN membership.'));
       }
     }
     $account->field_region->setValue($values);
     $account->save();
   }
+
 }

@@ -8,7 +8,7 @@
       function addCount(item) {
         // count .square-tag li inside index
         var squareTags = item.querySelectorAll('a').length;
-        if (squareTags > 5 && item.querySelector('span') == null) {
+        if (squareTags > 5 && item.querySelector('span') == NULL) {
           var squareTags = squareTags - 5;
           var more = "+ " + squareTags + " more";
           // Create new span element

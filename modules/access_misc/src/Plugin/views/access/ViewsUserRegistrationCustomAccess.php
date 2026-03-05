@@ -1,6 +1,5 @@
 <?php
 
-
 namespace Drupal\access_misc\Plugin\views\access;
 
 use Drupal\views\Plugin\views\access\AccessPluginBase;
@@ -8,7 +7,7 @@ use Drupal\Core\Session\AccountInterface;
 use Symfony\Component\Routing\Route;
 
 /**
- * Class ViewsCustomAccess
+ * Class ViewsCustomAccess.
  *
  * @ingroup views_access_plugins
  *
@@ -19,13 +18,13 @@ use Symfony\Component\Routing\Route;
  * )
  */
 class ViewsUserRegistrationCustomAccess extends AccessPluginBase {
+
   /**
    * {@inheritdoc}
    */
   public function summaryTitle() {
     return $this->t('Custom User Registration Access');
   }
-
 
   /**
    * {@inheritdoc}
@@ -52,11 +51,11 @@ class ViewsUserRegistrationCustomAccess extends AccessPluginBase {
     return $access;
   }
 
-
   /**
    * {@inheritdoc}
    */
   public function alterRouteDefinition(Route $route) {
     $route->setRequirement('_access', 'TRUE');
   }
+
 }

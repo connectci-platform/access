@@ -34,14 +34,14 @@ class PersonaBlock extends BlockBase {
       $should_user_load = TRUE;
     }
     if (is_numeric($url_end)) {
-      $user = User::load($url_end);
+      $user = User::load($url_end);  // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
       if ($user !== NULL && count($user->field_region->getValue()) > 0) {
         $should_user_load = TRUE;
       }
     }
     if ($should_user_load) {
-      $user = $public ? $user : \Drupal::currentUser();
-      $user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($user->id());
+      $user = $public ? $user : \Drupal::currentUser();  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+      $user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($user->id());  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $user_image = $user_entity->get('user_picture');
       $first_name = $user_entity->get('field_user_first_name')->value;
       $last_name = $user_entity->get('field_user_last_name')->value;
@@ -49,7 +49,7 @@ class PersonaBlock extends BlockBase {
 
       if ($user_image->entity !== NULL) {
         $user_image = $user_image->entity->getFileUri();
-        $user_image = \Drupal::service('file_url_generator')->generateAbsoluteString($user_image);
+        $user_image = \Drupal::service('file_url_generator')->generateAbsoluteString($user_image);  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         $user_image = '<img src="' . $user_image . '" alt="" class="img-fluid mb-3 border border-black" />';
       }
       else {
@@ -68,7 +68,8 @@ class PersonaBlock extends BlockBase {
             </svg>
             ';
       }
-      // Create Drupal 9 link to edit user profile with ?destination=community-persona.
+      // Create Drupal 9 link to edit user profile with
+      // ?destination=community-persona.
       $edit_url = Url::fromUri('internal:/user/' . $user->id() . '/edit?destination=community-persona');
       $edit_link = Link::fromTextAndUrl('Edit Persona', $edit_url);
       $edit_link = $edit_link->toRenderable();
@@ -83,24 +84,27 @@ class PersonaBlock extends BlockBase {
       ];
       $edit_link = $public ? "" : $edit_link;
 
-      // Show access organization if set; use institution field if organization is "Other" (3695) or not set.
+      // Show access organization if set; use institution field if
+      // organization is "Other" (3695) or not set.
       $orgArray = $user_entity->get('field_access_organization')->getValue();
       $institution = $user_entity->get('field_institution')->value;
 
       if (!empty($orgArray) && !empty($orgArray[0])) {
         $nodeId = $orgArray[0]['target_id'];
-        // If organization is "Other" (node ID 3695), use institution field instead
+        // If organization is "Other" (node ID 3695), use institution
+        // field instead.
         if ($nodeId == 3695) {
           $institution = $user_entity->get('field_institution')->value;
-        } else if (!empty($nodeId)) {
-          $orgNode = \Drupal::entityTypeManager()->getStorage('node')->load($nodeId);
+        }
+        elseif (!empty($nodeId)) {
+          $orgNode = \Drupal::entityTypeManager()->getStorage('node')->load($nodeId);  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           if ($orgNode) {
             $institution = $orgNode->getTitle();
           }
         }
       }
-      // If no organization is set, use institution field (this is already handled above)
-
+      // If no organization is set, use institution field
+      // (this is already handled above)
       $roles = $user_entity->getRoles();
       $is_student = array_search('student', $roles) !== FALSE;
       $academic_status = $is_student
@@ -115,7 +119,14 @@ class PersonaBlock extends BlockBase {
         $academic_status = '';
       }
       // Don't display these roles.
-      $roles_not_to_include = ['authenticated', 'administrator', 'Masquerade', 'exportpeople', 'site_developer', 'ccmnet'];
+      $roles_not_to_include = [
+        'authenticated',
+        'administrator',
+        'Masquerade',
+        'exportpeople',
+        'site_developer',
+        'ccmnet',
+      ];
       foreach ($roles_not_to_include as $role) {
         $key = array_search($role, $roles);
         if ($key !== FALSE) {
@@ -128,7 +139,7 @@ class PersonaBlock extends BlockBase {
       $terms = [];
       foreach ($regions as $region) {
         $region_tid = $region['target_id'];
-        $terms[$region_tid] = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($region_tid)->getName();
+        $terms[$region_tid] = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($region_tid)->getName();  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       }
       if (!$public) {
         $cssn_role_url = Url::fromUri('internal:/form/edit-your-cssn-roles?destination=community-persona');
@@ -143,15 +154,15 @@ class PersonaBlock extends BlockBase {
 
       // Badges.
       $badges = $user_entity->get('field_user_badges')->getValue();
-      $badge_name = [];
       $user_badges = '<ul class="flex flex-wrap p-0 m-0">';
       foreach ($badges as $badge) {
         $term_id = $badge['target_id'];
-        if (Term::load($term_id)->get('field_badge')->entity) {
-          $name = Term::load($term_id)->get('name')->value;
-          $image_alt = Term::load($term_id)->get('field_badge')->alt;
-          $image_url = Term::load($term_id)->get('field_badge')->entity->getFileUri();
-          $image = \Drupal::service('file_url_generator')->generateAbsoluteString($image_url);
+        $term_entity = Term::load($term_id);  // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
+        if ($term_entity->get('field_badge')->entity) {
+          $name = $term_entity->get('name')->value;
+          $image_alt = $term_entity->get('field_badge')->alt;
+          $image_url = $term_entity->get('field_badge')->entity->getFileUri();
+          $image = \Drupal::service('file_url_generator')->generateAbsoluteString($image_url);  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           if ($image) {
             if ($name) {
               $user_badges .= "<li class='badge mt-0 ms-0 p-0' data-placement='top' data-toggle='tooltip' title='$name'>";
@@ -173,8 +184,8 @@ class PersonaBlock extends BlockBase {
       // If $terms contains 'ACCESS CSSN', then the user is a CSSN member.
       $cssn_member = in_array('ACCESS CSSN', $terms) ? TRUE : FALSE;
       // $ws_query = \Drupal::entityQuery('webform_submission')
-      //  ->condition('uid', $user->id())
-      //  ->condition('uri', '/form/join-the-cssn-network');
+      // ->condition('uid', $user->id())
+      // ->condition('uri', '/form/join-the-cssn-network');
       // $ws_results = $ws_query->execute();
       $cssn_indicator = "";
       if ($cssn_member) {
@@ -201,7 +212,7 @@ class PersonaBlock extends BlockBase {
         'text-md-teal',
         'no-underline',
       ];
-      $cssn_more['#attributes']['aria-label'] = t('Information about CSSN');
+      $cssn_more['#attributes']['aria-label'] = $this->t('Information about CSSN');
 
       // Get the user's email address.
       $user_id = $user->id();
@@ -209,7 +220,7 @@ class PersonaBlock extends BlockBase {
       $send_email = $public ? "<a href='/user/$user_id/contact?destination=community-persona/$user_id' class='w-100 btn btn-primary btn-sm py-1 px-2'><i class='bi-envelope' aria-hidden='true'></i> Send Email</a>" : "";
 
       // Get Job title.
-      $user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($user_id);
+      $user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($user_id);  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $job_title = $user_entity->get('field_current_occupation')->value;
 
       $askci = $user_entity->get('field_askci_username')->value;
@@ -311,15 +322,15 @@ class PersonaBlock extends BlockBase {
           'cssn_indicator' => $cssn_indicator,
           'cssn_more' => $cssn_more,
           'user_badges' => $user_badges,
-          'profile_text' => t('Profiles'),
+          'profile_text' => $this->t('Profiles'),
           'askci' => $askci,
           'github' => $github,
           'discourse_ood' => $ood_discourse,
           'roles' => $roles,
-          'role_text' => t('Roles'),
+          'role_text' => $this->t('Roles'),
           'cssn_role' => $cssn_role,
           'program' => $program,
-          'program_text' => t('Programs'),
+          'program_text' => $this->t('Programs'),
           'send_email' => $send_email,
           'public' => $public,
         ],
@@ -332,7 +343,10 @@ class PersonaBlock extends BlockBase {
   }
 
   /**
+   * Returns cache max age of zero to disable caching.
+   *
    * @return int
+   *   The cache max age.
    */
   public function getCacheMaxAge() {
     return 0;

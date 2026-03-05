@@ -100,8 +100,8 @@ class EventPostSurvey extends ControllerBase {
     $entity_series = $event_instance->getEventSeries();
     $post_survey_url = $entity_series->field_post_survey_url->uri;
 
-    // Check registration exists
-    $entity_query = \Drupal::entityQuery('registrant');
+    // Check registration exists.
+    $entity_query = \Drupal::entityQuery('registrant'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $entity_query->accessCheck(FALSE);
     $entity_query->condition('eventinstance_id', $entity_id);
     $entity_query->condition('user_id', $user_id);
@@ -111,8 +111,8 @@ class EventPostSurvey extends ControllerBase {
     $registrant_id = reset($registrants);
 
     if ($registrants) {
-      $registrant = \Drupal::entityTypeManager()->getStorage('registrant')->load($registrant_id);
-      $registrant->set('field_post_survey_reminder_sent', \Drupal::time()->getRequestTime());
+      $registrant = \Drupal::entityTypeManager()->getStorage('registrant')->load($registrant_id); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+      $registrant->set('field_post_survey_reminder_sent', \Drupal::time()->getRequestTime()); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $registrant->save();
     }
     else {

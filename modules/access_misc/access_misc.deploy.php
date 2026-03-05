@@ -2,6 +2,7 @@
 
 /**
  * @file
+ * Deploy hooks for the access_misc module.
  */
 
 use Drupal\layout_builder\Section;
@@ -194,7 +195,7 @@ function access_misc_deploy_10005() {
 
   foreach ($announcements as $nid) {
     // Skip test announcements created by amp_dev module.
-    $node = \Drupal\node\Entity\Node::load($nid);
+    $node = Node::load($nid);
     if ($node && strpos($node->getTitle(), 'Test Announcement') === 0) {
       continue;
     }
@@ -225,13 +226,14 @@ function access_misc_deploy_10005() {
   if ($ann_index) {
     $ann_index->reindex();
 
-    // Process the indexing immediately
+    // Process the indexing immediately.
     $indexed_count = $ann_index->indexItems();
 
     return t('Announcements search index has been reindexed. Processed @count items to pick up new field.', [
       '@count' => $indexed_count,
     ]);
-  } else {
+  }
+  else {
     return t('Warning: Announcements search index not found. Manual reindexing may be required.');
   }
 }

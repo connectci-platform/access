@@ -2,8 +2,6 @@
 
 namespace Drupal\access_misc\Services;
 
-use Drupal\Core\Url;
-
 /**
  * Environment icon to be used on header title.
  *
@@ -38,7 +36,7 @@ class SymfonyMail {
     }
     $set_email = is_array($set_email) ? $set_email : [$set_email];
     foreach ($set_email as $single_email) {
-      $email_factory = \Drupal::service('email_factory');
+      $email_factory = \Drupal::service('email_factory'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $email = $email_factory->newTypedEmail($policy, $policy_subtype);
       foreach ($variables as $key => $value) {
         $email->setVariable($key, $value);

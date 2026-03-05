@@ -20,6 +20,11 @@ use Drupal\taxonomy\Entity\Term;
  * )
  */
 class TicketingSendEmailHandler extends WebformHandlerBase {
+  /**
+   * Debug flag.
+   *
+   * @var bool
+   */
   public $debug = FALSE;
 
   /**
@@ -29,15 +34,16 @@ class TicketingSendEmailHandler extends WebformHandlerBase {
     $data = $webformSubmission->getData();
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'in postSave() = $data = ' . print_r($data, TRUE);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- in postSave() = $data = ' . print_r($data, TRUE);
       \Drupal::messenger()->addStatus($msg);
     }
 
     // Adjust the To: email address based on form selections with this logic:
-    //  1 - if a resource is selected, use it
-    //  2 - if an allocations category is provided, use that category (with some possible overrides)
-    //  3 - if some other category is selected, use that
-    //  4 - otherwise use the default queue.
+    // 1 - if a resource is selected, use it
+    // 2 - if an allocations category is provided, use that category
+    // (with some possible overrides)
+    // 3 - if some other category is selected, use that
+    // 4 - otherwise use the default queue.
     if ($data['resource'] !== 'issue_not_resource_related') {
       $to = $data['resource'];
 
@@ -59,8 +65,8 @@ class TicketingSendEmailHandler extends WebformHandlerBase {
         $to = 'ACCESS-Metrics';
       }
       elseif ((str_starts_with($to, "ACCESS-Operations-Security"))) {
-        // 2022-09-13 -- both "ACCESS-Operations-Security" and "ACCESS-Operations-Security-Accounts"
-        // should go to ACCESS-Operations-Security
+        // 2022-09-13 -- both "ACCESS-Operations-Security" and
+        // "ACCESS-Operations-Security-Accounts"
         $to = "ACCESS-Operations-Security";
       }
     }
@@ -112,16 +118,16 @@ class TicketingSendEmailHandler extends WebformHandlerBase {
     $from_email = $user->getEmail();
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . '$from_email = ' . print_r($from_email, TRUE);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- $from_email = ' . print_r($from_email, TRUE);
       \Drupal::messenger()->addStatus($msg);
     }
 
-    $body = (string) $this->getXMailMessageBody($data['problem_description'], $data['tag_names'],
+    $body = (string) $this->getXmailMessageBody($data['problem_description'], $data['tag_names'],
           $data['suggested_tag'], $from_email);
     $params['body'] = $body;
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'in postSave() = $body = ' . print_r($body, TRUE);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- in postSave() = $body = ' . print_r($body, TRUE);
       \Drupal::messenger()->addStatus($msg);
     }
 
@@ -153,7 +159,7 @@ class TicketingSendEmailHandler extends WebformHandlerBase {
     }
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'mail $result = ' . print_r($result, TRUE);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- mail $result = ' . print_r($result, TRUE);
       \Drupal::messenger()->addStatus($msg);
     }
 
@@ -175,7 +181,6 @@ class TicketingSendEmailHandler extends WebformHandlerBase {
       $params['to'] = $to;
       $params['title'] = "request for new tag: $new_tag";
       $params['body'] = "The user with email $from_email has suggested this new tag:  $new_tag";
-      ;
 
       $result = $mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
 
@@ -185,7 +190,7 @@ class TicketingSendEmailHandler extends WebformHandlerBase {
       }
 
       if ($this->debug) {
-        $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'mail $result = ' . print_r($result, TRUE);
+        $msg = basename(__FILE__) . ':' . __LINE__ . ' -- mail $result = ' . print_r($result, TRUE);
         \Drupal::messenger()->addStatus($msg);
       }
 
@@ -193,7 +198,10 @@ class TicketingSendEmailHandler extends WebformHandlerBase {
 
   }
 
-  public function getXMailMessageBody($description, $tags, $suggested_tag, $from_email) {
+  /**
+   * Builds the XMail message body for the ticketing email.
+   */
+  public function getXmailMessageBody($description, $tags, $suggested_tag, $from_email) {
     $ticketing_module_path = \Drupal::service('extension.list.module')->getPath('ticketing');
     return twig_render_template(
           $ticketing_module_path . '/templates/ticketing-mail.html.twig',

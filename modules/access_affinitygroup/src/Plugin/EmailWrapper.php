@@ -2,30 +2,76 @@
 
 namespace Drupal\access_affinitygroup\Plugin;
 
-use Drupal\access_affinitygroup\Plugin\ConstantContactApi;
-
 /**
  * @file
  * Returns the HTML to send to Constant Contact.
- * Email templates for affinity groups in the Community category or the ACCESS_RP
- * category. Used in emails to Affinity groups sent by coordinators, broadcast of
- * events and announcements, and for the Access Digest.
  *
- * Note: this code refers to "news" which has since been renamed to "announcements" on the website.
- * The website now has "ACCESS News", which are articles suggested by community and written by communications
- * team, and "announcenments", which anyone can submit for approval. We deal with the latter here.
+ * Email templates for affinity groups in the Community category or
+ * the ACCESS_RP category. Used in emails to Affinity groups sent by
+ * coordinators, broadcast of events and announcements, and for the
+ * Access Digest.
+ *
+ * Note: this code refers to "news" which has since been renamed to
+ * "announcements" on the website.
+ * The website now has "ACCESS News", which are articles suggested by
+ * community and written by communications
+ * team, and "announcenments", which anyone can submit for approval.
+ * We deal with the latter here.
  */
 /**
- *
+ * Builds HTML email templates for affinity group emails.
  */
 class EmailWrapper {
 
+  use \Drupal\Core\StringTranslation\StringTranslationTrait;
+
+  /**
+   * Background color for the email template.
+   *
+   * @var string
+   */
   private $bgcolor = '#ED3F27';
+
+  /**
+   * Title background color for the email template.
+   *
+   * @var string
+   */
   private $titleBgColor = '#134686';
+
+  /**
+   * Title text color for the email template.
+   *
+   * @var string
+   */
   private $titleColor = '#134686';
+
+  /**
+   * Link background color for the email template.
+   *
+   * @var string
+   */
   private $linkBackground = '#C91235';
+
+  /**
+   * Link text color for the email template.
+   *
+   * @var string
+   */
   private $linkColor = '#ffffff';
+
+  /**
+   * Link hover background color for the email template.
+   *
+   * @var string
+   */
   private $linkHoverBackground = '#545860';
+
+  /**
+   * Link hover border color for the email template.
+   *
+   * @var string
+   */
   private $linkHoverBorderColor = '#545860';
 
   /**
@@ -56,6 +102,8 @@ class EmailWrapper {
   }
 
   /**
+   * Builds the community news email HTML.
+   *
    * NewsBody: the next text
    * newsTitle: headline
    * pubDate: date to display
@@ -63,7 +111,7 @@ class EmailWrapper {
    * newsUrl: for button link to news item. If null, no button.
    * logoUrl: url for logo image, or null for none.
    */
-  public function ccCommunityNewsHTML($newsBody, $newsTitle, $pubDate, $agNames, $newsUrl, $logoUrl) {
+  public function ccCommunityNewsHtml($newsBody, $newsTitle, $pubDate, $agNames, $newsUrl, $logoUrl) {
     // Build list of one or more affinity group names separated by 'or'.
     $agText = '';
     $or = '';
@@ -484,7 +532,7 @@ EMAILTEXT;
   /**
    * Used in digest (announcements/events rollup).
    */
-  public function mainHeadHTML($titleText) {
+  public function mainHeadHtml($titleText) {
     $mainHead = <<<MAINHEADHTML
     <table class="layout layout-feature layout-1-column" style="table-layout:fixed;
            background-color=#ffffff;" width="100%" border="0" cellpadding="0" cellspacing="0" bgcolor="#ffffff">
@@ -505,14 +553,15 @@ EMAILTEXT;
       </tr>
     </table>
 MAINHEADHTML;
-    // note: SECTIONHEADHTML must be to the left column-wise of the last tag (php)
+    // note: SECTIONHEADHTML must be to the left column-wise of the
+    // last tag (php)
     return $mainHead;
   }
 
   /**
    * Used in digest (announcements/events rollup).
    */
-  public function sectionHeadHTML($titleText) {
+  public function sectionHeadHtml($titleText) {
     $sectionHead = <<<SECTIONHEADHTML
     <table class="layout layout-feature layout-1-column" style="table-layout:fixed;
            background-color=#ffffff;" width="100%" border="0" cellpadding="0" cellspacing="0" bgcolor="#ffffff">
@@ -533,14 +582,15 @@ MAINHEADHTML;
       </tr>
     </table>
 SECTIONHEADHTML;
-    // note: SECTIONHEADHTML must be to the left column-wise of the last tag (php)
+    // note: SECTIONHEADHTML must be to the left column-wise of the
+    // last tag (php)
     return $sectionHead;
   }
 
   /**
    * Used in digest (announcements/events rollup).
    */
-  public function sectionSubHeadHTML($titleText) {
+  public function sectionSubHeadHtml($titleText) {
     $sectionSubHead = <<<SECTIONSUBHEADHTML
     <table class="layout layout-feature layout-1-column" style="table-layout:fixed;
            background-color=#ffffff;" width="100%" border="0" cellpadding="0" cellspacing="0" bgcolor="#ffffff">
@@ -561,38 +611,38 @@ SECTIONHEADHTML;
       </tr>
     </table>
 SECTIONSUBHEADHTML;
-    // note: SECTIONHEADHTML must be to the left column-wise of the last tag (php)
+    // note: SECTIONHEADHTML must be to the left column-wise of the
+    // last tag (php)
     return $sectionSubHead;
   }
 
   /**
    * Use in weekly news rollup.
    */
-  public function newsItemHTML($title, $pubDate, $body, $articleUrl) {
+  public function newsItemHtml($title, $pubDate, $body, $articleUrl) {
     $main = "<div  class=\"digest-news-item\">
       <div class=\"digest-news-text\">
       $body
       </div>
       </div>";
-    return $this->itemHTML($title, $pubDate, $main, $articleUrl, "Read more");
+    return $this->itemHtml($title, $pubDate, $main, $articleUrl, "Read more");
   }
 
   /**
    * Use in weekly news rollup.
    */
-  public function eventItemHTML($title, $eventDate, $description, $articleUrl) {
+  public function eventItemHtml($title, $eventDate, $description, $articleUrl) {
     $main = "<div>
         <div class=\"digest-news-text\">$description</div>
       </div>";
-    return $this->itemHTML($title, $eventDate, $main, $articleUrl, "Read more");
+    return $this->itemHtml($title, $eventDate, $main, $articleUrl, "Read more");
   }
 
   /**
-   * Used in announcements/events digest - each announcement or event item
-   * with a link at the bottom to the event.
+   * Builds an announcement/event item HTML with a link.
    */
-  private function itemHTML($titleText, $eventDate, $main, $itemUrl, $itemLinkText) {
-    $title = $this->titleHTML($titleText);
+  private function itemHtml($titleText, $eventDate, $main, $itemUrl, $itemLinkText) {
+    $title = $this->titleHtml($titleText);
 
     $articleLink = '';
 
@@ -644,7 +694,7 @@ ARTICLEHTML;
   /**
    * A line between articles.
    */
-  public function dividerHTML() {
+  public function dividerHtml() {
     $divider = <<<DIVIDERHTML
   <table class="layout layout--1-column" style="table-layout:fixed;"width="100%" border="0" cellpadding="0" cellspacing="0">
     <tr>
@@ -667,32 +717,34 @@ ARTICLEHTML;
     </tr>
   </table>
 DIVIDERHTML;
-    // Note: the previous line text marker must be positioned to left of end of html.
+    // Note: the previous line text marker must be positioned to left
+    // of end of html.
     return $divider;
   }
 
   /**
    * Inner wrapper for the weekly news and events rollup.
    */
-  public function ccNewsRollupHTML($news, $events) {
+  public function ccNewsRollupHtml($news, $events) {
     $newsBody = '<div class="access-news-rollup-email">'
       . '<div class="access-news-rollup-news">' . $news . '</div>'
       . '<div class="access-news-rollup-events">' . $events . '</div>'
-      . $this->sectionHeadHTML(t("Join Affinity Groups"))
+      . $this->sectionHeadHtml($this->t("Join Affinity Groups"))
       . $this->ccRollupBottomStatic1()
-      . $this->sectionHeadHTML(t("Share with the ACCESS Community"))
+      . $this->sectionHeadHtml($this->t("Share with the ACCESS Community"))
       . $this->ccRollupBottomStatic2()
       . '</div>';
 
-    return $this->ccNewsCommonHTML($newsBody, '');
+    return $this->ccNewsCommonHtml($newsBody, '');
   }
 
   /**
-   * For a single news or event item, broadcast to one or more affinity groups
-   * this is the Access template used for affinity groups that are NOT of the
+   * For a single news or event item, broadcast to one or more affinity groups.
+   *
+   * This is the Access template used for affinity groups that are NOT of the
    * "Community" category.
    */
-  public function ccAccessNewsHTML($main, $title, $pubDate, $agNames, $newsUrl) {
+  public function ccAccessNewsHtml($main, $title, $pubDate, $agNames, $newsUrl) {
     // Build list of one or more affinity group names separated by 'or'.
     $agText = '';
     $or = '';
@@ -702,7 +754,7 @@ DIVIDERHTML;
     }
     $agText = 'You are receiving this email through the ' . $agText . ' Affinity Group.';
 
-    $titleDisplay = $this->titleHTML($title);
+    $titleDisplay = $this->titleHtml($title);
 
     // Line at the top that lists AG groups.
     $topExtra = <<<TOPEXTRA
@@ -728,7 +780,8 @@ DIVIDERHTML;
       </tbody>
     </table>
   TOPEXTRA;
-    // Note: the previous line text marker must be positioned to left of end of html.
+    // Note: the previous line text marker must be positioned to left
+    // of end of html.
     $pubDateDisplay = '';
     if ($pubDate) {
       $pubDateDisplay = <<<PUBDATE
@@ -746,7 +799,8 @@ DIVIDERHTML;
         </tbody>
       </table>
     PUBDATE;
-      // Note: the previous line text marker must be positioned to left of end of html.
+      // Note: the previous line text marker must be positioned to
+      // left of end of html.
     }
 
     $websiteButtonDisplay = '';
@@ -781,13 +835,13 @@ DIVIDERHTML;
       </table>
     SINGLENEWS;
     // Previous line text marker must positioned to the left of end html.
-    return $this->ccNewsCommonHTML($newsItem, $topExtra);
+    return $this->ccNewsCommonHtml($newsItem, $topExtra);
   }
 
   /**
    * News or event title formatting.
    */
-  private function titleHTML($titleText) {
+  private function titleHtml($titleText) {
     $t = <<<TITLE
     <h3 style="font-family:Roboto,sans-serif; color: #f07537; font-size: 18px; font-weight: bold; margin: 0; padding: 0px 0px 4px 0px">
       $titleText
@@ -797,8 +851,10 @@ DIVIDERHTML;
   }
 
   /**
-   * Returns complete url with host and full path
-   * we assume all of our images are in the sites/default/files/inline_images dir.
+   * Returns complete url with host and full path.
+   *
+   * We assume all of our images are in the sites/default/files/
+   * inline_images dir.
    */
   private function imageUrl($imageFileName) {
     $uri = 'public://inline-images/' . $imageFileName;
@@ -806,10 +862,9 @@ DIVIDERHTML;
   }
 
   /**
-   * Access Constant Contact Template wrapping common to broadcast news and events,
-   * and also the weekly news+events rollup.
+   * Wraps news/events content in Access Constant Contact template.
    */
-  private function ccNewsCommonHTML($newsBody, $topExtra) {
+  private function ccNewsCommonHtml($newsBody, $topExtra) {
     $imgLogo = $this->imageUrl('access_support_masthead.gif');
     $fbIcon = $this->imageUrl('circleIconFacebook.png');
     $twIcon = $this->imageUrl('circleIconTwitter.png');
@@ -1245,12 +1300,14 @@ DIVIDERHTML;
   }
 
   /**
-   * "Join Affinity Groups" section
-   * possible do this through a news item, but for now, we have an extra image here we need to show
+   * Renders the "Join Affinity Groups" section.
+   *
+   * Possible do this through a news item, but for now, we have an
+   * extra image here we need to show.
    */
   private function ccRollupBottomStatic1() {
     $teamImageUrl = $this->imageUrl('team-looking-at-screen_0.jpg');
-    $title = $this->titleHTML('Ensure you keep receiving updates!');
+    $title = $this->titleHtml('Ensure you keep receiving updates!');
     $bodyText = "Join Affinity Groups to get updates about things you care about. If you have allocations,
                 you will automatically become a member of Affinity Groups associated with your allocations.
                 When you join the ACCESS Support Affinity Group you'll receive these weekly digests.";
@@ -1323,10 +1380,10 @@ DIVIDERHTML;
   }
 
   /**
-   * "Share with the ACCESS Community" section.
+   * Renders the "Share with the ACCESS Community" section.
    */
   private function ccRollupBottomStatic2() {
-    $title = $this->titleHTML('Do you have announcements or trainings to share?');
+    $title = $this->titleHtml('Do you have announcements or trainings to share?');
     $newsUrl = ACCESS_SUPPORT_URL . '/announcements';
     $eventsUrl = ACCESS_SUPPORT_URL . '/events';
 

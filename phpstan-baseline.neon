@@ -1,0 +1,31 @@
+parameters:
+	ignoreErrors:
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 6
+			path: ../../../../docroot/modules/custom/access/src/AccessJwtKeyProvider.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../docroot/modules/custom/access/src/Commands/AccessCommands.php
+
+		-
+			message: "#^Unsafe usage of new static\\(\\)\\.$#"
+			count: 1
+			path: ../../../../docroot/modules/custom/access/src/Controller/ApiDocsController.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../docroot/modules/custom/access/src/Controller/JsonApiAccessController.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: ../../../../docroot/modules/custom/access/src/Controller/JwksController.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 5
+			path: ../../../../docroot/modules/custom/access/src/EventSubscriber/AccessAuthCookieSubscriber.php

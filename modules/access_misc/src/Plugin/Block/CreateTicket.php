@@ -20,7 +20,7 @@ class CreateTicket extends BlockBase {
    * {@inheritdoc}
    */
   public function build() {
-    $link = new JiraLink('https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/17', t('Create Ticket'));
+    $link = new JiraLink('https://access-ci.atlassian.net/servicedesk/customer/portal/2/group/3/create/17', $this->t('Create Ticket'));
     return $link->getLink();
   }
 
@@ -28,7 +28,8 @@ class CreateTicket extends BlockBase {
    * {@inheritdoc}
    */
   public function getCacheTags() {
-    if ($user = \Drupal::currentUser()) {
+    $user = \Drupal::currentUser(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    if ($user) {
       return Cache::mergeTags(parent::getCacheTags(), ['user:' . $user->id()]);
     }
     else {

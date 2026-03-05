@@ -39,7 +39,6 @@ class RolesLabelLookup {
     return $this->roleLabels;
   }
 
-
   /**
    * Get the role labels in string.
    */

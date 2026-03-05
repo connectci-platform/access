@@ -2,12 +2,12 @@
 
 namespace Drupal\cssn\Plugin\search_api\processor;
 
+use Drupal\taxonomy\Entity\Term;
 use Drupal\search_api\Datasource\DatasourceInterface;
 use Drupal\search_api\Item\ItemInterface;
 use Drupal\search_api\Processor\ProcessorPluginBase;
 use Drupal\search_api\Processor\ProcessorProperty;
 use Drupal\file\Entity\File;
-use Drupal\taxonomy\Entity\Term;
 
 /**
  * Index selected user flagged affinity groups.
@@ -28,7 +28,7 @@ class UserBadges extends ProcessorPluginBase {
   /**
    * {@inheritdoc}
    */
-  public function getPropertyDefinitions(DatasourceInterface $datasource = NULL) {
+  public function getPropertyDefinitions(?DatasourceInterface $datasource = NULL) {
     $properties = [];
 
     if (!$datasource) {
@@ -56,7 +56,7 @@ class UserBadges extends ProcessorPluginBase {
 
     foreach ($fields as $field) {
       foreach ($badges as $badge) {
-        $term = \Drupal\taxonomy\Entity\Term::load($badge['target_id']);
+        $term = Term::load($badge['target_id']);
 
         $title = $term->getName();
 

@@ -3,8 +3,6 @@
 namespace Drupal\access_misc\Plugin\Block;
 
 use Drupal\Core\Block\BlockBase;
-use Drupal\Core\Cache\Cache;
-use Drupal\access_misc\Plugin\JiraLink;
 
 /**
  * Access CI login button on user login page.
@@ -21,8 +19,8 @@ class AccessCiUserLogin extends BlockBase {
    */
   public function build() {
 
-    $current = \Drupal::request()->query->get('current');
-    $redirect = \Drupal::request()->query->get('redirect');
+    $current = \Drupal::request()->query->get('current'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $redirect = \Drupal::request()->query->get('redirect'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     $redirect = $redirect ?: $current;
 

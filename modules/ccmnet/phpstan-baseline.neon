@@ -1,0 +1,31 @@
+parameters:
+	ignoreErrors:
+		-
+			message: "#^Unsafe usage of new static\\(\\)\\.$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/ccmnet/src/Plugin/Block/MentorshipNodeBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 6
+			path: ../../../../../../docroot/modules/custom/access/modules/ccmnet/src/Plugin/Block/MentorshipNodeBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 4
+			path: ../../../../../../docroot/modules/custom/access/modules/ccmnet/src/Plugin/Block/MentorshipPersonBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/ccmnet/src/Plugin/Block/UserRegisterRedirectBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 5
+			path: ../../../../../../docroot/modules/custom/access/modules/ccmnet/src/Plugin/Util/MentorshipLookup.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/ccmnet/src/Plugin/search_api/processor/MenteeName.php

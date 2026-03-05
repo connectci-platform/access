@@ -17,38 +17,44 @@ class CiLinkController extends ControllerBase {
 
   /**
    * Variable for title.
+   *
+   * @var string
    */
   protected $title;
 
   /**
    * Number for webform submission id.
+   *
+   * @var int
    */
   protected $sid;
 
   /**
    * Object with webform submission.
+   *
+   * @var \Drupal\webform\WebformSubmissionInterface
    */
-  protected $webform_submission;
+  protected $webformSubmission;
 
   /**
-   *
+   * Initializes the controller.
    */
   public function __construct() {
-    $url = \Drupal::request()->getRequestUri();
+    $url = \Drupal::request()->getRequestUri(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $url_chunked = explode('/', $url);
     if (is_numeric(end($url_chunked))) {
       $this->sid = end($url_chunked);
     }
 
     if ($this->sid) {
-      $this->webform_submission = \Drupal::entityTypeManager()->getStorage('webform_submission')->load($this->sid);
+      $this->webformSubmission = \Drupal::entityTypeManager()->getStorage('webform_submission')->load($this->sid); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     }
     else {
-      $this->webform_submission = 0;
+      $this->webformSubmission = 0;
     }
 
-    if ($this->webform_submission) {
-      $title = $this->webform_submission->getData('title');
+    if ($this->webformSubmission) {
+      $title = $this->webformSubmission->getData('title');
       $this->title = $title['title'];
     }
     else {
@@ -60,17 +66,16 @@ class CiLinkController extends ControllerBase {
    * Build content to display on page.
    */
   public function cilinks() {
-    if (!$this->webform_submission) {
+    if (!$this->webformSubmission) {
       return [
         '#markup' => $this->t('No KB Resource found.'),
       ];
     }
-    $data = $this->webform_submission->getData();
+    $data = $this->webformSubmission->getData();
 
     // Get domain.
-    $domain = \Drupal::config('domain.settings');
-    $token = \Drupal::token();
-    $domainName = Html::getClass($token->replace(t('[domain:name]')));
+    $token = \Drupal::token(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $domainName = Html::getClass($token->replace($this->t('[domain:name]')));
 
     // Get tags.
     $terms = explode(',', $data['terms']);
@@ -123,7 +128,7 @@ class CiLinkController extends ControllerBase {
     }
 
     // Affinity groups.
-    $query = \Drupal::entityQuery('node')
+    $query = \Drupal::entityQuery('node') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->condition('type', 'affinity_group')
       ->condition('field_resources_entity_reference', $this->sid)
       ->accessCheck(TRUE);
@@ -134,35 +139,35 @@ class CiLinkController extends ControllerBase {
     }
     foreach ($nids as $nid) {
       // Get node title.
-      $node = Node::load($nid);
+      $node = Node::load($nid); // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
       $title = $node->getTitle();
       $affinity_nodes .= '<a href="/node/' . $nid . '">' . $title . '</a>, ';
     }
     $affinity_nodes = rtrim($affinity_nodes, ', ');
 
     // Check if user is logged in.
-    $user = \Drupal::currentUser();
+    $user = \Drupal::currentUser(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $options = [
-      'query' => ['destination' => \Drupal::request()->getRequestUri()],
+      'query' => ['destination' => \Drupal::request()->getRequestUri()], // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       'attributes' => ['class' => ['text-dark-teal', 'no-underline', 'hover--underline']],
     ];
     $login = Link::fromTextAndUrl($this->t('Login to vote'), Url::fromUri('internal:/user/login', $options))->toString();
 
     // Upvote widget.
-    $flag_upvote = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'upvote', 'full');
-    $flag_upvote = \Drupal::service('renderer')->renderPlain($flag_upvote);
-    $flag_upvote_count = \Drupal::service('flag.count')->getEntityFlagCounts($this->webform_submission);
+    $flag_upvote = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'upvote', 'full'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $flag_upvote = \Drupal::service('renderer')->renderInIsolation($flag_upvote); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $flag_upvote_count = \Drupal::service('flag.count')->getEntityFlagCounts($this->webformSubmission); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $flag_upvote_set = $flag_upvote_count['upvote'] ?? 0;
     $flag_upvote_count = $flag_upvote_set ? $flag_upvote_count['upvote'] : 0;
 
     // Edit Button.
-    // Get the webform ID from the submission to properly build the edit route
-    $webform_id = $this->webform_submission->getWebform()->id();
+    // Get the webform ID from the submission to properly build the edit route.
+    $webform_id = $this->webformSubmission->getWebform()->id();
     $edit_url = Url::fromRoute('entity.webform_submission.edit_form', [
       'webform' => $webform_id,
-      'webform_submission' => $this->sid
+      'webform_submission' => $this->sid,
     ]);
-    // Set the options on the URL object before creating the link
+    // Set the options on the URL object before creating the link.
     $edit_url->setOption('attributes', [
       'class' => [
         'btn',
@@ -174,31 +179,31 @@ class CiLinkController extends ControllerBase {
         'btn-md-teal',
       ],
     ]);
-    // If current user id is the same as the submission user id, show the edit link.
+    // If current user id is the same as the submission user id,
+    // show the edit link.
     $edit_link = '';
 
-    $webform_submission = $this->webform_submission;
-
-    $uid = $this->webform_submission->getOwnerId();
-    $roles = \Drupal::currentUser()->getRoles();
-    if (\Drupal::currentUser()->id() == $uid || in_array('administrator', $roles) || in_array('kb_pm', $roles)) {
+    $uid = $this->webformSubmission->getOwnerId();
+    $current_user = \Drupal::currentUser(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $roles = $current_user->getRoles();
+    if ($current_user->id() == $uid || in_array('administrator', $roles) || in_array('kb_pm', $roles)) {
       $edit_link = Link::fromTextAndUrl($this->t('Edit'), $edit_url)->toString();
     }
 
     // Flags.
     $flag_classes = 'no-underline text-dark-teal hover--underline';
-    $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'outdated', 'full');
+    $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'outdated', 'full'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $flag_outdated['#attributes']['class'][] = $flag_classes;
-    $flag_outdated = \Drupal::service('renderer')->renderPlain($flag_outdated);
-    $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'not_useful', 'full');
+    $flag_outdated = \Drupal::service('renderer')->renderInIsolation($flag_outdated); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'not_useful', 'full'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $flag_not_useful['#attributes']['class'][] = $flag_classes;
-    $flag_not_useful = \Drupal::service('renderer')->renderPlain($flag_not_useful);
-    $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'inaccurate', 'full');
+    $flag_not_useful = \Drupal::service('renderer')->renderInIsolation($flag_not_useful); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'inaccurate', 'full'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $flag_inaccurate['#attributes']['class'][] = $flag_classes;
-    $flag_inaccurate = \Drupal::service('renderer')->renderPlain($flag_inaccurate);
+    $flag_inaccurate = \Drupal::service('renderer')->renderInIsolation($flag_inaccurate); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     // Check if the user is logged in.
-    $user = \Drupal::currentUser();
+    $user = \Drupal::currentUser(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $authenticated = $user->isAuthenticated();
 
     // Use TailwindCSS classes for ACCESS Support

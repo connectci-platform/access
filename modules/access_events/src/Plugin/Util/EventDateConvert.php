@@ -24,7 +24,7 @@ class EventDateConvert {
    *
    * @var string
    */
-  private $start_time;
+  private $startTime;
 
   /**
    * Stores end date.
@@ -38,12 +38,12 @@ class EventDateConvert {
    *
    * @var string
    */
-  private $end_time;
+  private $endTime;
 
   /**
    * True if start and end date are the same day.
    *
-   * @var boolean
+   * @var bool
    */
   public $sameDay = 1;
 
@@ -53,16 +53,16 @@ class EventDateConvert {
   public function __construct($set_start, $set_end) {
     $start = 0;
 
-    if ($set_start != NULL ) {
+    if ($set_start != NULL) {
       $start_iso = strtotime($set_start);
       $start_day = date('d', $start_iso);
       $start = date('m/d/y - g:i A', $start_iso);
-      $start_time = date('g:i A', $start_iso);
+      $startTime = date('g:i A', $start_iso);
     }
 
     $end = 0;
 
-    if ($set_end != NULL ) {
+    if ($set_end != NULL) {
       $end_iso = strtotime($set_end);
       $end_day = date('d', $end_iso);
     }
@@ -71,18 +71,18 @@ class EventDateConvert {
         $this->sameDay = 0;
 
         $end = date('m/d/y - g:i A T', $end_iso);
-        $end_time = date('g:i A T', $end_iso);
+        $endTime = date('g:i A T', $end_iso);
       }
       else {
         $end = date('g:i A T', $end_iso);
-        $end_time = date('g:i A T', $end_iso);
+        $endTime = date('g:i A T', $end_iso);
       }
     }
 
     $this->start = $start;
-    $this->start_time = $start_time;
+    $this->startTime = $startTime;
     $this->end = $end;
-    $this->end_time = $end_time;
+    $this->endTime = $endTime;
   }
 
   /**
@@ -96,7 +96,7 @@ class EventDateConvert {
    * Function to get start time.
    */
   public function getStartTime() {
-    return $this->start_time;
+    return $this->startTime;
   }
 
   /**
@@ -110,7 +110,7 @@ class EventDateConvert {
    * Function to get end time.
    */
   public function getEndTime() {
-    return $this->end_time;
+    return $this->endTime;
   }
 
 }

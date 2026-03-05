@@ -2,6 +2,7 @@
 
 namespace Drupal\access_affinitygroup\Form;
 
+use Drupal\node\Entity\Node;
 use Drupal\access_affinitygroup\Plugin\AllocationsUsersImport;
 use Drupal\access_affinitygroup\Plugin\ConstantContactApi;
 use Drupal\Core\Form\FormBase;
@@ -11,7 +12,7 @@ use Drupal\Core\Url;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
 /**
- * Class ConstantContact.
+ * Admin form for Constant Contact API configuration.
  */
 class ConstantContact extends FormBase {
 
@@ -20,24 +21,24 @@ class ConstantContact extends FormBase {
    */
   public function buildForm(array $form, FormStateInterface $form_state) {
 
-    $allocCronDisable = \Drupal::state()->get('access_affinitygroup.allocCronDisable');
+    $allocCronDisable = \Drupal::state()->get('access_affinitygroup.allocCronDisable'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
-    $allocCronSliceSize = \Drupal::state()->get('access_affinitygroup.allocCronSliceSize');
-    $allocCronImportLimit = \Drupal::state()->get('access_affinitygroup.allocCronImportLimit', 0);
+    $allocCronSliceSize = \Drupal::state()->get('access_affinitygroup.allocCronSliceSize'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $allocCronImportLimit = \Drupal::state()->get('access_affinitygroup.allocCronImportLimit', 0); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     // This will soon be display only:
-    $allocCronStartAt = \Drupal::state()->get('access_affinitygroup.allocCronStartAt');
-    $allocCronNoCC = \Drupal::state()->get('access_affinitygroup.allocCronNoCC');
-    $allocCronNoUserDetSave = \Drupal::state()->get('access_affinitygroup.allocCronNoUserDetSave');
-    $allocCronVerbose = \Drupal::state()->get('access_affinitygroup.allocCronVerbose');
+    $allocCronStartAt = \Drupal::state()->get('access_affinitygroup.allocCronStartAt'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $allocCronNoCC = \Drupal::state()->get('access_affinitygroup.allocCronNoCC'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $allocCronNoUserDetSave = \Drupal::state()->get('access_affinitygroup.allocCronNoUserDetSave'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $allocCronVerbose = \Drupal::state()->get('access_affinitygroup.allocCronVerbose'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
-    $noConstantContactCalls = \Drupal::configFactory()->getEditable('access_affinitygroup.settings')->get('noConstantContactCalls');
+    $noConstantContactCalls = \Drupal::configFactory()->getEditable('access_affinitygroup.settings')->get('noConstantContactCalls'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
-    $forcedTokenSettings = \Drupal::state()->get('access_affinitygroup.forcedTokenSettings');
+    $forcedTokenSettings = \Drupal::state()->get('access_affinitygroup.forcedTokenSettings'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $supportToken = $forcedTokenSettings == 'support' ? 1 : 0;
     $openondemandToken = $forcedTokenSettings == 'openondemand' ? 1 : 0;
     $testToken = $forcedTokenSettings == 'test' ? 1 : 0;
 
-    $request = \Drupal::request();
+    $request = \Drupal::request(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $code = $request->get('code');
     $refresh_token = $request->get('refresh_token');
     $cca = new ConstantContactApi();
@@ -51,7 +52,7 @@ class ConstantContact extends FormBase {
     }
 
     $url = Url::fromUri('internal:/admin/services/constantcontact-token', ['query' => ['refresh_token' => TRUE]]);
-    $link = Link::fromTextAndUrl(t('Refresh Token'), $url)->toString()->getGeneratedLink();
+    $link = Link::fromTextAndUrl($this->t('Refresh Token'), $url)->toString()->getGeneratedLink();
 
     $form['y0'] = [
       '#markup' => '<h4>Set up or refresh Constant Contact Connection</h4>',
@@ -101,14 +102,14 @@ class ConstantContact extends FormBase {
     $form['no_constant_contact_calls'] = [
       '#type' => 'checkbox',
       '#title' => $this->t('Disable calls to Constant Contact API'),
-      '#description' => $this->t('Uncheck for production site. '),
+      '#description' => $this->t('Uncheck for production site.'),
       '#default_value' => $noConstantContactCalls,
     ];
     $form['saveccdisable'] = [
       '#type' => 'submit',
       '#description' => $this->t('Unchecked is the normal value.'),
       '#value' => $this->t('Save Disable Setting'),
-      '#submit' => [[$this, 'doSaveDisableCC']],
+      '#submit' => [[$this, 'doSaveDisableCc']],
     ];
 
     $form['force_token_title'] = [
@@ -142,7 +143,6 @@ class ConstantContact extends FormBase {
       '#value' => $this->t('Save forced token settings'),
       '#submit' => [[$this, 'doSaveTokenSet']],
     ];
-
 
     $form['y5'] = [
       '#markup' => '<br><br><h4>Generate Weekly Digest</h4>',
@@ -221,7 +221,7 @@ class ConstantContact extends FormBase {
     $form['runCron'] = [
       '#type' => 'submit',
       '#value' => $this->t('Run Cron Slice test'),
-      '#description' => $this->t("Dev test only: Run one cron slice "),
+      '#description' => $this->t('Dev test only: Run one cron slice'),
       '#submit' => [[$this, 'doCronSlice']],
     ];
 
@@ -367,7 +367,7 @@ class ConstantContact extends FormBase {
   /**
    * Implements form validation.
    *
-   * @param array form
+   * @param array $form
    *   The render array of the currently built form.
    * @param \Drupal\Core\Form\FormStateInterface $form_state
    *   Object describing the current state of the form.
@@ -386,7 +386,7 @@ class ConstantContact extends FormBase {
     $cc = new ConstantContactApi();
     $cc->clearTokens();
 
-    \Drupal::messenger()->addMessage(t('Constant Contact tokens cleared.'));
+    \Drupal::messenger()->addMessage($this->t('Constant Contact tokens cleared.')); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
   }
 
@@ -401,26 +401,25 @@ class ConstantContact extends FormBase {
       }
     }
     $cc = new ConstantContactApi();
-    $host = \Drupal::request()->getSchemeAndHttpHost();
+    $host = \Drupal::request()->getSchemeAndHttpHost(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $redirectURI = urlencode("$host/admin/services/constantcontact-token");
     $scope = urlencode(rtrim($selected_scope));
     $state = uniqid();
-    $response = new RedirectResponse($cc->getAuthorizationURL($redirectURI, $scope, $state));
+    $response = new RedirectResponse($cc->getAuthorizationUrl($redirectURI, $scope, $state));
     $response->send();
-    parent::submitForm($form, $form_state);
   }
 
   /**
-   * Save config setting access_affinitygroup.settings.noConstantContactCalls according to checkbox  value.
+   * Saves the noConstantContactCalls configuration setting.
    */
-  public function doSaveDisableCC(array &$form, FormStateInterface $form_state) {
-    $config = \Drupal::configFactory()->getEditable('access_affinitygroup.settings');
+  public function doSaveDisableCc(array &$form, FormStateInterface $form_state) {
+    $config = \Drupal::configFactory()->getEditable('access_affinitygroup.settings'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $config->set('noConstantContactCalls', $form_state->getValue('no_constant_contact_calls'));
     $config->save();
   }
 
   /**
-   * Save config setting access_affinitygroup.settings.noConstantContactCalls according to checkbox  value.
+   * Saves forced token settings configuration.
    */
   public function doSaveTokenSet(array &$form, FormStateInterface $form_state) {
     $forcedTokenSettings = [
@@ -430,16 +429,16 @@ class ConstantContact extends FormBase {
     ];
 
     $oneset = FALSE;
-    \Drupal::state()->set('access_affinitygroup.forcedTokenSettings', NULL);
+    \Drupal::state()->set('access_affinitygroup.forcedTokenSettings', NULL); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     foreach ($forcedTokenSettings as $key => $value) {
       if ($value) {
         if ($oneset) {
-          \Drupal::messenger()->addError(t('Only one token setting can be set to TRUE.'));
+          \Drupal::messenger()->addError($this->t('Only one token setting can be set to TRUE.')); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           return;
         }
 
-        \Drupal::state()->set('access_affinitygroup.forcedTokenSettings', $key);
+        \Drupal::state()->set('access_affinitygroup.forcedTokenSettings', $key); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         $oneset = TRUE;
       }
     }
@@ -447,16 +446,16 @@ class ConstantContact extends FormBase {
   }
 
   /**
-   * Save state variables for running and testing the allocations import cron job according to checkbox values.
+   * Saves allocations import cron job state variables.
    */
   public function doSaveCronSettings(array &$form, FormStateInterface $form_state) {
-    \Drupal::state()->set('access_affinitygroup.allocCronDisable', $form_state->getValue('alloc_cron_disable'));
-    \Drupal::state()->set('access_affinitygroup.allocCronSliceSize', $form_state->getValue('alloc_cron_param_slicesize'));
-    \Drupal::state()->set('access_affinitygroup.allocCronImportLimit', $form_state->getValue('alloc_cron_param_importlimit'));
-    \Drupal::state()->set('access_affinitygroup.allocCronNoCC', $form_state->getValue('alloc_cron_param_nocc'));
-    \Drupal::state()->set('access_affinitygroup.allocCronNoUserDetSave', $form_state->getValue('alloc_cron_param_nouserdetsave'));
-    \Drupal::state()->set('access_affinitygroup.allocCronStartAt', $form_state->getValue('alloc_cron_param_startat'));
-    \Drupal::state()->set('access_affinitygroup.allocCronVerbose', $form_state->getValue('alloc_cron_param_verbose'));
+    \Drupal::state()->set('access_affinitygroup.allocCronDisable', $form_state->getValue('alloc_cron_disable')); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    \Drupal::state()->set('access_affinitygroup.allocCronSliceSize', $form_state->getValue('alloc_cron_param_slicesize')); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    \Drupal::state()->set('access_affinitygroup.allocCronImportLimit', $form_state->getValue('alloc_cron_param_importlimit')); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    \Drupal::state()->set('access_affinitygroup.allocCronNoCC', $form_state->getValue('alloc_cron_param_nocc')); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    \Drupal::state()->set('access_affinitygroup.allocCronNoUserDetSave', $form_state->getValue('alloc_cron_param_nouserdetsave')); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    \Drupal::state()->set('access_affinitygroup.allocCronStartAt', $form_state->getValue('alloc_cron_param_startat')); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    \Drupal::state()->set('access_affinitygroup.allocCronVerbose', $form_state->getValue('alloc_cron_param_verbose')); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
   }
 
   /**
@@ -490,8 +489,7 @@ class ConstantContact extends FormBase {
   }
 
   /**
-   * Clean out any obsolete user allocations for users no longer listed by
-   * allocations api.
+   * Cleans obsolete user allocations no longer in the allocations API.
    */
   public function doRunMaintObsClean(array &$form, FormStateInterface $form_state) {
     $aui = new AllocationsUsersImport();
@@ -509,13 +507,13 @@ class ConstantContact extends FormBase {
     $options = [];
 
     // Get all published affinity groups.
-    $nids = \Drupal::entityQuery('node')
+    $nids = \Drupal::entityQuery('node') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->condition('status', 1)
       ->condition('type', 'affinity_group')
       ->accessCheck(FALSE)
       ->execute();
 
-    $nodes = \Drupal\node\Entity\Node::loadMultiple($nids);
+    $nodes = Node::loadMultiple($nids); // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
 
     foreach ($nodes as $node) {
       $title = $node->getTitle();
@@ -526,7 +524,7 @@ class ConstantContact extends FormBase {
       $term = $termField->isEmpty() ? NULL : $termField->entity;
       $memberCount = 0;
       if ($term) {
-        $memberCount = \Drupal::database()->select('flagging', 'f')
+        $memberCount = \Drupal::database()->select('flagging', 'f') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           ->condition('f.entity_type', 'taxonomy_term')
           ->condition('f.entity_id', $term->id())
           ->countQuery()
@@ -534,7 +532,7 @@ class ConstantContact extends FormBase {
           ->fetchField();
       }
 
-      // Format: "Title (X members)"
+      // Format: "Title (X members)".
       $label = $title . ' (' . number_format($memberCount) . ' members)';
       $options[$nid] = $label;
     }
@@ -554,7 +552,7 @@ class ConstantContact extends FormBase {
 
     // Build list of node IDs to process.
     if ($selected === '_all') {
-      $nids = \Drupal::entityQuery('node')
+      $nids = \Drupal::entityQuery('node') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         ->condition('status', 1)
         ->condition('type', 'affinity_group')
         ->accessCheck(FALSE)
@@ -587,7 +585,7 @@ class ConstantContact extends FormBase {
    * Batch operation callback for syncing a single affinity group.
    */
   public static function syncAffinityGroupBatch($nid, $verbose, &$context) {
-    $node = \Drupal\node\Entity\Node::load($nid);
+    $node = Node::load($nid);
     if (!$node) {
       $context['results']['errors'][] = t('Node @nid not found.', ['@nid' => $nid]);
       return;

@@ -3,16 +3,27 @@
 namespace Drupal\access_affinitygroup\Plugin;
 
 /**
- *
+ * Simplelists API wrapper for affinity group mailing list management.
  */
 class SimpleListsApi {
 
+  /**
+   * The Simplelists domain.
+   *
+   * @var string
+   */
   private $domain;
+
+  /**
+   * The Simplelists API key.
+   *
+   * @var string
+   */
   private $apiKey;
   const  MAX_ADDRESS_LEN = 60;
 
   /**
-   *
+   * Constructs the SimpleListsApi object and initializes the API key.
    */
   public function __construct() {
     try {
@@ -50,15 +61,16 @@ class SimpleListsApi {
   }
 
   /**
-   *
+   * Returns the Simplelists domain.
    */
   public function getDomain() {
     return $this->domain;
   }
 
   /**
-   * Returns curl obj
-   *  $op: POST/GET/PUT/DELETE
+   * Returns curl obj for the given operation.
+   *
+   * $op: POST/GET/PUT/DELETE.
    */
   private function makeCurl($op, $urlsub, $params = '') {
     $ch = curl_init();
@@ -73,9 +85,10 @@ class SimpleListsApi {
   }
 
   /**
-   * Create the list slug@domain
-   *  agTitle is used in the group email footer with the unsubscribe link.
-   *  Return boolean status. Fills $msg.
+   * Creates the list slug@domain.
+   *
+   * AgTitle is used in the group email footer with the unsubscribe link.
+   * Return boolean status. Fills $msg.
    */
   public function createList($listSlug, $agTitle, &$msg) {
     try {
@@ -106,7 +119,8 @@ class SimpleListsApi {
    * Check if user is subscribed to list and if so get their type of digest.
    *
    * @return string|bool
-   *   Returns 'none' if not subscribed, 'daily' for digest mode, 'full' for all emails.
+   *   Returns 'none' if not subscribed, 'daily' for digest mode,
+   *   'full' for all emails.
    */
   public function getUserListStatus($listName, $userEmail, &$msg) {
     // Gets list info.
@@ -125,7 +139,7 @@ class SimpleListsApi {
     // Get user simplelist id.
     $userId = $this->getUserIdFromEmail($userEmail, $msg);
 
-    // Check if user is a member of this list
+    // Check if user is a member of this list.
     $isMember = FALSE;
     $user_subscribed = 'none';
 
@@ -140,7 +154,8 @@ class SimpleListsApi {
     }
 
     // If user is a member, get their email digest status
-    // Note: We use email-level digest (applies to ALL lists) due to SimpleLists API limitations
+    // Note: We use email-level digest (applies to ALL lists) due
+    // to SimpleLists API limitations.
     if ($isMember) {
       try {
         $ch = $this->makeCurl('GET', 'emails/' . urlencode($userEmail) . '/');
@@ -150,8 +165,9 @@ class SimpleListsApi {
 
         if (isset($emailData['is_error']) && $emailData['is_error']) {
           $msg = $emailData['message'] ?? 'Error getting email data.';
-        } else {
-          // Email digest setting applies to ALL lists for this email
+        }
+        else {
+          // Email digest setting applies to ALL lists for this email.
           $digest = $emailData['digest'] ?? FALSE;
           $user_subscribed = $digest ? 'daily' : 'full';
         }
@@ -168,7 +184,8 @@ class SimpleListsApi {
   /**
    * Check if user is subscribed to list and if so get their type of digest.
    *
-   * Note: Due to SimpleLists API limitations, this sets digest preference at the
+   * Note: Due to SimpleLists API limitations, this sets digest
+   * preference at the
    * email level (applies to ALL lists), not per-list level. SimpleLists API v2
    * does not provide a working way to update per-list digest settings.
    *
@@ -189,7 +206,8 @@ class SimpleListsApi {
   public function setUserDigest($listName, $userEmail, $digest, &$msg, $membershipId = NULL) {
     try {
       // Get email ID for this user
-      // Note: We don't verify list subscription since digest is set at email level (applies to all lists)
+      // Note: We don't verify list subscription since digest is set
+      // at email level (applies to all lists)
       $ch = $this->makeCurl('GET', 'emails/' . urlencode($userEmail) . '/');
       $response = curl_exec($ch);
       curl_close($ch);
@@ -207,7 +225,7 @@ class SimpleListsApi {
       }
 
       // Update digest setting at email level (applies to all lists)
-      // SimpleLists expects integer: 1 for digest, 0 for full
+      // SimpleLists expects integer: 1 for digest, 0 for full.
       $digestValue = $digest == 1 ? 1 : 0;
       $params = "digest=$digestValue";
       $ch = $this->makeCurl('PUT', "emails/$emailId/", $params);
@@ -230,7 +248,8 @@ class SimpleListsApi {
   }
 
   /**
-   * Add user, and add to listName if not null. returns new id or null.
+   * Adds user, and adds to listName if not null, returns new id or null.
+   *
    * $listName is slug.
    */
   public function addUser($uid, $userEmail, $firstName, $lastName, $listName, &$msg) {
@@ -260,13 +279,14 @@ class SimpleListsApi {
       $contactId = $deResponse['id'];
       \Drupal::logger('access_affinitygroup')->notice("addUser: Contact created with ID: $contactId");
 
-      // Check if user was actually added to the list
+      // Check if user was actually added to the list.
       if (!empty($listName)) {
         $checkMsg = '';
         $listMemberId = $this->getListMemberId(urldecode($userEmail), urldecode($listName), $checkMsg);
         if ($listMemberId === NULL) {
           \Drupal::logger('access_affinitygroup')->warning("addUser: Contact created but not added to list. Attempting to add via membership endpoint.");
-          // Contact was created but not added to list, try adding via membership endpoint
+          // Contact was created but not added to list, try adding
+          // via membership endpoint.
           if (!$this->updateUserToList($contactId, urldecode($listName), $msg)) {
             $msg = "Contact created but could not be added to list: $msg";
             \Drupal::logger('access_affinitygroup')->error("addUser: Failed to add contact to list via membership endpoint: $msg");
@@ -351,7 +371,8 @@ class SimpleListsApi {
         curl_close($ch);
 
         $deResponse = json_decode($response, TRUE);
-        // Sl  found the email object but not the use contact, so call that a no.
+        // Sl  found the email object but not the use contact, so
+        // call that a no.
         if (isset($deResponse['is_error']) && $deResponse['is_error']) {
           $msg = $deResponse['message'];
           return NULL;
@@ -371,9 +392,10 @@ class SimpleListsApi {
   }
 
   /**
-   * Return list membership Id for a user/list relation
+   * Returns list membership Id for a user/list relation.
+   *
    * This is different from the user id.
-   * Or NULL if not found
+   * Or NULL if not found.
    *
    * $userEmail: user's email address
    * $listName: list address slug.
@@ -407,16 +429,17 @@ class SimpleListsApi {
   }
 
   /**
-   * UpdateUserToList.
+   * Updates a user's list membership in Simplelists.
    *
-   * @param [type] $simplelistsId:
-   *   the user's contact id in simplelists account.
-   * @param [type] $listName:
-   *   the slug part of the email list address.
-   * @param [type] $msg
-   *   set with message.
+   * @param string $simplelistsId
+   *   The user's contact id in simplelists account.
+   * @param string $listName
+   *   The slug part of the email list address.
+   * @param string $msg
+   *   Set with message.
    *
-   * @return boolean status
+   * @return bool
+   *   Boolean status.
    */
   public function updateUserToList($simplelistsId, $listName, &$msg) {
 
@@ -442,7 +465,7 @@ class SimpleListsApi {
   }
 
   /**
-   *
+   * Deletes a Simplelists mailing list by name.
    */
   public function deleteList($listName, &$msg) {
     $msg = '';
@@ -481,7 +504,7 @@ class SimpleListsApi {
   public function removeUserFromList($userEmail, $listName, &$msg) {
 
     try {
-      // First, check if user is in the list by querying the contact
+      // First, check if user is in the list by querying the contact.
       $userId = $this->getUserIdFromEmail($userEmail, $msg);
       if ($userId === NULL) {
         $msg = "User is not found in SimpleLists.";
@@ -489,7 +512,7 @@ class SimpleListsApi {
         return FALSE;
       }
 
-      // Get contact info to see current lists
+      // Get contact info to see current lists.
       $ch = $this->makeCurl('GET', "contacts/$userId/");
       $contact = curl_exec($ch);
       curl_close($ch);
@@ -506,12 +529,14 @@ class SimpleListsApi {
       $isSubscribed = FALSE;
       $remainingLists = [];
 
-      // Check if subscribed and build list of remaining lists (excluding the one to remove)
+      // Check if subscribed and build list of remaining lists
+      // (excluding the one to remove)
       foreach ($contact_list as $list) {
         if ($list['list'] == $listName) {
           $isSubscribed = TRUE;
           $listMemberId = $list['id'] ?? NULL;
-        } else {
+        }
+        else {
           // Keep this list (not the one we're removing)
           $remainingLists[] = $list['list'];
         }
@@ -523,7 +548,7 @@ class SimpleListsApi {
         return FALSE;
       }
 
-      // Determine which method to use based on what's available
+      // Determine which method to use based on what's available.
       $useMethod = NULL;
 
       // Method 1: DELETE membership (if we have a valid ID)
@@ -540,9 +565,9 @@ class SimpleListsApi {
         }
       }
 
-      // Method 2: Update contact's lists array
+      // Method 2: Update contact's lists array.
       if (count($remainingLists) > 0) {
-        // User has multiple lists - just update to remaining lists
+        // User has multiple lists - just update to remaining lists.
         $params = "lists=" . implode(',', $remainingLists);
         $ch = $this->makeCurl('PUT', "contacts/$userId/", $params);
         $response = curl_exec($ch);
@@ -555,8 +580,9 @@ class SimpleListsApi {
           return FALSE;
         }
         $useMethod = 'contact_put';
-      } else {
-        // User's only list - move them to the "no-delivery" placeholder list
+      }
+      else {
+        // User's only list - move them to the "no-delivery" placeholder list.
         $params = "lists=no-delivery";
         $ch = $this->makeCurl('PUT', "contacts/$userId/", $params);
         $response = curl_exec($ch);
@@ -597,7 +623,7 @@ class SimpleListsApi {
         return TRUE;
       }
 
-      // Should not reach here
+      // Should not reach here.
       $msg = 'An unexpected error occurred.';
       \Drupal::logger('access_affinitygroup')->error("removeUserFromList: Reached unexpected code path");
       return FALSE;
@@ -610,9 +636,10 @@ class SimpleListsApi {
   }
 
   /**
-   * Make mailgun email list address from slug (short name)
-   * email address for the list.
-   * Return full email address, and replace slug with (potentially) fixed-up slug.
+   * Makes mailgun email list address from slug for the list.
+   *
+   * Return full email address, and replace slug with (potentially)
+   * fixed-up slug.
    */
   public function makeListAddress(&$slug) {
     // Replace whitespace a -.
@@ -623,8 +650,9 @@ class SimpleListsApi {
   }
 
   /**
-   * Return NULL is no change attempted because because orignal address not found.
-   * Return true if change is successful or if change not necessary
+   * Returns NULL if no change attempted because original address not found.
+   *
+   * Return true if change is successful or if change not necessary.
    * Return false if there was a problem with attempted address change.
    * $msg set only if return is false.
    */

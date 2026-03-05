@@ -36,5 +36,5 @@ for (let i = 0; i < rows.length; i++) {
   cardFooter.classList.add('more-match')
   cardFooter.dataset.article = i
   cardFooter.innerHTML = '<span>+ More</span>';
-  cardFooter.addEventListener('click', showMore, false);
+  cardFooter.addEventListener('click', showMore, FALSE);
 }

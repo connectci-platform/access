@@ -1,0 +1,61 @@
+parameters:
+	ignoreErrors:
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 12
+			path: ../../../../../../docroot/modules/custom/access/modules/cssn/src/Controller/CommunityPersonaController.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: ../../../../../../docroot/modules/custom/access/modules/cssn/src/Plugin/Block/CssnJoinForm.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 7
+			path: ../../../../../../docroot/modules/custom/access/modules/cssn/src/Plugin/Block/PersonaBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: ../../../../../../docroot/modules/custom/access/modules/cssn/src/Plugin/Util/CssnSubmissionsSort.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 4
+			path: ../../../../../../docroot/modules/custom/access/modules/cssn/src/Plugin/Util/MatchLookup.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: ../../../../../../docroot/modules/custom/access/modules/cssn/src/Plugin/Util/ProjectLookup.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: ../../../../../../docroot/modules/custom/access/modules/cssn/src/Plugin/Util/RoleProgramSorter.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/cssn/src/Plugin/search_api/processor/UserAffinityGroups.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/cssn/src/Plugin/search_api/processor/UserBadges.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/cssn/src/Plugin/search_api/processor/UserInterests.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/cssn/src/Plugin/search_api/processor/UserSkills.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/cssn/src/Plugin/search_api/processor/UserSkillsId.php

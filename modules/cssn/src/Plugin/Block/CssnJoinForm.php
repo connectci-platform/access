@@ -22,9 +22,10 @@ class CssnJoinForm extends BlockBase {
   public function build() {
     $join_login = '';
     $join_webform = '';
-    $user = \Drupal::currentUser();
+    $user = \Drupal::currentUser();  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     if ($user->isAnonymous()) {
-      // Create drupal 9 link to /user/login?redirect=/cssn#join-cssn with text Login to join CSSN, with classes 'btn' and 'btn-primary'.
+      // Create drupal 9 link to /user/login?redirect=/cssn#join-cssn with text
+      // Login to join CSSN, with classes 'btn' and 'btn-primary'.
       $join_login = [
         '#type' => 'link',
         '#title' => 'Login to join CSSN',
@@ -35,7 +36,7 @@ class CssnJoinForm extends BlockBase {
       ];
     }
     else {
-      $webform = \Drupal::entityTypeManager()->getStorage('webform')->load('join_the_cssn_network');
+      $webform = \Drupal::entityTypeManager()->getStorage('webform')->load('join_the_cssn_network');  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $join_webform = $webform->getSubmissionForm();
     }
     $join_img = [
@@ -79,7 +80,8 @@ class CssnJoinForm extends BlockBase {
    * {@inheritdoc}
    */
   public function getCacheTags() {
-    if ($user = \Drupal::currentUser()) {
+    $user = \Drupal::currentUser();  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    if ($user) {
       return Cache::mergeTags(parent::getCacheTags(), ['user:' . $user->id()]);
     }
     else {

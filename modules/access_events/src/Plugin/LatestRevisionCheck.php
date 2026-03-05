@@ -37,10 +37,16 @@ class LatestRevisionCheck extends CoreLatestRevisionCheck {
     $entity = $this->loadEntity($route, $route_match);
     if ($this->moderationInfo->hasPendingRevision($entity)) {
       // Check the global permissions first.
-      $access_result = AccessResult::allowedIfHasPermissions($account, ['view latest version', 'view any unpublished content']);
+      $access_result = AccessResult::allowedIfHasPermissions($account, [
+        'view latest version',
+        'view any unpublished content',
+      ]);
       if (!$access_result->isAllowed()) {
         // Check entity owner access.
-        $owner_access = AccessResult::allowedIfHasPermissions($account, ['view latest version', 'view own unpublished content']);
+        $owner_access = AccessResult::allowedIfHasPermissions($account, [
+          'view latest version',
+          'view own unpublished content',
+        ]);
         $owner_access = $owner_access->andIf((AccessResult::allowedIf($entity instanceof EntityOwnerInterface && ($entity->getOwnerId() == $account->id()))));
         $access_result = $access_result->orIf($owner_access);
       }
@@ -53,7 +59,8 @@ class LatestRevisionCheck extends CoreLatestRevisionCheck {
         if ($entity->getEntityTypeId() == 'eventseries' && $entity->hasField('field_other_authors')) {
           $other_authors = $entity->get('field_other_authors')->getValue();
         }
-        // For eventinstance, get the parent eventseries and check its field_other_authors.
+        // For eventinstance, get the parent eventseries and check
+        // its field_other_authors.
         elseif ($entity->getEntityTypeId() == 'eventinstance' && method_exists($entity, 'getEventSeries')) {
           $eventseries = $entity->getEventSeries();
           if ($eventseries && $eventseries->hasField('field_other_authors')) {
@@ -64,7 +71,8 @@ class LatestRevisionCheck extends CoreLatestRevisionCheck {
         if (!empty($other_authors)) {
           $user_ids = array_column($other_authors, 'target_id');
           if (in_array($account->id(), $user_ids)) {
-            // User is in the other_authors field, grant access if they have the base permission.
+            // User is in the other_authors field, grant access if they
+            // have the base permission.
             $additional_editor_access = AccessResult::allowedIfHasPermissions($account, ['view latest version']);
             $access_result = $access_result->orIf($additional_editor_access);
           }

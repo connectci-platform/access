@@ -1,0 +1,16 @@
+parameters:
+	ignoreErrors:
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 11
+			path: ../../../../../../docroot/modules/custom/access/modules/access_match_engagement/src/Controller/MatchController.php
+
+		-
+			message: "#^Unsafe usage of new static\\(\\)\\.$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/access_match_engagement/src/Plugin/Block/MatchNodeBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: ../../../../../../docroot/modules/custom/access/modules/access_match_engagement/src/Plugin/Block/MatchNodeBlock.php

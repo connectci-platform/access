@@ -28,7 +28,7 @@ class CommunityPersonaController extends ControllerBase {
    *   List of affinity groups.
    */
   public function affinityGroupList($user, $public = FALSE) {
-    $query = \Drupal::database()->select('flagging', 'fl');
+    $query = \Drupal::database()->select('flagging', 'fl');  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $query->condition('fl.uid', $user->id());
     $query->condition('fl.flag_id', 'affinity_group');
     $query->fields('fl', ['entity_id']);
@@ -36,22 +36,22 @@ class CommunityPersonaController extends ControllerBase {
     $affinity_groups = array_unique($affinity_groups);
     $user_affinity_groups = "<ul>";
     if ($affinity_groups == NULL && $public === FALSE) {
-      $user_affinity_groups = '<p class="mb-3">' . t('You currently are not connected to any Affinity groups. Click below to explore.') . "</p>";
+      $user_affinity_groups = '<p class="mb-3">' . $this->t('You currently are not connected to any Affinity groups. Click below to explore.') . "</p>";
     }
     if ($affinity_groups == NULL && $public === TRUE) {
-      $user_affinity_groups = '<p class="mb-3">' . t('Not connected to any Affinity groups.') . "</p>";
+      $user_affinity_groups = '<p class="mb-3">' . $this->t('Not connected to any Affinity groups.') . "</p>";
     }
     if ($user_affinity_groups == '<ul>') {
       $user_affinity_groups = '<ul class="grid grid-cols-2 my-3">';
       foreach ($affinity_groups as $affinity_group) {
-        $query = \Drupal::database()->select('taxonomy_index', 'ti');
+        $query = \Drupal::database()->select('taxonomy_index', 'ti');  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         $query->condition('ti.tid', $affinity_group);
         $query->fields('ti', ['nid']);
         $affinity_group_nid = $query->execute()->fetchCol();
 
         $ag_node = [];
         foreach ($affinity_group_nid as $nid) {
-          $affinity_group_loaded = \Drupal::entityTypeManager()->getStorage('node')->load($nid);
+          $affinity_group_loaded = \Drupal::entityTypeManager()->getStorage('node')->load($nid);  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           // Get node type.
           $node_type = $affinity_group_loaded->bundle();
           if ($node_type == 'affinity_group') {
@@ -64,8 +64,8 @@ class CommunityPersonaController extends ControllerBase {
           $affinity_group_loaded = $ag_node;
           $persona_source = $affinity_group_loaded->get('field_persona_source')->value;
           $env = getenv('PANTHEON_ENVIRONMENT');
-          $token = \Drupal::token();
-          $domainName = Html::getClass($token->replace(t('[domain:name]')));
+          $token = \Drupal::token();  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+          $domainName = Html::getClass($token->replace($this->t('[domain:name]')));
 
           if ($persona_source == 'openondemand' && $domainName != 'open-ondemand' && $env == 'live') {
             $url = Url::fromUri('https://ondemand.connectci.org/node/' . $affinity_group_loaded->id());
@@ -83,7 +83,7 @@ class CommunityPersonaController extends ControllerBase {
           $class = ['font-bold', 'underline', 'hover--no-underline', 'hover--text-dark-teal'];
           $project_link = Link::fromTextAndUrl($affinity_group_loaded->getTitle(), $url)->toRenderable();
           $project_link['#attributes'] = ['class' => $class];
-          $link = \Drupal::service('renderer')->render($project_link);
+          $link = \Drupal::service('renderer')->render($project_link);  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           $user_affinity_groups .= "<li>$link</li>";
         }
       }
@@ -103,7 +103,15 @@ class CommunityPersonaController extends ControllerBase {
     $affinity_link = Link::fromTextAndUrl('All Affinity Groups', $affinity_url);
     $affinity_renderable = $affinity_link->toRenderable();
     $build_affinity_link = $affinity_renderable;
-    $build_affinity_link['#attributes']['class'] = ['btn', 'btn-outline-dark', 'btn-md-teal', 'btn-sm', 'py-1', 'px-2', 'm-0'];
+    $build_affinity_link['#attributes']['class'] = [
+      'btn',
+      'btn-outline-dark',
+      'btn-md-teal',
+      'btn-sm',
+      'py-1',
+      'px-2',
+      'm-0',
+    ];
     return $build_affinity_link;
   }
 
@@ -114,22 +122,22 @@ class CommunityPersonaController extends ControllerBase {
    *   List of expertise.
    */
   public function mySkills($user, $public = FALSE) {
-    $term = \Drupal::database()->select('flagging', 'fl');
+    $term = \Drupal::database()->select('flagging', 'fl');  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $term->condition('fl.uid', $user->id());
     $term->condition('fl.flag_id', 'skill');
     $term->fields('fl', ['entity_id']);
     $flagged_skills = $term->execute()->fetchCol();
     $my_skills = "";
     if ($flagged_skills == NULL && $public === FALSE) {
-      $my_skills = '<p class="mb-3">' . t('You currently have not added any skills. Click update expertise to add.') . "</p>";
+      $my_skills = '<p class="mb-3">' . $this->t('You currently have not added any skills. Click update expertise to add.') . "</p>";
     }
     if ($flagged_skills == NULL && $public === TRUE) {
-      $my_skills = '<p>' . t('No skills added.') . "</p>";
+      $my_skills = '<p>' . $this->t('No skills added.') . "</p>";
     }
     if ($my_skills == "") {
       $my_skills = "<ul class='ms-0 ml-0 d-flex flex flex-wrap list-none list-unstyled'>";
       foreach ($flagged_skills as $flagged_skill) {
-        $term_title = Term::load($flagged_skill)->get('name')->value;
+        $term_title = Term::load($flagged_skill)->get('name')->value;  // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
         $my_skills .= "<li class='ps-0 mb-1 me-1 mr-1'><a class='no-underline font-normal px-2 py-1 hover--border-dark-teal border' href='/taxonomy/term/" . $flagged_skill . "'>" . $term_title . "</a></li>";
       }
       $my_skills .= "</ul>";
@@ -144,17 +152,17 @@ class CommunityPersonaController extends ControllerBase {
    *   List of Knowledge Contributions.
    */
   public function knowledgeBaseContrib($user, $public = FALSE) {
-    $ws_query = \Drupal::entityQuery('webform_submission')
+    $ws_query = \Drupal::entityQuery('webform_submission')  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->condition('uid', $user->id())
       ->condition('uri', '/form/resource')
       ->accessCheck(FALSE);
     $ws_results = $ws_query->execute();
     $ws_link = "<ul>";
     if ($ws_results == NULL && $public === FALSE) {
-      $ws_link = '<p class="mb-3">' . t('You currently have not contributed to the Knowledge Base. Click below to contribute.') . "</p>";
+      $ws_link = '<p class="mb-3">' . $this->t('You currently have not contributed to the Knowledge Base. Click below to contribute.') . "</p>";
     }
     if ($ws_results == NULL && $public === TRUE) {
-      $ws_link = '<p>' . t('No contributions to the Knowledge Base.') . "</p>";
+      $ws_link = '<p>' . $this->t('No contributions to the Knowledge Base.') . "</p>";
     }
     if ($ws_link == "<ul>") {
       $ws_link = "<ul class='list-unstyled list-none mx-0 my-3 p-0'>";
@@ -298,22 +306,22 @@ class CommunityPersonaController extends ControllerBase {
    *   List of the person's interest.
    */
   public function buildInterests($user, $public = FALSE) {
-    $term_interest = \Drupal::database()->select('flagging', 'fl');
+    $term_interest = \Drupal::database()->select('flagging', 'fl');  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $term_interest->condition('fl.uid', $user->id());
     $term_interest->condition('fl.flag_id', 'interest');
     $term_interest->fields('fl', ['entity_id']);
     $flagged_interests = $term_interest->execute()->fetchCol();
     $my_interests = "";
     if ($flagged_interests == NULL && $public === FALSE) {
-      $my_interests = '<p>' . t('You currently have not added any interests. Click update interests to add.') . "</p>";
+      $my_interests = '<p>' . $this->t('You currently have not added any interests. Click update interests to add.') . "</p>";
     }
     if ($flagged_interests == NULL && $public === TRUE) {
-      $my_interests = '<p>' . t('No interests added.') . "</p>";
+      $my_interests = '<p>' . $this->t('No interests added.') . "</p>";
     }
     if ($my_interests == "") {
       $my_interests = "<ul class='ms-0 ml-0 d-flex flex flex-wrap list-none list-unstyled'>";
       foreach ($flagged_interests as $flagged_interest) {
-        $term_title = Term::load($flagged_interest)->get('name')->value;
+        $term_title = Term::load($flagged_interest)->get('name')->value;  // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
         $my_interests .= "<li class='ps-0 mb-1 me-1 mr-1'><a class='no-underline font-normal px-2 py-1 hover--border-dark-teal border' href='/taxonomy/term/" . $flagged_interest . "'>" . $term_title . "</a></li>";
       }
       $my_interests .= "</ul>";
@@ -330,7 +338,7 @@ class CommunityPersonaController extends ControllerBase {
   public function userBio($uid) {
 
     // Load the user using the current user id.
-    $user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($uid);
+    $user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($uid);  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     // User Bio.
     if ($user_entity->get('field_user_bio')->value == NULL) {
@@ -364,7 +372,7 @@ class CommunityPersonaController extends ControllerBase {
    */
   public function communityPersona() {
     // My Affinity Groups.
-    $current_user = \Drupal::currentUser();
+    $current_user = \Drupal::currentUser();  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     // User Bio.
     $user_bio = $this->userBio($current_user->id());
@@ -397,7 +405,15 @@ class CommunityPersonaController extends ControllerBase {
     $webform_link = Link::fromTextAndUrl('Add Resource', $webform_url);
     $webform_renderable = $webform_link->toRenderable();
     $build_webform_link = $webform_renderable;
-    $build_webform_link['#attributes']['class'] = ['btn', 'btn-outline-dark', 'btn-md-teal', 'btn-sm', 'py-1', 'px-2', 'm-0'];
+    $build_webform_link['#attributes']['class'] = [
+      'btn',
+      'btn-outline-dark',
+      'btn-md-teal',
+      'btn-sm',
+      'py-1',
+      'px-2',
+      'm-0',
+    ];
     // My Match Engagements.
     $match_link = $this->matchList($current_user);
     // Link to see all Match Engagements.
@@ -405,7 +421,15 @@ class CommunityPersonaController extends ControllerBase {
     $match_engage_link = Link::fromTextAndUrl('See engagements', $match_engage_url);
     $match_engage_renderable = $match_engage_link->toRenderable();
     $build_match_engage_link = $match_engage_renderable;
-    $build_match_engage_link['#attributes']['class'] = ['btn', 'btn-outline-dark', 'btn-md-teal', 'btn-sm', 'py-1', 'px-2', 'm-0'];
+    $build_match_engage_link['#attributes']['class'] = [
+      'btn',
+      'btn-outline-dark',
+      'btn-md-teal',
+      'btn-sm',
+      'py-1',
+      'px-2',
+      'm-0',
+    ];
     // Mentorships.
     $mentorships = $this->mentorList($current_user);
     // My Projects.
@@ -415,7 +439,7 @@ class CommunityPersonaController extends ControllerBase {
     $user_event_registrations = '';
     $total_items = 0;
 
-    // Only show registrations for authenticated users
+    // Only show registrations for authenticated users.
     if (!$current_user->isAnonymous()) {
       $view = Views::getView('recurring_events_registrations');
       $view->setDisplay('user_event_registrations');
@@ -533,37 +557,37 @@ class CommunityPersonaController extends ControllerBase {
         {% endif %}
         ',
       '#context' => [
-        'bio_title' => t('Bio'),
+        'bio_title' => $this->t('Bio'),
         'bio_summary' => $bio_summary,
         'bio' => $bio,
-        'ag_title' => t('My Affinity Groups'),
-        'ag_intro' => t('Connect with researchers of common interests.'),
+        'ag_title' => $this->t('My Affinity Groups'),
+        'ag_intro' => $this->t('Connect with researchers of common interests.'),
         'user_affinity_groups' => $user_affinity_groups,
         'affinity_link' => $build_affinity_link,
-        'mi_title' => t('My Interests'),
+        'mi_title' => $this->t('My Interests'),
         'my_interests' => $my_interests,
         'edit_interest_link' => $edit_interest_renderable,
-        'me_title' => t('My Skills'),
+        'me_title' => $this->t('My Skills'),
         'my_skills' => $my_skills,
         'edit_skill_link' => $edit_skill_renderable,
-        'match_title' => t('My MATCH Engagements'),
+        'match_title' => $this->t('My MATCH Engagements'),
         'match_links' => $match_link,
-        'mentorships_title' => t('My Mentorships'),
+        'mentorships_title' => $this->t('My Mentorships'),
         'mentorships' => $mentorships,
         'request_match_link' => $build_match_engage_link,
-        'project_title' => t('My Projects'),
+        'project_title' => $this->t('My Projects'),
         'projects' => $projects,
-        'ws_title' => t('My Knowledge Base Contributions'),
+        'ws_title' => $this->t('My Knowledge Base Contributions'),
         'ws_links' => $ws_link,
         'request_webform_link' => $build_webform_link,
-        'user_event_title' => t('My Event Registrations'),
+        'user_event_title' => $this->t('My Event Registrations'),
         'user_event_registrations' => $user_event_registrations,
         'user_event_total_items' => $total_items,
       ],
     ];
 
     // Deny any page caching on the current request.
-    \Drupal::service('page_cache_kill_switch')->trigger();
+    \Drupal::service('page_cache_kill_switch')->trigger();  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     return $persona_page;
   }
@@ -577,7 +601,7 @@ class CommunityPersonaController extends ControllerBase {
     $user_id = $end_url->getUrlEnd();
     $should_user_load = FALSE;
     // Get current user id.
-    $current_user = \Drupal::currentUser();
+    $current_user = \Drupal::currentUser();  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     // Redirect to to profile if public persona page is for current user.
     if ($current_user->id() == $user_id) {
       $url = Url::fromUri('internal:/community-persona');
@@ -585,7 +609,7 @@ class CommunityPersonaController extends ControllerBase {
       $response->send();
     }
     if (is_numeric($user_id)) {
-      $user = User::load($user_id);
+      $user = User::load($user_id);  // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
       // Don't show profile for people who haven't joined a region/program.
       if ($user !== NULL && count($user->field_region->getValue()) > 0) {
         $should_user_load = TRUE;
@@ -709,22 +733,22 @@ class CommunityPersonaController extends ControllerBase {
           {% endif %}
           ',
         '#context' => [
-          'bio_title' => t('Bio'),
+          'bio_title' => $this->t('Bio'),
           'bio_summary' => $bio_summary,
           'bio' => $bio,
-          'ag_title' => t('Affinity Groups'),
+          'ag_title' => $this->t('Affinity Groups'),
           'user_affinity_groups' => $user_affinity_groups,
-          'mi_title' => t('Interests'),
+          'mi_title' => $this->t('Interests'),
           'my_interests' => $my_interests,
-          'me_title' => t('Skills'),
+          'me_title' => $this->t('Skills'),
           'my_skills' => $my_skills,
-          'ws_title' => t('Knowledge Base Contributions'),
+          'ws_title' => $this->t('Knowledge Base Contributions'),
           'ws_links' => $ws_link,
-          'match_title' => t('MATCH Engagements'),
+          'match_title' => $this->t('MATCH Engagements'),
           'match_links' => $match_link,
-          'mentorship_title' => t('Mentorships'),
+          'mentorship_title' => $this->t('Mentorships'),
           'mentorships' => $mentorships,
-          'project_title' => t('Projects'),
+          'project_title' => $this->t('Projects'),
           'projects' => $projects,
         ],
         '#cache' => [
@@ -740,7 +764,7 @@ class CommunityPersonaController extends ControllerBase {
         '#cache' => [
           'tags' => ['community_persona'],
         ],
-        '#markup' => t('No public profile available for this person.'),
+        '#markup' => $this->t('No public profile available for this person.'),
       ];
     }
   }
@@ -759,13 +783,14 @@ class CommunityPersonaController extends ControllerBase {
     $user_id = $end_url->getUrlEnd();
     if (is_numeric($user_id)) {
       // Load the user using the user id.
-      $user = User::load($user_id);
+      $user = User::load($user_id);  // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
       if ($user !== NULL) {
         $user_first_name = $user->get('field_user_first_name')->value;
         $user_last_name = $user->get('field_user_last_name')->value;
         return "$user_first_name $user_last_name";
       }
     }
+    return '';
   }
 
 }

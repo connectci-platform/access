@@ -1,0 +1,66 @@
+parameters:
+	ignoreErrors:
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 13
+			path: ../../../../../../docroot/modules/custom/access/modules/access_affinitygroup/src/Commands/AffinityGroupCommands.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 14
+			path: ../../../../../../docroot/modules/custom/access/modules/access_affinitygroup/src/Controller/SimpleListController.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 26
+			path: ../../../../../../docroot/modules/custom/access/modules/access_affinitygroup/src/Form/ConstantContact.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 37
+			path: ../../../../../../docroot/modules/custom/access/modules/access_affinitygroup/src/Plugin/AllocationsUsersImport.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 8
+			path: ../../../../../../docroot/modules/custom/access/modules/access_affinitygroup/src/Plugin/Block/AffinityBottomLeft.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: ../../../../../../docroot/modules/custom/access/modules/access_affinitygroup/src/Plugin/Block/AffinityContactGroup.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: ../../../../../../docroot/modules/custom/access/modules/access_affinitygroup/src/Plugin/Block/AffinityCoordinatorDocumentation.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 12
+			path: ../../../../../../docroot/modules/custom/access/modules/access_affinitygroup/src/Plugin/Block/ResourcesForAffinityGroup.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 6
+			path: ../../../../../../docroot/modules/custom/access/modules/access_affinitygroup/src/Plugin/Block/SimpleListMember.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 36
+			path: ../../../../../../docroot/modules/custom/access/modules/access_affinitygroup/src/Plugin/ConstantContactApi.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/access_affinitygroup/src/Plugin/EmailWrapper.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 23
+			path: ../../../../../../docroot/modules/custom/access/modules/access_affinitygroup/src/Plugin/SimpleListsApi.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 4
+			path: ../../../../../../docroot/modules/custom/access/modules/access_affinitygroup/src/Plugin/views/access/ViewsCustomAccess.php

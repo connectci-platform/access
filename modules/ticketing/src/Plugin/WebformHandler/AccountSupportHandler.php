@@ -18,6 +18,11 @@ use Drupal\webform\WebformSubmissionInterface;
  * )
  */
 class AccountSupportHandler extends WebformHandlerBase {
+  /**
+   * Debug flag.
+   *
+   * @var bool
+   */
   public $debug = FALSE;
 
   /**
@@ -27,10 +32,11 @@ class AccountSupportHandler extends WebformHandlerBase {
     $data = $webformSubmission->getData();
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'in postSave() = $data = ' . print_r($data, TRUE);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- in postSave() = $data = ' . print_r($data, TRUE);
       \Drupal::messenger()->addStatus($msg);
 
-      // $data = Array ( [your_name] => a [email] => jasperjunk@gmail.com [access_id] => [comment] => )
+      // $data = Array ( [your_name] => a [email] => jasperjunk@gmail.com
+      // [access_id] => [comment] => )
     }
 
     $to = "0-Help@tickets.access-ci.org";
@@ -44,7 +50,7 @@ class AccountSupportHandler extends WebformHandlerBase {
     // Build up the email params.
     $params = [];
     $params['to'] = $to;
-    $body = (string) $this->getXMailMessageBody($data);
+    $body = (string) $this->getXmailMessageBody($data);
     $params['body'] = $body;
     $params['title'] = 'account support request from ' . $data['your_name'];
 
@@ -62,12 +68,15 @@ class AccountSupportHandler extends WebformHandlerBase {
     }
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'mail $result = ' . print_r($result, TRUE);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- mail $result = ' . print_r($result, TRUE);
       \Drupal::messenger()->addStatus($msg);
     }
   }
 
-  public function getXMailMessageBody($data) {
+  /**
+   * Builds the XMail message body for the account support email.
+   */
+  public function getXmailMessageBody($data) {
     $ticketing_module_path = \Drupal::service('extension.list.module')->getPath('ticketing');
     return twig_render_template(
           $ticketing_module_path . '/templates/account-support-mail.html.twig',

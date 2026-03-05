@@ -24,14 +24,14 @@ class AffinityBottomLeft extends BlockBase {
    */
   public function build() {
     $output = '';
-    $node = \Drupal::routeMatch()->getParameter('node');
+    $node = \Drupal::routeMatch()->getParameter('node'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     // Default for Layout Builder.
     $nid = $node ? $node->id() : 219;
 
     // Combine events added to the Affinity Group as entity references
     // with events that have reference the Affinity Group taxonomy term.
     // First get events that reference the Affinity Group taxonomy term.
-    $query = \Drupal::entityQuery('eventseries')
+    $query = \Drupal::entityQuery('eventseries') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->condition('status', 1)
       ->condition('field_affinity_group_node', $nid, '=')
       ->accessCheck(TRUE)
@@ -70,7 +70,7 @@ class AffinityBottomLeft extends BlockBase {
       foreach ($eiid as $ei) {
         $eid = $ei['id'];
         $type = $ei['attached_to'];
-        $event = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eid);
+        $event = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eid); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
         $eventseries = $event->getEventSeries();
 
@@ -83,7 +83,8 @@ class AffinityBottomLeft extends BlockBase {
               $show_on_ag_page = TRUE;
             }
           }
-        } else {
+        }
+        else {
           // Event added directly to Affinity Group, so show it.
           $show_on_ag_page = TRUE;
         }
@@ -111,7 +112,7 @@ class AffinityBottomLeft extends BlockBase {
               ],
             ],
           ];
-          $link_name = \Drupal::service('renderer')->render($link)->__toString();
+          $link_name = \Drupal::service('renderer')->render($link)->__toString(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           $event_list[$eid] = [
             'date' => $event_date,
             'title' => $link_name,
@@ -155,10 +156,7 @@ class AffinityBottomLeft extends BlockBase {
 
     // Display Announcements that have been assigned to the Affinity Group
     // and Announcements added as entity references to the Affinity Group.
-
-    /**
-    * Adding a default for layout page.
-    */
+    /* Adding a default for layout page. */
     $nid = $node ? $node->id() : 291;
 
     // Build combined announcement list from both sources.
@@ -172,7 +170,8 @@ class AffinityBottomLeft extends BlockBase {
       }
     }
 
-    // Get announcements from the view (those that reference this affinity group).
+    // Get announcements from the view (those that reference this
+    // affinity group).
     $announcement_view = Views::getView('access_news');
     $announcement_view->setDisplay('block_2');
     $announcement_view->setArguments([$nid]);
@@ -191,7 +190,7 @@ class AffinityBottomLeft extends BlockBase {
 
     if (!empty($announcement_nids)) {
       // Load and render announcements.
-      $announcements = \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($announcement_nids);
+      $announcements = \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($announcement_nids); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
       // Sort by published date descending.
       uasort($announcements, function ($a, $b) {
@@ -229,7 +228,7 @@ class AffinityBottomLeft extends BlockBase {
       $output .= '<div class="text-white-er my-2">No announcements for this group.</div>';
     }
     $output .= '</div></div>';
-    $domain = \Drupal::service('access_misc.sitetools')->getDomain();
+    $domain = \Drupal::service('access_misc.sitetools')->getDomain(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     if ($domain == 'open-ondemand') {
       $output = str_replace('class="card mt-4 p-3"', '', $output);
     }
@@ -243,7 +242,7 @@ class AffinityBottomLeft extends BlockBase {
    * Helper method to load event instances.
    */
   private function getEventInstances($esid) {
-    $query = \Drupal::entityQuery('eventinstance')
+    $query = \Drupal::entityQuery('eventinstance') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->condition('status', 1)
       ->condition('eventseries_id', $esid, '=')
       ->accessCheck(TRUE)
@@ -256,16 +255,17 @@ class AffinityBottomLeft extends BlockBase {
    */
   public function getCacheTags() {
     $tags = parent::getCacheTags();
-    // Add node_list tag to invalidate when any node (including announcements) changes.
+    // Add node_list tag to invalidate when any node
+    // (including announcements) changes.
     $tags = Cache::mergeTags($tags, ['node_list:access_news']);
-    if ($node = \Drupal::routeMatch()->getParameter('node')) {
+    if ($node = \Drupal::routeMatch()->getParameter('node')) {// phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $tags = Cache::mergeTags($tags, ['node:' . $node->id()]);
     }
     return $tags;
   }
 
   /**
-   *
+   * Returns the cache contexts for this block.
    */
   public function getCacheContexts() {
     return Cache::mergeContexts(parent::getCacheContexts(), ['route']);

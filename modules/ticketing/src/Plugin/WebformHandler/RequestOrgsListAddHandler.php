@@ -18,6 +18,11 @@ use Drupal\webform\WebformSubmissionInterface;
  * )
  */
 class RequestOrgsListAddHandler extends WebformHandlerBase {
+  /**
+   * Debug flag.
+   *
+   * @var bool
+   */
   public $debug = FALSE;
 
   /**
@@ -27,10 +32,11 @@ class RequestOrgsListAddHandler extends WebformHandlerBase {
     $data = $webformSubmission->getData();
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'in postSave() = $data = ' . print_r($data, TRUE);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- in postSave() = $data = ' . print_r($data, TRUE);
       \Drupal::messenger()->addStatus($msg);
 
-      // $data = Array ( [your_name] => a [email] => jasperjunk@gmail.com [access_id] => [comment] => )
+      // $data = Array ( [your_name] => a [email] => jasperjunk@gmail.com
+      // [access_id] => [comment] => )
     }
 
     $to = "support@access-ci.atlassian.net";
@@ -62,13 +68,13 @@ class RequestOrgsListAddHandler extends WebformHandlerBase {
     }
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'mail $result = ' . print_r($result, TRUE);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- mail $result = ' . print_r($result, TRUE);
       \Drupal::messenger()->addStatus($msg);
     }
   }
 
   /**
-   *
+   * Builds the mail message body for the request orgs list add email.
    */
   public function getMailMessageBody($data) {
     $ticketing_module_path = \Drupal::service('extension.list.module')->getPath('ticketing');

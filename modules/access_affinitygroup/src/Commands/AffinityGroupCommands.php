@@ -33,12 +33,12 @@ class AffinityGroupCommands extends DrushCommands {
    */
   public function initConstantContact() {
     // Get all the Affinity Groups.
-    $nids = \Drupal::entityQuery('node')
+    $nids = \Drupal::entityQuery('node') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->condition('status', 1)
       ->condition('type', 'affinity_group')
       ->accessCheck(FALSE)
       ->execute();
-    $nodes = Node::loadMultiple($nids);
+    $nodes = Node::loadMultiple($nids); // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
     $cca = new ConstantContactApi();
 
     foreach ($nodes as $node) {
@@ -54,12 +54,12 @@ class AffinityGroupCommands extends DrushCommands {
 
       // Get the Users who have flagged the associated term.
       $term = $node->get('field_affinity_group');
-      $flag_service = \Drupal::service('flag');
+      $flag_service = \Drupal::service('flag'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $flags = $flag_service->getAllEntityFlaggings($term->entity);
       foreach ($flags as $flag) {
         $uid = $flag->get('uid')->target_id;
         $this->output()->writeln($uid);
-        $user = User::load($uid);
+        $user = User::load($uid); // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
 
         $first_name = $user->get('field_user_first_name')->getString();
         $last_name = $user->get('field_user_last_name')->getString();
@@ -124,16 +124,21 @@ class AffinityGroupCommands extends DrushCommands {
   }
 
   /**
+   * Shows affinity groups and their members.
+   *
+   * @param string $agName
+   *   Default: show all, otherwise, only show affinity group with this title
+   *   (case-sensitive).
+   * @param array $options
+   *   Options array.
+   *
    * @command access_affinitygroup:showAffinityGroups
-   * @param   $agName
-   *   default: show all, otherwise, only show affinity group
-   *   with this title (case-sensitive)
-   * @option  uidonly
-   *         Only show user ids in list, not names or cc ids
-   * @option  headonly
-   *          Don't show members; just list the groups
+   * @option uidonly
+   *   Only show user ids in list, not names or cc ids
+   * @option headonly
+   *   Don't show members; just list the groups
    * @aliases showAffinityGroups
-   * @usage   access_affinitygroup:showAffinityGroups
+   * @usage access_affinitygroup:showAffinityGroups
    */
   public function showAffinityGroups(string $agName = '', $options = ['uidonly' => FALSE, 'headonly' => FALSE]) {
     $uidOnly = $options['uidonly'];
@@ -143,12 +148,12 @@ class AffinityGroupCommands extends DrushCommands {
 
     // Get all the Affinity Groups.
     $agCount = 0;
-    $nids = \Drupal::entityQuery('node')
+    $nids = \Drupal::entityQuery('node') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->condition('status', 1)
       ->condition('type', 'affinity_group')
       ->accessCheck(FALSE)
       ->execute();
-    $nodes = Node::loadMultiple($nids);
+    $nodes = Node::loadMultiple($nids); // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
 
     foreach ($nodes as $node) {
       if (strlen($agName) > 0 && $agName <> $node->getTitle()) {
@@ -203,7 +208,7 @@ class AffinityGroupCommands extends DrushCommands {
         $uCount += 1;
         $this->output()->writeln('-- ' . $uCount . '. ' . $uid);
         if (!$uidOnly) {
-          $user = User::load($uid);
+          $user = User::load($uid); // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
 
           $first_name = $user->get('field_user_first_name')->getString();
           $last_name = $user->get('field_user_last_name')->getString();
@@ -239,17 +244,18 @@ class AffinityGroupCommands extends DrushCommands {
 
   /**
    * Returns the user ids that have flagged an affinity group.
+   *
    * Necessary to bypass the part of the flagging service
    * $flag_service->getAllEntityFlaggings($term->entity)
    * which loads all the flags at once. That function crashes when run to get
    * the user flags on the ACCESS Support affinity group, with over 20k members.
    * Here we do the same, except we don't load all the flags at once, and just
    * assemble a list of the user ids which is the only part of the flag we need.
-   * term: taxonomy term entity for the affinity group.
+   * Term: taxonomy term entity for the affinity group.
    */
   public function getUserIdsFromFlags(EntityInterface $term) {
 
-    $entityTypeManager = \Drupal::service('entity_type.manager');
+    $entityTypeManager = \Drupal::service('entity_type.manager'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $query = $entityTypeManager->getStorage('flagging')->getQuery();
     $query->accessCheck();
 
@@ -266,22 +272,23 @@ class AffinityGroupCommands extends DrushCommands {
   }
 
   /**
-   * @command access_affinitygroup:showNews
+   * Shows all news nodes.
    *
+   * @command access_affinitygroup:showNews
    * @aliases showNews
-   * @usage   access_affinitygroup:showNews
+   * @usage access_affinitygroup:showNews
    */
   public function showNews() {
     // Get all the News.
     $nCount = 0;
 
     // ->condition('status', 1)
-    $nids = \Drupal::entityQuery('node')
+    $nids = \Drupal::entityQuery('node') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->condition('type', 'access_news')
       ->condition('status', 1)
       ->accessCheck(FALSE)
       ->execute();
-    $nodes = Node::loadMultiple($nids);
+    $nodes = Node::loadMultiple($nids); // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
 
     $dtLastWeek = new \DateTime('-7 days');
     $dtYesterday = new \DateTime('yesterday');
@@ -293,14 +300,14 @@ class AffinityGroupCommands extends DrushCommands {
     $this->output()->writeln('to:   ' . $fmDate2);
 
     // $a = $ddtA->format(DateTimeItemInterface::DATE_STORAGE_FORMAT);
-    $nids = \Drupal::entityQuery('node')
+    $nids = \Drupal::entityQuery('node') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->condition('field_published_date.value', $fmDate1, '>=')
       ->condition('field_published_date.value', $fmDate2, '<=')
       ->condition('type', 'access_news')
       ->accessCheck(FALSE)
       ->execute();
 
-    $nodes = Node::loadMultiple($nids);
+    $nodes = Node::loadMultiple($nids); // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
 
     $nCount = 0;
     foreach ($nodes as $node) {
@@ -309,10 +316,10 @@ class AffinityGroupCommands extends DrushCommands {
       $this->output()->writeln($nCount . '. ' . $node->getTitle());
       $this->output()->writeln($node->get('field_published_date')->value);
 
-      $view_builder = \Drupal::entityTypeManager()->getViewBuilder('node');
+      $view_builder = \Drupal::entityTypeManager()->getViewBuilder('node'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $renderArray = $view_builder->view($node, 'newsBody');
       // $renderArray = $view_builder->view($node);
-      $display = \Drupal::service('renderer')->renderPlain($renderArray);
+      $display = \Drupal::service('renderer')->renderInIsolation($renderArray); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $this->output()->writeln($display);
 
       $this->output()->writeln('---');
@@ -323,18 +330,15 @@ class AffinityGroupCommands extends DrushCommands {
       $display = check_markup($body, 'basic_html');
       $this->output()->writeln($display);
 
-      $newsUrl = $node->toUrl()->setAbsolute()->toString();
     }
   }
 
   /**
+   * Lists all event instances.
+   *
    * @command access_affinitygroup:showEventsI
-   *
    * @aliases showEventsI
-   * @usage   access_affinitygroup:showEventsI
-   *
-   * List all event instances
-   * Modify entityQuery call to specify conditions
+   * @usage access_affinitygroup:showEventsI
    */
   public function showEventsI() {
     $timezone = new \DateTimeZone(DateTimeItemInterface::STORAGE_TIMEZONE);
@@ -352,7 +356,7 @@ class AffinityGroupCommands extends DrushCommands {
     // Get all event instances (published: status=1)
     // in the date range.
     $eCount = 0;
-    $eids = \Drupal::entityQuery('eventinstance')
+    $eids = \Drupal::entityQuery('eventinstance') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->accessCheck(TRUE)
       ->condition('status', 1)
       ->condition('date.value', $fmDate1, '>=')
@@ -374,11 +378,12 @@ class AffinityGroupCommands extends DrushCommands {
       $this->output()->writeln('date:' . $enode->get('date')->value);
       $this->output()->writeln('');
 
-      // $enode->get('date')->value is in UTC 2023-02-13T19:33:00  (this was input as 2:33 pm NY time)
+      // $enode->get('date')->value is in UTC 2023-02-13T19:33:00
+      // (this was input as 2:33 pm NY time)
       // Get the custom view display eventinstance.email_summary
-      $view_builder = \Drupal::entityTypeManager()->getViewBuilder('eventinstance');
+      $view_builder = \Drupal::entityTypeManager()->getViewBuilder('eventinstance'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $renderArray = $view_builder->view($enode, 'rollup_list');
-      $display = \Drupal::service('renderer')->renderPlain($renderArray);
+      \Drupal::service('renderer')->renderInIsolation($renderArray); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
       // $this->output()->writeln($display);
       // TEMP
@@ -386,17 +391,16 @@ class AffinityGroupCommands extends DrushCommands {
   }
 
   /**
+   * Gets all eventseries.
+   *
    * @command access_affinitygroup:showEventsS
-   *
    * @aliases showEventsS
-   * @usage   access_affinitygroup:showEventsS
-   *
-   * Get all eventseries.
+   * @usage access_affinitygroup:showEventsS
    */
   public function showEventsS() {
     $eCount = 0;
 
-    $nids = \Drupal::entityQuery('eventseries')
+    $nids = \Drupal::entityQuery('eventseries') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->accessCheck(TRUE)
       ->condition('status', 1)
       ->execute();
@@ -413,30 +417,34 @@ class AffinityGroupCommands extends DrushCommands {
 
       $this->output()->writeln($eCount . '. ' . $title);
       $this->output()->writeln('status:' . $node->get('status')->value);
-      // $this->output()->writeln($node->get('body')->summary);  // show just summary,
+      // $this->output()->writeln($node->get('body')->summary);
+      // show just summary,
       // $this->output()->writeln($node->get('body')->value);
-      $view_builder = \Drupal::entityTypeManager()->getViewBuilder('eventinstance');
+      \Drupal::entityTypeManager()->getViewBuilder('eventinstance'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       // $renderArray = $view_builder->view($node);
       // $this->output()->writeln('c-----------');
-      $body = '';
-      // $body = \Drupal::service('renderer')->renderPlain($renderArray);
+      // $body = \Drupal::service('renderer')->renderInIsolation($renderArray);
       // $this->output()->writeln('d-----------');
       // $this->output()->writeln($body);
       // $this->output()->writeln('e-----------');
       // $this->output()->writeln($node->getCreated());
       // $this->output()->writeln($node->get('status')->value);
-      //               $this->output()->writeln($node->get('body')->summary);  // show just summary,
-      // which only has something if spefically set. otherwise we need to override with a trunc of body.
-      // $this->output()->writeln($node->get('body')->summary);   // show whole body
-      //             $this->output()->writeln($node->get('field_published_date')->value);
+      // $this->output()->writeln($node->get('body')->summary);
+      // show just summary,
+      // which only has something if spefically set. otherwise we need
+      // to override with a trunc of body.
+      // $this->output()->writeln($node->get('body')->summary);
+      // show whole body
+      // $this->output()->writeln($node->get('field_published_date')->value);
     }
   }
 
   /**
-   * @command access_affinitygroup:newsRollup
+   * Generates the news rollup.
    *
+   * @command access_affinitygroup:newsRollup
    * @aliases newsRollup
-   * @usage   access_affinitygroup:newsRollup
+   * @usage access_affinitygroup:newsRollup
    */
   public function newsRollup() {
     $retval = weeklyNewsReport(TRUE);
@@ -444,10 +452,11 @@ class AffinityGroupCommands extends DrushCommands {
   }
 
   /**
-   * @command access_affinitygroup:importAllocations
+   * Runs the allocations import cron function manually.
    *
+   * @command access_affinitygroup:importAllocations
    * @aliases importAllocations
-   * @usage   access_affinitygroup:importAllocations
+   * @usage access_affinitygroup:importAllocations
    * Runs the function the cron would run, using settings
    * set at the constant contact admin form.
    */
@@ -457,20 +466,24 @@ class AffinityGroupCommands extends DrushCommands {
   }
 
   /**
-   * @command access_affinitygroup:syncAGandCC
-   * @aliases syncAGandCC
-   * @usage   access_affinitygroup:syncAGandCC
+   * Syncs affinity groups with Constant Contact.
+   *
+   * @command access_affinitygroup:syncAgAndCc
+   * @aliases syncAgAndCc
+   * @usage access_affinitygroup:syncAgAndCc
    */
-  public function syncAGandCC() {
+  public function syncAgAndCc() {
     $aui = new AllocationsUsersImport();
-    $aui->syncAGandCC(25, 27);
-    // $aui->syncAGandCC();
+    $aui->syncAgAndCc(25, 27);
+    // $aui->syncAgAndCc();
   }
 
   /**
+   * Cleans obsolete allocations.
+   *
    * @command access_affinitygroup:allocCleanObs
    * @aliases allocCleanObs
-   * @usage   access_affinitygroup:allocCleanObs
+   * @usage access_affinitygroup:allocCleanObs
    */
   public function allocCleanObs() {
     $aui = new AllocationsUsersImport();

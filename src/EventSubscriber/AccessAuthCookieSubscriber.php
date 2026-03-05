@@ -2,6 +2,7 @@
 
 namespace Drupal\access\EventSubscriber;
 
+use Drupal\user\Entity\User;
 use Drupal\access\AccessJwtKeyProvider;
 use Firebase\JWT\JWT;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
@@ -100,7 +101,7 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
     // Get the full account name (e.g. "jsmith@access-ci.org").
     // This is used as the JWT "sub" claim and matches the format
     // expected by MCP servers in the X-Acting-User header.
-    $user_entity = \Drupal\user\Entity\User::load($user->id());
+    $user_entity = User::load($user->id());
     if (!$user_entity) {
       return;
     }
@@ -133,7 +134,8 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
     ) ?? '.access-ci.org';
 
     $now = time();
-    $exp = $cookie_expiration ?: ($now + 64800); // fallback: 18 hours
+    // fallback: 18 hours.
+    $exp = $cookie_expiration ?: ($now + 64800);
 
     $payload = [
       'iss' => $this->keyProvider->getIssuer(),
@@ -165,9 +167,12 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
       $exp,
       '/',
       $cookie_domain,
-      TRUE,   // secure
-      TRUE,   // httpOnly
-      FALSE,  // raw
+    // Secure.
+      TRUE,
+    // httpOnly.
+      TRUE,
+    // Raw.
+      FALSE,
       Cookie::SAMESITE_NONE
     );
 
@@ -187,8 +192,10 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
       self::COOKIE_NAME,
       '/',
       $cookie_domain,
-      TRUE,   // secure
-      TRUE,   // httpOnly
+    // Secure.
+      TRUE,
+    // httpOnly.
+      TRUE,
       Cookie::SAMESITE_NONE
     );
   }

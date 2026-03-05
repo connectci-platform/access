@@ -1,14 +1,14 @@
 <?php
 
-
 namespace Drupal\access_affinitygroup\Plugin\views\access;
 
+use Drupal\node\Entity\Node;
 use Drupal\views\Plugin\views\access\AccessPluginBase;
 use Drupal\Core\Session\AccountInterface;
 use Symfony\Component\Routing\Route;
 
 /**
- * Class ViewsCustomAccess
+ * Custom access plugin for Affinity Group coordinator views.
  *
  * @ingroup views_access_plugins
  *
@@ -19,13 +19,13 @@ use Symfony\Component\Routing\Route;
  * )
  */
 class ViewsCustomAccess extends AccessPluginBase {
+
   /**
    * {@inheritdoc}
    */
   public function summaryTitle() {
     return $this->t('Custom AG Access');
   }
-
 
   /**
    * {@inheritdoc}
@@ -47,7 +47,7 @@ class ViewsCustomAccess extends AccessPluginBase {
     }
 
     if ($nid) {
-      $node = \Drupal\node\Entity\Node::load($nid);
+      $node = Node::load($nid);
       if ($node) {
         $coordinators = $node->get('field_coordinator')->getValue();
         foreach ($coordinators as $coordinator) {
@@ -60,7 +60,6 @@ class ViewsCustomAccess extends AccessPluginBase {
     }
     return $access;
   }
-
 
   /**
    * {@inheritdoc}
@@ -81,7 +80,7 @@ class ViewsCustomAccess extends AccessPluginBase {
    * {@inheritdoc}
    */
   public function getCacheTags() {
-    $tags = parent::getCacheTags();
+    $tags = [];
 
     // Add the affinity group node as a cache tag so when it's updated
     // (e.g., coordinators changed), the view cache is invalidated.
@@ -100,4 +99,5 @@ class ViewsCustomAccess extends AccessPluginBase {
 
     return $tags;
   }
+
 }

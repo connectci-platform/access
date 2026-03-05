@@ -21,7 +21,7 @@ if (checkBoxEmail && notes) {
           var selectElementTags = document.getElementById("edit-field-tags");
           if (suggested_tids != 0) {
             Array.from(suggested_tids).forEach(function (suggested_tid) {
-              if (selectElementTags.querySelector('option[value="' + suggested_tid + '"]').selected != true) {
+              if (selectElementTags.querySelector('option[value="' + suggested_tid + '"]').selected != TRUE) {
                 selected.push(suggested_tid);
               }
             });
@@ -37,9 +37,9 @@ if (checkBoxEmail && notes) {
             // If the option's value is in the selected array, select it
             // Otherwise, deselect it
             if (selected.includes(option.value)) {
-              option.selected = true;
+              option.selected = TRUE;
             } else {
-              option.selected = false;
+              option.selected = FALSE;
             }
 
             // Select all elements with the 'selected' class
@@ -55,7 +55,7 @@ if (checkBoxEmail && notes) {
               var divElement = document.getElementById('tag-suggestions');
               var textTagListing = '';
               for (let textArrayItem of textArray) {
-                textTagListing = textTagListing + '<a class="font-normal text-sky-900" href="#tag-' + textArrayItem + '">' + textArrayItem  + '</a>, '
+                textTagListing = textTagListing + '<a class="font-normal text-sky-900" href="#tag-' + textArrayItem + '">' + textArrayItem + '</a>, '
               }
               // Remove the last comma and space
               textTagListing = textTagListing.slice(0, -2);
@@ -107,10 +107,9 @@ if (checkBoxEmail && notes) {
 
           const buttons = document.getElementsByClassName('tags-select');
           for (let button of buttons) {
-            button.addEventListener("click", buttonPressed, false);
+            button.addEventListener("click", buttonPressed, FALSE);
           }
         });
-
 
       // Misc tweaks.
       // Select all buttons value="Remove" and change to "X".

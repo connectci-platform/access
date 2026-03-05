@@ -44,20 +44,13 @@ class SimpleListMember extends BlockBase implements
   }
 
   /**
-   * Construct object.
-   */
-  public function __construct(array $configuration, $plugin_id, $plugin_definition) {
-    parent::__construct($configuration, $plugin_id, $plugin_definition);
-  }
-
-  /**
    * {@inheritdoc}
    */
   public function build() {
     $simpleListsApi = new SimpleListsApi();
     $msg = "";
     // Load current node.
-    $node = \Drupal::routeMatch()->getParameter('node');
+    $node = \Drupal::routeMatch()->getParameter('node'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     $simple_list_enabled = FALSE;
     if ($node && !$node->get('field_use_ext_email_list')->isEmpty()) {
@@ -71,7 +64,7 @@ class SimpleListMember extends BlockBase implements
     $simple_list_email = $node->get('field_ext_email_list')->value;
     $group_slug = $node->get('field_group_slug')->value;
     // Get current user email.
-    $current_user = \Drupal::currentUser();
+    $current_user = \Drupal::currentUser(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     // Only show email list options to authenticated users.
     if ($current_user->isAnonymous()) {
@@ -97,7 +90,7 @@ class SimpleListMember extends BlockBase implements
     ];
     $list_default = $sl_options[$user_list];
     $options = '';
-    $path = \Drupal::service('path.current')->getPath() ? Xss::filter(\Drupal::service('path.current')->getPath()) : '';
+    $path = \Drupal::service('path.current')->getPath() ? Xss::filter(\Drupal::service('path.current')->getPath()) : ''; // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     foreach ($sl_options as $key => $value) {
       if ($key != $user_list) {
         $options .= '<li><a href="' . $value['url'] . '?current=' . $user_list . '&redirect=' . $path . '&slug=' . $group_slug . '">' . $value['title'] . '</a></li>';
@@ -143,9 +136,9 @@ class SimpleListMember extends BlockBase implements
         </div>
       </div>',
       '#context' => [
-        'block_title' => t('Member Email List'),
+        'block_title' => $this->t('Member Email List'),
         'email' => $simple_list_email,
-        'copy' => t('Copy'),
+        'copy' => $this->t('Copy'),
         'list_default' => $list_default,
         'options' => $options,
       ],
@@ -158,9 +151,9 @@ class SimpleListMember extends BlockBase implements
    * {@inheritdoc}
    */
   public function getCacheTags() {
-    if ($node = \Drupal::routeMatch()->getParameter('node')) {
+    if ($node = \Drupal::routeMatch()->getParameter('node')) {// phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       // Get current user id.
-      $current_user = \Drupal::currentUser();
+      $current_user = \Drupal::currentUser(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       return Cache::mergeTags(parent::getCacheTags(), ['node:' . $node->id() . ':user:' . $current_user->id()]);
     }
     else {

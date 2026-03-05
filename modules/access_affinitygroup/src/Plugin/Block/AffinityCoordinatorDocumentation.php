@@ -20,9 +20,9 @@ class AffinityCoordinatorDocumentation extends BlockBase {
    * {@inheritdoc}
    */
   public function build() {
-    $node = \Drupal::routeMatch()->getParameter('node');
+    $node = \Drupal::routeMatch()->getParameter('node'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
-    $current_user = \Drupal::currentUser();
+    $current_user = \Drupal::currentUser(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $roles = $current_user->getRoles();
     // Adding a default for layout page.
     if ($node) {
@@ -30,12 +30,12 @@ class AffinityCoordinatorDocumentation extends BlockBase {
     }
     else {
       $nid = 291;
-      $node = Node::load($nid);
+      $node = Node::load($nid); // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
     }
 
     $field_coordinator = $node->get('field_coordinator')->getValue();
     $coordinator = [];
-    foreach ($field_coordinator as $key => $value) {
+    foreach ($field_coordinator as $value) {
       $coordinator[] = $value['target_id'];
     }
     $contact = [
@@ -59,7 +59,7 @@ class AffinityCoordinatorDocumentation extends BlockBase {
    * {@inheritdoc}
    */
   public function getCacheTags() {
-    if ($node = \Drupal::routeMatch()->getParameter('node')) {
+    if ($node = \Drupal::routeMatch()->getParameter('node')) {// phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       return Cache::mergeTags(parent::getCacheTags(), ['node:' . $node->id()]);
     }
     else {

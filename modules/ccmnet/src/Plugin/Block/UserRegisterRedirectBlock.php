@@ -2,6 +2,7 @@
 
 namespace Drupal\ccmnet\Plugin\Block;
 
+use Drupal\Core\Url;
 use Drupal\Core\Block\BlockBase;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
@@ -20,14 +21,14 @@ class UserRegisterRedirectBlock extends BlockBase {
    */
   public function build() {
 
-    $current_user = \Drupal::currentUser();
+    $current_user = \Drupal::currentUser();  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     if ($current_user->isAuthenticated()) {
-      $url = \Drupal\Core\Url::fromRoute('<front>');
+      $url = Url::fromRoute('<front>');
       $response = new RedirectResponse($url->toString());
       $response->send();
     }
 
-    return;
+    return [];
   }
 
   /**

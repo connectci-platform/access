@@ -17,15 +17,17 @@ use Drupal\webform\Entity\WebformSubmission;
 class ProjectLookup {
   /**
    * Store project submissions.
-   * $var array
+   *
+   * @var array
    */
   private $projects;
 
   /**
    * Array of sorted projects.
-   * $var array
+   *
+   * @var array
    */
-  private $projects_sorted;
+  private $projectsSorted;
 
   /**
    * Function to return projects.
@@ -97,7 +99,7 @@ class ProjectLookup {
     $halted = $this->arrayPickSort($projects, 'Halted');
     // Combine all of the arrays.
     $projects_sorted = $recruiting + $in_progress + $in_review + $on_hold + $finishing_up + $complete + $halted;
-    $this->projects_sorted = $projects_sorted;
+    $this->projectsSorted = $projects_sorted;
   }
 
   /**
@@ -108,7 +110,7 @@ class ProjectLookup {
     if ($array == NULL) {
       return;
     }
-    foreach ($array as $key => $value) {
+    foreach ($array as $value) {
       if ($value['status'] && $value['status'] == $sortby) {
         $sid = $value['sid'];
         $sorted[$sid] = $value;
@@ -123,10 +125,10 @@ class ProjectLookup {
   public function getProjectList() {
     $n = 1;
     $project_link = '';
-    if ($this->projects_sorted == NULL) {
+    if ($this->projectsSorted == NULL) {
       return;
     }
-    foreach ($this->projects_sorted as $project) {
+    foreach ($this->projectsSorted as $project) {
       $stripe_class = $n % 2 == 0 ? 'bg-light-teal bg-light' : '';
       $title = $project['title'];
       $sid = $project['sid'];

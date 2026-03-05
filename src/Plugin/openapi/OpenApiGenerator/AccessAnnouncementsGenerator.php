@@ -40,31 +40,31 @@ class AccessAnnouncementsGenerator extends OpenApiGeneratorBase {
    * {@inheritdoc}
    */
   public function getSpecification() {
-    // Load the static OpenAPI specification file
+    // Load the static OpenAPI specification file.
     $spec_file = DRUPAL_ROOT . '/modules/custom/access/openapi/announcements-api-2.2-openapi.yaml';
-    
+
     if (file_exists($spec_file)) {
       $spec_content = file_get_contents($spec_file);
       $spec = Yaml::parse($spec_content);
-      
-      // Add current server to the list for local development/testing
+
+      // Add current server to the list for local development/testing.
       if (isset($spec['servers'])) {
         $current_server_url = $this->request->getSchemeAndHttpHost() . '/api/2.2';
         $production_url = 'https://support.access-ci.org/api/2.2';
-        
-        // Only add current server if it's different from production
+
+        // Only add current server if it's different from production.
         if ($current_server_url !== $production_url) {
           array_unshift($spec['servers'], [
             'url' => $current_server_url,
-            'description' => 'Current server'
+            'description' => 'Current server',
           ]);
         }
       }
-      
+
       return $spec;
     }
-    
-    // Fallback if file doesn't exist
+
+    // Fallback if file doesn't exist.
     return parent::getSpecification();
   }
 
@@ -72,7 +72,7 @@ class AccessAnnouncementsGenerator extends OpenApiGeneratorBase {
    * {@inheritdoc}
    */
   public function getPaths() {
-    // This is handled by getSpecification() which loads the complete spec
+    // This is handled by getSpecification() which loads the complete spec.
     return [];
   }
 
@@ -99,7 +99,7 @@ class AccessAnnouncementsGenerator extends OpenApiGeneratorBase {
    * {@inheritdoc}
    */
   protected function getJsonSchema($described_format, $entity_type_id, $bundle_name = NULL) {
-    // Not used for static specifications
+    // Not used for static specifications.
     return [];
   }
 

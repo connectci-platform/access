@@ -1,0 +1,11 @@
+parameters:
+	ignoreErrors:
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 17
+			path: ../../../../../../docroot/modules/custom/access/modules/access_cilink/src/Controller/CiLinkController.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 4
+			path: ../../../../../../docroot/modules/custom/access/modules/access_cilink/src/EventSubscriber/FlagSubscriber.php

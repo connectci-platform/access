@@ -106,7 +106,8 @@ class EventWaitlist extends ControllerBase {
       foreach ($this->registrantIds as $registrant) {
         $this->addAllocation($registrant);
       }
-    } else {
+    }
+    else {
       $this->addAllocation($id);
     }
     $this->registerApproveEmail();
@@ -146,7 +147,7 @@ class EventWaitlist extends ControllerBase {
         $username = str_replace('@access-ci.org', '', $username);
 
         $eventinstance_id = $this->eventInstanceId;
-        $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
+        $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         $eventseries = $eventinstance->getEventSeries();
         $grant = $eventseries->get('field_event_allocation_grant')->value;
 
@@ -154,7 +155,7 @@ class EventWaitlist extends ControllerBase {
           return;
         }
 
-        \Drupal::service('access_events.XsedeApi')->setGrantedUsers($grant, [$username]);
+        \Drupal::service('access_events.XsedeApi')->setGrantedUsers($grant, [$username]); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       }
     }
   }
@@ -174,7 +175,7 @@ class EventWaitlist extends ControllerBase {
         $username = str_replace('@access-ci.org', '', $username);
 
         $eventinstance_id = $this->eventInstanceId;
-        $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id);
+        $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($eventinstance_id); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         $eventseries = $eventinstance->getEventSeries();
         $grant = $eventseries->get('field_event_allocation_grant')->value;
 
@@ -182,7 +183,7 @@ class EventWaitlist extends ControllerBase {
           return;
         }
 
-        \Drupal::service('access_events.XsedeApi')->removeGrantedUsers($grant, [$username]);
+        \Drupal::service('access_events.XsedeApi')->removeGrantedUsers($grant, [$username]); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       }
     }
   }
@@ -193,7 +194,7 @@ class EventWaitlist extends ControllerBase {
   private function registerApproveEmail() {
     $event_instance_id = $this->eventInstanceId;
     // Entity load eventinctance by id.
-    $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
+    $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $series = $event_instance->getEventSeries();
     $series_title = $series->get('title')->value;
     $series_pre_survey_url = $series->get('field_pre_survey_url')->uri;
@@ -211,7 +212,7 @@ class EventWaitlist extends ControllerBase {
     $series_title_url = "<a href='$event_url'>$series_title</a>";
 
     // Subject for email.
-    $email_title = empty($series_pre_survey_url) ? t('Registration Confirmed for ') . $series_title : t('Registration accepted - please fill in survey before event for ') . $series_title;
+    $email_title = empty($series_pre_survey_url) ? $this->t('Registration Confirmed for') . $series_title : $this->t('Registration accepted - please fill in survey before event for') . $series_title;
 
     $policy = 'access_misc';
     $policy_subtype = 'registration_approved';
@@ -240,11 +241,12 @@ class EventWaitlist extends ControllerBase {
       $variables['name'] = trim($first_name_value . ' ' . $last_name_value);
 
       if (!empty($email) && isset($email[0]['value'])) {
-        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $email[0]['value'], $variables);
+        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $email[0]['value'], $variables); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
         if (!empty($series_pre_survey_url)) {
-          // Update registrant entity with a timestamp on the 'field_pre_survey_sent' field.
-          $registrant->set('field_pre_survey_sent', \Drupal::time()->getRequestTime());
+          // Update registrant entity with a timestamp on the
+          // 'field_pre_survey_sent' field.
+          $registrant->set('field_pre_survey_sent', \Drupal::time()->getRequestTime()); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           $registrant->save();
         }
       }
@@ -310,17 +312,17 @@ class EventWaitlist extends ControllerBase {
    * Give access to author, other author, or administrator.
    */
   public function isAuthor() {
-    $account = \Drupal::currentUser();
+    $account = \Drupal::currentUser(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     // Get current uri.
-    $current_uri = \Drupal::service('path.current')->getPath();
+    $current_uri = \Drupal::service('path.current')->getPath(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $url_bits = explode('/', $current_uri);
     $event_id = is_numeric($url_bits[2]) ? $url_bits[2] : 0;
 
-    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_id);
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_id); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $eventseries = $eventinstance->getEventSeries();
 
     /** @var \Drupal\access_events\Service\EventAccessService $event_access */
-    $event_access = \Drupal::service('access_events.event_access');
+    $event_access = \Drupal::service('access_events.event_access'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     if ($event_access->isEventAuthor($eventseries, $account)) {
       return AccessResult::allowed();

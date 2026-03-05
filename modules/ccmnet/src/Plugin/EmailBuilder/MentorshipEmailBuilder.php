@@ -27,9 +27,14 @@ use Drupal\symfony_mailer\EmailInterface;
  * )
  */
 class MentorshipEmailBuilder extends EmailBuilderBase {
+
+  /**
+   * Builds the email.
+   */
   public function build(EmailInterface $email) {
     $email->setFrom('noreply@ccmnet.org');
     // Let the template system handle the body rendering
-    // The templates already use {{ variable|raw }} for HTML content
+    // The templates already use {{ variable|raw }} for HTML content.
   }
+
 }

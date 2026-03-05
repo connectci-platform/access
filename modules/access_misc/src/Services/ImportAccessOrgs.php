@@ -11,23 +11,28 @@ use Drupal\node\Entity\Node;
  */
 class ImportAccessOrgs {
 
+  /**
+   * Whether to enable debug mode.
+   *
+   * @var bool
+   */
   private bool $debug = FALSE;
 
   /**
-   *
+   * Ingests organizations from the ACCESS API.
    */
   public function ingest($verbose = FALSE) {
     $orgs = [];
 
-    $path = \Drupal::service('file_system')->realpath("private://") . '/.keys/secrets.json';
+    $path = \Drupal::service('file_system')->realpath("private://") . '/.keys/secrets.json'; // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     if (!file_exists($path)) {
-      \Drupal::logger('access_misc')->error('Unable to find ACCESS API key file');
+      \Drupal::logger('access_misc')->error('Unable to find ACCESS API key file'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       return;
     }
     $secrets_json_text = file_get_contents($path);
     $secrets_data = json_decode($secrets_json_text, TRUE);
     if (!isset($secrets_data['ramps_api_key']) || !$secrets_data['ramps_api_key']) {
-      \Drupal::logger('access_misc')->error('Unable to find ACCESS API key');
+      \Drupal::logger('access_misc')->error('Unable to find ACCESS API key'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       return;
     }
 
@@ -55,7 +60,7 @@ class ImportAccessOrgs {
 
       $orgs = json_decode($response);
 
-      \Drupal::logger('access_misc')->info('Found ' . count($orgs) . ' organizations.');
+      \Drupal::logger('access_misc')->info('Found ' . count($orgs) . ' organizations.'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
       if (empty($orgs)) {
         throw new \Exception('No organization results found from source API.');
@@ -117,7 +122,7 @@ class ImportAccessOrgs {
         }
         else {
           if ($verbose) {
-            \Drupal::logger('access_misc')->warning('Latitude out of range for ' . $org->organization_name . ' (' . $org->organization_id . ')');
+            \Drupal::logger('access_misc')->warning('Latitude out of range for ' . $org->organization_name . ' (' . $org->organization_id . ')'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           }
         }
 
@@ -127,11 +132,11 @@ class ImportAccessOrgs {
         }
         else {
           if ($verbose) {
-            \Drupal::logger('access_misc')->warning('Longitude out of range for ' . $org->organization_name . ' (' . $org->organization_id . ')');
+            \Drupal::logger('access_misc')->warning('Longitude out of range for ' . $org->organization_name . ' (' . $org->organization_id . ')'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           }
         }
 
-        $query = \Drupal::database()
+        $query = \Drupal::database() // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           ->select('node__field_organization_id', 'f')
           ->fields('f', ['entity_id']);
         $query->innerJoin('node', 'n', 'n.nid = f.entity_id');
@@ -141,10 +146,10 @@ class ImportAccessOrgs {
 
         if (!empty($record)) {
           if ($verbose) {
-            \Drupal::logger('access_misc')->warning('Record already exists for "' . $org->organization_name . '".');
+            \Drupal::logger('access_misc')->warning('Record already exists for "' . $org->organization_name . '".'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           }
 
-          $node = Node::load($record[0]->entity_id);
+          $node = Node::load($record[0]->entity_id); // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
 
           // Flag to indicate if any changes were made.
           $update = FALSE;
@@ -167,7 +172,7 @@ class ImportAccessOrgs {
               $localkey = array_keys($localkey)[0];
             }
             if ($node->{$localkey}->value != $org->{$foreignkey}) {
-              \Drupal::logger('access_misc')->warning($org->organization_name . ' ' . $localkey . ' out of sync. Local value: ' . $node->{$localkey}->value . ', remote value: ' . $org->{$foreignkey});
+              \Drupal::logger('access_misc')->warning($org->organization_name . ' ' . $localkey . ' out of sync. Local value: ' . $node->{$localkey}->value . ', remote value: ' . $org->{$foreignkey}); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
               if (!$this->debug) {
                 $node->set($localkey, $org->{$foreignkey});
               }
@@ -175,14 +180,14 @@ class ImportAccessOrgs {
             }
           }
           if ($node->field_latitude->value != $lat) {
-            \Drupal::logger('access_misc')->warning($org->organization_name . ' latitude out of sync. Local value: ' . $node->field_latitude->value . ', remote value: ' . $lat);
+            \Drupal::logger('access_misc')->warning($org->organization_name . ' latitude out of sync. Local value: ' . $node->field_latitude->value . ', remote value: ' . $lat); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
             if (!$this->debug) {
               $node->set('field_latitude', $lat);
             }
             $update = TRUE;
           }
           if ($node->field_longitude->value != $lon) {
-            \Drupal::logger('access_misc')->warning($org->organization_name . ' longitude out of sync. Local value: ' . $node->field_longitude->value . ', remote value: ' . $lon);
+            \Drupal::logger('access_misc')->warning($org->organization_name . ' longitude out of sync. Local value: ' . $node->field_longitude->value . ', remote value: ' . $lon); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
             if (!$this->debug) {
               $node->set('field_longitude', $lon);
             }
@@ -192,7 +197,7 @@ class ImportAccessOrgs {
           // Check if the is_msi value is correct from the carnegie_codes table.
           // Get the is_msi value from the carnegie_codes table.
           if ($node->field_carnegie_code->first()->value != 0) {
-            $query = \Drupal::database()
+            $query = \Drupal::database() // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
               ->select('carnegie_codes', 'cc')
               ->fields('cc', ['MSI'])
               ->condition('cc.UNITID', $node->field_carnegie_code->first()->value, '=');
@@ -200,24 +205,26 @@ class ImportAccessOrgs {
             $is_msi = $result->fetchField();
             if ($is_msi != $node->field_is_msi->first()->value) {
               if ($this->debug) {
-                \Drupal::logger('access_misc')->warning($node->title->first()->value . ' is_msi should be ' . $is_msi);
+                \Drupal::logger('access_misc')->warning($node->title->first()->value . ' is_msi should be ' . $is_msi); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
               }
               $node->set('field_is_msi', $is_msi);
               $update = TRUE;
             }
           }
           // Updating MSI value from carnegie_codes table instead of API.
+          // phpcs:disable Drupal.Files.LineLength.TooLong, Drupal.Commenting.InlineComment
           // if (($node->field_is_msi->value && !$org->is_msi) || (!$node->field_is_msi->value && $org->is_msi)) {
-          //   $this->output()->writeln('<comment>    -> field_is_msi out of sync.</comment>');
-          //   $this->output()->writeln('<comment>       -> ' . $node->field_is_msi->value . ' != ' . ($org->is_msi ? 1 : 0) . '</comment>');
-          //   if (!$this->debug) {
-          //     $node->set('field_is_msi', $org->is_msi ? 1 : 0);
-          //   }
-          //   $update = TRUE;
+          // $this->output()->writeln('<comment>    -> field_is_msi out of sync.</comment>');
+          // $this->output()->writeln('<comment>       -> ' . $node->field_is_msi->value . ' != ' . ($org->is_msi ? 1 : 0) . '</comment>');
+          // if (!$this->debug) {
+          // $node->set('field_is_msi', $org->is_msi ? 1 : 0);
+          // }
+          // $update = TRUE;
           // }.
+          // phpcs:enable Drupal.Files.LineLength.TooLong, Drupal.Commenting.InlineComment
           if (($node->field_is_active->value && !$org->is_active) || (!$node->field_is_active->value && $org->is_active)) {
-            \Drupal::logger('access_misc')->warning($org->organization_name . ' -> field_is_active out of sync.</comment>');
-            \Drupal::logger('access_misc')->warning($org->organization_name . ' -> ' . $node->field_is_active->value . ' != ' . ($org->is_active ? 1 : 0) . '</comment>');
+            \Drupal::logger('access_misc')->warning($org->organization_name . ' -> field_is_active out of sync.</comment>'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+            \Drupal::logger('access_misc')->warning($org->organization_name . ' -> ' . $node->field_is_active->value . ' != ' . ($org->is_active ? 1 : 0) . '</comment>'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
             if (!$this->debug) {
               $node->set('field_is_active', $org->is_active ? 1 : 0);
             }
@@ -228,24 +235,24 @@ class ImportAccessOrgs {
             $result = $node->save();
 
             if (!$result) {
-              \Drupal::logger('access_misc')->error($org->organization_name . ' -> Failed to update record.');
+              \Drupal::logger('access_misc')->error($org->organization_name . ' -> Failed to update record.'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
             }
             else {
               if ($verbose) {
-                \Drupal::logger('access_misc')->info($org->organization_name . ' -> Updated record.');
+                \Drupal::logger('access_misc')->info($org->organization_name . ' -> Updated record.'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
               }
             }
           }
           else {
             if ($verbose) {
-              \Drupal::logger('access_misc')->info($org->organization_name . ' -> No updates needed.');
+              \Drupal::logger('access_misc')->info($org->organization_name . ' -> No updates needed.'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
             }
           }
           continue;
         }
 
         // Try to find code by institution name.
-        $query = \Drupal::database()
+        $query = \Drupal::database() // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           ->select('carnegie_codes', 'cc')
           ->fields('cc', ['UNITID']);
         $query->condition($query->orConditionGroup()
@@ -257,21 +264,21 @@ class ImportAccessOrgs {
 
         if (!$carnegie_code) {
           if ($verbose) {
-            \Drupal::logger('access_misc')->warning('Failed to find Carnegie Code for "' . $org->organization_name . '".');
+            \Drupal::logger('access_misc')->warning('Failed to find Carnegie Code for "' . $org->organization_name . '".'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           }
           $carnegie_code = 0;
         }
         else {
           if ($verbose) {
-            \Drupal::logger('access_misc')->info('Assigned Carnegie Code ' . $carnegie_code . ' for "' . $org->organization_name . '".');
+            \Drupal::logger('access_misc')->info('Assigned Carnegie Code ' . $carnegie_code . ' for "' . $org->organization_name . '".'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           }
         }
 
         if ($this->debug) {
-          \Drupal::logger('access_misc')->info('Found carnegie code ' . $carnegie_code . ' original carnegie code ' . implode(',', $org->carnegieCategories) . '</comment>');
+          \Drupal::logger('access_misc')->info('Found carnegie code ' . $carnegie_code . ' original carnegie code ' . implode(',', $org->carnegieCategories) . '</comment>'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         }
         // Create database entry.
-        $node = \Drupal::entityTypeManager()
+        $node = \Drupal::entityTypeManager() // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           ->getStorage('node')
           ->create([
             'type' => 'access_organization',
@@ -294,19 +301,19 @@ class ImportAccessOrgs {
 
         if (!$result) {
           if ($verbose || $this->debug) {
-            \Drupal::logger('access_misc')->error('Failed to create record for ' . $org->organization_name . ' (' . $org->organization_id . ')');
+            \Drupal::logger('access_misc')->error('Failed to create record for ' . $org->organization_name . ' (' . $org->organization_id . ')'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           }
           continue;
         }
 
         if ($verbose || $this->debug) {
-          \Drupal::logger('access_misc')->info('Created record for ' . $org->organization_name . ' (' . $org->organization_id . ') with carnegie code ' . $node->$carnegie_code);
+          \Drupal::logger('access_misc')->info('Created record for ' . $org->organization_name . ' (' . $org->organization_id . ') with carnegie code ' . $node->$carnegie_code); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         }
       }
     }
     catch (\Exception $e) {
       if ($verbose) {
-        \Drupal::logger('access_misc')->error($e->getMessage());
+        \Drupal::logger('access_misc')->error($e->getMessage()); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       }
       return;
     }

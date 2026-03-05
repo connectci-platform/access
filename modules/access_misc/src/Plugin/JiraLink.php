@@ -15,6 +15,8 @@ use Drupal\Core\Url;
  */
 class JiraLink {
 
+  use \Drupal\Core\StringTranslation\StringTranslationTrait;
+
   /**
    * Store link.
    *
@@ -59,7 +61,7 @@ class JiraLink {
         '#type' => 'inline_template',
         '#template' => '<a class="btn btn-primary" href="/user/login">{{ text }}</a>',
         '#context' => [
-          'text' => t('Login to ') . $text,
+          'text' => $this->t('Login to') . $text,
         ],
       ];
     }

@@ -19,8 +19,8 @@ class AffinityContactGroup extends BlockBase {
    * {@inheritdoc}
    */
   public function build() {
-    $node = \Drupal::routeMatch()->getParameter('node');
-    $current_user = \Drupal::currentUser();
+    $node = \Drupal::routeMatch()->getParameter('node'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $current_user = \Drupal::currentUser(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $roles = $current_user->getRoles();
     // Adding a default for layout page.
     $nid = $node ? $node->id() : 291;
@@ -61,7 +61,7 @@ class AffinityContactGroup extends BlockBase {
    * {@inheritdoc}
    */
   public function getCacheTags() {
-    if ($node = \Drupal::routeMatch()->getParameter('node')) {
+    if ($node = \Drupal::routeMatch()->getParameter('node')) {// phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       return Cache::mergeTags(parent::getCacheTags(), ['node:' . $node->id()]);
     }
     else {

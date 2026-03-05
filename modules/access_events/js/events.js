@@ -25,7 +25,7 @@ for (const radioButton of radioButtons) {
   }
 }
 if (radioSelect) {
-  document.getElementById("edit-recur-type-custom").checked = true;
+  document.getElementById("edit-recur-type-custom").checked = TRUE;
 }
 
 // Overwrite text in #edit-title-0-value--description to 'Event Title'.
@@ -42,7 +42,7 @@ let registration = document.querySelector('#edit-event-registration-0-registrati
 // Initial check on page load.
 checkRegistration();
 
-registration.addEventListener('change', function() {
+registration.addEventListener('change', function () {
   checkRegistration();
 });
 
@@ -66,4 +66,3 @@ function checkRegistration() {
     document.getElementById("edit-group-post-survey").style.display = 'none';
   }
 }
-

@@ -14,17 +14,19 @@ use Symfony\Component\HttpKernel\KernelEvents;
  */
 class Subscriber implements EventSubscriberInterface {
 
+  use \Drupal\Core\StringTranslation\StringTranslationTrait;
+
   /**
    * Redirect user if not authenticated and on /login page.
    */
   public function onRequest(RequestEvent $event) {
 
-    $user_is_authenticated = \Drupal::currentUser()->isAuthenticated();
-    $route_name = \Drupal::routeMatch()->getRouteName();
+    $user_is_authenticated = \Drupal::currentUser()->isAuthenticated(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $route_name = \Drupal::routeMatch()->getRouteName(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     // Return if we are not on ACCESS Support domain.
-    $token = \Drupal::token();
-    $domainName = t("[domain:name]");
+    $token = \Drupal::token(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    $domainName = $this->t("[domain:name]");
     $current_domain_name = Html::getClass($token->replace($domainName));
     $domain_verified = $current_domain_name === 'access-support';
 
@@ -32,7 +34,8 @@ class Subscriber implements EventSubscriberInterface {
     if ($route_name == 'misc.login' && !$user_is_authenticated) {
       $this->doRedirectToCilogon($event);
     }
-    // Redirect user.login to Cilogon (but allow API requests for service accounts).
+    // Redirect user.login to Cilogon (but allow API requests for
+    // service accounts).
     $is_api_request = $event->getRequest()->getRequestFormat() === 'json'
       || $event->getRequest()->query->get('_format') === 'json';
     if ($domain_verified && $route_name == 'user.login' && !$user_is_authenticated && !$is_api_request) {
@@ -40,24 +43,24 @@ class Subscriber implements EventSubscriberInterface {
     }
 
     // Get destination query.
-    $query = \Drupal::request()->query->get('redirect') ? Xss::filter(\Drupal::request()->query->get('redirect')) : '';
+    $query = \Drupal::request()->query->get('redirect') ? Xss::filter(\Drupal::request()->query->get('redirect')) : ''; // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     // Get url query 'check_logged_in'.
-    $logged_in = \Drupal::request()->query->get('check_logged_in') ? Xss::filter(\Drupal::request()->query->get('check_logged_in')) : '';
+    $logged_in = \Drupal::request()->query->get('check_logged_in') ? Xss::filter(\Drupal::request()->query->get('check_logged_in')) : ''; // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     if ($query) {
-      $request = \Drupal::request();
+      $request = \Drupal::request(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $session = $request->getSession();
       $session->set('cilogon_destination', $query);
-      \Drupal::logger('access_misc')->notice("Destination set to $query");
+      \Drupal::logger('access_misc')->notice("Destination set to $query"); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     }
 
     if ($logged_in) {
-      $request = \Drupal::request();
+      $request = \Drupal::request(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $session = $request->getSession();
       $query_set = $session->get('cilogon_destination');
       if ($query_set) {
         $session->remove('cilogon_destination');
-        \Drupal::logger('access_misc')->notice("Redirecting to $query_set");
+        \Drupal::logger('access_misc')->notice("Redirecting to $query_set"); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         $event->setResponse(new RedirectResponse($query_set));
       }
     }
@@ -72,7 +75,7 @@ class Subscriber implements EventSubscriberInterface {
   protected function doRedirectToCilogon(RequestEvent $event) {
     $request = $event->getRequest();
 
-    $container = \Drupal::getContainer();
+    $container = \Drupal::getContainer(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $client_name = 'cilogon';
     $config_name = 'cilogon_auth.settings.' . $client_name;
     $configuration = $container->get('config.factory')->get($config_name)->get('settings');
@@ -82,8 +85,9 @@ class Subscriber implements EventSubscriberInterface {
     $scopes = $claims->getScopes();
     $destination = $request->getRequestUri();
     $query = NULL;
-    if (NULL !== \Drupal::request()->query->get('redirect')) {
-      $query = Xss::filter(\Drupal::request()->query->get('redirect'));
+    $redirect_param = \Drupal::request()->query->get('redirect'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    if (NULL !== $redirect_param) {
+      $query = Xss::filter($redirect_param);
     }
     $_SESSION['cilogon_auth_op'] = 'login';
     $_SESSION['cilogon_auth_destination'] = [$destination, ['query' => $query]];

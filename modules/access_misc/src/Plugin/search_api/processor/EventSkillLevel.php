@@ -7,8 +7,9 @@ use Drupal\search_api\Item\ItemInterface;
 use Drupal\search_api\Processor\ProcessorPluginBase;
 use Drupal\search_api\Processor\ProcessorProperty;
 
+// phpcs:disable Drupal.Files.LineLength.TooLong
 /**
- * Search API Processor for indexing Event Skill Level as the built in one isn't working..
+ * Search API Processor for indexing Event Skill Level as the built in one isn't working.
  *
  * @SearchApiProcessor(
  *   id = "custom_event_skill_level",
@@ -21,12 +22,13 @@ use Drupal\search_api\Processor\ProcessorProperty;
  *   hidden = true,
  * )
  */
+// phpcs:enable Drupal.Files.LineLength.TooLong
 class EventSkillLevel extends ProcessorPluginBase {
 
   /**
    * {@inheritdoc}
    */
-  public function getPropertyDefinitions(DatasourceInterface $datasource = NULL) {
+  public function getPropertyDefinitions(?DatasourceInterface $datasource = NULL) {
     $properties = [];
 
     if (!$datasource) {
@@ -62,7 +64,6 @@ class EventSkillLevel extends ProcessorPluginBase {
       foreach ($sl as $value) {
         $field->addValue($value['value']);
       }
-
 
     }
   }

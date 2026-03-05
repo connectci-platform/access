@@ -7,10 +7,7 @@ use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
-use Drupal\file\Entity\File;
 use Drupal\Core\File\FileUrlGeneratorInterface;
-use Drupal\Core\Url;
-use Drupal\image\Entity\ImageStyle;
 use Drupal\Core\Routing\RouteMatchInterface;
 use Drupal\Core\Cache\Cache;
 
@@ -82,6 +79,8 @@ class MatchNodeBlock extends BlockBase implements
    *   Plugin Definition mixed.
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_interface
    *   Invokes renderer.
+   * @param \Drupal\Core\Routing\RouteMatchInterface $route_match_interface
+   *   Route match interface.
    * @param \Drupal\Core\File\FileUrlGeneratorInterface $file_url_generator
    *   File url generator.
    */
@@ -89,10 +88,9 @@ class MatchNodeBlock extends BlockBase implements
     array $configuration,
     $plugin_id,
     $plugin_definition,
-    EntityTypeManagerInterface
-    $entity_interface,
+    EntityTypeManagerInterface $entity_interface,
     RouteMatchInterface $route_match_interface,
-    FileUrlGeneratorInterface $file_url_generator
+    FileUrlGeneratorInterface $file_url_generator,
   ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityInterface = $entity_interface;
@@ -123,7 +121,7 @@ class MatchNodeBlock extends BlockBase implements
       $interested_button = '';
       if ($is_recruiting) {
         $interested_list = $node->get('field_match_interested_users')->getValue();
-        $user = \Drupal::currentUser()->id();
+        $user = \Drupal::currentUser()->id();  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         if (array_search($user, array_column($interested_list, 'target_id')) !== FALSE) {
           $uninterested_text = $this->t("I'm no longer Interested");
           $interested_button = "<a class='btn btn-primary' href='/node/$nid/interested'>$uninterested_text</a>";
@@ -158,7 +156,7 @@ class MatchNodeBlock extends BlockBase implements
     }
     else {
       return [
-        '#markup' => $this->t('Match Node Block - not a match node')
+        '#markup' => $this->t('Match Node Block - not a match node'),
       ];
 
     }
@@ -170,11 +168,11 @@ class MatchNodeBlock extends BlockBase implements
   public function getInterestedUsers($interested_users) {
     // Only show interested users to match_sc, match_pm, and admin.
     $accepted_roles = ['administrator', 'match_sc', 'match_pm'];
-    $current_user = \Drupal::currentUser();
+    $current_user = \Drupal::currentUser();  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $roles = $current_user->getRoles();
     if (empty(in_array($accepted_roles, $roles))) {
       return [];
-    };
+    }
 
     $interested_users = array_column($interested_users, 'target_id');
     $users = $this->entityInterface->getStorage('user')->loadMultiple($interested_users);
@@ -193,7 +191,8 @@ class MatchNodeBlock extends BlockBase implements
     if ($node = $this->routMatchInterface->getParameter('node')) {
       // If there is node add its cachetag.
       return Cache::mergeTags(parent::getCacheTags(), ['node:' . $node->id()]);
-    } else {
+    }
+    else {
       // Return default tags instead.
       return parent::getCacheTags();
     }
@@ -208,4 +207,5 @@ class MatchNodeBlock extends BlockBase implements
     // Every new route this block will rebuild.
     return Cache::mergeContexts(parent::getCacheContexts(), ['route']);
   }
+
 }

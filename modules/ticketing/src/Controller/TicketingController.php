@@ -16,7 +16,7 @@ class TicketingController extends ControllerBase {
    * Redirect to JSM, and prefill the .
    */
   public function doRedirect($ticket_id = NULL) {
-    $account = User::load(\Drupal::currentUser()->id());
+    $account = User::load(\Drupal::currentUser()->id());  // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass, DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $account_name = $account->getAccountName();
     $display_name = $account->getDisplayName();
 

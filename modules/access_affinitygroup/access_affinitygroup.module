@@ -925,6 +925,9 @@ function access_affinitygroup_user_login(UserInterface $account) {
     $cca_user_id = $field_val[0]['value'];
   }
 
+  $firstName = $user_detail->get('field_user_first_name')->getString();
+  $lastName = $user_detail->get('field_user_last_name')->getString();
+
   // If user did not already have the CC id, try to add to CC.
   if (empty($cca_user_id) || !json_validate($cca_user_id)) {
       $user_cc_id = [
@@ -935,9 +938,6 @@ function access_affinitygroup_user_login(UserInterface $account) {
 
     $constantcontactapi = new ConstantContactApi();
     $env = $constantcontactapi->getEnvironment();
-
-    $firstName = $user_detail->get('field_user_first_name')->getString();
-    $lastName = $user_detail->get('field_user_last_name')->getString();
 
 
     $user_cc_id[$env] = addUserToConstantContact($current_user->getEmail(), $firstName, $lastName);
@@ -1807,7 +1807,7 @@ function webform_submission_affinity_group_affinity_contact(&$form, FormStateInt
   $cc_list_id = $form['elements']['cc_list_id']['#value'];
   $ccListIds = [$cc_list_id];
   $subject = $form['elements']['subject']['#value'];
-  $message .= $form['elements']['message']['value']['#value'];
+  $message = $form['elements']['message']['value']['#value'];
   $message .= '<p>Sent by ' . $form['elements']['name']['#value'] . '</p>';
   $pubDate = date('m/d/Y');
   emailToAffinityGroups($message, "$subject", $pubDate, $agNames, NULL, $ccListIds, 1, NULL);

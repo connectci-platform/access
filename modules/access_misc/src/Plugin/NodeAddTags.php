@@ -30,7 +30,7 @@ class NodeAddTags {
    *   The 'renderer' service.
    */
   public function __construct(
-    RendererInterface $renderer
+    RendererInterface $renderer,
   ) {
     $this->renderer = $renderer;
   }

@@ -9,16 +9,16 @@ use Drupal\webform\Entity\WebformSubmission;
 use Drush\Commands\DrushCommands;
 
 /**
- * A Drush commandfile to migrate profile data from
- * one user to another.
+ * A Drush commandfile to migrate profile data from one user to another.
  *
  * @package Drupal\user_profiles\Commands
  */
 class UserProfilesCommands extends DrushCommands {
 
   /**
-   * Migrate user data from one user to another.  The following
-   * will get updated:
+   * Migrate user data from one user to another.
+   *
+   * The following will get updated:
    *  - flags:  affinity groups, interest, skill, upvote, interested-in-project
    *  - webform submissions
    *  - roles
@@ -26,14 +26,14 @@ class UserProfilesCommands extends DrushCommands {
    *  - nodes (ownership and user reference fields)
    *  - event series (ownership and other authors)
    *  - event instances (ownership)
-   *  - event registrations
+   *  - event registrations.
    *
-   * @command user_profiles:mergeUser
    * @param string $from_user_id
    *   Id of user id to merge from.
    * @param string $to_user_id
    *   Id of user id to merge to.
    *
+   * @command user_profiles:mergeUser
    * @aliases mergeUser
    * @usage user_profiles:mergeUser
    */
@@ -41,8 +41,8 @@ class UserProfilesCommands extends DrushCommands {
 
     $this->output()->writeln("------------- Merge user $from_user_id into $to_user_id ---------------------------------");
 
-    $user_from = User::load($from_user_id);
-    $user_to = User::load($to_user_id);
+    $user_from = User::load($from_user_id);  // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
+    $user_to = User::load($to_user_id);  // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
 
     if (!$user_from) {
       $this->output()->writeln("  *** No user found with id $from_user_id");
@@ -85,9 +85,9 @@ class UserProfilesCommands extends DrushCommands {
    */
   private function mergeNodes(User $user_from, User $user_to) {
 
-    \Drupal::moduleHandler()->loadInclude('node', 'inc', 'node.admin');
+    \Drupal::moduleHandler()->loadInclude('node', 'inc', 'node.admin');  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
-    $nodes = \Drupal::entityQuery('node')
+    $nodes = \Drupal::entityQuery('node')  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->accessCheck(FALSE)
       ->condition('uid', $user_from->id())
       ->execute();
@@ -100,7 +100,7 @@ class UserProfilesCommands extends DrushCommands {
     $this->output()->writeln("Migrating nodes");
     $this->output()->writeln("  Changing ownership of these node titles: ");
     foreach ($nodes as $nid) {
-      $node = Node::load($nid);
+      $node = Node::load($nid);  // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
       $this->output()->writeln("    " . $node->getTitle());
     }
 
@@ -131,7 +131,7 @@ class UserProfilesCommands extends DrushCommands {
     foreach ($content_type_fields as $content_type => $fields) {
       foreach ($fields as $field_name) {
         // Find nodes where this field references the from_user.
-        $query = \Drupal::entityQuery('node')
+        $query = \Drupal::entityQuery('node')  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           ->accessCheck(FALSE)
           ->condition('type', $content_type)
           ->condition($field_name, $user_from->id());
@@ -143,7 +143,7 @@ class UserProfilesCommands extends DrushCommands {
 
         $this->output()->writeln("  Updating $field_name in $content_type nodes");
         foreach ($nids as $nid) {
-          $node = Node::load($nid);
+          $node = Node::load($nid);  // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
           $field_values = $node->get($field_name)->getValue();
           $updated = FALSE;
 
@@ -186,13 +186,14 @@ class UserProfilesCommands extends DrushCommands {
     $this->output()->writeln("Migrating event series");
 
     // Check if eventseries entity type exists.
-    if (!\Drupal::entityTypeManager()->hasDefinition('eventseries')) {
+    $has_eventseries = \Drupal::entityTypeManager()->hasDefinition('eventseries');  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    if (!$has_eventseries) {
       $this->output()->writeln("  Event series entity type not found, skipping");
       return;
     }
 
     // Transfer ownership of event series.
-    $series_ids = \Drupal::entityQuery('eventseries')
+    $series_ids = \Drupal::entityQuery('eventseries')  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->accessCheck(FALSE)
       ->condition('uid', $user_from->id())
       ->execute();
@@ -200,7 +201,7 @@ class UserProfilesCommands extends DrushCommands {
     if (!empty($series_ids)) {
       $this->output()->writeln("  Transferring ownership of event series");
       foreach ($series_ids as $series_id) {
-        $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($series_id);
+        $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($series_id);  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         if ($series) {
           $this->output()->writeln("    Transferring '{$series->label()}' (id: $series_id)");
           $series->setOwnerId($user_to->id());
@@ -210,7 +211,7 @@ class UserProfilesCommands extends DrushCommands {
     }
 
     // Update field_other_authors references.
-    $series_with_author = \Drupal::entityQuery('eventseries')
+    $series_with_author = \Drupal::entityQuery('eventseries')  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->accessCheck(FALSE)
       ->condition('field_other_authors', $user_from->id())
       ->execute();
@@ -218,7 +219,7 @@ class UserProfilesCommands extends DrushCommands {
     if (!empty($series_with_author)) {
       $this->output()->writeln("  Updating field_other_authors in event series");
       foreach ($series_with_author as $series_id) {
-        $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($series_id);
+        $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($series_id);  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         if ($series && $series->hasField('field_other_authors')) {
           $authors = $series->get('field_other_authors')->getValue();
           $updated = FALSE;
@@ -266,12 +267,13 @@ class UserProfilesCommands extends DrushCommands {
     $this->output()->writeln("Migrating event instances");
 
     // Check if eventinstance entity type exists.
-    if (!\Drupal::entityTypeManager()->hasDefinition('eventinstance')) {
+    $has_eventinstance = \Drupal::entityTypeManager()->hasDefinition('eventinstance');  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    if (!$has_eventinstance) {
       $this->output()->writeln("  Event instance entity type not found, skipping");
       return;
     }
 
-    $instance_ids = \Drupal::entityQuery('eventinstance')
+    $instance_ids = \Drupal::entityQuery('eventinstance')  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->accessCheck(FALSE)
       ->condition('uid', $user_from->id())
       ->execute();
@@ -283,7 +285,7 @@ class UserProfilesCommands extends DrushCommands {
 
     $this->output()->writeln("  Transferring ownership of " . count($instance_ids) . " event instances");
     foreach ($instance_ids as $instance_id) {
-      $instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($instance_id);
+      $instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($instance_id);  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       if ($instance) {
         $instance->setOwnerId($user_to->id());
         $instance->save();
@@ -304,12 +306,13 @@ class UserProfilesCommands extends DrushCommands {
     $this->output()->writeln("Migrating event registrations");
 
     // Check if registrant entity type exists.
-    if (!\Drupal::entityTypeManager()->hasDefinition('registrant')) {
+    $has_registrant = \Drupal::entityTypeManager()->hasDefinition('registrant');  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    if (!$has_registrant) {
       $this->output()->writeln("  Registrant entity type not found, skipping");
       return;
     }
 
-    $registrant_ids = \Drupal::entityQuery('registrant')
+    $registrant_ids = \Drupal::entityQuery('registrant')  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->accessCheck(FALSE)
       ->condition('user_id', $user_from->id())
       ->execute();
@@ -320,14 +323,14 @@ class UserProfilesCommands extends DrushCommands {
     }
 
     $this->output()->writeln("  Transferring " . count($registrant_ids) . " event registrations");
-    $storage = \Drupal::entityTypeManager()->getStorage('registrant');
+    $storage = \Drupal::entityTypeManager()->getStorage('registrant');  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     foreach ($registrant_ids as $registrant_id) {
       $registrant = $storage->load($registrant_id);
       if ($registrant) {
         // Check if to_user already has a registration for this event instance.
         $event_instance_id = $registrant->get('eventinstance_id')->target_id;
-        $existing = \Drupal::entityQuery('registrant')
+        $existing = \Drupal::entityQuery('registrant')  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           ->accessCheck(FALSE)
           ->condition('user_id', $user_to->id())
           ->condition('eventinstance_id', $event_instance_id)
@@ -366,7 +369,8 @@ class UserProfilesCommands extends DrushCommands {
 
     /* Here's a list of all fields -- only a subset of these are migrated.
 
-    $fields = \Drupal::service('entity_field.manager')->getFieldDefinitions('user', 'user');
+    $fields = \Drupal::service('entity_field.manager')
+    ->getFieldDefinitions('user', 'user');
 
     [0] => uid
     [1] => uuid
@@ -608,7 +612,7 @@ class UserProfilesCommands extends DrushCommands {
   private function mergeWebformSubmissions(User $user_from, User $user_to) {
     $this->output()->writeln("Migrating webform submissions");
 
-    $ws_query = \Drupal::entityQuery('webform_submission')
+    $ws_query = \Drupal::entityQuery('webform_submission')  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       ->condition('uid', $user_from->id())
       ->accessCheck(FALSE);
     $ws_results = $ws_query->execute();
@@ -638,7 +642,7 @@ class UserProfilesCommands extends DrushCommands {
   private function mergeFlag($flag_name, User $user_from, User $user_to) {
     $this->output()->writeln("Migrating flags with name '$flag_name'");
 
-    $term = \Drupal::database()->select('flagging', 'fl');
+    $term = \Drupal::database()->select('flagging', 'fl');  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $term->condition('fl.uid', $user_from->id());
     $term->condition('fl.flag_id', $flag_name);
     $term->fields('fl', ['entity_id']);
@@ -649,11 +653,11 @@ class UserProfilesCommands extends DrushCommands {
     }
 
     foreach ($flagged_items as $flagged_item) {
-      $term = Term::load($flagged_item);
+      $term = Term::load($flagged_item);  // phpcs:ignore DrupalPractice.Objects.GlobalClass.GlobalClass
       $title = $term->get('name')->value;
 
       // Check if already flagged. If not, set the flag.
-      $flag_service = \Drupal::service('flag');
+      $flag_service = \Drupal::service('flag');  // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $flag = $flag_service->getFlagById($flag_name);
       $flag_status = $flag_service->getFlagging($flag, $term, $user_to);
       if (!$flag_status) {

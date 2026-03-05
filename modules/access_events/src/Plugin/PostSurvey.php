@@ -197,7 +197,6 @@ class PostSurvey {
         foreach ($registrants as $registrant_id) {
           $registrant = $this->entityTypeManager->getStorage('registrant')->load($registrant_id);
 
-
           if ($registrant->field_post_survey_reminder_sent->value) {
             continue;
           }

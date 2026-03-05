@@ -19,7 +19,8 @@ class SiteTools {
   const DOMAIN_CCMNET = 'ccmnet_org';
   const DOMAIN_COCO = 'coco_cyberinfrastructure_org';
   const DOMAIN_OPENONDEMAND = 'openondemand_cyberinfrastructure_org';
-  const DOMAIN_CURRENT = 'current'; // Special value to use current domain
+  // Special value to use current domain.
+  const DOMAIN_CURRENT = 'current';
 
   /**
    * Run Entity Query.
@@ -57,7 +58,7 @@ class SiteTools {
    * Get Current Domain ID.
    */
   public function getDomainId() {
-    $domain_negotiator = \Drupal::service('domain.negotiator');
+    $domain_negotiator = \Drupal::service('domain.negotiator'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $active_domain = $domain_negotiator->getActiveDomain();
 
     return $active_domain->id();
@@ -85,7 +86,8 @@ class SiteTools {
     if ($domain) {
       return $domain->buildUrl('');
     }
-    return 'https://support.access-ci.org'; // Fallback URL if domain not found.
+    // Fallback URL if domain not found.
+    return 'https://support.access-ci.org';
   }
 
   /**
@@ -94,11 +96,12 @@ class SiteTools {
   public function getEventCurrentDomainUrl($event_instance_id) {
     try {
       // Load the event instance.
-      $event_instance = \Drupal::entityTypeManager()
+      $event_instance = \Drupal::entityTypeManager() // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         ->getStorage('eventinstance')
         ->load($event_instance_id);
       if (!$event_instance) {
-        return '/events/' . $event_instance_id; // Fallback to relative URL.
+        // Fallback to relative URL.
+        return '/events/' . $event_instance_id;
       }
 
       // Get associated domains from the event instance.
@@ -115,7 +118,7 @@ class SiteTools {
       // Generate domain-specific URL if domains are found.
       if (!empty($instance_domains)) {
         $domain_id = $instance_domains[0]['target_id'];
-        $domain = \Drupal::entityTypeManager()
+        $domain = \Drupal::entityTypeManager() // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
           ->getStorage('domain')
           ->load($domain_id);
         if ($domain) {
@@ -124,7 +127,7 @@ class SiteTools {
       }
 
       // Fallback to current domain if no specific domain found.
-      $current_domain = \Drupal::service('domain.negotiator')->getActiveDomain();
+      $current_domain = \Drupal::service('domain.negotiator')->getActiveDomain(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       if ($current_domain) {
         return $current_domain->buildUrl('/events/' . $event_instance_id);
       }
@@ -133,7 +136,7 @@ class SiteTools {
       return '/events/' . $event_instance_id;
     }
     catch (\Exception $e) {
-      \Drupal::logger('access_misc')
+      \Drupal::logger('access_misc') // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
         ->error('Error generating event domain URL: ' . $e->getMessage());
       return '/events/' . $event_instance_id;
     }
@@ -177,8 +180,10 @@ class SiteTools {
   public function getManagerRole($program_id) {
     // Map program IDs to manager roles.
     $program_roles = [
-      323 => 'careers_sc',         // CAREERS
-      933 => 'pascience_manager',  // PA Science
+    // CAREERS.
+      323 => 'careers_sc',
+    // PA Science.
+      933 => 'pascience_manager',
       // Add other programs here as they are configured.
     ];
 

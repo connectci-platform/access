@@ -5,4 +5,3 @@ const flagUpvoteElements = document.querySelectorAll('.flag-upvote a');
 flagUpvoteElements.forEach(element => {
   element.classList.add('text-decoration-none', 'fw-normal');
 });
-

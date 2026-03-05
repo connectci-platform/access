@@ -12,7 +12,7 @@ function copyclip(url, event) {
   copyDefault.classList.add('hidden', 'd-none');
   copySuccess.classList.remove('hidden', 'd-none')
   // After 3 seconds, remove the 'hidden' class from the default message and add it to the success message.
-  setTimeout(function() {
+  setTimeout(function () {
     copyDefault.classList.remove('hidden', 'd-none');
     copySuccess.classList.add('hidden', 'd-none');
   }, 6000);

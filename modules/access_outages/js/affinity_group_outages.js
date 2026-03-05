@@ -15,7 +15,7 @@ var waitForJQuery = setInterval(function () {
     // since current & planned outages may be sparse, the following
     // boolean can be used for debugging / testing -- it forces the
     // retrieval of all outages
-    const bDebugWithAllOutages = false
+    const bDebugWithAllOutages = FALSE
 
     const ciderIds = drupalSettings.ciderIds
     // only show outages if there are any ciderIds
@@ -51,7 +51,7 @@ const showAgOutages = async function showAgOutages(ciderIds, bDebugWithAllOutage
  * @param {*} bDebugWithAllOutages -- debug with *all* outages
  */
 const showCurrentOutages = async function showCurrentOutages(ciderIds, bDebugWithAllOutages) {
-  const outagesCurrentId = document.getElementById(`outages-current`)
+  const outagesCurrentId = document.getElementById(`outages - current`)
 
   // for testing, get all outages
   const endpointUrl = bDebugWithAllOutages
@@ -62,17 +62,17 @@ const showCurrentOutages = async function showCurrentOutages(ciderIds, bDebugWit
   let outages = await response.json()
   let filtered = bDebugWithAllOutages ? outages.results : filterOutages(outages.results, ciderIds)
 
-  if (bDebugWithAllOutages & filtered.length > 4) filtered.length = 4 // keep debugging simple
+  if (bDebugWithAllOutages & filtered.length > 4) { filtered.length = 4 // keep debugging simple
 
   if (filtered.length > 0) {
 
     // create a div for current outages
     let outagesCurrentDiv = document.createElement('div')
     outagesCurrentDiv.innerHTML = `
-      <div id="outages-current" class="outage-current" >
-        <p id="outages-current-p">
-        </p>
-      </div>
+      < div id = "outages-current" class = "outage-current" >
+        < p id = "outages-current-p" >
+        < / p >
+      < / div >
     `
 
     // add the div to the page
@@ -88,6 +88,7 @@ const showCurrentOutages = async function showCurrentOutages(ciderIds, bDebugWit
     }
     outagesCurrent.innerHTML = outageHtml
   }
+  }
 }
 
 /**
@@ -98,13 +99,13 @@ const showCurrentOutages = async function showCurrentOutages(ciderIds, bDebugWit
  */
 function getOutageHtml(outage) {
   return `
-    <a style="text-decoration: none" href="/outages?outageID=` + outage['URN'] + `">
-      <span class="outage-span">
-        <span style="color: #f07537; font-size: 170%"> &bull; </span>
+    < a style = "text-decoration: none" href = "/outages?outageID=` + outage['URN'] + `" >
+      < span class = "outage-span" >
+        < span style = "color: #f07537; font-size: 170%" > & bull; < / span >
         Status Alert
-      </span>
-    </a>
-    &nbsp;
+      < / span >
+    < / a >
+    & nbsp;
   `
 }
 
@@ -127,7 +128,7 @@ const showPlannedOutages = async function showPlannedOutages(ciderIds, bDebugWit
   let outages = await response.json()
   let filtered = bDebugWithAllOutages ? outages.results : filterOutages(outages.results, ciderIds)
 
-  if (bDebugWithAllOutages & filtered.length > 4) filtered.length = 4
+  if (bDebugWithAllOutages & filtered.length > 4) { filtered.length = 4
 
   if (filtered.length > 0) {
 
@@ -146,7 +147,7 @@ const showPlannedOutages = async function showPlannedOutages(ciderIds, bDebugWit
         {
           data: 'Subject',
           render: function (data, type, row, meta) {
-            return type === 'display' ? `<a href="/outages?outageID=${row['URN']}">${data}</a>` : data;
+            return type === 'display' ? ` < a href = "/outages?outageID=${row['URN']}" > ${data} < / a > ` : data;
           }
         },
         {
@@ -167,12 +168,13 @@ const showPlannedOutages = async function showPlannedOutages(ciderIds, bDebugWit
         }
       ],
       order: [[1, 'desc']], // sort by OutageStart
-      bPaginate: false,
-      bAutoWidth: false,
-      searching: false
+      bPaginate: FALSE,
+      bAutoWidth: FALSE,
+      searching: FALSE
     })
 
     outagesTable.style.display = 'block'
+  }
   }
 }
 
@@ -183,31 +185,32 @@ function addOutageTableHtmlToDom() {
 
   let outagesTableDiv = document.createElement('div')
   outagesTableDiv.innerHTML = `
-    <div class="outage-list section container">
-      <div class="row">
-        <div class="mb-3">
-          <h3 class="pb-2">Planned Downtime for Associated Infrastructure</h3>
-          <div class="table-responsive">
-            <table id="ag-outages-planned" class="display text-start table" style="display:none;">
-              <thead>
-                <tr>
-                  <th>Event</th>
-                  <th>Start</th>
-                  <th>End</th>
-                </tr>
-              </thead>
-              <tbody>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
+    < div class = "outage-list section container" >
+      < div class = "row" >
+        < div class = "mb-3" >
+          < h3 class = "pb-2" > Planned Downtime for Associated Infrastructure < / h3 >
+          < div class = "table-responsive" >
+            < table id = "ag-outages-planned" class = "display text-start table" style = "display:none;" >
+              < thead >
+                < tr >
+                  < th > Event < / th >
+                  < th > Start < / th >
+                  < th > End < / th >
+                < / tr >
+              < / thead >
+              < tbody >
+              < / tbody >
+            < / table >
+          < / div >
+        < / div >
+      < / div >
+    < / div >
   `
   // This is shown on the Affinity Group pages.
-  container = document.querySelector('.page-node-type-affinity-group main .layout-content .layout__region--first > div')
+  container = document.querySelector('.page-node-type-affinity-group main .layout-content .layout__region--first > div') {
   const sibling = container.querySelector('.block-field-blocknodeaffinity-groupfield-cider-resources')
   container.insertBefore(outagesTableDiv, sibling);
+          }
 }
 
 /**

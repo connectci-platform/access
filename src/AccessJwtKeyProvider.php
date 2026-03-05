@@ -137,7 +137,8 @@ class AccessJwtKeyProvider {
 
     if ($secrets === NULL) {
       $secrets = [];
-      // Use Drupal's private file path setting (same location as Turnstile secrets).
+      // Use Drupal's private file path setting
+      // (same location as Turnstile secrets).
       $private_path = \Drupal::service('file_system')->realpath('private://');
       if ($private_path) {
         $file = $private_path . '/.keys/secrets.json';

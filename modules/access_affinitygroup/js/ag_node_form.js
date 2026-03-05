@@ -27,9 +27,9 @@
 
         // Remove any existing handlers to prevent duplicates
         $privateCheckbox.off('change.agPrivate');
-        
+
         // Add the change event handler with namespace
-        $privateCheckbox.on('change.agPrivate', function() {
+        $privateCheckbox.on('change.agPrivate', function () {
           if ($(this).is(':checked')) {
             $privateUsersWrapper.show();
           } else {
@@ -41,4 +41,3 @@
   };
 
 })(jQuery, Drupal);
-

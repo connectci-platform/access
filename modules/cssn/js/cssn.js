@@ -10,10 +10,13 @@ function bioMore() {
   summary.classList.add('hidden');
   summary.setAttribute('aria-hidden', 'true');
   // Update button states
-  if (moreBtn) moreBtn.setAttribute('aria-expanded', 'true');
-  if (lessBtn) lessBtn.setAttribute('aria-expanded', 'true');
+  if (moreBtn) { moreBtn.setAttribute('aria-expanded', 'true');
+  }
+  if (lessBtn) { lessBtn.setAttribute('aria-expanded', 'true');
+  }
   // Move focus to full bio for screen readers
-  if (lessBtn) lessBtn.focus();
+  if (lessBtn) { lessBtn.focus();
+  }
 }
 
 function bioLess() {
@@ -28,10 +31,13 @@ function bioLess() {
   summary.classList.remove('hidden');
   summary.setAttribute('aria-hidden', 'false');
   // Update button states
-  if (moreBtn) moreBtn.setAttribute('aria-expanded', 'false');
-  if (lessBtn) lessBtn.setAttribute('aria-expanded', 'false');
+  if (moreBtn) { moreBtn.setAttribute('aria-expanded', 'false');
+  }
+  if (lessBtn) { lessBtn.setAttribute('aria-expanded', 'false');
+  }
   // Move focus back to more button
-  if (moreBtn) moreBtn.focus();
+  if (moreBtn) { moreBtn.focus();
+  }
 }
 
 // Add the button to the bio summary on user profile.

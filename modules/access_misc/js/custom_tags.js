@@ -6,13 +6,13 @@ Drupal.behaviors.nodeAddTags = {
         let currentButtonTid = e.target.dataset.tid;
         let isSelected = e.target.classList.contains("selected");
         if (document.getElementById("edit-tags-" + currentButtonTid).checked) {
-          document.getElementById("edit-tags-" + currentButtonTid).checked = false;
+          document.getElementById("edit-tags-" + currentButtonTid).checked = FALSE;
           if (isSelected) {
             e.target.classList.remove("selected");
           }
         } else {
           const selectedElements = document.querySelectorAll('.tags-select.selected');
-          document.getElementById("edit-tags-" + currentButtonTid).checked = true;
+          document.getElementById("edit-tags-" + currentButtonTid).checked = TRUE;
           if (selectedElements.length > 5) {
             alert('You have selected more than 6 tags. Please remove one or more tags before selecting another one.');
             return;
@@ -25,7 +25,7 @@ Drupal.behaviors.nodeAddTags = {
       }
 
       // Add click event to this button
-      button.addEventListener("click", buttonPressed, false);
+      button.addEventListener("click", buttonPressed, FALSE);
     });
 
     var tid_values = [];
@@ -38,9 +38,9 @@ Drupal.behaviors.nodeAddTags = {
 
       if (suggested_tids != 0) {
         Array.from(suggested_tids).forEach(function (suggested_tid) {
-          if (selectElementTags.querySelector('input[type=checkbox][value="' + suggested_tid + '"]').checked != true) {
+          if (selectElementTags.querySelector('input[type=checkbox][value="' + suggested_tid + '"]').checked != TRUE) {
             tid_values.push(suggested_tid);
-            selectElementTags.querySelector('input[type=checkbox][value="' + suggested_tid +'"]').checked = true;
+            selectElementTags.querySelector('input[type=checkbox][value="' + suggested_tid + '"]').checked = TRUE;
           }
         });
         updateSelectedTagList();
@@ -77,7 +77,7 @@ Drupal.behaviors.nodeAddTags = {
     var checkboxes = document.querySelectorAll('input[type=checkbox]');
     // Array to store the values of the selected checkboxes.
     // looping through all checkboxes
-    for(var i = 0; i<checkboxes.length; i++) {
+    for(var i = 0; i < checkboxes.length; i++) {
       if (checkboxes[i].checked) {
         tid_values.push(checkboxes[i].value);
       }

@@ -15,15 +15,17 @@ namespace Drupal\cssn\Plugin\Util;
 class MatchLookup {
   /**
    * Store matching nodes.
-   * $var array
+   *
+   * @var array
    */
   private $matches;
 
   /**
    * Array of sorted matches.
-   * $var array
+   *
+   * @var array
    */
-  private $matches_sorted;
+  private $matchesSorted;
 
   /**
    * Function to return matching nodes.
@@ -97,14 +99,14 @@ class MatchLookup {
         ];
       }
     }
-    $this->matches_sorted = $match_array;
+    $this->matchesSorted = $match_array;
   }
 
   /**
    * Function to sort by status.
    */
   public function sortStatusMatches() {
-    $matches = $this->matches_sorted;
+    $matches = $this->matchesSorted;
     $draft = $this->arrayPickSort($matches, 'draft');
     $in_review = $this->arrayPickSort($matches, 'in_review');
     $accepted = $this->arrayPickSort($matches, 'accepted');
@@ -117,7 +119,7 @@ class MatchLookup {
     $halted = $this->arrayPickSort($matches, 'halted');
     // Combine all of the arrays.
     $matches_sorted = $draft + $in_review + $accepted + $recruiting + $reviewing + $in_progress + $finishing + $completed + $on_hold + $halted;
-    $this->matches_sorted = $matches_sorted;
+    $this->matchesSorted = $matches_sorted;
   }
 
   /**
@@ -145,10 +147,10 @@ class MatchLookup {
   public function getMatchList() {
     $n = 1;
     $match_link = '';
-    if ($this->matches_sorted == NULL) {
+    if ($this->matchesSorted == NULL) {
       return;
     }
-    foreach ($this->matches_sorted as $match) {
+    foreach ($this->matchesSorted as $match) {
       $stripe_class = $n % 2 == 0 ? 'bg-light bg-light-teal' : '';
       $title = $match['title'];
       $nid = $match['nid'];

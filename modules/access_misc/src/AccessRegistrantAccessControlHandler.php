@@ -48,13 +48,13 @@ class AccessRegistrantAccessControlHandler extends RegistrantAccessControlHandle
         ], 'OR');
 
       case 'delete':
-        // Allow access
-      if ($author->id() == $account->id()) {
-        return AccessResult::allowed();
-      }
-      if ($account->hasPermission('administer registrant entity')) {
-        return AccessResult::allowed();
-      }
+        // Allow access.
+        if ($author->id() == $account->id()) {
+          return AccessResult::allowed();
+        }
+        if ($account->hasPermission('administer registrant entity')) {
+          return AccessResult::allowed();
+        }
 
       case 'resend':
         return AccessResult::allowedIfHasPermission($account, 'resend registrant emails');

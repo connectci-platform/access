@@ -13,7 +13,8 @@ class EventAccessService {
   /**
    * Check if an account is an author of the event series.
    *
-   * This includes the primary author and any users listed in field_other_authors.
+   * This includes the primary author and any users listed in
+   * field_other_authors.
    *
    * @param \Drupal\recurring_events\Entity\EventSeries $eventseries
    *   The event series entity.

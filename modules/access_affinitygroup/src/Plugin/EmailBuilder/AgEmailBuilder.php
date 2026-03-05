@@ -19,7 +19,12 @@ use Drupal\symfony_mailer\EmailInterface;
  * )
  */
 class AgEmailBuilder extends EmailBuilderBase {
+
+  /**
+   * Builds the email by setting the from address.
+   */
   public function build(EmailInterface $email) {
     $email->setFrom('noreply@access-ci.org');
   }
+
 }

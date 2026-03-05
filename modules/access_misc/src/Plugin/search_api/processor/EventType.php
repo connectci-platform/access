@@ -7,8 +7,9 @@ use Drupal\search_api\Item\ItemInterface;
 use Drupal\search_api\Processor\ProcessorPluginBase;
 use Drupal\search_api\Processor\ProcessorProperty;
 
+// phpcs:disable Drupal.Files.LineLength.TooLong
 /**
- * Search API Processor for indexing Event type as the built in one isn't working..
+ * Search API Processor for indexing Event type as the built in one isn't working.
  *
  * @SearchApiProcessor(
  *   id = "custom_event_type",
@@ -21,12 +22,13 @@ use Drupal\search_api\Processor\ProcessorProperty;
  *   hidden = true,
  * )
  */
+// phpcs:enable Drupal.Files.LineLength.TooLong
 class EventType extends ProcessorPluginBase {
 
   /**
    * {@inheritdoc}
    */
-  public function getPropertyDefinitions(DatasourceInterface $datasource = NULL) {
+  public function getPropertyDefinitions(?DatasourceInterface $datasource = NULL) {
     $properties = [];
 
     if (!$datasource) {
@@ -69,7 +71,6 @@ class EventType extends ProcessorPluginBase {
         $label = $allowed_values[$raw_value] ?? $raw_value;
         $field->addValue($label);
       }
-
 
     }
   }

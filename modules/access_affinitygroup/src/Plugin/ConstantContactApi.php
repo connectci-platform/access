@@ -7,62 +7,97 @@ namespace Drupal\access_affinitygroup\Plugin;
  */
 class ConstantContactApi {
 
+  use \Drupal\Core\StringTranslation\StringTranslationTrait;
+
   /**
-   * Return constantcontact.settings config.
+   * The constantcontact.settings config.
+   *
+   * @var mixed
    */
   private $configSettings;
 
   /**
-   * Return access_token.
+   * The access token.
+   *
+   * @var string
    */
   private $accessToken;
 
   /**
-   * Return refresh_token.
+   * The refresh token.
+   *
+   * @var string
    */
   private $refreshToken;
 
   /**
-   * Return environment.
+   * The Constant Contact environment (support, openondemand, test).
+   *
+   * @var string
    */
   private $environment;
 
   /**
-   * Return clientId.
+   * The Constant Contact client ID.
+   *
+   * @var string
    */
   private $clientId;
 
   /**
-   * Return clientSecret.
+   * The Constant Contact client secret.
+   *
+   * @var string
    */
   private $clientSecret;
 
+  /**
+   * The HTTP response code from the last API call.
+   *
+   * @var int
+   */
   private $httpResponseCode;
+
+  /**
+   * The error message from the last API call.
+   *
+   * @var string
+   */
   private $errorMessage;
+
   /**
    * If true, log but do not display err to user.
+   *
+   * @var bool
    */
   private $supressErrDisplay;
 
   /**
-   * Return cc key.
+   * The Constant Contact client key (client ID).
+   *
+   * @var string
    */
-  private $cc_key;
+  private $ccKey;
 
   /**
-   * Return key secret.
+   * The Constant Contact key secret (client secret).
+   *
+   * @var string
    */
-  private $key_secret;
+  private $keySecret;
 
   /**
-   * Function to sort the curl headers.
-   * Sets the clientId and the clientSecret. If they are not present, sets to empty.
+   * Initializes the ConstantContactApi with environment and credentials.
+   *
+   * Sets the clientId and the clientSecret. If they are not
+   * present, sets to empty.
    */
   public function __construct($env = NULL) {
     try {
       if ($env) {
         $this->environment = $env;
-      } else {
+      }
+      else {
         $this->getEnvironment();
       }
 
@@ -70,13 +105,13 @@ class ConstantContactApi {
       $this->refreshToken = $this->getRefreshToken();
       $this->getKey();
 
-      $cc_key = $this->cc_key;
+      $cc_key = $this->ccKey;
       if (empty($cc_key)) {
         \Drupal::logger('access_affinitygroup')->error('Constant Contact: client id not in repository.');
       }
       $this->clientId = $cc_key;
 
-      $key_secret = $this->key_secret;
+      $key_secret = $this->keySecret;
       if (empty($key_secret)) {
         \Drupal::logger('access_affinitygroup')->error('Constant Contact: client secret not in repository.');
       }
@@ -90,7 +125,7 @@ class ConstantContactApi {
         $role = 'site_developer';
         $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
         if (!empty($site_dev_emails)) {
-          $message = t('Constant Contact: client id or secret not set.');
+          $message = $this->t('Constant Contact: client id or secret not set.');
           $variables = [
             'message' => $message,
           ];
@@ -108,7 +143,7 @@ class ConstantContactApi {
       \Drupal::logger('access_affinitygroup')->notice('Exception in constantContactApi constructor: ' . $e->getMessage());
 
       if (!empty($site_dev_emails)) {
-        $message = t('Exception in constantContactApi constructor: ') . $e->getMessage();
+        $message = $this->t('Exception in constantContactApi constructor:') . $e->getMessage();
         $variables = [
           'message' => $message,
         ];
@@ -118,28 +153,32 @@ class ConstantContactApi {
   }
 
   /**
-   *
+   * Sets whether to suppress error display.
    */
   public function setSupressErrDisplay($v) {
     $this->supressErrDisplay = $v;
   }
 
   /**
-   * @param  $redirectURI
-   *   - URL Encoded Redirect URI
-   * @param  $scope
-   *   - URL encoded, plus sign delimited list of scopes that your
+   * Builds the authorization URL for Constant Contact OAuth.
+   *
+   * @param string $redirectURI
+   *   URL Encoded Redirect URI.
+   * @param string $scope
+   *   URL encoded, plus sign delimited list of scopes that your
    *   application requires. The 'offline_access' scope needed to request a
    *   refresh token is added by default.
-   * @param  $state
-   *   - Arbitrary string value(s) to verify response and preserve
-   *   application state
-   * @return string - Full Authorization URL
+   * @param string $state
+   *   Arbitrary string value(s) to verify response and preserve
+   *   application state.
+   *
+   * @return string
+   *   Full Authorization URL.
    */
-  public function getAuthorizationURL($redirectURI, $scope, $state) {
+  public function getAuthorizationUrl($redirectURI, $scope, $state) {
     // Create authorization URL.
     $baseURL = "https://authz.constantcontact.com/oauth2/default/v1/authorize";
-    $authURL = $baseURL . "?client_id=" . $this->cc_key . "&scope=" . $scope . "+offline_access&response_type=code&state=" . $state . "&redirect_uri=" . $redirectURI;
+    $authURL = $baseURL . "?client_id=" . $this->ccKey . "&scope=" . $scope . "+offline_access&response_type=code&state=" . $state . "&redirect_uri=" . $redirectURI;
 
     return $authURL;
   }
@@ -152,8 +191,8 @@ class ConstantContactApi {
 
     if (!$key_entity) {
       \Drupal::logger('access_affinitygroup')->warning('Constant Contact key "constant_contact_json" not found.');
-      $this->cc_key = '';
-      $this->key_secret = '';
+      $this->ccKey = '';
+      $this->keySecret = '';
       return;
     }
 
@@ -163,21 +202,23 @@ class ConstantContactApi {
     // Check if $keys is an array with elements, or handle as a string.
     if (is_array($keys) && !empty($keys)) {
       $key_value = $keys[0];
-    } elseif (is_string($keys)) {
+    }
+    elseif (is_string($keys)) {
       $key_value = $keys;
-    } else {
+    }
+    else {
       \Drupal::logger('access_affinitygroup')->warning('Constant Contact key values are empty or invalid.');
-      $this->cc_key = '';
-      $this->key_secret = '';
+      $this->ccKey = '';
+      $this->keySecret = '';
       return;
     }
 
-    $decoded = json_decode($key_value, true);
-    $cc_key = isset($decoded[$env]['id']) ? $decoded[$env]['id'] : null;
-    $key_secret = isset($decoded[$env]['secret']) ? $decoded[$env]['secret'] : null;
+    $decoded = json_decode($key_value, TRUE);
+    $cc_key = $decoded[$env]['id'] ?? NULL;
+    $key_secret = $decoded[$env]['secret'] ?? NULL;
 
-    $this->cc_key = $cc_key ? urlencode(trim($cc_key)) : '';
-    $this->key_secret = $key_secret ? urlencode(trim($key_secret)) : '';
+    $this->ccKey = $cc_key ? urlencode(trim($cc_key)) : '';
+    $this->keySecret = $key_secret ? urlencode(trim($key_secret)) : '';
   }
 
   /**
@@ -351,10 +392,12 @@ class ConstantContactApi {
   }
 
   /**
-   * @param $key
-   *   - error key.
-   * @param $message
-   *   - error message.
+   * Logs and optionally displays a Constant Contact API error.
+   *
+   * @param string $key
+   *   Error key.
+   * @param string $message
+   *   Error message.
    */
   public function apiError($key, $message) {
 
@@ -365,17 +408,18 @@ class ConstantContactApi {
   }
 
   /**
-   * Make api call with retry logic for rate limiting.
+   * Makes an API call with retry logic for rate limiting.
    *
-   * @param $endpoint
-   *   - end of the URL api call.
-   * @param $post_data
-   *   - included with $type PUT json encoded.
-   * @param $type
-   *   - POST or GET, defaults to GET.
-   * @param $retryCount
-   *   - Internal: current retry attempt (used for recursion).
+   * @param string $endpoint
+   *   End of the URL api call.
+   * @param string $post_data
+   *   Included with $type PUT json encoded.
+   * @param string $type
+   *   POST or GET, defaults to GET.
+   * @param int $retryCount
+   *   Internal: current retry attempt (used for recursion).
    *
+   * @return mixed
    *   Returns result from CC call or NULL upon error.
    *   If error returned from Constant contact:
    *   this function will show the http error
@@ -440,13 +484,18 @@ class ConstantContactApi {
       $waitSeconds = pow(2, $retryCount);
       \Drupal::logger('access_affinitygroup')->notice(
         'Constant Contact API error (@code). Waiting @seconds seconds before retry @retry of @max.',
-        ['@code' => $this->httpResponseCode, '@seconds' => $waitSeconds, '@retry' => $retryCount + 1, '@max' => $maxRetries]
+        [
+          '@code' => $this->httpResponseCode,
+          '@seconds' => $waitSeconds,
+          '@retry' => $retryCount + 1,
+          '@max' => $maxRetries,
+        ]
       );
       sleep($waitSeconds);
       return $this->apiCall($endpoint, $post_data, $type, $retryCount + 1);
     }
 
-    $errMsg = getHttpErrMsg($this->httpResponseCode);
+    $errMsg = get_http_err_msg($this->httpResponseCode);
     if (!empty($errMsg)) {
       $this->apiError($errMsg, "");
     }
@@ -458,8 +507,8 @@ class ConstantContactApi {
     }
 
     // Check for CC error. error_key field is only present in case of error.
-    // First special case: when unauth (ie token not refreshed) returned_result is not
-    // an array list like rest of error returns.
+    // First special case: when unauth (ie token not refreshed)
+    // returned_result is not an array list like rest of error returns.
     if (preg_match('/error_key/', $returned_result, $matches, PREG_OFFSET_CAPTURE)) {
 
       if (![] === $result) {
@@ -520,21 +569,24 @@ class ConstantContactApi {
     $this->supressErrDisplay = TRUE;
     $new_contact = $this->apiCall('/contacts', $cc_contact, 'POST');
 
-    // If reposonse is resource conflict, that means the email is already a contact but
-    // we somehow unset the Constant Contact person id for this person's record and it
-    // needs to be reset in our database.
+    // If reposonse is resource conflict, that means the email is
+    // already a contact but we somehow unset the Constant Contact
+    // person id for this person's record and it needs to be reset
+    // in our database.
     // See if the error message contains the Id, which it usually does.
     if ($this->httpResponseCode == 409) {
 
-      // See if the error message contains a contact id. Message will look like this:
-      // Validation failed: Email already exists for contact 61d00338-4bd5-11ed-8c0a-fa163ec17584.
+      // See if the error message contains a contact id. Message
+      // will look like this:
+      // Validation failed: Email already exists for contact
+      // 61d00338-4bd5-11ed-8c0a-fa163ec17584.
       if (preg_match('/.{8}-.{4}-.{4}-.{4}-.{12}/', $this->errorMessage, $match)) {
         return $match[0];
       }
     }
 
     if (empty($new_contact)) {
-      // Log the HTTP response code for debugging intermittent failures
+      // Log the HTTP response code for debugging intermittent failures.
       \Drupal::logger('access_affinitygroup')->warning('addContact failed for @mail: HTTP @code - @msg', [
         '@mail' => $mail,
         '@code' => $this->httpResponseCode,
@@ -574,9 +626,10 @@ class ConstantContactApi {
   }
 
   /**
-   * Check if a valid connection can be made to constant contact.
+   * Checks if a valid connection can be made to constant contact.
    *
    * @return bool
+   *   TRUE if the connection is valid.
    */
   public function getConnectionStatus() {
 
@@ -612,8 +665,9 @@ class ConstantContactApi {
     $token_array = is_string($tokenjson) ? json_decode($tokenjson, TRUE) : [];
     if (is_array($token_array) && array_key_exists($env, $token_array)) {
       $this->accessToken = $token_array[$env];
-    } else {
-      $this->accessToken = null;
+    }
+    else {
+      $this->accessToken = NULL;
     }
 
     return $this->accessToken;
@@ -629,8 +683,9 @@ class ConstantContactApi {
     $token_array = is_string($tokenjson) ? json_decode($tokenjson, TRUE) : [];
     if (is_array($token_array) && array_key_exists($env, $token_array)) {
       $this->refreshToken = $token_array[$env];
-    } else {
-      $this->refreshToken = null;
+    }
+    else {
+      $this->refreshToken = NULL;
     }
 
     return $this->refreshToken;
@@ -643,7 +698,6 @@ class ConstantContactApi {
     $this->setRefreshToken('');
     $this->setAccessToken('');
   }
-
 
   /**
    * Save new refresh_token.
@@ -660,22 +714,24 @@ class ConstantContactApi {
     \Drupal::state()->set('access_affinitygroup.refresh_token', $refresh_token);
   }
 
-  /*
-   * This function can be used to exchange an authorization code for an access token.
-   * Make this call by passing in the code present when the account owner is redirected back to you.
-   * The response will contain an 'access_token' and 'refresh_token'
-   */
-
   /**
-   * @param  $redirectURI
-   *   - URL Encoded Redirect URI
-   * @param  $clientId
-   *   - API Key
-   * @param  $clientSecret
-   *   - API Secret
-   * @param  $code
-   *   - Authorization Code
-   * @return string - JSON String of results
+   * Exchanges an authorization code for an access token.
+   *
+   * Make this call by passing in the code present when the account
+   * owner is redirected back to you.
+   * The response will contain an 'access_token' and 'refresh_token'.
+   *
+   * @param string $redirectURI
+   *   URL Encoded Redirect URI.
+   * @param string $clientId
+   *   API Key.
+   * @param string $clientSecret
+   *   API Secret.
+   * @param string $code
+   *   Authorization Code.
+   *
+   * @return string
+   *   JSON String of results.
    */
   private function getAccessToken($redirectURI, $clientId, $clientSecret, $code) {
     // Use cURL to get access token and refresh token.
@@ -693,7 +749,8 @@ class ConstantContactApi {
     $auth = $clientId . ':' . $clientSecret;
     // Base64 encode it.
     $credentials = base64_encode($auth);
-    // Create and set the Authorization header to use the encoded credentials, and set the Content-Type header.
+    // Create and set the Authorization header to use the encoded
+    // credentials, and set the Content-Type header.
     $authorization = 'Authorization: Basic ' . $credentials;
     curl_setopt($ch, CURLOPT_HTTPHEADER, [$authorization, 'Content-Type: application/x-www-form-urlencoded']);
 
@@ -710,11 +767,11 @@ class ConstantContactApi {
 }
 
 /**
- * Return error msg, or NULL if not error (in 200's)
+ * Returns error msg, or NULL if not error (in 200's).
  *
  * @todo Perhaps we only check for 401 + just show code num otherwise
  */
-function getHttpErrMsg($httpCode) {
+function get_http_err_msg($httpCode) {
 
   if ($httpCode < 300) {
     return NULL;

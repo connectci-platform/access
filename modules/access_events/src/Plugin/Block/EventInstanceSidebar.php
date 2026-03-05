@@ -22,18 +22,18 @@ class EventInstanceSidebar extends BlockBase {
    * {@inheritdoc}
    */
   public function build() {
-    $current_path = Xss::filter(\Drupal::service('path.current')->getPath());
+    $current_path = Xss::filter(\Drupal::service('path.current')->getPath()); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
     $url = explode('/', $current_path);
     $event_instance_id = is_numeric($url[2]) ? $url[2] : '';
-    $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
+    $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
-    // Check if event instance exists before trying to get the series
+    // Check if event instance exists before trying to get the series.
     if (!$event_instance) {
       return [];
     }
 
     $series = $event_instance->getEventSeries();
-    $current_user = \Drupal::currentUser();
+    $current_user = \Drupal::currentUser(); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     $speakers = $series->get('field_event_speakers')->getValue();
 
@@ -62,7 +62,7 @@ class EventInstanceSidebar extends BlockBase {
     $registrations_button = NULL;
 
     /** @var \Drupal\access_events\Service\EventAccessService $event_access */
-    $event_access = \Drupal::service('access_events.event_access');
+    $event_access = \Drupal::service('access_events.event_access'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     if (($event_access->isEventAuthor($series, $current_user) ||
       $current_user->hasPermission('administer site configuration')) && $event_registration_on == 1) {
@@ -75,7 +75,7 @@ class EventInstanceSidebar extends BlockBase {
 
     if ($event_registration_on) {
       // Query registered users.
-      $query = \Drupal::database()->select('registrant', 'r');
+      $query = \Drupal::database()->select('registrant', 'r'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $query->fields('r', ['user_id', 'status', 'waitlist']);
       $query->condition('r.eventinstance_id', $event_instance_id);
       $query->condition('r.user_id', $current_user->id());
@@ -88,7 +88,8 @@ class EventInstanceSidebar extends BlockBase {
           'status' => $status,
           'waitlist' => $waitlist,
         ];
-      } else {
+      }
+      else {
         $reg_link = Link::fromTextAndUrl($reg_title, Url::fromUri("internal:/events/$event_instance_id/registrations/add"));
         $reg_link = $reg_link->toRenderable();
         $reg_link['#options']['query']['destination'] = "/events/$event_instance_id";
@@ -97,7 +98,7 @@ class EventInstanceSidebar extends BlockBase {
         $reg_link['#options']['attributes']['class'][] = 'text-xl';
       }
     }
-    else{
+    else {
       $registration = $series->get('field_registration')->getValue();
       if ($registration) {
         $reg_link = Link::fromTextAndUrl($reg_title, Url::fromUri($registration[0]['uri']));
@@ -118,7 +119,7 @@ class EventInstanceSidebar extends BlockBase {
       $skill_list[] = $skill['value'];
     }
 
-    $skill_image = \Drupal::service('access_misc.skillLevel')->getSkillsImage($skill_list);
+    $skill_image = \Drupal::service('access_misc.skillLevel')->getSkillsImage($skill_list); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
 
     $event_type_raw = $series->get('field_event_type')->getValue();
     // Convert event_type values to labels.
@@ -144,10 +145,10 @@ class EventInstanceSidebar extends BlockBase {
     foreach ($affinity_group as $ag) {
       // Load enitity node by id via $ag.
       $id = $ag['target_id'];
-      $node = \Drupal::entityTypeManager()->getStorage('node')->load($id);
+      $node = \Drupal::entityTypeManager()->getStorage('node')->load($id); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
       $title = $node->getTitle();
       // Create link to node with title.
-      $ag_url = Url::fromRoute('entity.node.canonical', array('node' => $id));
+      $ag_url = Url::fromRoute('entity.node.canonical', ['node' => $id]);
       $ag_link = Link::fromTextAndUrl($title, $ag_url);
       $affinity_groups[] = $ag_link->toRenderable();
     }
@@ -249,19 +250,19 @@ class EventInstanceSidebar extends BlockBase {
       '#context' => [
         'registrations_button' => $registrations_button,
         'reg_link' => $reg_link,
-        'my_registration_status_title' => t('My Registration Status'),
+        'my_registration_status_title' => $this->t('My Registration Status'),
         'my_registration_status' => $my_registration_status,
-        'speakers_title' => t('Speakers'),
+        'speakers_title' => $this->t('Speakers'),
         'speakers' => $speakers,
-        'contact_title' => t('Contact'),
+        'contact_title' => $this->t('Contact'),
         'contacts' => $contact,
-        'skill_level_title' => t('Skill Level'),
+        'skill_level_title' => $this->t('Skill Level'),
         'skill_image' => $skill_image,
-        'event_type_title' => t('Event Type'),
+        'event_type_title' => $this->t('Event Type'),
         'event_type' => $event_type,
-        'affinity_group_title' => t('Affinity Group'),
+        'affinity_group_title' => $this->t('Affinity Group'),
         'affinity_groups' => $affinity_groups,
-        'event_affiliation_title' => t('Event Affiliation'),
+        'event_affiliation_title' => $this->t('Event Affiliation'),
         'event_affiliation' => $event_affiliation,
         'ical_link' => $ical_link->toRenderable(),
       ],
@@ -274,7 +275,8 @@ class EventInstanceSidebar extends BlockBase {
    * {@inheritdoc}
    */
   public function getCacheTags() {
-    if ($eid = \Drupal::routeMatch()->getParameter('eventinstance')) {
+    $eid = \Drupal::routeMatch()->getParameter('eventinstance'); // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+    if ($eid) {
       return Cache::mergeTags(parent::getCacheTags(), ['eventinstance:' . $eid->id()]);
     }
     else {

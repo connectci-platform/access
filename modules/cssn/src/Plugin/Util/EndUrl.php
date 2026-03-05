@@ -17,18 +17,20 @@ use Drupal\Core\Url;
 class EndUrl {
   /**
    * End of the url.
-   * $var string
+   *
+   * @var string
    */
   private $urlEnd;
 
   /**
    * Url Parts.
-   * $var array
+   *
+   * @var array
    */
   private $urlParts;
 
   /**
-   * @inheritDoc
+   * {@inheritDoc}
    */
   public function __construct() {
     $current_url = Url::fromRoute('<current>');
@@ -39,7 +41,7 @@ class EndUrl {
   }
 
   /**
-   * @inheritDoc
+   * {@inheritDoc}
    */
   public function getUrlArg($arg) {
     if (isset($this->urlParts[$arg]) === FALSE) {
@@ -49,9 +51,10 @@ class EndUrl {
   }
 
   /**
-   * @inheritDoc
+   * {@inheritDoc}
    */
   public function getUrlEnd() {
     return $this->urlEnd;
   }
+
 }

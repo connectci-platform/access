@@ -1,0 +1,16 @@
+parameters:
+	ignoreErrors:
+		-
+			message: "#^Function node_mass_update not found\\.$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/user_profiles/src/Commands/UserProfilesCommands.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 18
+			path: ../../../../../../docroot/modules/custom/access/modules/user_profiles/src/Commands/UserProfilesCommands.php
+
+		-
+			message: "#^Instantiated class Drupal\\\\access_misc\\\\Plugin\\\\Util\\\\FindAccessOrg not found\\.$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/user_profiles/user_profiles.module

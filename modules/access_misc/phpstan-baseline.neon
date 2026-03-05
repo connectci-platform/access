@@ -1,0 +1,96 @@
+parameters:
+	ignoreErrors:
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/AccessRegistrantAccessControlHandler.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Controller/LoginController.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 13
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/EventSubscriber/Subscriber.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Form/FilterPeopleByTags.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Plugin/Block/AccessCiUserLogin.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Plugin/Block/CreateSecurityTicket.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Plugin/Block/CreateTicket.php
+
+		-
+			message: "#^Unsafe usage of new static\\(\\)\\.$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Plugin/Block/InterestedUsersBlock.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Plugin/EmailBuilder/ProjectEmailBuilder.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Plugin/JiraLink.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 2
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Plugin/Util/RolesLabelLookup.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 5
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Plugin/Util/SiteTools.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Plugin/search_api/processor/EventAffinityGroup.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Plugin/search_api/processor/EventTags.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Plugin/search_api/processor/EventType.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 3
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Plugin/views/access/ViewsRegistrationCustomAccess.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Plugin/views/access/ViewsUserRegistrationCustomAccess.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 26
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Services/ImportAccessOrgs.php
+
+		-
+			message: "#^\\\\Drupal calls should be avoided in classes, use dependency injection instead$#"
+			count: 1
+			path: ../../../../../../docroot/modules/custom/access/modules/access_misc/src/Services/SymfonyMail.php
