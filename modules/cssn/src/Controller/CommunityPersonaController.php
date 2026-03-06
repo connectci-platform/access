@@ -322,6 +322,68 @@ class CommunityPersonaController extends ControllerBase {
   }
 
   /**
+   * Return list of Appverse Contributions for a user.
+   *
+   * @return string
+   *   List of appverse app contributions.
+   */
+  public function appverseContributions($user, $public = FALSE) {
+    $nids = \Drupal::entityQuery('node')
+      ->condition('type', 'appverse_app')
+      ->condition('uid', $user->id())
+      ->accessCheck(FALSE)
+      ->execute();
+
+    if (empty($nids)) {
+      return '';
+    }
+
+    $nodes = \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($nids);
+    $items = '';
+    $n = 1;
+    foreach ($nodes as $node) {
+      $title = $node->getTitle();
+      $url = Url::fromRoute('entity.node.canonical', ['node' => $node->id()]);
+      $class = ['font-bold', 'underline', 'hover--no-underline', 'hover--text-dark-teal'];
+      $link = Link::fromTextAndUrl($title, $url)->toRenderable();
+      $link['#attributes'] = ['class' => $class];
+      $rendered_link = \Drupal::service('renderer')->render($link);
+
+      $logo_html = '';
+      if (!$node->get('field_appverse_software_implemen')->isEmpty()) {
+        $software_node = $node->get('field_appverse_software_implemen')->entity;
+        if ($software_node && !$software_node->get('field_appverse_logo')->isEmpty()) {
+          $media = $software_node->get('field_appverse_logo')->entity;
+          if ($media) {
+            $file = NULL;
+            if ($media->bundle() === 'svg' && $media->hasField('field_media_image_1') && !$media->get('field_media_image_1')->isEmpty()) {
+              $file = $media->get('field_media_image_1')->entity;
+            }
+            elseif ($media->hasField('field_media_image') && !$media->get('field_media_image')->isEmpty()) {
+              $file = $media->get('field_media_image')->entity;
+            }
+            if ($file) {
+              $file_url = \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri());
+              $alt = Html::escape($software_node->getTitle() . ' logo');
+              $logo_html = '<img src="' . $file_url . '" alt="' . $alt . '" class="me-2 mr-2" style="width:24px;height:24px;object-fit:contain;" />';
+            }
+          }
+        }
+      else {
+        // First letter of software name if no logo image is available.
+        $first_letter = strtoupper(substr($title, -1));
+        $logo_html = '<div class="me-2 mr-2 d-flex align-items-center justify-content-center rounded text-gray-dark bg-header-gray font-weight-bold" style="width:24px;height:24px;font-size:14px;">' . $first_letter . '</div>';
+      }
+
+      }
+      $items .= '<li class="p-3 d-flex flex align-items-center">' . $logo_html . $rendered_link . '</li>';
+      $n++;
+    }
+
+    return '<ul class="appverse-contribs list-unstyled list-none mx-0 my-3 p-0">' . $items . '</ul>';
+  }
+
+  /**
    * Return bio and bio summary.
    *
    * @return array
@@ -357,6 +419,29 @@ class CommunityPersonaController extends ControllerBase {
     }
 
     return [$bio_summary, $bio];
+  }
+
+  /**
+   * Return discourse contribution.
+   *
+   * @return array
+   *   Discourse contribution data.
+   */
+  public function discourseContrib($uid) {
+    $query = \Drupal::database()->select('ood_disc_contrib', 'odc');
+    $query->condition('odc.uid', $uid);
+    $query->fields('odc', ['post_count', 'topic_count', 'likes_given', 'likes_received', 'days_visited', 'solved_count']);
+    $result = $query->execute()->fetch();
+
+    $contrib = [
+      'posts' => $result->post_count ?? 0,
+      'topics' => $result->topic_count ?? 0,
+      'likes_given' => $result->likes_given ?? 0,
+      'likes_received' => $result->likes_received ?? 0,
+      'days_visited' => $result->days_visited ?? 0,
+      'solved' => $result->solved_count ?? 0,
+    ];
+    return $contrib;
   }
 
   /**
@@ -426,6 +511,16 @@ class CommunityPersonaController extends ControllerBase {
       $total_items = $view->total_rows;
     }
 
+    // Load 'field_github_graph' value.
+    $user_fields = \Drupal::entityTypeManager()->getStorage('user')->load($current_user->id());
+    $github_graph = $user_fields->get('field_github_graph')->value;
+
+    // Discourse Participation.
+    $discourse_contrib = $this->discourseContrib($current_user->id());
+
+    // Appverse Contributions.
+    $appverse_contributions = $this->appverseContributions($current_user);
+
     $persona_page['string'] = [
       '#type' => 'inline_template',
       '#attached' => [
@@ -434,104 +529,158 @@ class CommunityPersonaController extends ControllerBase {
         ],
       ],
       '#template' => '
-        {% set skill_margin = "mb-3" %}
-        {% if bio %}
-        {% set skill_margin = "my-3" %}
-        <div class="border border-secondary border-md-teal mb-3 mb-6">
-          <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-            <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ bio_title }}</h2>
-          </div>
-          <div class="d-flex flex flex-wrap p-3">
-            <div id="bio-summary" aria-hidden="false">
-              {{ bio_summary |raw }}
-            </div>
-            <div id="full-bio" class="sr-only" aria-hidden="true">
-              {{ bio |raw }}
-            </div>
-          </div>
-        </div>
-        {% endif %}
-        <div class="border border-secondary border-md-teal {{ skill_margin }} mb-6">
-          <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-            <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ me_title }}</h2>
-          </div>
-          <div class="d-flex flex flex-wrap p-3">
-            {{ my_skills|raw }}
-          </div>
-          <div class="p-3 pt-0">{{ edit_skill_link }}</div>
-        </div>
-        <div class="border border-secondary border-md-teal my-3 mb-6">
-          <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-            <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mi_title }}</h2>
-          </div>
-          <div class="d-flex flex flex-wrap p-3">
-            {{ my_interests|raw }}
-          </div>
-          <div class="p-3 pt-0">{{ edit_interest_link }}</div>
-        </div>
-        <div class="border border-secondary border-md-teal my-3 mb-6">
-          <h2 class="h4 text-lg font-bold leading-5 text-white py-2 px-3 m-0 bg-dark bg-md-teal p-4">{{ ag_title }}</h2>
-            <div class="p-3">
-              <p>{{ ag_intro }}</p>
-              {{ user_affinity_groups|raw }}
-              {{ affinity_link }}
-            </div>
-        </div>
-        <div class="border border-secondary border-md-teal my-3 mb-6">
-          <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-            <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ ws_title }}</h2>
-          </div>
-          <div class="p-3">
-            {{ ws_links|raw }}
-            {{ request_webform_link }}
-          </div>
-        </div>
-
-        {% if match_links != "" %}
-          <div class="border border-secondary border-md-teal my-3 mb-6">
+        <div id="community-persona">
+          {% set skill_margin = "mb-3" %}
+          {% if bio %}
+          {% set skill_margin = "my-3" %}
+          <div class="mb-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ match_title }}</h2>
+              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ bio_title }}</h2>
             </div>
-            <div class="p-3">
-              {{ match_links|raw }}
-              {{ request_match_link }}
+            <div class="d-flex flex flex-wrap py-3">
+              <div id="bio-summary" aria-hidden="false">
+                {{ bio_summary |raw }}
+              </div>
+              <div id="full-bio" class="sr-only" aria-hidden="true">
+                {{ bio |raw }}
+              </div>
             </div>
           </div>
-        {% endif %}
-
-        {% if mentorships != "" %}
-          <div class="border border-secondary border-md-teal my-3 mb-6">
+          {% endif %}
+          <div class="{{ skill_margin }} mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mentorships_title }}</h2>
+              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ me_title }}</h2>
             </div>
-            <div class="p-3">
-              {{ mentorships|raw }}
+            <div class="d-flex flex flex-wrap py-3">
+              {{ my_skills|raw }}
             </div>
+            <div class="pt-0">{{ edit_skill_link }}</div>
           </div>
-        {% endif %}
-
-        {% if projects != "na" %}
-          <div class="border border-secondary border-md-teal my-3 mb-6">
+          <div class="my-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ project_title }}</h2>
+              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mi_title }}</h2>
             </div>
-            <div class="p-3">
-              {{ projects|raw }}
+            <div class="d-flex flex flex-wrap py-3">
+              {{ my_interests|raw }}
             </div>
+            <div class="pt-0">{{ edit_interest_link }}</div>
           </div>
-        {% endif %}
-
-        {% if user_event_total_items >= 1 %}
-          <div class="border border-secondary border-md-teal my-3 mb-6 prose max-w-full">
+          {% if gh_graph %}
+            <div class="my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
+              </div>
+              <div class="py-3">
+                {{ gh_graph|raw }}
+              </div>
+            </div>
+          {% endif %}
+          {% if discourse_posts %}
+            <div class="my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ discourse_title }}</h2>
+              </div>
+              <div class="py-3" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:1rem">
+                <div class="text-center">
+                  <p class="h1 mb-0">{{ discourse_posts }}</p>
+                  <h2 class="h6">{{ discourse_post_title }}</h2>
+                </div>
+                <div class="text-center">
+                  <p class="h1 mb-0">{{ discourse_topics }}</p>
+                  <h2 class="h6">{{ discourse_topic_title }}</h2>
+                </div>
+                <div class="text-center">
+                  <p class="h1 mb-0">{{ discourse_solved }}</p>
+                  <h2 class="h6">{{ discourse_solved_title }}</h2>
+                </div>
+                <div class="text-center">
+                  <p class="h1 mb-0">{{ discourse_likes_given }}</p>
+                  <h2 class="h6">{{ discourse_likes_given_title }}</h2>
+                </div>
+                <div class="text-center">
+                  <p class="h1 mb-0">{{ discourse_likes_received }}</p>
+                  <h2 class="h6">{{ discourse_likes_received_title }}</h2>
+                </div>
+                <div class="text-center">
+                  <p class="h1 mb-0">{{ discourse_days_visited }}</p>
+                  <h2 class="h6">{{ discourse_days_visited_title }}</h2>
+                </div>
+              </div>
+            </div>
+          {% endif %}
+          {% if appverse_contributions %}
+            <div class="my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ appverse_title }}</h2>
+              </div>
+              <div class="py-3">
+                {{ appverse_contributions|raw }}
+              </div>
+            </div>
+          {% endif %}
+          <div class="my-3 mb-6">
+            <h2 class="h4 text-lg font-bold leading-5 text-white py-2 px-3 m-0 bg-dark bg-md-teal p-4">{{ ag_title }}</h2>
+              <div class="py-3">
+                <p>{{ ag_intro }}</p>
+                {{ user_affinity_groups|raw }}
+                {{ affinity_link }}
+              </div>
+          </div>
+          <div class="my-3 mb-6">
             <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ user_event_title }}</h2>
+              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ ws_title }}</h2>
             </div>
-            <div class="p-3">
-              {{ user_event_registrations }}
+            <div class="py-3">
+              {{ ws_links|raw }}
+              {{ request_webform_link }}
             </div>
           </div>
-        {% endif %}
-        ',
+
+          {% if match_links != "" %}
+            <div class="my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ match_title }}</h2>
+              </div>
+              <div class="py-3">
+                {{ match_links|raw }}
+                {{ request_match_link }}
+              </div>
+            </div>
+          {% endif %}
+
+          {% if mentorships != "" %}
+            <div class="my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mentorships_title }}</h2>
+              </div>
+              <div class="py-3">
+                {{ mentorships|raw }}
+              </div>
+            </div>
+          {% endif %}
+
+          {% if projects != "na" %}
+            <div class="my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ project_title }}</h2>
+              </div>
+              <div class="py-3">
+                {{ projects|raw }}
+              </div>
+            </div>
+          {% endif %}
+
+          {% if user_event_total_items >= 1 %}
+            <div class="my-3 mb-6 prose max-w-full">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ user_event_title }}</h2>
+              </div>
+              <div class="py-3">
+                {{ user_event_registrations }}
+              </div>
+            </div>
+          {% endif %}
+        </div>',
       '#context' => [
         'bio_title' => t('Bio'),
         'bio_summary' => $bio_summary,
@@ -559,6 +708,23 @@ class CommunityPersonaController extends ControllerBase {
         'user_event_title' => t('My Event Registrations'),
         'user_event_registrations' => $user_event_registrations,
         'user_event_total_items' => $total_items,
+        'gh_title' => t('Code & Documentation Contributions'),
+        'gh_graph' => $github_graph,
+        'discourse_title' => t('Discourse Participation'),
+        'discourse_post_title' => t('Posts'),
+        'discourse_posts' => $discourse_contrib['posts'],
+        'discourse_topic_title' => t('Topics'),
+        'discourse_topics' => $discourse_contrib['topics'],
+        'discourse_likes_given_title' => t('Likes Given'),
+        'discourse_likes_given' => $discourse_contrib['likes_given'],
+        'discourse_likes_received_title' => t('Likes Received'),
+        'discourse_likes_received' => $discourse_contrib['likes_received'],
+        'discourse_days_visited_title' => t('Days Visited'),
+        'discourse_days_visited' => $discourse_contrib['days_visited'],
+        'discourse_solved_title' => t('Solutions'),
+        'discourse_solved' => $discourse_contrib['solved'],
+        'appverse_title' => t('My Appverse Contributions'),
+        'appverse_contributions' => $appverse_contributions,
       ],
     ];
 
@@ -618,6 +784,15 @@ class CommunityPersonaController extends ControllerBase {
       // My Projects.
       $projects = $this->projectList($user, TRUE);
 
+      // Load 'field_github_graph' value.
+      $github_graph = $user->get('field_github_graph')->value;
+
+      // Discourse Participation.
+      $discourse_contrib = $this->discourseContrib($user->id());
+
+      // Appverse Contributions.
+      $appverse_contributions = $this->appverseContributions($user, TRUE);
+
       $persona_page['#title'] = "$user_first_name $user_last_name";
       $persona_page['string'] = [
         '#type' => 'inline_template',
@@ -627,87 +802,141 @@ class CommunityPersonaController extends ControllerBase {
           ],
         ],
         '#template' => '
-          {% set skill_margin = "mb-3" %}
-          {% if bio %}
-          {% set skill_margin = "my-3" %}
-          <div class="border border-secondary border-md-teal mb-3 mb-6">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ bio_title }}</h2>
-            </div>
-            <div class="d-flex flex flex-wrap p-3">
-              <div id="bio-summary" aria-hidden="false">
-                {{ bio_summary |raw }}
-              </div>
-              <div id="full-bio" class="sr-only" aria-hidden="true">
-                {{ bio |raw }}
-              </div>
-            </div>
-          </div>
-          {% endif %}
-          <div class="border border-secondary border-md-teal {{ skill_margin }} mb-6">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ me_title }}</h2>
-            </div>
-            <div class="d-flex flex flex-wrap p-3">
-              {{ my_skills|raw }}
-            </div>
-          </div>
-          <div class="border border-secondary border-md-teal my-3 mb-6">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ mi_title }}</h2>
-            </div>
-            <div class="d-flex flex flex-wrap p-3">
-              {{ my_interests|raw }}
-            </div>
-          </div>
-          <div class="border border-secondary border-md-teal my-3 mb-6">
-            <h2 class="h4 text-lg font-bold leading-5 text-white py-2 px-3 m-0 bg-dark bg-md-teal p-4">{{ ag_title }}</h2>
-              <div class="p-3">
-                {{ user_affinity_groups|raw }}
-              </div>
-          </div>
-          <div class="border border-secondary border-md-teal my-3 mb-6">
-            <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-              <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ ws_title }}</h2>
-            </div>
-            <div class="p-3">
-              {{ ws_links|raw }}
-            </div>
-          </div>
-
-          {% if match_links != "" %}
-            <div class="border border-secondary border-md-teal my-3 mb-6">
+          <div id="community-persona">
+            {% set skill_margin = "mb-3" %}
+            {% if bio %}
+            {% set skill_margin = "my-3" %}
+            <div class="mb-3 mb-6">
               <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ match_title }}</h2>
+                <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ bio_title }}</h2>
               </div>
-              <div class="p-3">
-                {{ match_links|raw }}
+              <div class="d-flex flex flex-wrap py-3">
+                <div id="bio-summary" aria-hidden="false">
+                  {{ bio_summary |raw }}
+                </div>
+                <div id="full-bio" class="sr-only" aria-hidden="true">
+                  {{ bio |raw }}
+                </div>
               </div>
             </div>
-          {% endif %}
-
-          {% if mentorships != "" %}
-            <div class="border border-secondary border-md-teal my-3 mb-6">
+            {% endif %}
+            <div class="{{ skill_margin }} mb-6">
               <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mentorship_title }}</h2>
+                <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ me_title }}</h2>
               </div>
-              <div class="p-3">
-                {{ mentorships|raw }}
+              <div class="d-flex flex flex-wrap py-3">
+                {{ my_skills|raw }}
               </div>
             </div>
-          {% endif %}
-
-          {% if projects != "na" %}
-            <div class="border border-secondary border-md-teal my-3 mb-6">
+            <div class="my-3 mb-6">
               <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
-                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ project_title }}</h2>
+                <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ mi_title }}</h2>
               </div>
-              <div class="p-3">
-                {{ projects|raw }}
+              <div class="d-flex flex flex-wrap py-3">
+                {{ my_interests|raw }}
               </div>
             </div>
-          {% endif %}
-          ',
+            {% if gh_graph %}
+              <div class="my-3 mb-6">
+                <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                  <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ gh_title }}</h2>
+                </div>
+                <div class="py-3">
+                  {{ gh_graph|raw }}
+                </div>
+              </div>
+            {% endif %}
+            {% if discourse_posts %}
+              <div class="my-3 mb-6">
+                <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                  <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ discourse_title }}</h2>
+                </div>
+                <div class="py-3" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:1rem">
+                  <div class="text-center">
+                    <p class="h1 mb-0">{{ discourse_posts }}</p>
+                    <h2 class="h6">{{ discourse_post_title }}</h2>
+                  </div>
+                  <div class="text-center">
+                    <p class="h1 mb-0">{{ discourse_topics }}</p>
+                    <h2 class="h6">{{ discourse_topic_title }}</h2>
+                  </div>
+                  <div class="text-center">
+                    <p class="h1 mb-0">{{ discourse_solved }}</p>
+                    <h2 class="h6">{{ discourse_solved_title }}</h2>
+                  </div>
+                  <div class="text-center">
+                    <p class="h1 mb-0">{{ discourse_likes_given }}</p>
+                    <h2 class="h6">{{ discourse_likes_given_title }}</h2>
+                  </div>
+                  <div class="text-center">
+                    <p class="h1 mb-0">{{ discourse_likes_received }}</p>
+                    <h2 class="h6">{{ discourse_likes_received_title }}</h2>
+                  </div>
+                  <div class="text-center">
+                    <p class="h1 mb-0">{{ discourse_days_visited }}</p>
+                    <h2 class="h6">{{ discourse_days_visited_title }}</h2>
+                  </div>
+                </div>
+              </div>
+            {% endif %}
+            {% if appverse_contributions %}
+              <div class="my-3 mb-6">
+                <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                  <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ appverse_title }}</h2>
+                </div>
+                <div class="py-3">
+                  {{ appverse_contributions|raw }}
+                </div>
+              </div>
+            {% endif %}
+            <div class="my-3 mb-6">
+              <h2 class="h4 text-lg font-bold leading-5 text-white py-2 px-3 m-0 bg-dark bg-md-teal p-4">{{ ag_title }}</h2>
+                <div class="py-3">
+                  {{ user_affinity_groups|raw }}
+                </div>
+            </div>
+            <div class="my-3 mb-6">
+              <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ ws_title }}</h2>
+              </div>
+              <div class="py-3">
+                {{ ws_links|raw }}
+              </div>
+            </div>
+
+            {% if match_links != "" %}
+              <div class="my-3 mb-6">
+                <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                  <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ match_title }}</h2>
+                </div>
+                <div class="py-3">
+                  {{ match_links|raw }}
+                </div>
+              </div>
+            {% endif %}
+
+            {% if mentorships != "" %}
+              <div class="my-3 mb-6">
+                <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                  <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ mentorship_title }}</h2>
+                </div>
+                <div class="py-3">
+                  {{ mentorships|raw }}
+                </div>
+              </div>
+            {% endif %}
+
+            {% if projects != "na" %}
+              <div class="my-3 mb-6">
+                <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
+                  <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ project_title }}</h2>
+                </div>
+                <div class="py-3">
+                  {{ projects|raw }}
+                </div>
+              </div>
+            {% endif %}
+          </div>',
         '#context' => [
           'bio_title' => t('Bio'),
           'bio_summary' => $bio_summary,
@@ -726,6 +955,23 @@ class CommunityPersonaController extends ControllerBase {
           'mentorships' => $mentorships,
           'project_title' => t('Projects'),
           'projects' => $projects,
+          'gh_title' => t('Code & Documentation Contributions'),
+          'gh_graph' => $github_graph,
+          'discourse_title' => t('Discourse Participation'),
+          'discourse_post_title' => t('Posts'),
+          'discourse_posts' => $discourse_contrib['posts'],
+          'discourse_topic_title' => t('Topics'),
+          'discourse_topics' => $discourse_contrib['topics'],
+          'discourse_likes_given_title' => t('Likes Given'),
+          'discourse_likes_given' => $discourse_contrib['likes_given'],
+          'discourse_likes_received_title' => t('Likes Received'),
+          'discourse_likes_received' => $discourse_contrib['likes_received'],
+          'discourse_days_visited_title' => t('Days Visited'),
+          'discourse_days_visited' => $discourse_contrib['days_visited'],
+          'discourse_solved_title' => t('Solutions'),
+          'discourse_solved' => $discourse_contrib['solved'],
+          'appverse_title' => t('Appverse Contributions'),
+          'appverse_contributions' => $appverse_contributions,
         ],
         '#cache' => [
           'tags' => ['community_persona'],

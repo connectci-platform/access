@@ -141,32 +141,9 @@ class PersonaBlock extends BlockBase {
         $cssn_role = "";
       }
 
-      // Badges.
-      $badges = $user_entity->get('field_user_badges')->getValue();
-      $badge_name = [];
-      $user_badges = '<ul class="flex flex-wrap p-0 m-0">';
-      foreach ($badges as $badge) {
-        $term_id = $badge['target_id'];
-        if (Term::load($term_id)->get('field_badge')->entity) {
-          $name = Term::load($term_id)->get('name')->value;
-          $image_alt = Term::load($term_id)->get('field_badge')->alt;
-          $image_url = Term::load($term_id)->get('field_badge')->entity->getFileUri();
-          $image = \Drupal::service('file_url_generator')->generateAbsoluteString($image_url);
-          if ($image) {
-            if ($name) {
-              $user_badges .= "<li class='badge mt-0 ms-0 p-0' data-placement='top' data-toggle='tooltip' title='$name'>";
-            }
-            else {
-              $user_badges .= "<li>";
-            }
+      $user_badges = $this->taxBadges($user_entity, 'field_user_badges');
 
-            $user_badges .= "<img src='$image' alt='$image_alt' title='$name' class='mt-0 me-2 mb-2' width='55' height='55' />";
-
-            $user_badges .= "</li>";
-          }
-        }
-      }
-      $user_badges .= '</ul>';
+      $ood_badges = $this->taxBadges($user_entity, 'field_open_ondemand_badges');
 
       // Programs.
       $program = implode(', ', $terms);
@@ -250,6 +227,10 @@ class PersonaBlock extends BlockBase {
                           {% if user_badges %}
                             {{ user_badges | raw }}
                           {% endif %}
+                          {% if ood_badges %}
+                            <h2 class="h4 text-lg font-bold leading-5 mt-3">{{ ood_badges_title }}</h2>
+                            {{ ood_badges | raw }}
+                          {% endif %}
 
                           <div>
                             {% if askci or discourse_ood or github %}
@@ -311,6 +292,8 @@ class PersonaBlock extends BlockBase {
           'cssn_indicator' => $cssn_indicator,
           'cssn_more' => $cssn_more,
           'user_badges' => $user_badges,
+          'ood_badges_title' => t('Open OnDemand Badges'),
+          'ood_badges' => $ood_badges,
           'profile_text' => t('Profiles'),
           'askci' => $askci,
           'github' => $github,
@@ -329,6 +312,45 @@ class PersonaBlock extends BlockBase {
     else {
       return [];
     }
+  }
+
+  /**
+   * @return string
+   */
+  private function taxBadges($user_entity, $field) {
+    // Badges.
+    $badges = $user_entity->get($field)->getValue();
+    $badge_name = [];
+
+    if (empty($badges)) {
+      return "";
+    }
+
+    $user_badges = '<ul class="flex flex-wrap p-0 m-0">';
+    foreach ($badges as $badge) {
+      $term_id = $badge['target_id'];
+      if (Term::load($term_id)->get('field_badge')->entity) {
+        $name = Term::load($term_id)->get('name')->value;
+        $image_alt = Term::load($term_id)->get('field_badge')->alt;
+        $image_url = Term::load($term_id)->get('field_badge')->entity->getFileUri();
+        $image = \Drupal::service('file_url_generator')->generateAbsoluteString($image_url);
+        if ($image) {
+          if ($name) {
+            $user_badges .= "<li class='badge mt-0 ms-0 p-0' data-placement='top' data-toggle='tooltip' title='$name'>";
+          }
+          else {
+            $user_badges .= "<li>";
+          }
+
+          $user_badges .= "<img src='$image' alt='$image_alt' title='$name' class='mt-0 me-2 mb-2' width='55' height='55' />";
+
+          $user_badges .= "</li>";
+        }
+      }
+    }
+    $user_badges .= '</ul>';
+
+    return $user_badges;
   }
 
   /**
