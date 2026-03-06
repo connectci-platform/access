@@ -21,3 +21,10 @@ wvuf_api_integration.unmask:
     _title: 'Unmask'
   requirements:
     _user_is_masquerading: 'TRUE'
+domain_logos.form:
+  path: '/admin/config/domain/logos'
+  defaults:
+    _form: '\Drupal\access_misc\Form\DomainLogosForm'
+    _title: 'Domain Logos'
+  requirements:
+    _permission: 'administer domains'
