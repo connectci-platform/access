@@ -130,7 +130,7 @@ class CommunityPersonaController extends ControllerBase {
       $my_skills = "<ul class='ms-0 ml-0 d-flex flex flex-wrap list-none list-unstyled'>";
       foreach ($flagged_skills as $flagged_skill) {
         $term_title = Term::load($flagged_skill)->get('name')->value;
-        $my_skills .= "<li class='ps-0'><a class='no-underline font-normal mb-1 me-1 mr-1 px-2 py-1 hover--border-dark-teal border' href='/taxonomy/term/" . $flagged_skill . "'>" . $term_title . "</a></li>";
+        $my_skills .= "<li class='ps-0 mb-1 me-1 mr-1'><a class='no-underline font-normal px-2 py-1 hover--border-dark-teal border' href='/taxonomy/term/" . $flagged_skill . "'>" . $term_title . "</a></li>";
       }
       $my_skills .= "</ul>";
     }
@@ -314,7 +314,7 @@ class CommunityPersonaController extends ControllerBase {
       $my_interests = "<ul class='ms-0 ml-0 d-flex flex flex-wrap list-none list-unstyled'>";
       foreach ($flagged_interests as $flagged_interest) {
         $term_title = Term::load($flagged_interest)->get('name')->value;
-        $my_interests .= "<li class='ps-0'><a class='no-underline font-normal mb-1 me-1 mr-1 px-2 py-1 hover--border-dark-teal border' href='/taxonomy/term/" . $flagged_interest . "'>" . $term_title . "</a></li>";
+        $my_interests .= "<li class='ps-0 mb-1 me-1 mr-1'><a class='no-underline font-normal px-2 py-1 hover--border-dark-teal border' href='/taxonomy/term/" . $flagged_interest . "'>" . $term_title . "</a></li>";
       }
       $my_interests .= "</ul>";
     }

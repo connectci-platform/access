@@ -17,7 +17,7 @@ use Drupal\user\Entity\User;
 use Drupal\views\ViewExecutable;
 use Drupal\access_misc\Plugin\Util\SiteTools;
 
-define('ACCESS_SUPPPORT_URL', "https://support.access-ci.org");
+define('ACCESS_SUPPORT_URL', "https://support.access-ci.org");
 
 /**
  * Implements hook_views_pre_view() for node templates.
@@ -511,7 +511,6 @@ function access_news_entity_update(EntityInterface $node) {
  * $newsType is eventseries or access_news (or tdb: eventinstance)
  */
 function affinityGroupBroadcast(EntityInterface $node, $newsType) {
-
   $getFields = $node->getFields();
   $broadcastArray = $getFields['field_choose_where_to_share_this']->getValue();
   $broadcast = 0;
@@ -535,6 +534,14 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
       $ccListIdArray = [];
       $agNames = [];
       $logoUrl = NULL;
+      $currentDomainId = NULL;
+
+      // Get the current domain (where the broadcast is being initiated from)
+      // to use for URLs in the email.
+      $current_domain = \Drupal::service('domain.negotiator')->getActiveDomain();
+      if ($current_domain) {
+        $currentDomainId = $current_domain->id();
+      }
 
       // Collect ag name and cc email list id.
       foreach ($agNodes as $agNode) {
@@ -543,10 +550,10 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
         $ag = Node::load($nid);
 
         $name = $ag->get('title')->value;
-        array_push($agNames, $name);
+        $agNames[] = $name;
 
         $ccListId = $ag->get('field_list_id')->value;
-        array_push($ccListIdArray, $ccListId);
+        $ccListIdArray[] = $ccListId;
 
         // We decide which email template to use (community or access)
         // looking at the type of the first AG only in send list.
@@ -573,7 +580,8 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
         $title = $titleArray[0]['value'];
 
         // Make link to item, including utm for analytics.
-        $newsUrl = ACCESS_SUPPPORT_URL . $node->toUrl()->toString();
+        // Use the current domain for the URL.
+        $newsUrl = _access_news_build_url_for_domain($node, $currentDomainId);
         $utmCampaign = filter_var($agNames[0], FILTER_SANITIZE_URL) . '-' . date('mdy');
         $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
 
@@ -595,7 +603,17 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
           // Newstype is eventseries.
           $pubDate = NULL;
 
-          if ($node->getInstanceCount() > 1) {
+          // If there's only one event instance, link to that instance instead of the series.
+          if ($node->getInstanceCount() == 1) {
+            $instances = $node->get('event_instances')->referencedEntities();
+            if (!empty($instances)) {
+              $first_instance = reset($instances);
+              $newsUrl = _access_news_build_url_for_domain($first_instance, $currentDomainId);
+              $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
+            }
+          }
+          elseif ($node->getInstanceCount() > 1) {
+            // Multiple instances - don't include a link button.
             $newsUrl = NULL;
           }
 
@@ -605,8 +623,40 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
           $body = \Drupal::service('renderer')->renderPlain($renderArray);
 
           $body = str_replace('Event Instances', 'Event Date & Time', $body);
-          $body = Html::transformRootRelativeUrlsToAbsolute($body, \Drupal::request()->getSchemeAndHttpHost());
 
+          // Un-obfuscate email addresses for email broadcast.
+          // Convert "contact [at] example.com" back to "contact@example.com".
+          $body = preg_replace('/\s*\[at\]\s*/', '@', $body);
+
+          // Make field labels bold in the email (case-insensitive).
+          $body = preg_replace(
+            '/<div class="field__label">([^<]+)<\/div>/i',
+            '<div class="field__label"><strong>$1</strong></div>',
+            $body
+          );
+
+          // Transform relative URLs to absolute using the current domain.
+          if (!empty($body)) {
+            $domain = \Drupal::entityTypeManager()->getStorage('domain')->load($currentDomainId);
+            if ($domain) {
+              // Build base URL: scheme + hostname.
+              // getScheme() returns 'https://' or 'http://' with the separator included.
+              $domain_url = $domain->getScheme() . $domain->getHostname();
+              $body = Html::transformRootRelativeUrlsToAbsolute($body, $domain_url);
+            }
+          }
+          else {
+            // Body is empty - something went wrong with rendering.
+            \Drupal::logger('access_news')->error('Event series @id rendered empty body, skipping email broadcast', ['@id' => $node->id()]);
+            return;
+          }
+
+        }
+
+        // Check if body is empty before sending.
+        if (empty($body)) {
+          \Drupal::logger('access_news')->error('News/Event @id has empty body, skipping email broadcast', ['@id' => $node->id()]);
+          return;
         }
 
         // Now emailing the group; set option broadcast off. If user wants to email again after
@@ -656,7 +706,7 @@ function weeklyNewsReport($noSend) {
 
     $wrapper = new EmailWrapper();
     $newsHTML = newsRangeView($d1, $d2, $utmCampaign);
-    $mainHeader = $wrapper->mainHeadHTML("The ACCESS Support Digest // " . $dtTomorrow->format('F j, Y'));
+    $mainHeader = $wrapper->mainHeadHTML("The ACCESS Digest // " . $dtTomorrow->format('F j, Y'));
     $sectionHeader = $wrapper->sectionHeadHTML(t('Announcements'));
     $newsHTML = $newsHTML != '' ? $mainHeader . $sectionHeader . $newsHTML : $mainHeader;
     Drupal::logger('cron_accessnews')->notice('Digest: news from: ' . $d1 . ' to: ' . $d2);
@@ -684,7 +734,7 @@ function weeklyNewsReport($noSend) {
     // Create constant contact campaign. this does not send it.
     $campaignName = uniqid('Access Digest: ' . $dtTomorrow->format('n/j/y') . ' ', FALSE);
 
-    $ccResponse = setupEmailCampaign('The ACCESS Support Digest // ' . $dtTomorrow->format('F j, Y'), $emailHTML, $campaignName);
+    $ccResponse = setupEmailCampaign('The ACCESS Digest // ' . $dtTomorrow->format('F j, Y'), $emailHTML, $campaignName);
     if (!$ccResponse) {
       \Drupal::logger('cron_accessnews')->error('weeklyNewsReport: error setting up campaign. Make sure Constant Contact calls are not disabled.');
     }
@@ -823,12 +873,9 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
           $bodyDisp = '<p></p>';
         }
 
-        $newsUrl = ACCESS_SUPPPORT_URL . $node->toUrl()->toString();
+        $newsUrl = ACCESS_SUPPORT_URL . $node->toUrl()->toString();
         $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
 
-        if ($nCount > 1) {
-          $listDisplay = $listDisplay;
-        }
         $itemDisplay = $wrapper->newsItemHTML($title, $pubDateDisp, $bodyDisp, $newsUrl);
       }
       catch (Exception $e) {
@@ -902,7 +949,7 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
         $titleArray = $fields['title']->getValue();
         $title = $titleArray[0]['value'];
 
-        $eventUrl = ACCESS_SUPPPORT_URL . $enode->toUrl()->toString();
+        $eventUrl = ACCESS_SUPPORT_URL . $enode->toUrl()->toString();
         $eventUrl = appendUtmCC($eventUrl, $utmCampaign);
 
         // Event date-time is stored as array of 'value' and
@@ -945,9 +992,6 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
 
         // $location = empty($enode->location[0]) ? '' : $enode->location[0]->view('rollup_list');
         // $locationDisp = \Drupal::service('renderer')->renderPlain($location);
-        if ($eCount > 1) {
-          $listDisplay = $listDisplay;
-        }
 
         if ($recur_type == 'weekly_recurring_date') {
           $weekly_id[$series_id][] = [
@@ -1048,6 +1092,37 @@ function accessNewsCronShouldRun() {
     }
   }
   return FALSE;
+}
+
+/**
+ * Helper function to build a URL for an entity using a specific domain.
+ *
+ * @param \Drupal\Core\Entity\EntityInterface $entity
+ *   The entity (node, eventseries, or eventinstance) to get the URL for.
+ * @param string $domain_id
+ *   The domain ID to use for building the URL.
+ *
+ * @return string
+ *   The full URL with domain.
+ */
+function _access_news_build_url_for_domain($entity, $domain_id) {
+  try {
+    $domain = \Drupal::entityTypeManager()
+      ->getStorage('domain')
+      ->load($domain_id);
+
+    if ($domain) {
+      return $domain->buildUrl($entity->toUrl()->toString());
+    }
+
+    // Fallback to ACCESS Support URL if domain load fails.
+    return ACCESS_SUPPORT_URL . $entity->toUrl()->toString();
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('access_news')
+      ->error('Error building URL for domain: ' . $e->getMessage());
+    return ACCESS_SUPPORT_URL . $entity->toUrl()->toString();
+  }
 }
 
 /**

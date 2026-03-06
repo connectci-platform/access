@@ -430,13 +430,17 @@ class ConstantContactApi {
     $this->httpResponseCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     curl_close($ch);
 
-    // Handle 429 Too Many Requests with exponential backoff.
-    if ($this->httpResponseCode == 429 && $retryCount < $maxRetries) {
+    // Handle retryable errors with exponential backoff.
+    // 429 = Too Many Requests (rate limit)
+    // 500 = Internal Server Error (transient)
+    // 504 = Gateway Timeout (transient)
+    $retryableCodes = [429, 500, 504];
+    if (in_array($this->httpResponseCode, $retryableCodes) && $retryCount < $maxRetries) {
       // Exponential backoff: 1s, 2s, 4s.
       $waitSeconds = pow(2, $retryCount);
       \Drupal::logger('access_affinitygroup')->notice(
-        'Rate limit hit (429). Waiting @seconds seconds before retry @retry of @max.',
-        ['@seconds' => $waitSeconds, '@retry' => $retryCount + 1, '@max' => $maxRetries]
+        'Constant Contact API error (@code). Waiting @seconds seconds before retry @retry of @max.',
+        ['@code' => $this->httpResponseCode, '@seconds' => $waitSeconds, '@retry' => $retryCount + 1, '@max' => $maxRetries]
       );
       sleep($waitSeconds);
       return $this->apiCall($endpoint, $post_data, $type, $retryCount + 1);
@@ -525,11 +529,17 @@ class ConstantContactApi {
       // See if the error message contains a contact id. Message will look like this:
       // Validation failed: Email already exists for contact 61d00338-4bd5-11ed-8c0a-fa163ec17584.
       if (preg_match('/.{8}-.{4}-.{4}-.{4}-.{12}/', $this->errorMessage, $match)) {
-        return $match;
+        return $match[0];
       }
     }
 
     if (empty($new_contact)) {
+      // Log the HTTP response code for debugging intermittent failures
+      \Drupal::logger('access_affinitygroup')->warning('addContact failed for @mail: HTTP @code - @msg', [
+        '@mail' => $mail,
+        '@code' => $this->httpResponseCode,
+        '@msg' => $this->errorMessage ?? 'no error message',
+      ]);
       return 0;
     }
     else {

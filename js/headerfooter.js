@@ -10,7 +10,7 @@ import {
   qaBot,
   siteMenus,
   universalMenus,
-} from "https://unpkg.com/@access-ci/ui@0.15.0/dist/access-ci-ui.js";
+} from "https://unpkg.com/@access-ci/ui@0.18.4/dist/access-ci-ui.js";
 
 (function (Drupal, drupalSettings) {
 
@@ -100,6 +100,13 @@ async function setMenu(menu, currentUri) {
   const { email = '', name = '', accessId = '' } = drupalSettings.access.user || {};
   const apiKey = "4nn5l4T4TnkMdzsK0AwAtnGRcheBDnjawuAT42LaOLc";
 
+  // GTM dataLayer event handler for QA bot analytics
+  const chatbotEnv = drupalSettings.access.environment || 'unknown';
+  const onAnalyticsEvent = (event) => {
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({ event: event.type, ...event, chatbot_env: chatbotEnv });
+  };
+
   // Initialize floating qa-bot if target exists (using npm version)
   const floatingTarget = document.getElementById("qa-bot");
   if (floatingTarget && !floatingTarget.hasAttribute('data-initialized')) {
@@ -111,6 +118,8 @@ async function setMenu(menu, currentUri) {
       userName: name,
       accessId: accessId,
       loginUrl: "/login?redirect=" + currentUri,
+      onAnalyticsEvent: onAnalyticsEvent,
+      ...(drupalSettings.access.qaEndpoint && { qaEndpoint: drupalSettings.access.qaEndpoint }),
     });
     floatingTarget.setAttribute('data-initialized', 'true');
   }
@@ -127,6 +136,8 @@ async function setMenu(menu, currentUri) {
       userName: name,
       accessId: accessId,
       loginUrl: "/login?redirect=" + currentUri,
+      onAnalyticsEvent: onAnalyticsEvent,
+      ...(drupalSettings.access.qaEndpoint && { qaEndpoint: drupalSettings.access.qaEndpoint }),
     });
     embeddedTarget.setAttribute('data-initialized', 'true');
   }

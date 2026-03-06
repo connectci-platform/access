@@ -30,6 +30,9 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
 
+    $form['event_registration']['widget'][0]['registration']['#description'] = t('Check this box to enable event registration. You can set capacity, add surveys, and enable a waitlist if needed.');
+    $form['registration_reminders']['widget'][0]['data']['reminder_data']['reminder_units']['#default_value'] = 'day';
+
     // Remove required from fieldset 'recur_type' for a11y.
     $form['recur_type']['widget']['#required'] = FALSE;
     $form['field_event_type']['widget']['#required'] = FALSE;
@@ -86,6 +89,9 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     // Get current user.
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
+
+    // If domain doesn't get set, force current domain after submit.
+    array_unshift($form['actions']['submit']['#submit'], 'access_events_eventseries_domain_submit');
 
     $form['#validate'][] = 'access_events_ag_validate';
 
@@ -254,7 +260,6 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
 
     $form['body']['widget'][0]['#required'] = TRUE;
 
-    $form['event_registration']['widget'][0]['#description'] = "<strong>Event registration is a new feature. If you encounter any issues or unexpected behavior, please submit a ticket to let us know.</strong>";
     $form['consecutive_recurring_date'] = [];
 
     // Summary ai suggestion.
@@ -403,6 +408,18 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   }
 }
 
+/**
+ * Custom submit handler to set domain access based on current domain.
+ */
+function access_events_eventseries_domain_submit($form, FormStateInterface $form_state) {
+  $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
+  $set_domain = $form_state->getValue('domain_access');
+
+  if ($domain_id && empty($set_domain)) {
+    $set_domain[] = $domain_id;
+    $form_state->setValue('domain_access', $set_domain);
+  }
+}
 
 /**
  * Custom validation handler for webform_submission_resource_add_form.
@@ -536,6 +553,10 @@ function access_events_replace_summary_section_callback(array &$form, FormStateI
       $llm = \Drupal::service('access_llm.ai_references_generator');
       $llm->generateSummaryPrompt($body_filter);
       $result = $llm->summarySuggested();
+      // Truncate to 150 characters. If truncated add ellipsis.
+      if (strlen($result) > 150) {
+        $result = substr($result, 0, 147) . '...';
+      }
       $form['field_summary_replace']['field_suggest']['summary_text']['#value'] = $result;
       $form['field_summary_replace']['user_message'] = [
         '#markup' => '',
@@ -954,12 +975,12 @@ function access_events_preprocess_views_view_field(&$variables) {
             $term = reset($terms);
             $path = '/taxonomy/term/' . $term->id();
             $alias = $path_alias_manager->getAliasByPath($path);
-            $items[] = "<li><a href='$alias'>$tag</a></li>";
+            $items[] = "<li class='my-0 me-1 p-0'><a href='$alias' class='inline-block text-nowrap  text-truncate text-xs no-underline font-normal mb-1 me-1 mr-1 px-2 py-1  border-dark-teal hover--border-black border text-dark-teal hover--text-black'>$tag</a></li>";
           }
         }
 
         if (!empty($items)) {
-          $output = '<ul>' . implode('', $items) . '</ul>';
+          $output = '<ul class="list-none p-0 m-0 flex flex-wrap" style="max-width: clamp(150px, 50vw, 600px);">' . implode('', $items) . '</ul>';
           $variables['output'] = Markup::create($output);
         }
       }
