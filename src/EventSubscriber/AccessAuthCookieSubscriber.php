@@ -178,6 +178,13 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
    * Clears the JWT cookie for anonymous users (e.g. after logout).
    */
   protected function clearAuthCookie(ResponseEvent $event) {
+    // Only clear if the request actually carries the cookie (e.g. user just
+    // logged out). Sending Set-Cookie on every anonymous response prevents
+    // CDN/Varnish from caching the page.
+    if (!$event->getRequest()->cookies->has(self::COOKIE_NAME)) {
+      return;
+    }
+
     $cookie_domain = \Drupal::state()->get(
       'drupal_seamless_cilogon.seamless_cookie_domain',
       '.access-ci.org'
