@@ -580,30 +580,30 @@ class CommunityPersonaController extends ControllerBase {
               <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
                 <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ discourse_title }}</h2>
               </div>
-              <div class="py-3 d-flex flex justify-content-between flex-wrap">
-                <div class="d-flex flex-column pr-2">
-                  <h2 class="order-2 text-center h6">{{ discourse_post_title }}</h2>
-                  <p class="order-1 text-center h1">{{ discourse_posts }}</p>
+              <div class="py-3" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:1rem">
+                <div class="text-center">
+                  <p class="h1 mb-0">{{ discourse_posts }}</p>
+                  <h2 class="h6">{{ discourse_post_title }}</h2>
                 </div>
-                <div class="d-flex flex-column flex-wrap pr-2">
-                  <h2 class="order-2 text-center h6">{{ discourse_topic_title }}</h2>
-                  <p class="order-1 text-center h1">{{ discourse_topics }}</p>
+                <div class="text-center">
+                  <p class="h1 mb-0">{{ discourse_topics }}</p>
+                  <h2 class="h6">{{ discourse_topic_title }}</h2>
                 </div>
-                <div class="d-flex flex-column flex-wrap pr-2">
-                  <h2 class="order-2 text-center h6">{{ discourse_solved_title }}</h2>
-                  <p class="order-1 text-center h1">{{ discourse_solved }}</p>
+                <div class="text-center">
+                  <p class="h1 mb-0">{{ discourse_solved }}</p>
+                  <h2 class="h6">{{ discourse_solved_title }}</h2>
                 </div>
-                <div class="d-flex flex-column flex-wrap pr-2">
-                  <h2 class="order-2 text-center h6">{{ discourse_likes_given_title }}</h2>
-                  <p class="order-1 text-center h1">{{ discourse_likes_given }}</p>
+                <div class="text-center">
+                  <p class="h1 mb-0">{{ discourse_likes_given }}</p>
+                  <h2 class="h6">{{ discourse_likes_given_title }}</h2>
                 </div>
-                <div class="d-flex flex-column flex-wrap pr-2">
-                  <h2 class="order-2 text-center h6">{{ discourse_likes_received_title }}</h2>
-                  <p class="order-1 text-center h1">{{ discourse_likes_received }}</p>
+                <div class="text-center">
+                  <p class="h1 mb-0">{{ discourse_likes_received }}</p>
+                  <h2 class="h6">{{ discourse_likes_received_title }}</h2>
                 </div>
-                <div class="d-flex flex-column flex-wrap">
-                  <h2 class="order-2 text-center h6">{{ discourse_days_visited_title }}</h2>
-                  <p class="order-1 text-center h1">{{ discourse_days_visited }}</p>
+                <div class="text-center">
+                  <p class="h1 mb-0">{{ discourse_days_visited }}</p>
+                  <h2 class="h6">{{ discourse_days_visited_title }}</h2>
                 </div>
               </div>
             </div>
@@ -851,30 +851,30 @@ class CommunityPersonaController extends ControllerBase {
                 <div class="text-white py-2 px-3 bg-dark bg-md-teal text-2xl p-4 d-flex flex align-items-center justify-content-between">
                   <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ discourse_title }}</h2>
                 </div>
-                <div class="py-3 d-flex flex justify-content-between">
-                  <div class="d-flex flex-column">
-                    <h2 class="order-2 text-center h6">{{ discourse_post_title }}</h2>
-                    <p class="order-1 text-center h1">{{ discourse_posts }}</p>
+                <div class="py-3" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:1rem">
+                  <div class="text-center">
+                    <p class="h1 mb-0">{{ discourse_posts }}</p>
+                    <h2 class="h6">{{ discourse_post_title }}</h2>
                   </div>
-                  <div class="d-flex flex-column">
-                    <h2 class="order-2 text-center h6">{{ discourse_topic_title }}</h2>
-                    <p class="order-1 text-center h1">{{ discourse_topics }}</p>
+                  <div class="text-center">
+                    <p class="h1 mb-0">{{ discourse_topics }}</p>
+                    <h2 class="h6">{{ discourse_topic_title }}</h2>
                   </div>
-                  <div class="d-flex flex-column">
-                    <h2 class="order-2 text-center h6">{{ discourse_solved_title }}</h2>
-                    <p class="order-1 text-center h1">{{ discourse_solved }}</p>
+                  <div class="text-center">
+                    <p class="h1 mb-0">{{ discourse_solved }}</p>
+                    <h2 class="h6">{{ discourse_solved_title }}</h2>
                   </div>
-                  <div class="d-flex flex-column">
-                    <h2 class="order-2 text-center h6">{{ discourse_likes_given_title }}</h2>
-                    <p class="order-1 text-center h1">{{ discourse_likes_given }}</p>
+                  <div class="text-center">
+                    <p class="h1 mb-0">{{ discourse_likes_given }}</p>
+                    <h2 class="h6">{{ discourse_likes_given_title }}</h2>
                   </div>
-                  <div class="d-flex flex-column">
-                    <h2 class="order-2 text-center h6">{{ discourse_likes_received_title }}</h2>
-                    <p class="order-1 text-center h1">{{ discourse_likes_received }}</p>
+                  <div class="text-center">
+                    <p class="h1 mb-0">{{ discourse_likes_received }}</p>
+                    <h2 class="h6">{{ discourse_likes_received_title }}</h2>
                   </div>
-                  <div class="d-flex flex-column">
-                    <h2 class="order-2 text-center h6">{{ discourse_days_visited_title }}</h2>
-                    <p class="order-1 text-center h1">{{ discourse_days_visited }}</p>
+                  <div class="text-center">
+                    <p class="h1 mb-0">{{ discourse_days_visited }}</p>
+                    <h2 class="h6">{{ discourse_days_visited_title }}</h2>
                   </div>
                 </div>
               </div>
