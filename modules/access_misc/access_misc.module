@@ -1475,15 +1475,14 @@ function access_misc_metatags_attachments_alter(array &$attachments) {
   $route_match = \Drupal::routeMatch();
   $entity = NULL;
 
-  // Try to get entity from route.
-  if ($route_match->getParameter('node')) {
-    $entity = $route_match->getParameter('node');
-  }
-  elseif ($route_match->getParameter('eventinstance')) {
-    $entity = $route_match->getParameter('eventinstance');
-  }
-  elseif ($route_match->getParameter('eventseries')) {
-    $entity = $route_match->getParameter('eventseries');
+  // Try to get entity from route. The parameter may be a string (entity ID)
+  // on some routes, so only use it if it's an actual entity object.
+  foreach (['node', 'eventinstance', 'eventseries'] as $param) {
+    $candidate = $route_match->getParameter($param);
+    if ($candidate instanceof \Drupal\Core\Entity\EntityInterface) {
+      $entity = $candidate;
+      break;
+    }
   }
 
   // Fix up empty meta tag values after token replacement.
@@ -1570,7 +1569,13 @@ function access_misc_metatags_attachments_alter(array &$attachments) {
  *   A trimmed plain-text excerpt, or NULL.
  */
 function _access_misc_entity_description_fallback($entity) {
-  // Try body summary first, then body value, then description field.
+  // Try dedicated summary fields first (events use field_summary/event_summary).
+  foreach (['field_summary', 'event_summary'] as $summary_field) {
+    if ($entity->hasField($summary_field) && !$entity->get($summary_field)->isEmpty()) {
+      return _access_misc_clean_text($entity->get($summary_field)->value, 160);
+    }
+  }
+  // Then body summary, then body value, then description field.
   if ($entity->hasField('body') && !$entity->get('body')->isEmpty()) {
     $summary = $entity->get('body')->summary;
     if (!empty($summary)) {
@@ -1695,15 +1700,18 @@ function _access_misc_build_json_ld($entity) {
         $json_ld['name'] = $entity->label();
       }
 
-      // Description: try summary, then description field, then body.
+      // Description: try dedicated summary fields, then description, then body.
       $event_desc = NULL;
-      if ($entity->hasField('body') && !$entity->get('body')->isEmpty() && !empty($entity->get('body')->summary)) {
-        $event_desc = $entity->get('body')->summary;
+      foreach (['field_summary', 'event_summary'] as $sf) {
+        if ($entity->hasField($sf) && !$entity->get($sf)->isEmpty()) {
+          $event_desc = $entity->get($sf)->value;
+          break;
+        }
       }
-      elseif ($entity->hasField('description') && !$entity->get('description')->isEmpty()) {
+      if (!$event_desc && $entity->hasField('description') && !$entity->get('description')->isEmpty()) {
         $event_desc = $entity->get('description')->value;
       }
-      elseif ($entity->hasField('body') && !$entity->get('body')->isEmpty()) {
+      if (!$event_desc && $entity->hasField('body') && !$entity->get('body')->isEmpty()) {
         $event_desc = $entity->get('body')->value;
       }
       if ($event_desc) {
