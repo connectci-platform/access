@@ -1542,6 +1542,25 @@ function access_misc_metatags_attachments_alter(array &$attachments) {
     }
   }
 
+  // Fix title on event registrations pages where Views setTitle() doesn't
+  // update the metatag <title> (it only changes the page heading).
+  $path = \Drupal::service('path.current')->getPath();
+  if (preg_match('#^/events/(\d+)/registrations$#', $path, $m)) {
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($m[1]);
+    if ($eventinstance) {
+      $series = $eventinstance->getEventSeries();
+      $event_title = $series ? $series->get('title')->value : $eventinstance->label();
+      $new_title = "Registrations - $event_title | $site_name";
+      foreach ($attachments['#attached']['html_head'] as &$item) {
+        if (isset($item[1]) && $item[1] === 'title') {
+          $item[0]['#attributes']['content'] = $new_title;
+          break;
+        }
+      }
+      unset($item);
+    }
+  }
+
   // Add JSON-LD structured data for Google Rich Results.
   if ($entity && !\Drupal::service('path.matcher')->isFrontPage()) {
     $json_ld = _access_misc_build_json_ld($entity);
