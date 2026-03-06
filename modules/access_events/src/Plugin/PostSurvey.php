@@ -114,8 +114,7 @@ class PostSurvey {
 
         $series = $event_instance->getEventSeries();
         $series_title = $series->get('title')->value;
-        $series_title_url = $this->siteTools->getEventCurrentDomainUrl($entity_id);
-        $series_post_survey_text = $series->get('field_post_survey_email_text')->value;
+        $series_email_template = $series->get('field_post_survey_email_text')->value;
 
         foreach ($registrants as $registrant_id) {
           $registrant = $this->entityTypeManager->getStorage('registrant')->load($registrant_id);
@@ -130,13 +129,17 @@ class PostSurvey {
           $domain = $this->requestStack->getCurrentRequest()->getHost();
           $post_survey_url = "https://$domain/events/$entity_id/post_survey/$user_id";
 
-          // Get list of unique emails.
+          // Render the full email body from the event's template field.
+          $custom_body = _access_events_render_email_template($series_email_template, [
+            'name' => $name,
+            'title' => $series_title,
+            'post_survey_url' => $post_survey_url,
+          ]);
+
           $variables = [
             'title' => $series_title,
             'name' => $name,
-            'title_link' => $series_title_url,
-            'post_survey_text' => $series_post_survey_text,
-            'post_survey_url' => $post_survey_url,
+            'custom_body' => $custom_body,
           ];
 
           $policy_subtype = 'post_survey';
@@ -191,12 +194,10 @@ class PostSurvey {
 
         $series = $event_instance->getEventSeries();
         $series_title = $series->get('title')->value;
-        $series_title_url = $this->siteTools->getEventCurrentDomainUrl($entity_id);
-        $series_post_survey_text = $series->get('field_post_survey_email_text')->value;
+        $series_email_template = $series->get('field_post_survey_email_text')->value;
 
         foreach ($registrants as $registrant_id) {
           $registrant = $this->entityTypeManager->getStorage('registrant')->load($registrant_id);
-
 
           if ($registrant->field_post_survey_reminder_sent->value) {
             continue;
@@ -208,13 +209,17 @@ class PostSurvey {
           $domain = $this->requestStack->getCurrentRequest()->getHost();
           $post_survey_url = "https://$domain/events/$entity_id/post_survey/$user_id";
 
-          // Get list of unique emails.
+          // Render the full email body from the event's template field.
+          $custom_body = _access_events_render_email_template($series_email_template, [
+            'name' => $name,
+            'title' => $series_title,
+            'post_survey_url' => $post_survey_url,
+          ]);
+
           $variables = [
             'title' => $series_title,
             'name' => $name,
-            'title_link' => $series_title_url,
-            'post_survey_text' => $series_post_survey_text,
-            'post_survey_url' => $post_survey_url,
+            'custom_body' => $custom_body,
           ];
 
           $policy_subtype = 'post_survey_reminder';

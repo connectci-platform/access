@@ -897,7 +897,7 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
   $series_title_url = "<a href='$event_url'>$series_title</a>";
 
   $series_screen_survey_url = $series->get('field_screen_survey_url')->uri;
-  $series_screen_survey_text = $series->get('field_screen_survey_email_text')->value;
+  $series_email_template = $series->get('field_screen_survey_email_text')->value;
 
   $registered_person_email = Xss::filter($form_state->getValues()['email'][0]['value']);
   $name = Xss::filter($form_state->getValues()['field_first_name'][0]['value']) . ' ' . Xss::filter($form_state->getValues()['field_last_name'][0]['value']);
@@ -909,15 +909,26 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
 
   $policy = 'access_misc';
 
-  // Get list of unique emails.
+  // Render the full email body from the event's template field.
+  // Mark title_link as safe since it contains an <a> tag.
+  $template_variables = [
+    'name' => $name,
+    'title_link' => new \Twig\Markup($series_title_url, 'UTF-8'),
+    'start_date' => $start_date,
+    'screen_survey_url' => $series_screen_survey_url,
+  ];
+  $custom_body = _access_events_render_email_template($series_email_template, $template_variables);
+
+  // The 'register' policy uses custom_body + email_title only.
+  // Extra variables (title, name, title_link, etc.) are needed by the
+  // 'waitlist' policy which still uses its own Symfony Mailer template.
   $variables = [
     'title' => $series_title,
     'name' => $name,
     'title_link' => $series_title_url,
     'start_date' => $start_date,
     'contact' => $contact,
-    'screen_survey_text' => $series_screen_survey_text,
-    'screen_survey_url' => $series_screen_survey_url,
+    'custom_body' => $custom_body,
     'email_title' => $email_title,
   ];
 

@@ -197,7 +197,7 @@ class EventWaitlist extends ControllerBase {
     $series = $event_instance->getEventSeries();
     $series_title = $series->get('title')->value;
     $series_pre_survey_url = $series->get('field_pre_survey_url')->uri;
-    $series_pre_survey_text = $series->get('field_pre_survey_email_text')->value;
+    $series_email_template = $series->get('field_pre_survey_email_text')->value;
     $series_location = $series->get('field_location')->value;
     $location = $series_location ? $series_location : '';
     $og_start_date = $event_instance->get('date')->start_date->__toString();
@@ -216,17 +216,16 @@ class EventWaitlist extends ControllerBase {
     $policy = 'access_misc';
     $policy_subtype = 'registration_approved';
 
-    $variables = [
-      'title' => $series_title,
-      'title_link' => $series_title_url,
+    // Base template variables (name set per-registrant below).
+    // Mark title_link as safe since it contains an <a> tag.
+    $template_variables = [
+      'name' => '',
+      'title_link' => new \Twig\Markup($series_title_url, 'UTF-8'),
       'start_date' => $start_date,
+      'location' => $location,
       'event_start_time' => $event_start_time,
       'event_end_time' => $event_end_time,
-      'name' => '',
-      'location' => $location,
       'pre_survey_url' => $series_pre_survey_url,
-      'pre_survey_text' => $series_pre_survey_text,
-      'email_title' => $email_title,
     ];
 
     foreach ($this->registrantIds as $registrant_id) {
@@ -237,7 +236,18 @@ class EventWaitlist extends ControllerBase {
 
       $first_name_value = !empty($first_name) && isset($first_name[0]['value']) ? $first_name[0]['value'] : '';
       $last_name_value = !empty($last_name) && isset($last_name[0]['value']) ? $last_name[0]['value'] : '';
-      $variables['name'] = trim($first_name_value . ' ' . $last_name_value);
+      $name = trim($first_name_value . ' ' . $last_name_value);
+
+      // Render the full email body from the event's template field.
+      $template_variables['name'] = $name;
+      $custom_body = _access_events_render_email_template($series_email_template, $template_variables);
+
+      $variables = [
+        'title' => $series_title,
+        'name' => $name,
+        'custom_body' => $custom_body,
+        'email_title' => $email_title,
+      ];
 
       if (!empty($email) && isset($email[0]['value'])) {
         \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $email[0]['value'], $variables);
