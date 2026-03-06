@@ -59,24 +59,29 @@ class DomainLogosForm extends ConfigFormBase {
     $config = $this->config('access_misc.domain_logos');
     $domains = $this->entityTypeManager->getStorage('domain')->loadMultiple();
 
-    $form['description'] = [
+    $form['help'] = [
       '#type' => 'markup',
-      '#markup' => $this->t('<p>Configure the main logo URL for each domain. These values can be accessed using the [domain_logo] token.</p>'),
-    ];
-
-    $form['logos'] = [
-      '#type' => 'fieldset',
-      '#title' => $this->t('Domain Logos'),
-      '#tree' => TRUE,
+      '#markup' => $this->t('<p>Configure per-domain logos and descriptions. Tokens: <code>[access_misc:domain_logo]</code>, <code>[access_misc:domain_description]</code></p>'),
     ];
 
     foreach ($domains as $domain_id => $domain) {
-      $form['logos'][$domain_id] = [
-        '#type' => 'textfield',
+      $form[$domain_id] = [
+        '#type' => 'details',
         '#title' => $domain->label(),
+        '#open' => FALSE,
+      ];
+      $form[$domain_id]['logos_' . $domain_id] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Logo path'),
         '#default_value' => $config->get('logos.' . $domain_id),
-        '#description' => $this->t('Enter the URL or path to the logo for %domain', ['%domain' => $domain->label()]),
         '#maxlength' => 512,
+      ];
+      $form[$domain_id]['descriptions_' . $domain_id] = [
+        '#type' => 'textarea',
+        '#title' => $this->t('Description'),
+        '#default_value' => $config->get('descriptions.' . $domain_id),
+        '#description' => $this->t('Used for front page meta description and og:description.'),
+        '#rows' => 2,
       ];
     }
 
@@ -88,10 +93,11 @@ class DomainLogosForm extends ConfigFormBase {
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
     $config = $this->config('access_misc.domain_logos');
-    $logos = $form_state->getValue('logos');
+    $domains = $this->entityTypeManager->getStorage('domain')->loadMultiple();
 
-    foreach ($logos as $domain_id => $logo_url) {
-      $config->set('logos.' . $domain_id, $logo_url);
+    foreach ($domains as $domain_id => $domain) {
+      $config->set('logos.' . $domain_id, $form_state->getValue('logos_' . $domain_id));
+      $config->set('descriptions.' . $domain_id, $form_state->getValue('descriptions_' . $domain_id));
     }
 
     $config->save();

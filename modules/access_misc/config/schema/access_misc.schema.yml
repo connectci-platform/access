@@ -1,6 +1,6 @@
 access_misc.domain_logos:
   type: config_object
-  label: 'Domain Logos Configuration'
+  label: 'Domain Logos and Descriptions Configuration'
   mapping:
     logos:
       type: sequence
@@ -8,3 +8,9 @@ access_misc.domain_logos:
       sequence:
         type: string
         label: 'Logo URL'
+    descriptions:
+      type: sequence
+      label: 'Domain Descriptions'
+      sequence:
+        type: string
+        label: 'Description'

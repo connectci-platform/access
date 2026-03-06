@@ -1178,6 +1178,11 @@ function access_misc_token_info() {
     'description' => t('The configured logo URL for the current domain.'),
   ];
 
+  $info['tokens']['access_misc']['domain_description'] = [
+    'name' => t('Domain Description'),
+    'description' => t('The configured description for the current domain.'),
+  ];
+
   return $info;
 }
 
@@ -1201,6 +1206,13 @@ function access_misc_tokens($type, $tokens, array $data, array $options) {
           $logo_url = _access_misc_get_domain_logo_url();
           if ($logo_url) {
             $replacements[$original] = $logo_url;
+          }
+          break;
+
+        case 'domain_description':
+          $desc = _access_misc_get_domain_description();
+          if ($desc) {
+            $replacements[$original] = $desc;
           }
           break;
       }
@@ -1294,41 +1306,169 @@ function _access_misc_get_domain_logo_url() {
 }
 
 /**
+ * Helper function to get the configured domain description.
+ *
+ * @return string|null
+ *   The description or NULL if not found.
+ */
+function _access_misc_get_domain_description() {
+  try {
+    $domain_negotiator = \Drupal::service('domain.negotiator');
+    $active_domain = $domain_negotiator->getActiveDomain();
+
+    if (!$active_domain) {
+      return NULL;
+    }
+
+    $config = \Drupal::config('access_misc.domain_logos');
+    $description = $config->get('descriptions.' . $active_domain->id());
+
+    return $description ?: NULL;
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('access_misc')->error('Error getting domain description: ' . $e->getMessage());
+    return NULL;
+  }
+}
+
+/**
  * Implements hook_metatags_attachments_alter().
  *
- * Add JSON-LD structured data for Google Rich Results.
+ * - Fills empty description/og_description with body text fallback.
+ * - Fills empty og_image_url with domain logo fallback.
+ * - Adds JSON-LD structured data for Google Rich Results.
  */
 function access_misc_metatags_attachments_alter(array &$attachments) {
-  if (!\Drupal::service('path.matcher')->isFrontPage()) {
-    $route_match = \Drupal::routeMatch();
-    $entity = NULL;
+  $route_match = \Drupal::routeMatch();
+  $entity = NULL;
 
-    // Try to get entity from route.
-    if ($route_match->getParameter('node')) {
-      $entity = $route_match->getParameter('node');
-    }
-    elseif ($route_match->getParameter('eventinstance')) {
-      $entity = $route_match->getParameter('eventinstance');
-    }
-    elseif ($route_match->getParameter('eventseries')) {
-      $entity = $route_match->getParameter('eventseries');
-    }
+  // Try to get entity from route.
+  if ($route_match->getParameter('node')) {
+    $entity = $route_match->getParameter('node');
+  }
+  elseif ($route_match->getParameter('eventinstance')) {
+    $entity = $route_match->getParameter('eventinstance');
+  }
+  elseif ($route_match->getParameter('eventseries')) {
+    $entity = $route_match->getParameter('eventseries');
+  }
 
-    if ($entity) {
-      $json_ld = _access_misc_build_json_ld($entity);
-      if ($json_ld) {
-        $attachments['#attached']['html_head'][] = [
-          [
-            '#type' => 'html_tag',
-            '#tag' => 'script',
-            '#attributes' => ['type' => 'application/ld+json'],
-            '#value' => json_encode($json_ld, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),
-          ],
-          'json_ld_structured_data',
-        ];
+  // Fix up empty meta tag values after token replacement.
+  if (!empty($attachments['#attached']['html_head'])) {
+    $fallback_description = $entity ? _access_misc_entity_description_fallback($entity) : NULL;
+    // Ultimate fallback: site name (matches the global metatag default).
+    $site_name = \Drupal::config('system.site')->get('name');
+    $domain_logo = _access_misc_get_domain_logo_url();
+
+    // Track which tags are present so we can add missing ones.
+    $found = [];
+    foreach ($attachments['#attached']['html_head'] as &$item) {
+      if (!isset($item[1])) {
+        continue;
+      }
+      $found[$item[1]] = TRUE;
+      $content = $item[0]['#attributes']['content'] ?? '';
+
+      // Fill in empty description/og_description. Try entity body text first,
+      // then fall back to site name so we never leave these blank.
+      if (in_array($item[1], ['description', 'og_description']) && empty(trim($content))) {
+        $item[0]['#attributes']['content'] = $fallback_description ?: $site_name;
+      }
+
+      // Fall back to domain logo when node image tokens resolve to empty.
+      // The metatag module emits both og_image_url and og_image_url_0 keys.
+      if (str_starts_with($item[1], 'og_image_url') && empty(trim($content)) && $domain_logo) {
+        $base_url = \Drupal::request()->getSchemeAndHttpHost();
+        $item[0]['#attributes']['content'] = $base_url . $domain_logo;
       }
     }
+    unset($item);
+
+    // Add missing tags when tokens resolved to empty (metatag module omits
+    // tags entirely when their token value is blank).
+    $description_value = $fallback_description ?: $site_name;
+    if (empty($found['description'])) {
+      $attachments['#attached']['html_head'][] = [
+        ['#tag' => 'meta', '#attributes' => ['name' => 'description', 'content' => $description_value]],
+        'description',
+      ];
+    }
+    if (empty($found['og_description'])) {
+      $attachments['#attached']['html_head'][] = [
+        ['#tag' => 'meta', '#attributes' => ['property' => 'og:description', 'content' => $description_value]],
+        'og_description',
+      ];
+    }
+    // Check for og_image_url or og_image_url_0 (metatag emits both).
+    $has_og_image = !empty($found['og_image_url']) || !empty($found['og_image_url_0']);
+    if (!$has_og_image && $domain_logo) {
+      $base_url = \Drupal::request()->getSchemeAndHttpHost();
+      $attachments['#attached']['html_head'][] = [
+        ['#tag' => 'meta', '#attributes' => ['property' => 'og:image:url', 'content' => $base_url . $domain_logo]],
+        'og_image_url',
+      ];
+    }
   }
+
+  // Add JSON-LD structured data for Google Rich Results.
+  if ($entity && !\Drupal::service('path.matcher')->isFrontPage()) {
+    $json_ld = _access_misc_build_json_ld($entity);
+    if ($json_ld) {
+      $attachments['#attached']['html_head'][] = [
+        [
+          '#type' => 'html_tag',
+          '#tag' => 'script',
+          '#attributes' => ['type' => 'application/ld+json'],
+          '#value' => json_encode($json_ld, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),
+        ],
+        'json_ld_structured_data',
+      ];
+    }
+  }
+}
+
+/**
+ * Get a description fallback from entity body text.
+ *
+ * @param \Drupal\Core\Entity\EntityInterface $entity
+ *   The entity.
+ *
+ * @return string|null
+ *   A trimmed plain-text excerpt, or NULL.
+ */
+function _access_misc_entity_description_fallback($entity) {
+  // Try body summary first, then body value, then description field.
+  if ($entity->hasField('body') && !$entity->get('body')->isEmpty()) {
+    $summary = $entity->get('body')->summary;
+    if (!empty($summary)) {
+      return _access_misc_clean_text($summary, 160);
+    }
+    return _access_misc_clean_text($entity->get('body')->value, 160);
+  }
+  if ($entity->hasField('description') && !$entity->get('description')->isEmpty()) {
+    return _access_misc_clean_text($entity->get('description')->value, 160);
+  }
+  return NULL;
+}
+
+/**
+ * Strip HTML and decode entities from a field value for use in structured data.
+ *
+ * @param string $html
+ *   Raw HTML string.
+ * @param int $max_length
+ *   Maximum character length (0 for unlimited).
+ *
+ * @return string
+ *   Clean plain text.
+ */
+function _access_misc_clean_text($html, $max_length = 300) {
+  $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+  $text = trim(preg_replace('/\s+/', ' ', $text));
+  if ($max_length && strlen($text) > $max_length) {
+    $text = substr($text, 0, $max_length - 3) . '...';
+  }
+  return $text;
 }
 
 /**
@@ -1357,9 +1497,12 @@ function _access_misc_build_json_ld($entity) {
           $json_ld['@type'] = 'Article';
           $json_ld['headline'] = $entity->label();
 
+          // Prefer summary over full body for structured data.
           if ($entity->hasField('body') && !$entity->get('body')->isEmpty()) {
-            $body = $entity->get('body')->value;
-            $json_ld['articleBody'] = strip_tags($body);
+            $summary = $entity->get('body')->summary;
+            $json_ld['description'] = _access_misc_clean_text(
+              !empty($summary) ? $summary : $entity->get('body')->value
+            );
           }
 
           if ($entity->hasField('created')) {
@@ -1387,7 +1530,10 @@ function _access_misc_build_json_ld($entity) {
           $json_ld['name'] = $entity->label();
 
           if ($entity->hasField('body') && !$entity->get('body')->isEmpty()) {
-            $json_ld['description'] = strip_tags($entity->get('body')->value);
+            $summary = $entity->get('body')->summary;
+            $json_ld['description'] = _access_misc_clean_text(
+              !empty($summary) ? $summary : $entity->get('body')->value
+            );
           }
 
           $request = \Drupal::request();
@@ -1416,12 +1562,19 @@ function _access_misc_build_json_ld($entity) {
         $json_ld['name'] = $entity->label();
       }
 
-      // Description: try inherited description, then body.
-      if ($entity->hasField('description') && !$entity->get('description')->isEmpty()) {
-        $json_ld['description'] = strip_tags($entity->get('description')->value);
+      // Description: try summary, then description field, then body.
+      $event_desc = NULL;
+      if ($entity->hasField('body') && !$entity->get('body')->isEmpty() && !empty($entity->get('body')->summary)) {
+        $event_desc = $entity->get('body')->summary;
+      }
+      elseif ($entity->hasField('description') && !$entity->get('description')->isEmpty()) {
+        $event_desc = $entity->get('description')->value;
       }
       elseif ($entity->hasField('body') && !$entity->get('body')->isEmpty()) {
-        $json_ld['description'] = strip_tags($entity->get('body')->value);
+        $event_desc = $entity->get('body')->value;
+      }
+      if ($event_desc) {
+        $json_ld['description'] = _access_misc_clean_text($event_desc);
       }
 
       $request = \Drupal::request();

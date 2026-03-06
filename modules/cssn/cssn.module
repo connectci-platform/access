@@ -399,6 +399,28 @@ function cssn_page_attachments_alter(array &$attachments) {
 
         $title = "$full_name | Community Persona";
 
+        // Remove metatag module's global defaults that conflict with the
+        // persona-specific tags we're about to add. The metatag module fires
+        // in hook_page_attachments() before this _alter hook runs.
+        $metatag_keys_to_remove = [
+          'description',
+          'canonical_url',
+          'image_src',
+          'og_title',
+          'og_description',
+          'og_type',
+          'og_url',
+          'og_site_name',
+          'og_image_url',
+        ];
+        if (!empty($attachments['#attached']['html_head'])) {
+          $attachments['#attached']['html_head'] = array_values(
+            array_filter($attachments['#attached']['html_head'], function ($item) use ($metatag_keys_to_remove) {
+              return !isset($item[1]) || !in_array($item[1], $metatag_keys_to_remove);
+            })
+          );
+        }
+
         // Standard meta tags.
         $meta_tags = [
           'description' => $description,
@@ -462,15 +484,6 @@ function cssn_page_attachments_alter(array &$attachments) {
             ],
           ],
           'cssn_canonical_url',
-        ];
-
-        // Update page title.
-        $attachments['#attached']['html_head'][] = [
-          [
-            '#tag' => 'title',
-            '#value' => $title,
-          ],
-          'cssn_title',
         ];
       }
     }
