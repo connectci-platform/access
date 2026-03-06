@@ -968,12 +968,12 @@ function access_events_preprocess_views_view_field(&$variables) {
             $term = reset($terms);
             $path = '/taxonomy/term/' . $term->id();
             $alias = $path_alias_manager->getAliasByPath($path);
-            $items[] = "<li><a href='$alias'>$tag</a></li>";
+            $items[] = "<li class='my-0 me-1 p-0'><a href='$alias' class='inline-block text-nowrap  text-truncate text-xs no-underline font-normal mb-1 me-1 mr-1 px-2 py-1  border-dark-teal hover--border-black border text-dark-teal hover--text-black'>$tag</a></li>";
           }
         }
 
         if (!empty($items)) {
-          $output = '<ul>' . implode('', $items) . '</ul>';
+          $output = '<ul class="list-none p-0 m-0 flex flex-wrap" style="max-width: clamp(150px, 50vw, 600px);">' . implode('', $items) . '</ul>';
           $variables['output'] = Markup::create($output);
         }
       }
