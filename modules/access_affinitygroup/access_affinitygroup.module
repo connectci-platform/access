@@ -82,7 +82,7 @@ function access_affinitygroup_search_api_query_alter(\Drupal\search_api\Query\Qu
     return;
   }
   $condition_group = $query->createConditionGroup('OR');
-  $condition_group->addCondition('field_ag_private', FALSE);
+  $condition_group->addCondition('field_ag_private', 0);
   $condition_group->addCondition('field_coordinator', $user_id);
   $condition_group->addCondition('field_ag_private_users', $user_id);
   $query->addConditionGroup($condition_group);
