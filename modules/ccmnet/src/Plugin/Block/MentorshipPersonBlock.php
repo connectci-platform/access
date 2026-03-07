@@ -50,6 +50,9 @@ class MentorshipPersonBlock extends BlockBase {
         $personId = $person['target_id'];
         // Load user from user id mentee.
         $user = User::load($personId);
+        if (!$user) {
+          continue;
+        }
 
         // Get user profile picure image.
         $userImage = $user->get('user_picture');
