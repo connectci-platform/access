@@ -385,6 +385,8 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
         <details class='tags m-0 mb-8'><summary class='font-bold'>$tag_summary</summary>$output</details>",
       '#weight' => 20,
       '#allowed_tags' => [
+        'ul',
+        'li',
         'button',
         'details',
         'summary',

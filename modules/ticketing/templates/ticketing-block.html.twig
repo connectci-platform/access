@@ -5,31 +5,34 @@
   <form id="ticket-choice-form"  method="PUT" action="/open-a-ticket/17" class="w-fit py-10 my-10 mx-auto">
     <input type="hidden" name="customfield_10103" id="ticket-account-name" value="{{ data.account_name }}" />
     <input type="hidden" name="customfield_10108" id="ticket-display-name" value="{{ data.display_name }}" />
-    <h1 class="my-2 pt-4">How can we help you?</h1>
-    <div class="form-check">
-      <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="ticket-login-access">
-      <label class="form-check-label px-1 font-medium" for="ticket-login-access">
-        I need help logging into ACCESS website
-      </label>
-    </div>
-    <div class="form-check">
-      <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="ticket-login-other">
-      <label class="form-check-label px-1 font-medium" for="ticket-login-other">
-        I need help logging into a resource (i.e. Anvil, Expanse)
-      </label>
-    </div>
-    <div class="form-check">
-      <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="report-security">
-      <label class="form-check-label px-1 font-medium" for="report-security">
-        I want to report a security incident
-      </label>
-    </div>
-    <div class="form-check">
-      <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="ticket-other-question" checked>
-      <label class="form-check-label px-1 font-medium" for="ticket-other-question">
-        I have another question
-      </label>
-    </div>
+    <h1>Open a Ticket</h1>
+    <fieldset>
+      <legend class="my-2 pt-4 text-2xl font-bold">How can we help you?</legend>
+      <div class="form-check">
+        <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="ticket-login-access">
+        <label class="form-check-label px-1 font-medium" for="ticket-login-access">
+          I need help logging into ACCESS website
+        </label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="ticket-login-other">
+        <label class="form-check-label px-1 font-medium" for="ticket-login-other">
+          I need help logging into a resource (i.e. Anvil, Expanse)
+        </label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="report-security">
+        <label class="form-check-label px-1 font-medium" for="report-security">
+          I want to report a security incident
+        </label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input ticket-input-check" type="radio" name="ticketChoices" id="ticket-other-question" checked>
+        <label class="form-check-label px-1 font-medium" for="ticket-other-question">
+          I have another question
+        </label>
+      </div>
+    </fieldset>
     <div class="py-4 flex">
       <a href="login?redirect=/open-a-ticket/17" id="ticket-link" class="btn btn-primary">Open a Ticket</a>
       <button type="submit" id="ticket-submit" class="btn btn-primary ml-0">Open a Ticket</button>

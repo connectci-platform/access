@@ -149,6 +149,8 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
                     </details>",
       '#weight' => 1,
       '#allowed_tags' => [
+        'ul',
+        'li',
         'button',
         'details',
         'summary',

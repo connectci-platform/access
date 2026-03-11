@@ -619,6 +619,8 @@ function access_cilink_form_alter(&$form, FormStateInterface $form_state, $form_
                     </details>",
       '#weight' => 3,
       '#allowed_tags' => [
+        'ul',
+        'li',
         'button',
         'details',
         'summary',
