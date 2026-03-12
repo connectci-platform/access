@@ -28,7 +28,24 @@ if (radioSelect) {
   document.getElementById("edit-recur-type-custom").checked = true;
 }
 
-// Move "About text formats" link after the "Text format" selector.
+// A11y - remove hidden labels.
+const labels = [
+  'label[for="edit-weekly-recurring-date-0-end-value-date"]',
+  'label[for="edit-weekly-recurring-date-0-value-date"]',
+  'label[for="edit-monthly-recurring-date-0-value-date"]',
+  'label[for="edit-monthly-recurring-date-0-end-value-date"]',
+  'label[for="edit-custom-date-0-value-date"]',
+  'label[for="edit-custom-date-0-end-value-date"]',
+  'label[for="edit-field-event-speakers-0-value"]',
+]
+labels.forEach(label => {
+  const element = document.querySelector(label);
+  if (element) {
+    element.remove();
+  }
+});
+
+// A11y - move "About text formats" link after the "Text format" selector.
 const filterWrapper = document.querySelector('.field--name-body .js-filter-wrapper');
 if (filterWrapper) {
   const filterHelp = filterWrapper.querySelector('[data-drupal-selector="edit-body-0-format-help"]');
