@@ -28,6 +28,16 @@ if (radioSelect) {
   document.getElementById("edit-recur-type-custom").checked = true;
 }
 
+// Move "About text formats" link after the "Text format" selector.
+const filterWrapper = document.querySelector('.field--name-body .js-filter-wrapper');
+if (filterWrapper) {
+  const filterHelp = filterWrapper.querySelector('[data-drupal-selector="edit-body-0-format-help"]');
+  const filterList = filterWrapper.querySelector('.js-form-type-select');
+  if (filterHelp && filterList) {
+    filterList.insertAdjacentElement('afterend', filterHelp);
+  }
+}
+
 // Overwrite text in #edit-title-0-value--description to 'Event Title'.
 let title = document.querySelector('#edit-title-0-value--description');
 title.textContent = title.textContent;
