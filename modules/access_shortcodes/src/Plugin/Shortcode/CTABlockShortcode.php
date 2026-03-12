@@ -21,6 +21,7 @@ class CTABlockShortcode extends ShortcodeBase {
    */
   public function process(array $attributes, $text, $langcode = Language::LANGCODE_NOT_SPECIFIED) {
     $attributes = $this->getAttributes([
+      'heading' => '',
       'bg' => '',
       'img' => '',
       'alt' => '',
@@ -31,6 +32,7 @@ class CTABlockShortcode extends ShortcodeBase {
       $attributes
     );
 
+    $heading = empty($attributes['heading']) ? 'h2' : $attributes['heading'];
     $bg = $attributes['bg'];
     $img = $attributes['img'];
     $alt = $attributes['alt'];
@@ -40,6 +42,7 @@ class CTABlockShortcode extends ShortcodeBase {
 
     $output = [
       '#theme' => 'shortcode_cta_block',
+      '#heading' => $heading,
       '#bg' => $bg,
       '#img' => $img,
       '#alt' => $alt,

@@ -23,6 +23,7 @@ function access_shortcodes_theme() {
     ],
     'shortcode_cta_block' => [
       'variables' => [
+        'heading' => '',
         'bg' => '',
         'img' => '',
         'alt' => '',
