@@ -37,6 +37,10 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['recur_type']['widget']['#required'] = FALSE;
     $form['field_event_type']['widget']['#required'] = FALSE;
 
+    // Force h2 on titles.
+    $form['field_affinity_group_node']['widget']['#title'] = Markup::create('<h2 class="label">' . $form['field_affinity_group_node']['widget']['#title'] . '</h2>');
+    $form['field_other_authors']['widget']['#title'] = Markup::create('<h2 class="label">' . $form['field_other_authors']['widget']['#title'] . '</h2>');
+    $form['event_registration']['widget'][0]['#title'] = Markup::create('<h2 class="fieldset-legend">Event Registration</h2>');
 
     // Hide the option to share in the ACCESS bi-weekly digest if not on Access.
     if ($domain_id != 'amp_cyberinfrastructure_org') {
@@ -334,7 +338,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     ];
 
     $form['field_tags_replace']['field_suggest_title'] = [
-      '#markup' => "<h4 class='label form-required mt-4'>Tags</h4>",
+      '#markup' => "<h2 class='label form-required mt-4 mb-0'>Tags</h2>",
     ];
 
     $form['field_tags_replace']['field_suggest'] = [
