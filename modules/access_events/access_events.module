@@ -39,7 +39,8 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
 
     // Force h2 on titles.
     $form['field_affinity_group_node']['widget']['#title'] = Markup::create('<h2 class="label">' . $form['field_affinity_group_node']['widget']['#title'] . '</h2>');
-    $form['field_other_authors']['widget']['#title'] = Markup::create('<h2 class="label">' . $form['field_other_authors']['widget']['#title'] . '</h2>');
+    $form['excluded_dates']['widget']['#title'] = Markup::create('<h2 class="label mb-0">' . $form['excluded_dates']['widget']['#title'] . '</h2>');
+    $form['field_other_authors']['widget']['#title'] = Markup::create('<h2 class="label mb-0">' . $form['field_other_authors']['widget']['#title'] . '</h2>');
     $form['weekly_recurring_date']['widget'][0]['#title'] = Markup::create('<h2 class="label">' . $form['weekly_recurring_date']['widget']['#title'] . '</h2>');
     $form['monthly_recurring_date']['widget'][0]['#title'] = Markup::create('<h2 class="label">' . $form['monthly_recurring_date']['widget']['#title'] . '</h2>');
     $form['custom_date']['widget'][0]['#title'] = Markup::create('<h2 class="label">' . $form['custom_date']['widget']['#title'] . '</h2>');
