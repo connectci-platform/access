@@ -1817,3 +1817,66 @@ function access_misc_update_10031(&$sandbox) {
   }
 }
 
+/**
+ * Update block 103 (cssn: description/links) body text.
+ */
+function access_misc_update_10032() {
+  $body = <<<EOT
+<div class="flex flex-wrap py-10 md--pe-10 md--bg-[url('/sites/default/files/cssn/dot-line-bg.jpg')] bg-right">
+  <p class="prose text-dark-teal text-2xl leading-9 pe-10 flex-1">
+The Computational Science Support Network (CSSN) is a community of practice dedicated to advancing campus research computing by fostering knowledge exchange and collaboration. Its members include researchers, students, research computing facilitators, software and systems engineers, and other professionals involved in computational science.
+  </p>
+<nav
+  aria-labelledby="on-this-page-title"
+  class="hidden md--block bg-md-teal p-5 ms-auto h-fit"
+>
+  <h2
+    id="on-this-page-title"
+    class="font-extrabold text-white leading-5 py-2 text-sm"
+  >
+    CSSN
+  </h2>
+
+  <ul class="ms-4 m-0 p-0 list-none">
+    <li>
+      <a
+        class="font-semibold text-white leading-5 py-2 no-underline hover--underline hover--text-light-teal block"
+        href="#join"
+      >
+        Join the CSSN
+      </a>
+    </li>
+    <li>
+      <a
+        class="font-semibold text-white leading-5 py-2 no-underline hover--underline hover--text-light-teal block"
+        href="#activities"
+      >
+        CSSN Activities
+      </a>
+    </li>
+    <li>
+      <a
+        class="font-semibold text-white leading-5 py-2 no-underline hover--underline hover--text-light-teal block"
+        href="#engagements"
+      >
+        MATCH Engagements
+      </a>
+    </li>
+  </ul>
+</nav>
+</div>
+<div id="join" tabindex="-1"></div>
+EOT;
+  update_block_body(103, $body, 'full_no_editor');
+}
+
+/**
+ * Update block 93 (Home CTA) body text.
+ */
+function access_misc_update_10033() {
+  $body = <<<EOT
+[cta_block heading="h1" bg="/themes/contrib/asp-theme/images/cta/waves-hero.jpg" title="Wondering which resource has the software you need?" btntext="Explore the SDS" btnlink="https://sds.access-ci.org/"][/cta_block]
+EOT;
+  update_block_body(93, $body, 'full_no_editor');
+}
+
