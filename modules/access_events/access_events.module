@@ -419,6 +419,36 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
 }
 
 /**
+ * Implements hook_preprocess_field_multiple_value_form().
+ *
+ * Removes the drag handle and Order column from specific multi-value fields.
+ */
+function access_events_preprocess_field_multiple_value_form(&$variables) {
+  if (!$variables['multiple']) {
+    return;
+  }
+  $fields = ['field_other_authors', 'field_affinity_group_node'];
+  if (!in_array($variables['element']['#field_name'] ?? '', $fields)) {
+    return;
+  }
+
+  // Fix label header colspan: 2 covers drag handle + field, reduce to 1.
+  $variables['table']['#header'][0]['colspan'] = 1;
+  // Remove the Order column header (always last).
+  array_pop($variables['table']['#header']);
+
+  foreach ($variables['table']['#rows'] as &$row) {
+    unset($row['data'][0]); // field-multiple-drag (drag handle)
+    unset($row['data'][3]); // delta-order (weight select)
+    $row['data'] = array_values($row['data']);
+    $row['class'] = array_diff($row['class'] ?? [], ['draggable']);
+  }
+
+  // Remove tabledrag JS attachment.
+  unset($variables['table']['#tabledrag']);
+}
+
+/**
  * Custom submit handler to set domain access based on current domain.
  */
 function access_events_eventseries_domain_submit($form, FormStateInterface $form_state) {
@@ -864,7 +894,7 @@ function access_events_preprocess_views_view_field(&$variables) {
     // Load registrants for the event instance.
     $registrants = \Drupal::entityTypeManager()->getStorage('registrant')->loadByProperties(['eventinstance_id' => $id]);
 
-    $output = '';
+    $output = '<span class="visually-hidden">no<span>';
 
     foreach ($registrants as $registrant) {
       $status = $registrant->get('status')->getValue()[0]['value'];
