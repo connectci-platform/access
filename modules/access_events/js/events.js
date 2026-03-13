@@ -39,8 +39,6 @@ const labels = [
   'label[for="edit-field-event-speakers-0-value"]',
   'label[for="edit-field-affinity-group-node-0-target-id"]',
   'label[for="edit-field-other-authors-0-target-id"]',
-  '#field-affinity-group-node-values th:nth-child(3)',
-  '#field-affinity-group-node-values tbody td:nth-child(4)',
 ]
 labels.forEach(label => {
   const element = document.querySelector(label);
