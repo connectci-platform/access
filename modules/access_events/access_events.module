@@ -41,10 +41,12 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['field_affinity_group_node']['widget']['#title'] = Markup::create('<h2 class="label">' . $form['field_affinity_group_node']['widget']['#title'] . '</h2>');
     $form['excluded_dates']['widget']['#title'] = Markup::create('<h2 class="label mb-0">' . $form['excluded_dates']['widget']['#title'] . '</h2>');
     $form['field_other_authors']['widget']['#title'] = Markup::create('<h2 class="label mb-0">' . $form['field_other_authors']['widget']['#title'] . '</h2>');
+
     $form['weekly_recurring_date']['widget'][0]['#title'] = Markup::create('<h2 class="label">' . $form['weekly_recurring_date']['widget']['#title'] . '</h2>');
     $form['monthly_recurring_date']['widget'][0]['#title'] = Markup::create('<h2 class="label">' . $form['monthly_recurring_date']['widget']['#title'] . '</h2>');
     $form['custom_date']['widget'][0]['#title'] = Markup::create('<h2 class="label">' . $form['custom_date']['widget']['#title'] . '</h2>');
     $form['event_registration']['widget'][0]['#title'] = Markup::create('<h2 class="fieldset-legend mb-0">' . $form['event_registration']['widget'][0]['#title'] . '</h2>');
+
 
     // Hide the option to share in the ACCESS bi-weekly digest if not on Access.
     if ($domain_id != 'amp_cyberinfrastructure_org') {
@@ -230,6 +232,11 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   }
 
   if ($form_id == 'eventinstance_default_add_form' || $form_id == 'eventinstance_default_edit_form' || $form_id == 'eventinstance_default_clone_form') {
+    if ($form['notifications']) {
+      $form['notifications']['edit_message']['title']['#prefix'] = '';
+      $form['notifications']['edit_message']['title']['#suffix'] = '';
+    }
+
     // If user is not administrator, hide the field 'domain_access'.
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
