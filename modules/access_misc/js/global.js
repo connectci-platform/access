@@ -1,71 +1,6 @@
-// Checbox list behavior for accessibility and keyboard navigation,
-// and a heading for filters on mobile.
+// Heading for filters on mobile.
 (function ($, Drupal, once) {
   'use strict';
-
-  Drupal.behaviors.accessMiscCheckboxList = {
-    attach: function (context, settings) {
-      once('access-misc-checkbox-list', 'ul.item-list__checkbox', context).forEach(function (list) {
-        list.querySelectorAll('li').forEach(function (item, index) {
-          item.setAttribute('aria-checked', 'false');
-          item.setAttribute('tabindex', '-1');
-          item.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
-        });
-
-        list.querySelectorAll('[type=checkbox]').forEach(function (checkbox) {
-          checkbox.addEventListener('click', function (e) {
-            if (this.checked) {
-              this.parentElement.parentElement.setAttribute('aria-checked', 'true');
-            } else {
-              this.parentElement.parentElement.setAttribute('aria-checked', 'false');
-            }
-            e.stopPropagation();
-          });
-        });
-
-        list.addEventListener('keydown', function (e) {
-          var currentItem = this.querySelector('[aria-selected=true]');
-          if (!currentItem) return;
-          switch (e.keyCode) {
-            case 38: // Up arrow
-              if (currentItem.previousElementSibling !== null) {
-                currentItem.setAttribute('aria-selected', 'false');
-                currentItem.classList.remove('active');
-                currentItem.previousElementSibling.setAttribute('aria-selected', 'true');
-                currentItem.previousElementSibling.classList.add('active');
-                currentItem.previousElementSibling.focus();
-              }
-              e.preventDefault();
-              break;
-            case 40: // Down arrow
-              if (currentItem.nextElementSibling !== null) {
-                currentItem.setAttribute('aria-selected', 'false');
-                currentItem.classList.remove('active');
-                currentItem.nextElementSibling.setAttribute('aria-selected', 'true');
-                currentItem.nextElementSibling.classList.add('active');
-                currentItem.nextElementSibling.focus();
-              }
-              e.preventDefault();
-              break;
-            case 32: // Space
-              var checkbox = currentItem.querySelector('input[type=checkbox]');
-              if (checkbox) {
-                if (currentItem.getAttribute('aria-checked') === 'true') {
-                  currentItem.setAttribute('aria-checked', 'false');
-                  checkbox.checked = false;
-                } else {
-                  currentItem.setAttribute('aria-checked', 'true');
-                  checkbox.checked = true;
-                }
-                $(checkbox).trigger('change');
-              }
-              e.preventDefault();
-              break;
-          }
-        });
-      });
-    }
-  };
 
   Drupal.behaviors.accessMiscFiltersHeading = {
     attach: function (context, settings) {
@@ -73,6 +8,56 @@
       var $firstBlock = $('.block-facet--checkbox', context).first();
       if ($firstBlock.length && !$firstBlock.prev('h2.md--hidden').length) {
         $firstBlock.before('<h2 class="md--hidden d-block d-lg-none">Filters</h2>');
+      }
+    }
+  };
+
+  // Restore focus to the last-clicked facet checkbox after page/AJAX reload.
+  Drupal.behaviors.accessMiscFacetFocus = {
+    attach: function (context) {
+      // Store the clicked checkbox ID before the page reloads or AJAX refreshes.
+      $(once('facet-focus-track', 'input.facets-checkbox', context)).on('change.facetFocus', function () {
+        var $checkbox = $(this);
+        var isReset = $checkbox.closest('.facets-reset').length > 0;
+
+        if (isReset) {
+          // "All" reset checkbox: store the parent facet ID so we can focus
+          // the first real checkbox in that facet after it reloads.
+          var facetId = $checkbox.closest('[data-drupal-facet-id]').attr('data-drupal-facet-id');
+          sessionStorage.setItem('accessFacetFocusFacet', facetId);
+          sessionStorage.removeItem('accessFacetFocusId');
+        }
+        else {
+          sessionStorage.setItem('accessFacetFocusId', this.id);
+          sessionStorage.removeItem('accessFacetFocusFacet');
+        }
+      });
+
+      // Restore focus after reload.
+      var focusId = sessionStorage.getItem('accessFacetFocusId');
+      var focusFacet = sessionStorage.getItem('accessFacetFocusFacet');
+
+      if (focusId) {
+        var $target = $('#' + CSS.escape(focusId), context);
+        if ($target.length) {
+          sessionStorage.removeItem('accessFacetFocusId');
+          setTimeout(function () {
+            $target.trigger('focus');
+          }, 100);
+        }
+      }
+      else if (focusFacet) {
+        // After an "All" reset, focus the first non-reset, non-honeypot checkbox.
+        var $facet = $('[data-drupal-facet-id="' + focusFacet + '"]', context);
+        if ($facet.length) {
+          var $firstCheckbox = $facet.find('li:not(.facets-reset):not(.honey) > input.facets-checkbox').first();
+          if ($firstCheckbox.length) {
+            sessionStorage.removeItem('accessFacetFocusFacet');
+            setTimeout(function () {
+              $firstCheckbox.trigger('focus');
+            }, 100);
+          }
+        }
       }
     }
   };
