@@ -62,4 +62,35 @@
     }
   };
 
+  // Restore focus to anchor link after browser back (Alt+Left).
+  // Hash navigation creates a history entry but the browser does not restore
+  // focus on back, stranding keyboard / screen-reader users.
+  Drupal.behaviors.accessMiscJumpLinkFocus = {
+    attach: function (context) {
+      $(once('jump-link-focus', 'a[href^="#"]', context)).on('click.jumpLinkFocus', function () {
+        window._accessJumpLinkSource = this;
+      });
+
+      if (!window._accessJumpLinkHashChange) {
+        window._accessJumpLinkHashChange = true;
+        window.addEventListener('hashchange', function () {
+          var sourceLink = window._accessJumpLinkSource;
+          if (!sourceLink) {
+            return;
+          }
+          // Only restore focus when navigating away from the stored hash
+          // (i.e. browser back), not when first clicking the link.
+          if (location.hash === sourceLink.getAttribute('href')) {
+            return;
+          }
+          window._accessJumpLinkSource = null;
+          // Delay slightly to let the browser finish scroll restoration.
+          setTimeout(function () {
+            sourceLink.focus();
+          }, 50);
+        });
+      }
+    }
+  };
+
 })(jQuery, Drupal, once);
