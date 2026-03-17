@@ -117,6 +117,7 @@ class TopAskCiTags extends BlockBase implements
     $tags = array_slice($tags, 0, 10);
     $output = '<ul class="flex flex-wrap">';
     foreach ($tags as $tag) {
+      $tag_name = is_object($tag) ? $tag->name : (is_array($tag) ? $tag['name'] : $tag);
       $options = [
         'attributes' => [
           'class' => [
@@ -124,8 +125,8 @@ class TopAskCiTags extends BlockBase implements
           ],
         ],
       ];
-      $url = Url::fromUri("https://ask.cyberinfrastructure.org/tag/$tag", $options);
-      $external_link = Link::fromTextAndUrl($tag, $url)->toString();
+      $url = Url::fromUri("https://ask.cyberinfrastructure.org/tag/$tag_name", $options);
+      $external_link = Link::fromTextAndUrl($tag_name, $url)->toString();
       $output .= "<li class='ps-0 mt-0 list-none'>$external_link</li>";
     }
     $output .= '</ul>';
