@@ -446,14 +446,18 @@ class ConstantContactApi {
       return $this->apiCall($endpoint, $post_data, $type, $retryCount + 1);
     }
 
-    $errMsg = getHttpErrMsg($this->httpResponseCode);
-    if (!empty($errMsg)) {
-      $this->apiError($errMsg, "");
-    }
-    else {
-      if (empty($returned_result)) {
-        $this->apiError("Error from Constant Contact: no result", "");
-        return NULL;
+    // Skip error logging for 409 Conflict — callers like addContact() handle
+    // this by extracting the existing contact ID from the error response.
+    if ($this->httpResponseCode != 409) {
+      $errMsg = getHttpErrMsg($this->httpResponseCode);
+      if (!empty($errMsg)) {
+        $this->apiError($errMsg, "");
+      }
+      else {
+        if (empty($returned_result)) {
+          $this->apiError("Error from Constant Contact: no result", "");
+          return NULL;
+        }
       }
     }
 
@@ -486,7 +490,10 @@ class ConstantContactApi {
         }
       }
       $this->errorMessage = $errmsg;
-      $this->apiError($errkey, $errmsg);
+      // Log the error unless it's a 409 conflict (handled by caller).
+      if ($this->httpResponseCode != 409) {
+        $this->apiError($errkey, $errmsg);
+      }
 
       $result = NULL;
     }
