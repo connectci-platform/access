@@ -15,8 +15,46 @@ use Drupal\taxonomy\Entity\Term;
 use Drupal\node\NodeInterface;
 use Drupal\user\UserInterface;
 use Drupal\user\Entity\User;
+use Drupal\symfony_mailer\Entity\MailerTransport;
 use Drupal\views\ViewExecutable;
 
+
+/**
+ * Implements hook_mailer_init().
+ *
+ * Route emails through the correct Mailgun SMTP transport based on
+ * the active domain, and set Reply-To to the original domain address.
+ */
+function access_misc_mailer_init(\Drupal\symfony_mailer\EmailInterface $email) {
+  $domain_transport_map = [
+    'ccmnet_org' => [
+      'transport' => 'smtp_ccmnet',
+      'reply_to' => 'info@ccmnet.org',
+      'reply_name' => 'CCMNet',
+    ],
+    'openondemand_cyberinfrastructure_org' => [
+      'transport' => 'smtp_ood',
+      'reply_to' => 'info@openondemand.org',
+      'reply_name' => 'Open OnDemand',
+    ],
+  ];
+
+  try {
+    $domain_id = \Drupal::service('domain.negotiator')->getActiveDomain()?->id();
+  }
+  catch (\Exception $e) {
+    return;
+  }
+
+  if ($domain_id && isset($domain_transport_map[$domain_id])) {
+    $config = $domain_transport_map[$domain_id];
+    $transport = MailerTransport::load($config['transport']);
+    if ($transport) {
+      $email->setTransportDsn($transport->getDsn());
+      $email->setReplyTo($config['reply_to'], $config['reply_name']);
+    }
+  }
+}
 
 /**
  * Implements hook_page_attachments().
