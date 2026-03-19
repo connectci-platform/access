@@ -6,7 +6,8 @@ info:
     
     ## Features
     - **Pagination**: Default 100 items per page, customizable with `items_per_page` parameter
-    - **Faceted Search**: Filter by event type, affiliation, skill level, tags, and date ranges
+    - **Direct Filters**: Filter by event type, skill level, and tags using simple query parameters
+    - **Faceted Search**: Additional filtering by affiliation and affinity group via faceted parameters
     - **Full-text Search**: Search across event titles, descriptions, and content with `search_api_fulltext` parameter
     - **CORS Enabled**: Can be called from any domain
     - **Date Filtering**: Support for both relative (`today`, `+1week`) and absolute date formats
@@ -15,7 +16,7 @@ info:
     ## Authentication
     No authentication required - this is a public API.
     
-  version: 2.2.0
+  version: 2.2.1
   termsOfService: https://access-ci.org/terms
   contact:
     name: ACCESS Support
@@ -40,13 +41,16 @@ paths:
         - Options: 25, 50, 100, 250, 500, or "All"
         - Use `page` parameter for pagination navigation
         
+        ## Direct Filters (preferred)
+        Simple query parameters for common filters:
+        - `event_type=Workshop` - Filter by event type
+        - `tags=python` - Filter by tag
+        - `skill_level=Beginner` - Filter by skill level
+
         ## Faceted Search
-        Use the format `f[0]=field:value` for filtering:
-        - Event Type: `f[0]=event_type:Training`
+        For affiliation and affinity group filtering, use the `f[0]=field:value` format:
         - Affiliation: `f[0]=affiliation:ACCESS Collaboration`
         - Affinity Group: `f[0]=affinity_group:Anvil`
-        - Skill Level: `f[0]=skill_level:Beginner`
-        - Tags: `f[0]=tags:ai`
         
         ## Date Filtering
         **Relative dates:**
@@ -83,18 +87,64 @@ paths:
             minimum: 0
             default: 0
             
-        # Faceted Search Parameters  
+        # Direct Filter Parameters (preferred for event_type, tags, skill_level)
+        - name: event_type
+          in: query
+          description: |
+            Filter by event type. Matches the `event_type` field.
+
+            **Common values:** Training, Workshop, Office Hours, Webinar, other
+          required: false
+          schema:
+            type: string
+          examples:
+            workshop:
+              value: "Workshop"
+              summary: Filter for workshops
+            office_hours:
+              value: "Office Hours"
+              summary: Filter for office hours
+
+        - name: tags
+          in: query
+          description: |
+            Filter by event tag. Matches against the event's tag list.
+
+            **Examples:** python, ai, hpc, open-ondemand, machine-learning
+          required: false
+          schema:
+            type: string
+          examples:
+            python:
+              value: "python"
+              summary: Filter for Python-related events
+            ai:
+              value: "ai"
+              summary: Filter for AI-related events
+
+        - name: skill_level
+          in: query
+          description: |
+            Filter by required skill level.
+          required: false
+          schema:
+            type: string
+            enum: [Beginner, Intermediate, Advanced]
+          examples:
+            beginner:
+              value: "Beginner"
+              summary: Filter for beginner-level events
+
+        # Faceted Search Parameters (for affiliation and affinity_group)
         - name: f[0]
           in: query
           description: |
             Faceted search filter in format `field:value`.
-            
+            For event_type, tags, and skill_level, prefer the direct query parameters above.
+
             **Available fields:**
-            - `event_type` - Filter by event type (Training, Office Hours, other)
             - `affiliation` - Filter by affiliation (ACCESS Collaboration, Community, nairr_pilot, etc.)
             - `affinity_group` - Filter by affinity group (Anvil, Stampede-3, etc.)
-            - `skill_level` - Filter by skill level (Beginner, Intermediate, Advanced)
-            - `tags` - Filter by tags (ai, big-data, python, etc.)
           required: false
           style: form
           explode: true
