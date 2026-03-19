@@ -93,4 +93,7 @@
     }
   };
 
+  // Fix admin toolbar role - #a11y.
+  $('#toolbar-administration').attr('role', 'navigation');
+
 })(jQuery, Drupal, once);
