@@ -95,5 +95,6 @@
 
   // Fix admin toolbar role - #a11y.
   $('#toolbar-administration').attr('role', 'navigation');
+  $('.messages').attr('role', 'status');
 
 })(jQuery, Drupal, once);
