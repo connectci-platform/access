@@ -3,7 +3,6 @@
 namespace Drupal\access_misc\Plugin\EmailBuilder;
 
 use Drupal\symfony_mailer\Processor\EmailBuilderBase;
-use Drupal\symfony_mailer\EmailInterface;
 
 /**
  * Email Builder plug-in for the access_misc module.
@@ -22,7 +21,4 @@ use Drupal\symfony_mailer\EmailInterface;
  * )
  */
 class RegistrationEmailBuilder extends EmailBuilderBase {
-  public function build(EmailInterface $email) {
-    $email->setFrom('noreply@support.access-ci.org');
-  }
 }

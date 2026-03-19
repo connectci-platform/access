@@ -28,6 +28,10 @@ use Drupal\views\ViewExecutable;
  */
 function access_misc_mailer_init(\Drupal\symfony_mailer\EmailInterface $email) {
   $domain_transport_map = [
+    'amp_cyberinfrastructure_org' => [
+      'from' => 'noreply@mg.support.access-ci.org',
+      'from_name' => 'ACCESS Support',
+    ],
     'ccmnet_org' => [
       'transport' => 'smtp_ccmnet',
       'from' => 'info@mg.ccmnet.org',
@@ -53,12 +57,16 @@ function access_misc_mailer_init(\Drupal\symfony_mailer\EmailInterface $email) {
 
   if ($domain_id && isset($domain_transport_map[$domain_id])) {
     $config = $domain_transport_map[$domain_id];
-    $transport = MailerTransport::load($config['transport']);
-    if ($transport) {
-      $email->setTransportDsn($transport->getDsn());
+    if (!empty($config['transport'])) {
+      $transport = MailerTransport::load($config['transport']);
+      if ($transport) {
+        $email->setTransportDsn($transport->getDsn());
+      }
     }
     $email->setFrom(new \Drupal\symfony_mailer\Address($config['from'], $config['from_name']));
-    $email->setReplyTo(new \Drupal\symfony_mailer\Address($config['reply_to'], $config['reply_name']));
+    if (!empty($config['reply_to'])) {
+      $email->setReplyTo(new \Drupal\symfony_mailer\Address($config['reply_to'], $config['reply_name']));
+    }
   }
 }
 
