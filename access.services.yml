@@ -1,4 +1,8 @@
 services:
+  logger.channel.access:
+    parent: logger.channel_base
+    arguments: ['access']
+
   access.jwt_key_provider:
     class: Drupal\access\AccessJwtKeyProvider
 
