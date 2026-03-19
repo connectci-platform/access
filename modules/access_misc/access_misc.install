@@ -1870,13 +1870,3 @@ EOT;
   update_block_body(103, $body, 'full_no_editor');
 }
 
-/**
- * Update block 93 (Home CTA) body text.
- */
-function access_misc_update_10033() {
-  $body = <<<EOT
-[cta_block heading="h1" bg="/themes/contrib/asp-theme/images/cta/waves-hero.jpg" title="Wondering which resource has the software you need?" btntext="Explore the SDS" btnlink="https://sds.access-ci.org/"][/cta_block]
-EOT;
-  update_block_body(93, $body, 'full_no_editor');
-}
-
