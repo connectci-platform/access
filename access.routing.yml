@@ -13,6 +13,24 @@ access.autocomplete:
     requirements:
         _access: 'TRUE'
 
+access.suggest_tags:
+  path: '/api/suggest-tags'
+  defaults:
+    _controller: '\Drupal\access\Controller\ContentAssistController::suggestTags'
+    _format: json
+  methods: [POST]
+  requirements:
+    _permission: 'use content assist api'
+
+access.suggest_summary:
+  path: '/api/suggest-summary'
+  defaults:
+    _controller: '\Drupal\access\Controller\ContentAssistController::suggestSummary'
+    _format: json
+  methods: [POST]
+  requirements:
+    _permission: 'use content assist api'
+
 access.api_docs:
   path: '/api-docs'
   defaults:

@@ -1,0 +1,4 @@
+use content assist api:
+  title: 'Use content assist API'
+  description: 'Access the /api/suggest-tags and /api/suggest-summary endpoints.'
+  restrict access: true

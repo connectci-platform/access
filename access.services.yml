@@ -4,7 +4,7 @@ services:
 
   access.auth_cookie_subscriber:
     class: Drupal\access\EventSubscriber\AccessAuthCookieSubscriber
-    arguments: ['@access.jwt_key_provider']
+    arguments: ['@access.jwt_key_provider', '@current_user', '@entity_type.manager', '@state', '@logger.channel.access']
     tags:
       - { name: event_subscriber }
 

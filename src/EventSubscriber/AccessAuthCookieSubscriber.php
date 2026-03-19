@@ -3,7 +3,11 @@
 namespace Drupal\access\EventSubscriber;
 
 use Drupal\access\AccessJwtKeyProvider;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\Core\State\StateInterface;
 use Firebase\JWT\JWT;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
@@ -51,13 +55,59 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
   protected AccessJwtKeyProvider $keyProvider;
 
   /**
+   * The current user.
+   *
+   * @var \Drupal\Core\Session\AccountProxyInterface
+   */
+  protected AccountProxyInterface $currentUser;
+
+  /**
+   * The entity type manager.
+   *
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   */
+  protected EntityTypeManagerInterface $entityTypeManager;
+
+  /**
+   * The state service.
+   *
+   * @var \Drupal\Core\State\StateInterface
+   */
+  protected StateInterface $state;
+
+  /**
+   * The logger.
+   *
+   * @var \Psr\Log\LoggerInterface
+   */
+  protected LoggerInterface $logger;
+
+  /**
    * Constructs the subscriber.
    *
    * @param \Drupal\access\AccessJwtKeyProvider $key_provider
    *   The JWT key provider service.
+   * @param \Drupal\Core\Session\AccountProxyInterface $current_user
+   *   The current user.
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
+   *   The entity type manager.
+   * @param \Drupal\Core\State\StateInterface $state
+   *   The state service.
+   * @param \Psr\Log\LoggerInterface $logger
+   *   The logger.
    */
-  public function __construct(AccessJwtKeyProvider $key_provider) {
+  public function __construct(
+    AccessJwtKeyProvider $key_provider,
+    AccountProxyInterface $current_user,
+    EntityTypeManagerInterface $entity_type_manager,
+    StateInterface $state,
+    LoggerInterface $logger,
+  ) {
     $this->keyProvider = $key_provider;
+    $this->currentUser = $current_user;
+    $this->entityTypeManager = $entity_type_manager;
+    $this->state = $state;
+    $this->logger = $logger;
   }
 
   /**
@@ -77,10 +127,8 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
       return;
     }
 
-    $user = \Drupal::currentUser();
-
-    if ($user->isAuthenticated()) {
-      $this->setAuthCookie($event, $user);
+    if ($this->currentUser->isAuthenticated()) {
+      $this->setAuthCookie($event);
     }
     else {
       $this->clearAuthCookie($event);
@@ -96,11 +144,11 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
    * intentional: a user actively working should not lose their identity cookie
    * mid-session.
    */
-  protected function setAuthCookie(ResponseEvent $event, $user) {
+  protected function setAuthCookie(ResponseEvent $event) {
     // Get the full account name (e.g. "jsmith@access-ci.org").
     // This is used as the JWT "sub" claim and matches the format
     // expected by MCP servers in the X-Acting-User header.
-    $user_entity = \Drupal\user\Entity\User::load($user->id());
+    $user_entity = $this->entityTypeManager->getStorage('user')->load($this->currentUser->id());
     if (!$user_entity) {
       return;
     }
@@ -120,17 +168,13 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
     // This state value must be a relative string (e.g. '+18 hours') so that
     // strtotime() produces "now + 18h", keeping exp consistent with iat.
     // An absolute value would break the rolling-expiration semantics.
-    $cookie_expiration_str = \Drupal::state()->get(
+    $cookie_expiration_str = $this->state->get(
       'drupal_seamless_cilogon.seamless_cookie_expiration',
       '+18 hours'
     );
     $cookie_expiration = strtotime($cookie_expiration_str);
 
-    // Use the same domain as SESSaccesscisso.
-    $cookie_domain = \Drupal::state()->get(
-      'drupal_seamless_cilogon.seamless_cookie_domain',
-      '.access-ci.org'
-    ) ?? '.access-ci.org';
+    $cookie_domain = $this->getCookieDomain();
 
     $now = time();
     $exp = $cookie_expiration ?: ($now + 64800); // fallback: 18 hours
@@ -153,7 +197,7 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
       $token = JWT::encode($payload, $private_key, 'ES256', $kid);
     }
     catch (\Exception $e) {
-      \Drupal::logger('access')->warning('Failed to encode JWT cookie: @message', [
+      $this->logger->warning('Failed to encode JWT cookie: @message', [
         '@message' => $e->getMessage(),
       ]);
       return;
@@ -175,6 +219,24 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
   }
 
   /**
+   * Gets the cookie domain, preferring the ACCESS_JWT_COOKIE_DOMAIN env var.
+   *
+   * This allows DDEV and other local environments to override the domain
+   * without modifying Drupal state (e.g. ACCESS_JWT_COOKIE_DOMAIN=.ddev.site).
+   */
+  protected function getCookieDomain(): string {
+    $env_domain = getenv('ACCESS_JWT_COOKIE_DOMAIN');
+    if (!empty($env_domain)) {
+      return $env_domain;
+    }
+
+    return $this->state->get(
+      'drupal_seamless_cilogon.seamless_cookie_domain',
+      '.access-ci.org'
+    );
+  }
+
+  /**
    * Clears the JWT cookie for anonymous users (e.g. after logout).
    */
   protected function clearAuthCookie(ResponseEvent $event) {
@@ -185,10 +247,7 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
       return;
     }
 
-    $cookie_domain = \Drupal::state()->get(
-      'drupal_seamless_cilogon.seamless_cookie_domain',
-      '.access-ci.org'
-    ) ?? '.access-ci.org';
+    $cookie_domain = $this->getCookieDomain();
 
     $event->getResponse()->headers->clearCookie(
       self::COOKIE_NAME,
