@@ -68,6 +68,8 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
 
     foreach ($form['custom_date']['widget'] as $key => $value) {
       if (is_numeric($key)) {
+        $form['custom_date']['widget'][$key]['value']['#prefix'] = '<span class="label">' . t('Start date') . '</span>';
+        $form['custom_date']['widget'][$key]['end_value']['#prefix'] = '<span class="label">' . t('End date') . '</span>';
         $form['custom_date']['widget'][$key]['day_occurance']['#suffix'] = $suffix;
       }
     }
