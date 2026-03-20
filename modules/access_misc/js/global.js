@@ -93,8 +93,10 @@
     }
   };
 
-  // Fix admin toolbar role - #a11y.
+  // #a11y fixes.
   $('#toolbar-administration').attr('role', 'navigation');
   $('.messages').attr('role', 'status');
+  $('.messages').attr('role', 'status');
+  $('.path-events input.form-date').attr('title', 'Date');
 
 })(jQuery, Drupal, once);
