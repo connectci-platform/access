@@ -55,3 +55,7 @@ webform_help_a11y:
   version: 1.x
   js:
     js/webform_help_a11y.js: {}
+facets_checkbox_a11y:
+  version: 1.x
+  js:
+    js/facets_checkbox_a11y.js: {}
