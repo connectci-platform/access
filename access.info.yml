@@ -4,3 +4,4 @@ type: module
 core_version_requirement: ^9 || ^10
 package: Custom
 dependencies:
+  - access:access_llm

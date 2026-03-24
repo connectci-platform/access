@@ -1,0 +1,17 @@
+services:
+  logger.channel.access:
+    parent: logger.channel_base
+    arguments: ['access']
+
+  access.jwt_key_provider:
+    class: Drupal\access\AccessJwtKeyProvider
+
+  access.auth_cookie_subscriber:
+    class: Drupal\access\EventSubscriber\AccessAuthCookieSubscriber
+    arguments: ['@access.jwt_key_provider', '@current_user', '@entity_type.manager', '@state', '@logger.channel.default']
+    tags:
+      - { name: event_subscriber }
+
+  access.jwks_controller:
+    class: Drupal\access\Controller\JwksController
+    arguments: ['@access.jwt_key_provider']

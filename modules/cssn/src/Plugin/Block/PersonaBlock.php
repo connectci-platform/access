@@ -4,6 +4,7 @@ namespace Drupal\cssn\Plugin\Block;
 
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Link;
+use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Drupal\access_misc\Plugin\Util\RolesLabelLookup;
 use Drupal\cssn\Plugin\Util\EndUrl;
@@ -132,7 +133,7 @@ class PersonaBlock extends BlockBase {
       }
       if (!$public) {
         $cssn_role_url = Url::fromUri('internal:/form/edit-your-cssn-roles?destination=community-persona');
-        $cssn_role_link = Link::fromTextAndUrl('Edit Roles', $cssn_role_url);
+        $cssn_role_link = Link::fromTextAndUrl(Markup::create('<i class="text-dark bi-pencil-square" aria-hidden="true"></i> Edit Roles'), $cssn_role_url);
         $cssn_role_renderable = $cssn_role_link->toRenderable();
         $cssn_role = $cssn_role_renderable;
         $cssn_role['#attributes']['class'] = ['text-dark'];
@@ -141,32 +142,9 @@ class PersonaBlock extends BlockBase {
         $cssn_role = "";
       }
 
-      // Badges.
-      $badges = $user_entity->get('field_user_badges')->getValue();
-      $badge_name = [];
-      $user_badges = '<ul class="flex flex-wrap p-0 m-0">';
-      foreach ($badges as $badge) {
-        $term_id = $badge['target_id'];
-        if (Term::load($term_id)->get('field_badge')->entity) {
-          $name = Term::load($term_id)->get('name')->value;
-          $image_alt = Term::load($term_id)->get('field_badge')->alt;
-          $image_url = Term::load($term_id)->get('field_badge')->entity->getFileUri();
-          $image = \Drupal::service('file_url_generator')->generateAbsoluteString($image_url);
-          if ($image) {
-            if ($name) {
-              $user_badges .= "<li class='badge mt-0 ms-0 p-0' data-placement='top' data-toggle='tooltip' title='$name'>";
-            }
-            else {
-              $user_badges .= "<li>";
-            }
+      $user_badges = $this->taxBadges($user_entity, 'field_user_badges');
 
-            $user_badges .= "<img src='$image' alt='$image_alt' title='$name' class='mt-0 me-2 mb-2' width='55' height='55' />";
-
-            $user_badges .= "</li>";
-          }
-        }
-      }
-      $user_badges .= '</ul>';
+      $ood_badges = $this->taxBadges($user_entity, 'field_open_ondemand_badges');
 
       // Programs.
       $program = implode(', ', $terms);
@@ -193,7 +171,7 @@ class PersonaBlock extends BlockBase {
         $cssn['#attributes']['class'] = ['btn', 'btn-primary', 'btn-sm', 'py-1', 'px-2'];
       }
       $cssn_more_url = Url::fromUri('https://support.access-ci.org/community/cssn');
-      $cssn_more_link = Link::fromTextAndUrl('info', $cssn_more_url);
+      $cssn_more_link = Link::fromTextAndUrl(Markup::create('<i class="text-dark bi-info-circle text-md-teal" aria-hidden="true"></i> info'), $cssn_more_url);
       $cssn_more_renderable = $cssn_more_link->toRenderable();
       $cssn_more = $cssn_more_renderable;
       $cssn_more['#attributes']['class'] = [
@@ -244,11 +222,15 @@ class PersonaBlock extends BlockBase {
                           {% if cssn != "Not a CSSN Member" %}
                             <div class="d-flex justify-content-between flex justify-between">
                               <p>{{ cssn_indicator | raw }} <strong>{{ cssn }}</strong></p>
-                              <div><i class="text-dark bi-info-circle text-md-teal" aria-hidden="true"></i> {{ cssn_more }}</div>
+                              <div>{{ cssn_more }}</div>
                             </div>
                           {% endif %}
                           {% if user_badges %}
                             {{ user_badges | raw }}
+                          {% endif %}
+                          {% if ood_badges %}
+                            <h2 class="h4 text-lg font-bold leading-5 mt-3">{{ ood_badges_title }}</h2>
+                            {{ ood_badges | raw }}
                           {% endif %}
 
                           <div>
@@ -286,7 +268,7 @@ class PersonaBlock extends BlockBase {
                                 <div><h2 class="h4 text-lg font-bold leading-5 mt-0">{{ role_text }}:</h2>{{ roles | raw }}</div>
                               {% endif %}
                               {% if cssn_role %}
-                                <div><i class="text-dark bi-pencil-square" aria-hidden="true"></i> {{ cssn_role }}</div>
+                                <div>{{ cssn_role }}</div>
                               {% endif %}
                             </div>
                             {% if program %}
@@ -311,6 +293,8 @@ class PersonaBlock extends BlockBase {
           'cssn_indicator' => $cssn_indicator,
           'cssn_more' => $cssn_more,
           'user_badges' => $user_badges,
+          'ood_badges_title' => t('Open OnDemand Badges'),
+          'ood_badges' => $ood_badges,
           'profile_text' => t('Profiles'),
           'askci' => $askci,
           'github' => $github,
@@ -329,6 +313,45 @@ class PersonaBlock extends BlockBase {
     else {
       return [];
     }
+  }
+
+  /**
+   * @return string
+   */
+  private function taxBadges($user_entity, $field) {
+    // Badges.
+    $badges = $user_entity->get($field)->getValue();
+    $badge_name = [];
+
+    if (empty($badges)) {
+      return "";
+    }
+
+    $user_badges = '<ul class="flex flex-wrap p-0 m-0">';
+    foreach ($badges as $badge) {
+      $term_id = $badge['target_id'];
+      if (Term::load($term_id)->get('field_badge')->entity) {
+        $name = Term::load($term_id)->get('name')->value;
+        $image_alt = Term::load($term_id)->get('field_badge')->alt;
+        $image_url = Term::load($term_id)->get('field_badge')->entity->getFileUri();
+        $image = \Drupal::service('file_url_generator')->generateAbsoluteString($image_url);
+        if ($image) {
+          if ($name) {
+            $user_badges .= "<li class='badge mt-0 ms-0 p-0' data-placement='top' data-toggle='tooltip' title='$name'>";
+          }
+          else {
+            $user_badges .= "<li>";
+          }
+
+          $user_badges .= "<img src='$image' alt='$image_alt' title='$name' class='mt-0 me-2 mb-2' width='55' height='55' />";
+
+          $user_badges .= "</li>";
+        }
+      }
+    }
+    $user_badges .= '</ul>';
+
+    return $user_badges;
   }
 
   /**

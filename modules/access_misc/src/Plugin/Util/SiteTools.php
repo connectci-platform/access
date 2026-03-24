@@ -78,6 +78,17 @@ class SiteTools {
   }
 
   /**
+   * Get primary url for set domain.
+   */
+  public function getDomainUrl($domain_id) {
+    $domain = $this->entityTypeManager->getStorage('domain')->load($domain_id);
+    if ($domain) {
+      return $domain->buildUrl('');
+    }
+    return 'https://support.access-ci.org'; // Fallback URL if domain not found.
+  }
+
+  /**
    * Get current event domain URL.
    */
   public function getEventCurrentDomainUrl($event_instance_id) {

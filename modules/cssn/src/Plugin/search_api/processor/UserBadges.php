@@ -49,20 +49,36 @@ class UserBadges extends ProcessorPluginBase {
    */
   public function addFieldValues(ItemInterface $item) {
     $user = $item->getOriginalObject()->getValue();
-    $badges = $user->get('field_user_badges')->getValue();
 
     $fields = $this->getFieldsHelper()
       ->filterForPropertyPath($item->getFields(), NULL, 'search_api_user_badges');
 
+    // Collect badges from both regular and OOD badge fields.
+    $badge_fields = ['field_user_badges', 'field_open_ondemand_badges'];
+    $badge_refs = [];
+    foreach ($badge_fields as $field_name) {
+      if ($user->hasField($field_name)) {
+        foreach ($user->get($field_name)->getValue() as $ref) {
+          $badge_refs[] = $ref;
+        }
+      }
+    }
+
     foreach ($fields as $field) {
-      foreach ($badges as $badge) {
-        $term = \Drupal\taxonomy\Entity\Term::load($badge['target_id']);
+      foreach ($badge_refs as $badge) {
+        $term = Term::load($badge['target_id']);
+        if (!$term || $term->get('field_badge')->isEmpty()) {
+          continue;
+        }
 
         $title = $term->getName();
 
         $badge_image = $term->get('field_badge')->getValue();
         $badge_image_alt = $badge_image[0]['alt'];
         $file = File::load($badge_image[0]['target_id']);
+        if (!$file) {
+          continue;
+        }
         $path = $file->getFileUri();
         $badge_img = \Drupal::service('file_url_generator')->generateString($path);
 

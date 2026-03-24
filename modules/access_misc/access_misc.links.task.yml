@@ -1,0 +1,4 @@
+access_misc.domain_logos:
+  title: Logos
+  route_name: domain_logos.form
+  base_route: domain.admin

@@ -17,7 +17,7 @@ function ondemand_user_login($account) {
   $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
 
   if ($current_domain_name == 'open-ondemand' || $current_domain_name == 'pa-science') {
-    $domain_term_name = $current_domain_name == 'open-ondemand' ? 'OnDemand' : 'PA Science';
+    $domain_term_name = $current_domain_name == 'open-ondemand' ? 'Open OnDemand' : 'PA Science';
 
     $current_user = \Drupal::currentUser();
     $uid = $current_user->id();
@@ -27,7 +27,12 @@ function ondemand_user_login($account) {
       'name' => $domain_term_name,
       'vid' => 'region',
     ]);
-    $term_id = reset($terms)->id();
+    $term = reset($terms);
+    if (!$term) {
+      \Drupal::logger('ondemand')->error('Region term "@name" not found in taxonomy.', ['@name' => $domain_term_name]);
+      return;
+    }
+    $term_id = $term->id();
 
     $new_ondemand_user = FALSE;
     $programs = $user->get('field_region')->referencedEntities();

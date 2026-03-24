@@ -12,10 +12,63 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Drupal\taxonomy\Entity\Term;
+use Drupal\node\NodeInterface;
 use Drupal\user\UserInterface;
 use Drupal\user\Entity\User;
+use Drupal\symfony_mailer\Entity\MailerTransport;
 use Drupal\views\ViewExecutable;
 
+
+/**
+ * Implements hook_mailer_init().
+ *
+ * Route emails through the correct Mailgun SMTP transport based on
+ * the active domain, and set From/Reply-To for proper SPF/DKIM
+ * alignment via mg.* subdomains.
+ */
+function access_misc_mailer_init(\Drupal\symfony_mailer\EmailInterface $email) {
+  $domain_transport_map = [
+    'amp_cyberinfrastructure_org' => [
+      'from' => 'noreply@mg.support.access-ci.org',
+      'from_name' => 'ACCESS Support',
+    ],
+    'ccmnet_org' => [
+      'transport' => 'smtp_ccmnet',
+      'from' => 'info@mg.ccmnet.org',
+      'from_name' => 'CCMNet',
+      'reply_to' => 'info@ccmnet.org',
+      'reply_name' => 'CCMNet',
+    ],
+    'openondemand_cyberinfrastructure_org' => [
+      'transport' => 'smtp_ood',
+      'from' => 'info@mg.openondemand.org',
+      'from_name' => 'Open OnDemand',
+      'reply_to' => 'info@openondemand.org',
+      'reply_name' => 'Open OnDemand',
+    ],
+  ];
+
+  try {
+    $domain_id = \Drupal::service('domain.negotiator')->getActiveDomain()?->id();
+  }
+  catch (\Exception $e) {
+    return;
+  }
+
+  if ($domain_id && isset($domain_transport_map[$domain_id])) {
+    $config = $domain_transport_map[$domain_id];
+    if (!empty($config['transport'])) {
+      $transport = MailerTransport::load($config['transport']);
+      if ($transport) {
+        $email->setTransportDsn($transport->getDsn());
+      }
+    }
+    $email->setFrom(new \Drupal\symfony_mailer\Address($config['from'], $config['from_name']));
+    if (!empty($config['reply_to'])) {
+      $email->setReplyTo(new \Drupal\symfony_mailer\Address($config['reply_to'], $config['reply_name']));
+    }
+  }
+}
 
 /**
  * Implements hook_page_attachments().
@@ -517,12 +570,64 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     $form['field_affiliation']['#access'] = FALSE;
   }
 
+  if ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form') {
+    // If domain doesn't get set, force current domain after submit.
+    array_unshift($form['actions']['submit']['#submit'], 'access_announcements_domain_submit');
+  }
+
   if ($form_id == 'user_login_form') {
     $form['#title'] = t('Join or Login');
   }
 
   if ($form_id == 'user_form') {
     $form['actions']['submit']['#submit'][] = 'access_misc_user_password_change';
+
+    // Hide the current password field and make the password field optional
+    // so users can save profile changes without setting a new password.
+    // Uses #after_build to ensure it runs after the form is fully built.
+    $form['#after_build'][] = 'access_misc_user_form_after_build';
+  }
+}
+
+/**
+ * After build callback for user_form.
+ *
+ * Users authenticate via CILogon/social auth and don't have Drupal passwords,
+ * so we hide the current password field and make the password field optional.
+ * The user_pass_reset flag tells core's ProtectedUserFieldConstraint validator
+ * to skip the current password check on submit. User 1 is exempt so the
+ * superadmin account retains the current password requirement.
+ */
+function access_misc_user_form_after_build($form, FormStateInterface $form_state) {
+  // Do not bypass current password for the superadmin (user 1).
+  $account = $form_state->getFormObject()->getEntity();
+  if (!empty($account) && (int) $account->id() === 1) {
+    return $form;
+  }
+  if (isset($form['account']['current_pass'])) {
+    $form['account']['current_pass']['#access'] = FALSE;
+  }
+  if (isset($form['account']['pass'])) {
+    $form['account']['pass']['#required'] = FALSE;
+  }
+  // Ensure user_pass_reset is set so core's ProtectedUserFieldConstraint
+  // validator skips the current password check on submit. This is safe for
+  // admin-editing-other-user because the validator only checks when the
+  // current user is editing their own account.
+  $form_state->set('user_pass_reset', 1);
+  return $form;
+}
+
+/**
+ * Custom submit handler to set domain access based on current domain.
+ */
+function access_announcements_domain_submit($form, FormStateInterface $form_state) {
+  $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
+  $set_domain = $form_state->getValue('field_domain_access');
+
+  if ($domain_id && empty($set_domain)) {
+    $set_domain[] = $domain_id;
+    $form_state->setValue('field_domain_access', $set_domain);
   }
 }
 
@@ -740,8 +845,10 @@ function access_misc_webform_submission_insert(\Drupal\webform\WebformSubmission
 
   $symfony_mail->email($policy, $policy_subtype, $manager_emails, $variables);
 
+  // Count recipients: if array use count(), if string count commas + 1.
+  $recipient_count = is_array($manager_emails) ? count($manager_emails) : substr_count($manager_emails, ',') + 1;
   \Drupal::logger('access_misc')->info('Project created notification sent to @count managers for submission @sid', [
-    '@count' => is_array($manager_emails) ? count($manager_emails) : 1,
+    '@count' => $recipient_count,
     '@sid' => $webform_submission->id(),
   ]);
 }
@@ -793,8 +900,10 @@ function access_misc_webform_submission_update(\Drupal\webform\WebformSubmission
 
   $symfony_mail->email($policy, $policy_subtype, $manager_emails, $variables);
 
+  // Count recipients: if array use count(), if string count commas + 1.
+  $recipient_count = is_array($manager_emails) ? count($manager_emails) : substr_count($manager_emails, ',') + 1;
   \Drupal::logger('access_misc')->info('Project updated notification sent to @count managers for submission @sid', [
-    '@count' => is_array($manager_emails) ? count($manager_emails) : 1,
+    '@count' => $recipient_count,
     '@sid' => $webform_submission->id(),
   ]);
 
@@ -840,7 +949,7 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
   $series_title_url = "<a href='$event_url'>$series_title</a>";
 
   $series_screen_survey_url = $series->get('field_screen_survey_url')->uri;
-  $series_screen_survey_text = $series->get('field_screen_survey_email_text')->value;
+  $series_email_template = $series->get('field_screen_survey_email_text')->value;
 
   $registered_person_email = Xss::filter($form_state->getValues()['email'][0]['value']);
   $name = Xss::filter($form_state->getValues()['field_first_name'][0]['value']) . ' ' . Xss::filter($form_state->getValues()['field_last_name'][0]['value']);
@@ -852,15 +961,26 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
 
   $policy = 'access_misc';
 
-  // Get list of unique emails.
+  // Render the full email body from the event's template field.
+  // Mark title_link as safe since it contains an <a> tag.
+  $template_variables = [
+    'name' => $name,
+    'title_link' => new \Twig\Markup($series_title_url, 'UTF-8'),
+    'start_date' => $start_date,
+    'screen_survey_url' => $series_screen_survey_url,
+  ];
+  $custom_body = _access_events_render_email_template($series_email_template, $template_variables);
+
+  // The 'register' policy uses custom_body + email_title only.
+  // Extra variables (title, name, title_link, etc.) are needed by the
+  // 'waitlist' policy which still uses its own Symfony Mailer template.
   $variables = [
     'title' => $series_title,
     'name' => $name,
     'title_link' => $series_title_url,
     'start_date' => $start_date,
     'contact' => $contact,
-    'screen_survey_text' => $series_screen_survey_text,
-    'screen_survey_url' => $series_screen_survey_url,
+    'custom_body' => $custom_body,
     'email_title' => $email_title,
   ];
 
@@ -878,12 +998,14 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
 
   // Don't overwrite existing entries - just ensure the event is in the digest.
   if (!isset($digest[$event_instance_id])) {
+    $active_domain = \Drupal::service('domain.negotiator')->getActiveDomain();
     $digest[$event_instance_id] = [
       'event_title' => $series_title,
       'event_url' => _access_misc_get_event_domain_url($event_instance_id),
       'author_email' => $author_email,
       'registration_count' => 1,
       'first_registration' => date('Y-m-d H:i:s'),
+      'domain_id' => $active_domain ? $active_domain->id() : NULL,
     ];
   }
   else {
@@ -944,6 +1066,7 @@ function _access_misc_get_event_domain_url($event_instance_id) {
     return '/events/' . $event_instance_id;
   }
 }
+
 
 /**
  * Custom submit handler for user_form.
@@ -1067,6 +1190,8 @@ function access_misc_cron() {
     // Only proceed if there are notifications to send.
     if (!empty($digest)) {
       $successful_sends = [];
+      $negotiator = \Drupal::service('domain.negotiator');
+      $original_domain = $negotiator->getActiveDomain();
 
       foreach ($digest as $event_id => $digest_event) {
         $event_author = $digest_event['author_email'];
@@ -1074,6 +1199,17 @@ function access_misc_cron() {
         $policy_subtype = 'registrant_digest';
 
         try {
+          // Set the active domain from the stored domain_id so
+          // hook_mailer_init() routes through the correct transport.
+          if (!empty($digest_event['domain_id'])) {
+            $domain = \Drupal::entityTypeManager()
+              ->getStorage('domain')
+              ->load($digest_event['domain_id']);
+            if ($domain) {
+              $negotiator->setActiveDomain($domain);
+            }
+          }
+
           \Drupal::service('access_misc.symfony.mail')
             ->email($policy, $policy_subtype, $event_author, $digest_event);
           $successful_sends[] = $event_id;
@@ -1091,6 +1227,12 @@ function access_misc_cron() {
               '@error' => $e->getMessage(),
             ]);
         }
+      }
+
+      // Restore the original active domain so we don't pollute state
+      // for anything else running in this process.
+      if ($original_domain) {
+        $negotiator->setActiveDomain($original_domain);
       }
 
       // Only reset digest for successfully sent notifications.
@@ -1134,3 +1276,585 @@ function access_misc_user_update(\Drupal\user\UserInterface $account) {
     }
   }
 }
+
+/**
+ * Normalize a string for comparison: lowercase, strip dashes/spaces.
+ */
+function _access_misc_normalize_term(string $name): string {
+  return strtolower(preg_replace('/[\s\-_]+/', '', $name));
+}
+
+/**
+ * Implements hook_node_presave().
+ *
+ * For appverse_software nodes, move tags that match a topic (normalized) from
+ * field_tags to field_appverse_topics. This prevents duplication between the
+ * two vocabularies.
+ */
+function access_misc_node_presave(NodeInterface $node) {
+  if ($node->bundle() !== 'appverse_software') {
+    return;
+  }
+
+  if (!$node->hasField('field_tags') || !$node->hasField('field_appverse_topics')) {
+    return;
+  }
+
+  // Build a lookup of normalized topic names → term IDs.
+  $topic_terms = \Drupal::entityTypeManager()
+    ->getStorage('taxonomy_term')
+    ->loadTree('appverse_science_domains', 0, NULL, TRUE);
+
+  $topic_map = [];
+  foreach ($topic_terms as $term) {
+    $normalized = _access_misc_normalize_term($term->getName());
+    $topic_map[$normalized] = (int) $term->id();
+  }
+
+  // Collect current topic IDs already on the node.
+  $current_topic_ids = array_map(function ($item) {
+    return (int) $item['target_id'];
+  }, $node->get('field_appverse_topics')->getValue());
+
+  $tags = $node->get('field_tags')->getValue();
+  $remaining_tags = [];
+  $topics_to_add = [];
+
+  foreach ($tags as $tag_item) {
+    $tag_term = Term::load($tag_item['target_id']);
+    if (!$tag_term) {
+      continue;
+    }
+
+    $normalized_tag = _access_misc_normalize_term($tag_term->getName());
+
+    if (isset($topic_map[$normalized_tag])) {
+      // This tag matches a topic — add the topic if not already present.
+      $topic_id = $topic_map[$normalized_tag];
+      if (!in_array($topic_id, $current_topic_ids) && !in_array($topic_id, $topics_to_add)) {
+        $topics_to_add[] = $topic_id;
+      }
+      // Don't keep this tag.
+    }
+    else {
+      // Keep tags that don't match any topic.
+      $remaining_tags[] = $tag_item;
+    }
+  }
+
+  // Update fields if anything changed.
+  if (count($remaining_tags) !== count($tags)) {
+    $node->set('field_tags', $remaining_tags);
+
+    if ($topics_to_add) {
+      $topic_values = $node->get('field_appverse_topics')->getValue();
+      foreach ($topics_to_add as $tid) {
+        $topic_values[] = ['target_id' => $tid];
+      }
+      $node->set('field_appverse_topics', $topic_values);
+    }
+
+    \Drupal::logger('access_misc')->notice(
+      'Appverse software "@title": moved @count tag(s) to topics.',
+      [
+        '@title' => $node->getTitle(),
+        '@count' => count($tags) - count($remaining_tags),
+      ]
+    );
+  }
+}
+
+/**
+ * Implements hook_token_info().
+ */
+function access_misc_token_info() {
+  $info = [];
+
+  $info['types']['access_misc'] = [
+    'name' => t('ACCESS Misc'),
+    'description' => t('Custom tokens for ACCESS site functionality.'),
+  ];
+
+  $info['tokens']['access_misc']['site_logo'] = [
+    'name' => t('Site Logo URL'),
+    'description' => t('The URL of the site logo for the current domain and theme.'),
+  ];
+
+  $info['tokens']['access_misc']['domain_logo'] = [
+    'name' => t('Domain Logo URL'),
+    'description' => t('The configured logo URL for the current domain.'),
+  ];
+
+  $info['tokens']['access_misc']['domain_description'] = [
+    'name' => t('Domain Description'),
+    'description' => t('The configured description for the current domain.'),
+  ];
+
+  return $info;
+}
+
+/**
+ * Implements hook_tokens().
+ */
+function access_misc_tokens($type, $tokens, array $data, array $options) {
+  $replacements = [];
+
+  if ($type == 'access_misc') {
+    foreach ($tokens as $name => $original) {
+      switch ($name) {
+        case 'site_logo':
+          $logo_url = _access_misc_get_site_logo_url();
+          if ($logo_url) {
+            $replacements[$original] = $logo_url;
+          }
+          break;
+
+        case 'domain_logo':
+          $logo_url = _access_misc_get_domain_logo_url();
+          if ($logo_url) {
+            $replacements[$original] = $logo_url;
+          }
+          break;
+
+        case 'domain_description':
+          $desc = _access_misc_get_domain_description();
+          if ($desc) {
+            $replacements[$original] = $desc;
+          }
+          break;
+      }
+    }
+  }
+
+  return $replacements;
+}
+
+/**
+ * Helper function to get the site logo URL for the current domain and theme.
+ *
+ * @return string|null
+ *   The logo URL or NULL if not found.
+ */
+function _access_misc_get_site_logo_url() {
+  try {
+    // Get the active domain.
+    $domain_negotiator = \Drupal::service('domain.negotiator');
+    $active_domain = $domain_negotiator->getActiveDomain();
+
+    // Get the theme for the current domain.
+    $theme_name = NULL;
+    if ($active_domain) {
+      $domain_theme_lookup = \Drupal::service('domain_theme_switch.domain_theme_lookup');
+      $theme_name = $domain_theme_lookup->getDefaultTheme($active_domain->id());
+    }
+
+    // Fallback to default theme if no domain-specific theme.
+    if (!$theme_name) {
+      $theme_name = \Drupal::config('system.theme')->get('default');
+    }
+
+    // Get the theme config for logo settings.
+    $theme_config = \Drupal::config($theme_name . '.settings');
+
+    // Check if logo is set and get the path.
+    if ($theme_config->get('logo.use_default')) {
+      // Using default logo from theme.
+      $theme_path = \Drupal::service('extension.list.theme')->getPath($theme_name);
+      $logo_path = $theme_path . '/logo.svg';
+
+      // Check if SVG exists, otherwise try PNG.
+      if (!file_exists(DRUPAL_ROOT . '/' . $logo_path)) {
+        $logo_path = $theme_path . '/logo.png';
+      }
+    }
+    else {
+      // Using custom logo.
+      $logo_path = $theme_config->get('logo.path');
+    }
+
+    if ($logo_path) {
+      // Convert to absolute URL.
+      $base_url = \Drupal::request()->getSchemeAndHttpHost();
+      return $base_url . '/' . $logo_path;
+    }
+
+    return NULL;
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('access_misc')->error('Error getting site logo: ' . $e->getMessage());
+    return NULL;
+  }
+}
+
+/**
+ * Helper function to get the configured domain logo URL.
+ *
+ * @return string|null
+ *   The logo URL or NULL if not found.
+ */
+function _access_misc_get_domain_logo_url() {
+  try {
+    $domain_negotiator = \Drupal::service('domain.negotiator');
+    $active_domain = $domain_negotiator->getActiveDomain();
+
+    if (!$active_domain) {
+      return NULL;
+    }
+
+    $config = \Drupal::config('access_misc.domain_logos');
+    $logo_url = $config->get('logos.' . $active_domain->id());
+
+    return $logo_url ?: NULL;
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('access_misc')->error('Error getting domain logo: ' . $e->getMessage());
+    return NULL;
+  }
+}
+
+/**
+ * Helper function to get the configured domain description.
+ *
+ * @return string|null
+ *   The description or NULL if not found.
+ */
+function _access_misc_get_domain_description() {
+  try {
+    $domain_negotiator = \Drupal::service('domain.negotiator');
+    $active_domain = $domain_negotiator->getActiveDomain();
+
+    if (!$active_domain) {
+      return NULL;
+    }
+
+    $config = \Drupal::config('access_misc.domain_logos');
+    $description = $config->get('descriptions.' . $active_domain->id());
+
+    return $description ?: NULL;
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('access_misc')->error('Error getting domain description: ' . $e->getMessage());
+    return NULL;
+  }
+}
+
+/**
+ * Implements hook_metatags_attachments_alter().
+ *
+ * - Fills empty description/og_description with body text fallback.
+ * - Fills empty og_image_url with domain logo fallback.
+ * - Adds JSON-LD structured data for Google Rich Results.
+ */
+function access_misc_metatags_attachments_alter(array &$attachments) {
+  $route_match = \Drupal::routeMatch();
+  $entity = NULL;
+
+  // Try to get entity from route. The parameter may be a string (entity ID)
+  // on some routes, so only use it if it's an actual entity object.
+  foreach (['node', 'eventinstance', 'eventseries'] as $param) {
+    $candidate = $route_match->getParameter($param);
+    if ($candidate instanceof \Drupal\Core\Entity\EntityInterface) {
+      $entity = $candidate;
+      break;
+    }
+  }
+
+  // Fix up empty meta tag values after token replacement.
+  if (!empty($attachments['#attached']['html_head'])) {
+    $fallback_description = $entity ? _access_misc_entity_description_fallback($entity) : NULL;
+    // Ultimate fallback: site name (matches the global metatag default).
+    $site_name = \Drupal::config('system.site')->get('name');
+    $domain_logo = _access_misc_get_domain_logo_url();
+
+    // Track which tags are present so we can add missing ones.
+    $found = [];
+    foreach ($attachments['#attached']['html_head'] as &$item) {
+      if (!isset($item[1])) {
+        continue;
+      }
+      $found[$item[1]] = TRUE;
+      $content = $item[0]['#attributes']['content'] ?? '';
+
+      // Fill in empty description/og_description. Try entity body text first,
+      // then fall back to site name so we never leave these blank.
+      if (in_array($item[1], ['description', 'og_description']) && empty(trim($content))) {
+        $item[0]['#attributes']['content'] = $fallback_description ?: $site_name;
+      }
+
+      // Fall back to domain logo when node image tokens resolve to empty.
+      // The metatag module emits both og_image_url and og_image_url_0 keys.
+      if (str_starts_with($item[1], 'og_image_url') && empty(trim($content)) && $domain_logo) {
+        $base_url = \Drupal::request()->getSchemeAndHttpHost();
+        $item[0]['#attributes']['content'] = $base_url . $domain_logo;
+      }
+    }
+    unset($item);
+
+    // Add missing tags when tokens resolved to empty (metatag module omits
+    // tags entirely when their token value is blank).
+    $description_value = $fallback_description ?: $site_name;
+    if (empty($found['description'])) {
+      $attachments['#attached']['html_head'][] = [
+        ['#tag' => 'meta', '#attributes' => ['name' => 'description', 'content' => $description_value]],
+        'description',
+      ];
+    }
+    if (empty($found['og_description'])) {
+      $attachments['#attached']['html_head'][] = [
+        ['#tag' => 'meta', '#attributes' => ['property' => 'og:description', 'content' => $description_value]],
+        'og_description',
+      ];
+    }
+    // Check for og_image_url or og_image_url_0 (metatag emits both).
+    $has_og_image = !empty($found['og_image_url']) || !empty($found['og_image_url_0']);
+    if (!$has_og_image && $domain_logo) {
+      $base_url = \Drupal::request()->getSchemeAndHttpHost();
+      $attachments['#attached']['html_head'][] = [
+        ['#tag' => 'meta', '#attributes' => ['property' => 'og:image:url', 'content' => $base_url . $domain_logo]],
+        'og_image_url',
+      ];
+    }
+  }
+
+  // Fix title on event registrations pages where Views setTitle() doesn't
+  // update the metatag <title> (it only changes the page heading).
+  $path = \Drupal::service('path.current')->getPath();
+  if (preg_match('#^/events/(\d+)/registrations$#', $path, $m)) {
+    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($m[1]);
+    if ($eventinstance) {
+      $series = $eventinstance->getEventSeries();
+      $event_title = $series ? $series->get('title')->value : $eventinstance->label();
+      $new_title = "Registrations - $event_title | $site_name";
+      foreach ($attachments['#attached']['html_head'] as &$item) {
+        if (isset($item[1]) && $item[1] === 'title') {
+          $item[0]['#attributes']['content'] = $new_title;
+          break;
+        }
+      }
+      unset($item);
+    }
+  }
+
+  // Add JSON-LD structured data for Google Rich Results.
+  if ($entity && !\Drupal::service('path.matcher')->isFrontPage()) {
+    $json_ld = _access_misc_build_json_ld($entity);
+    if ($json_ld) {
+      $attachments['#attached']['html_head'][] = [
+        [
+          '#type' => 'html_tag',
+          '#tag' => 'script',
+          '#attributes' => ['type' => 'application/ld+json'],
+          '#value' => json_encode($json_ld, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),
+        ],
+        'json_ld_structured_data',
+      ];
+    }
+  }
+}
+
+/**
+ * Get a description fallback from entity body text.
+ *
+ * @param \Drupal\Core\Entity\EntityInterface $entity
+ *   The entity.
+ *
+ * @return string|null
+ *   A trimmed plain-text excerpt, or NULL.
+ */
+function _access_misc_entity_description_fallback($entity) {
+  // Try dedicated summary fields first (events use field_summary/event_summary).
+  foreach (['field_summary', 'event_summary'] as $summary_field) {
+    if ($entity->hasField($summary_field) && !$entity->get($summary_field)->isEmpty()) {
+      return _access_misc_clean_text($entity->get($summary_field)->value, 160);
+    }
+  }
+  // Then body summary, then body value, then description field.
+  if ($entity->hasField('body') && !$entity->get('body')->isEmpty()) {
+    $summary = $entity->get('body')->summary;
+    if (!empty($summary)) {
+      return _access_misc_clean_text($summary, 160);
+    }
+    return _access_misc_clean_text($entity->get('body')->value, 160);
+  }
+  if ($entity->hasField('description') && !$entity->get('description')->isEmpty()) {
+    return _access_misc_clean_text($entity->get('description')->value, 160);
+  }
+  return NULL;
+}
+
+/**
+ * Strip HTML and decode entities from a field value for use in structured data.
+ *
+ * @param string $html
+ *   Raw HTML string.
+ * @param int $max_length
+ *   Maximum character length (0 for unlimited).
+ *
+ * @return string
+ *   Clean plain text.
+ */
+function _access_misc_clean_text($html, $max_length = 300) {
+  $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+  $text = trim(preg_replace('/\s+/', ' ', $text));
+  if ($max_length && strlen($text) > $max_length) {
+    $text = substr($text, 0, $max_length - 3) . '...';
+  }
+  return $text;
+}
+
+/**
+ * Helper function to build JSON-LD structured data based on entity type.
+ *
+ * @param \Drupal\Core\Entity\EntityInterface $entity
+ *   The entity to build JSON-LD for.
+ *
+ * @return array|null
+ *   The JSON-LD array or NULL.
+ */
+function _access_misc_build_json_ld($entity) {
+  $json_ld = [
+    '@context' => 'https://schema.org',
+  ];
+
+  $entity_type = $entity->getEntityTypeId();
+  $bundle = $entity->bundle();
+
+  // Handle different entity types and bundles.
+  switch ($entity_type) {
+    case 'node':
+      switch ($bundle) {
+        case 'access_news':
+        case 'article':
+          $json_ld['@type'] = 'Article';
+          $json_ld['headline'] = $entity->label();
+
+          // Prefer summary over full body for structured data.
+          if ($entity->hasField('body') && !$entity->get('body')->isEmpty()) {
+            $summary = $entity->get('body')->summary;
+            $json_ld['description'] = _access_misc_clean_text(
+              !empty($summary) ? $summary : $entity->get('body')->value
+            );
+          }
+
+          if ($entity->hasField('created')) {
+            $json_ld['datePublished'] = date('c', $entity->getCreatedTime());
+          }
+
+          if ($entity->hasField('changed')) {
+            $json_ld['dateModified'] = date('c', $entity->getChangedTime());
+          }
+
+          if ($entity->hasField('uid') && $entity->get('uid')->entity) {
+            $author = $entity->get('uid')->entity;
+            $json_ld['author'] = [
+              '@type' => 'Person',
+              'name' => $author->getDisplayName(),
+            ];
+          }
+
+          $request = \Drupal::request();
+          $json_ld['url'] = $request->getSchemeAndHttpHost() . $entity->toUrl()->toString();
+          break;
+
+        case 'affinity_group':
+          $json_ld['@type'] = 'Organization';
+          $json_ld['name'] = $entity->label();
+
+          if ($entity->hasField('body') && !$entity->get('body')->isEmpty()) {
+            $summary = $entity->get('body')->summary;
+            $json_ld['description'] = _access_misc_clean_text(
+              !empty($summary) ? $summary : $entity->get('body')->value
+            );
+          }
+
+          $request = \Drupal::request();
+          $json_ld['url'] = $request->getSchemeAndHttpHost() . $entity->toUrl()->toString();
+          break;
+      }
+      break;
+
+    case 'eventinstance':
+    case 'eventseries':
+      $json_ld['@type'] = 'Event';
+      $series = NULL;
+
+      if ($entity_type == 'eventinstance') {
+        $series = $entity->getEventSeries();
+        $json_ld['name'] = $series ? $series->get('title')->value : 'Event';
+
+        if ($entity->hasField('date') && !$entity->get('date')->isEmpty()) {
+          $date_value = $entity->get('date')->getValue()[0];
+          $json_ld['startDate'] = date('c', strtotime($date_value['value']));
+          $json_ld['endDate'] = date('c', strtotime($date_value['end_value']));
+        }
+      }
+      else {
+        $series = $entity;
+        $json_ld['name'] = $entity->label();
+      }
+
+      // Description: try dedicated summary fields, then description, then body.
+      $event_desc = NULL;
+      foreach (['field_summary', 'event_summary'] as $sf) {
+        if ($entity->hasField($sf) && !$entity->get($sf)->isEmpty()) {
+          $event_desc = $entity->get($sf)->value;
+          break;
+        }
+      }
+      if (!$event_desc && $entity->hasField('description') && !$entity->get('description')->isEmpty()) {
+        $event_desc = $entity->get('description')->value;
+      }
+      if (!$event_desc && $entity->hasField('body') && !$entity->get('body')->isEmpty()) {
+        $event_desc = $entity->get('body')->value;
+      }
+      if ($event_desc) {
+        $json_ld['description'] = _access_misc_clean_text($event_desc);
+      }
+
+      $request = \Drupal::request();
+      $json_ld['url'] = $request->getSchemeAndHttpHost() . $entity->toUrl()->toString();
+      $json_ld['eventStatus'] = 'https://schema.org/EventScheduled';
+
+      // Event attendance mode and location.
+      if ($series && $series->hasField('field_event_virtual_meeting_link')
+        && !$series->get('field_event_virtual_meeting_link')->isEmpty()) {
+        $json_ld['eventAttendanceMode'] = 'https://schema.org/OnlineEventAttendanceMode';
+        $json_ld['location'] = [
+          '@type' => 'VirtualLocation',
+          'url' => $series->get('field_event_virtual_meeting_link')->uri
+            ?? $series->get('field_event_virtual_meeting_link')->value,
+        ];
+      }
+      elseif ($entity->hasField('field_location') && !$entity->get('field_location')->isEmpty()) {
+        $json_ld['location'] = [
+          '@type' => 'Place',
+          'name' => $entity->get('field_location')->value,
+        ];
+      }
+
+      // Organizer.
+      $json_ld['organizer'] = [
+        '@type' => 'Organization',
+        'name' => \Drupal::config('system.site')->get('name'),
+        'url' => $request->getSchemeAndHttpHost(),
+      ];
+
+      // Image from event series.
+      if ($series) {
+        foreach (['field_image', 'field_project_image'] as $image_field) {
+          if ($series->hasField($image_field) && !$series->get($image_field)->isEmpty()) {
+            $file = $series->get($image_field)->entity;
+            if ($file) {
+              $json_ld['image'] = \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri());
+              break;
+            }
+          }
+        }
+      }
+      break;
+  }
+
+  return !empty($json_ld['@type']) ? $json_ld : NULL;
+}
+
+
