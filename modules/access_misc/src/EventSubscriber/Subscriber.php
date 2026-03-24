@@ -74,61 +74,28 @@ class Subscriber implements EventSubscriberInterface {
 
     $container = \Drupal::getContainer();
     $client_name = 'cilogon';
-    
-    // Try openid_connect first, fallback to cilogon_auth
-    $moduleHandler = \Drupal::service('module_handler');
-    $using_openid_connect = $moduleHandler->moduleExists('openid_connect_cilogon_client');
-    
-    if ($using_openid_connect) {
-      // Use openid_connect
-      $config_name = 'openid_connect.settings.' . $client_name;
-      $configuration = $container->get('config.factory')->get($config_name)->get('settings');
-      $pluginManager = $container->get('plugin.manager.openid_connect_client');
-      $client = $pluginManager->createInstance($client_name, $configuration);
-      
-      // Set destination in session for openid_connect
-      $query = NULL;
-      if (NULL !== \Drupal::request()->query->get('redirect')) {
-        $query = Xss::filter(\Drupal::request()->query->get('redirect'));
-        // Store the redirect destination in session for after login
-        $session = $request->getSession();
-        $session->set('cilogon_destination', $query);
-        \Drupal::logger('access_misc')->notice("Destination set to $query");
-      }
-      
-      $_SESSION['openid_connect_op'] = 'login';
-      // Use a special destination that will trigger our redirect handler
-      $_SESSION['openid_connect_destination'] = 'login?check_logged_in=1';
-      
-      // Get scopes from client
-      $scopes = implode(' ', $client->getClientScopes());
-      $response = $client->authorize($scopes);
-    }
-    else {
-      // Fallback to cilogon_auth (legacy)
-      $config_name = 'cilogon_auth.settings.' . $client_name;
-      $configuration = $container->get('config.factory')->get($config_name)->get('settings');
-      $pluginManager = $container->get('plugin.manager.cilogon_auth_client.processor');
-      $claims = $container->get('cilogon_auth.claims');
-      $client = $pluginManager->createInstance($client_name, $configuration);
-      $scopes = $claims->getScopes();
-      
-      $query = NULL;
-      if (NULL !== \Drupal::request()->query->get('redirect')) {
-        $query = Xss::filter(\Drupal::request()->query->get('redirect'));
-        // Store the redirect destination in session for after login
-        $session = $request->getSession();
-        $session->set('cilogon_destination', $query);
-        \Drupal::logger('access_misc')->notice("Destination set to $query");
-      }
-      
-      $_SESSION['cilogon_auth_op'] = 'login';
-      // Use a special destination that will trigger our redirect handler
-      $_SESSION['cilogon_auth_destination'] = 'login?check_logged_in=1';
-      
-      $response = $client->authorize($scopes);
+
+    $config_name = 'openid_connect.settings.' . $client_name;
+    $configuration = $container->get('config.factory')->get($config_name)->get('settings');
+    $pluginManager = $container->get('plugin.manager.openid_connect_client');
+    $client = $pluginManager->createInstance($client_name, $configuration);
+
+    // Store redirect destination in session for post-login redirect.
+    if (NULL !== $request->query->get('redirect')) {
+      $query = Xss::filter($request->query->get('redirect'));
+      $session = $request->getSession();
+      $session->set('cilogon_destination', $query);
+      \Drupal::logger('access_misc')->notice("Destination set to $query");
     }
 
+    $_SESSION['openid_connect_op'] = 'login';
+    $_SESSION['openid_connect_destination'] = [
+      '/login',
+      ['query' => 'check_logged_in=1'],
+    ];
+
+    $scopes = implode(' ', $client->getClientScopes());
+    $response = $client->authorize($scopes);
     $response->headers->set('Cache-Control', 'public, max-age=0');
     $event->setResponse($response);
   }
