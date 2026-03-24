@@ -15,8 +15,60 @@ use Drupal\taxonomy\Entity\Term;
 use Drupal\node\NodeInterface;
 use Drupal\user\UserInterface;
 use Drupal\user\Entity\User;
+use Drupal\symfony_mailer\Entity\MailerTransport;
 use Drupal\views\ViewExecutable;
 
+
+/**
+ * Implements hook_mailer_init().
+ *
+ * Route emails through the correct Mailgun SMTP transport based on
+ * the active domain, and set From/Reply-To for proper SPF/DKIM
+ * alignment via mg.* subdomains.
+ */
+function access_misc_mailer_init(\Drupal\symfony_mailer\EmailInterface $email) {
+  $domain_transport_map = [
+    'amp_cyberinfrastructure_org' => [
+      'from' => 'noreply@mg.support.access-ci.org',
+      'from_name' => 'ACCESS Support',
+    ],
+    'ccmnet_org' => [
+      'transport' => 'smtp_ccmnet',
+      'from' => 'info@mg.ccmnet.org',
+      'from_name' => 'CCMNet',
+      'reply_to' => 'info@ccmnet.org',
+      'reply_name' => 'CCMNet',
+    ],
+    'openondemand_cyberinfrastructure_org' => [
+      'transport' => 'smtp_ood',
+      'from' => 'info@mg.openondemand.org',
+      'from_name' => 'Open OnDemand',
+      'reply_to' => 'info@openondemand.org',
+      'reply_name' => 'Open OnDemand',
+    ],
+  ];
+
+  try {
+    $domain_id = \Drupal::service('domain.negotiator')->getActiveDomain()?->id();
+  }
+  catch (\Exception $e) {
+    return;
+  }
+
+  if ($domain_id && isset($domain_transport_map[$domain_id])) {
+    $config = $domain_transport_map[$domain_id];
+    if (!empty($config['transport'])) {
+      $transport = MailerTransport::load($config['transport']);
+      if ($transport) {
+        $email->setTransportDsn($transport->getDsn());
+      }
+    }
+    $email->setFrom(new \Drupal\symfony_mailer\Address($config['from'], $config['from_name']));
+    if (!empty($config['reply_to'])) {
+      $email->setReplyTo(new \Drupal\symfony_mailer\Address($config['reply_to'], $config['reply_name']));
+    }
+  }
+}
 
 /**
  * Implements hook_page_attachments().
@@ -946,12 +998,14 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
 
   // Don't overwrite existing entries - just ensure the event is in the digest.
   if (!isset($digest[$event_instance_id])) {
+    $active_domain = \Drupal::service('domain.negotiator')->getActiveDomain();
     $digest[$event_instance_id] = [
       'event_title' => $series_title,
       'event_url' => _access_misc_get_event_domain_url($event_instance_id),
       'author_email' => $author_email,
       'registration_count' => 1,
       'first_registration' => date('Y-m-d H:i:s'),
+      'domain_id' => $active_domain ? $active_domain->id() : NULL,
     ];
   }
   else {
@@ -1012,6 +1066,7 @@ function _access_misc_get_event_domain_url($event_instance_id) {
     return '/events/' . $event_instance_id;
   }
 }
+
 
 /**
  * Custom submit handler for user_form.
@@ -1135,6 +1190,8 @@ function access_misc_cron() {
     // Only proceed if there are notifications to send.
     if (!empty($digest)) {
       $successful_sends = [];
+      $negotiator = \Drupal::service('domain.negotiator');
+      $original_domain = $negotiator->getActiveDomain();
 
       foreach ($digest as $event_id => $digest_event) {
         $event_author = $digest_event['author_email'];
@@ -1142,6 +1199,17 @@ function access_misc_cron() {
         $policy_subtype = 'registrant_digest';
 
         try {
+          // Set the active domain from the stored domain_id so
+          // hook_mailer_init() routes through the correct transport.
+          if (!empty($digest_event['domain_id'])) {
+            $domain = \Drupal::entityTypeManager()
+              ->getStorage('domain')
+              ->load($digest_event['domain_id']);
+            if ($domain) {
+              $negotiator->setActiveDomain($domain);
+            }
+          }
+
           \Drupal::service('access_misc.symfony.mail')
             ->email($policy, $policy_subtype, $event_author, $digest_event);
           $successful_sends[] = $event_id;
@@ -1159,6 +1227,12 @@ function access_misc_cron() {
               '@error' => $e->getMessage(),
             ]);
         }
+      }
+
+      // Restore the original active domain so we don't pollute state
+      // for anything else running in this process.
+      if ($original_domain) {
+        $negotiator->setActiveDomain($original_domain);
       }
 
       // Only reset digest for successfully sent notifications.
