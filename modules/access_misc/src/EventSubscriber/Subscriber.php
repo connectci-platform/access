@@ -39,26 +39,26 @@ class Subscriber implements EventSubscriberInterface {
       $this->doRedirectToCilogon($event);
     }
 
-    // Get destination query.
-    $query = \Drupal::request()->query->get('redirect') ? Xss::filter(\Drupal::request()->query->get('redirect')) : '';
     // Get url query 'check_logged_in'.
     $logged_in = \Drupal::request()->query->get('check_logged_in') ? Xss::filter(\Drupal::request()->query->get('check_logged_in')) : '';
 
-    if ($query) {
-      $request = \Drupal::request();
-      $session = $request->getSession();
-      $session->set('cilogon_destination', $query);
-      \Drupal::logger('access_misc')->notice("Destination set to $query");
-    }
-
-    if ($logged_in) {
+    if ($logged_in && $user_is_authenticated) {
       $request = \Drupal::request();
       $session = $request->getSession();
       $query_set = $session->get('cilogon_destination');
       if ($query_set) {
         $session->remove('cilogon_destination');
         \Drupal::logger('access_misc')->notice("Redirecting to $query_set");
-        $event->setResponse(new RedirectResponse($query_set));
+        // Use Url::fromUserInput() to validate the redirect is internal
+        try {
+          $url = \Drupal\Core\Url::fromUserInput($query_set);
+          $event->setResponse(new RedirectResponse($url->toString()));
+        }
+        catch (\InvalidArgumentException $e) {
+          // Invalid URL, redirect to homepage instead
+          \Drupal::logger('access_misc')->warning("Invalid redirect destination: $query_set");
+          $event->setResponse(new RedirectResponse('/'));
+        }
       }
     }
   }
@@ -74,23 +74,29 @@ class Subscriber implements EventSubscriberInterface {
 
     $container = \Drupal::getContainer();
     $client_name = 'cilogon';
-    $config_name = 'cilogon_auth.settings.' . $client_name;
-    $configuration = $container->get('config.factory')->get($config_name)->get('settings');
-    $pluginManager = $container->get('plugin.manager.cilogon_auth_client.processor');
-    $claims = $container->get('cilogon_auth.claims');
-    $client = $pluginManager->createInstance($client_name, $configuration);
-    $scopes = $claims->getScopes();
-    $destination = $request->getRequestUri();
-    $query = NULL;
-    if (NULL !== \Drupal::request()->query->get('redirect')) {
-      $query = Xss::filter(\Drupal::request()->query->get('redirect'));
-    }
-    $_SESSION['cilogon_auth_op'] = 'login';
-    $_SESSION['cilogon_auth_destination'] = [$destination, ['query' => $query]];
 
+    $config_name = 'openid_connect.settings.' . $client_name;
+    $configuration = $container->get('config.factory')->get($config_name)->get('settings');
+    $pluginManager = $container->get('plugin.manager.openid_connect_client');
+    $client = $pluginManager->createInstance($client_name, $configuration);
+
+    // Store redirect destination in session for post-login redirect.
+    if (NULL !== $request->query->get('redirect')) {
+      $query = Xss::filter($request->query->get('redirect'));
+      $session = $request->getSession();
+      $session->set('cilogon_destination', $query);
+      \Drupal::logger('access_misc')->notice("Destination set to $query");
+    }
+
+    $_SESSION['openid_connect_op'] = 'login';
+    $_SESSION['openid_connect_destination'] = [
+      '/login',
+      ['query' => 'check_logged_in=1'],
+    ];
+
+    $scopes = implode(' ', $client->getClientScopes());
     $response = $client->authorize($scopes);
     $response->headers->set('Cache-Control', 'public, max-age=0');
-
     $event->setResponse($response);
   }
 
