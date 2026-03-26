@@ -16,6 +16,7 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
 use Drupal\views\ViewExecutable;
 use Drupal\views\Plugin\views\query\QueryPluginBase;
 use Drupal\Component\Utility\Html;
+use Drupal\Core\Entity\EntityTypeInterface;
 
 /**
  * Implements hook_form_alter().
@@ -30,7 +31,15 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
 
-    $form['event_registration']['widget'][0]['registration']['#description'] = t('Check this box to enable event registration. You can set capacity, add surveys, and enable a waitlist if needed.');
+    $form['field_registration']['widget'][0]['uri']['#description'] = "";
+
+    $form['event_registration']['widget'][0]['registration']['#description'] = "";
+    $form['event_registration']['widget']['#description'] = "";
+    $form['event_registration']['#label_help'] =
+      t('Check this box to enable event registration. You can set capacity, add surveys, and enable a waitlist if needed.') .
+      "<br />" . t('The event registration configuration');
+
+
     $form['registration_reminders']['widget'][0]['data']['reminder_data']['reminder_units']['#default_value'] = 'day';
 
     // Remove required from fieldset 'recur_type' for a11y.
@@ -1281,6 +1290,11 @@ function access_events_module_implements_alter(&$implementations, $hook) {
   if ($hook === 'cron' && isset($implementations['recurring_events_reminders'])) {
     unset($implementations['recurring_events_reminders']);
   }
+  if ($hook === 'entity_base_field_info_alter' && isset($implementations['access_events'])) {
+    $group = $implementations['access_events'];
+    unset($implementations['access_events']);
+    $implementations['access_events'] = $group;
+  }
 }
 
 /**
@@ -1556,3 +1570,12 @@ function _access_events_render_email_template($template_text, array $variables) 
   }
 }
 
+
+/**
+ * Implements hook_entity_base_field_info_alter().
+ */
+function access_events_entity_base_field_info_alter(&$fields, EntityTypeInterface $entity_type) {
+  if ($entity_type->id() === 'eventseries' && isset($fields['event_registration'])) {
+    $fields['event_registration']->setDescription('');
+  }
+}
