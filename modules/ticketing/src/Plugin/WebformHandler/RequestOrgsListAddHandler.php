@@ -79,6 +79,13 @@ class RequestOrgsListAddHandler extends WebformHandlerBase {
             'name' => $data['your_name'],
             'email' => $data['your_email'],
             'organization' => $data['your_organization'],
+            'address_line_1' => $data['address_line_1'] ?? '',
+            'address_line_2' => $data['address_line_2'] ?? '',
+            'city' => $data['city'] ?? '',
+            'state_province_region' => $data['state_province_region'] ?? '',
+            'zip_postal_code' => $data['zip_postal_code'] ?? '',
+            'country' => $data['country'] ?? '',
+            'organization_webpage' => $data['organization_webpage'] ?? '',
           ]
       );
   }

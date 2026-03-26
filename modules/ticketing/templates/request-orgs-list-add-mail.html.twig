@@ -1,3 +1,11 @@
 name: {{ name }}
 email: {{ email }}
-organization:  {{ organization }}
+organization: {{ organization }}
+
+Organization Address:
+  {{ address_line_1 }}
+  {% if address_line_2 %}{{ address_line_2 }}
+  {% endif %}{{ city }}, {{ state_province_region }} {{ zip_postal_code }}
+  {{ country }}
+
+Organization Webpage: {{ organization_webpage }}
