@@ -98,4 +98,9 @@
   $('.messages').attr('role', 'status');
   $('.messages').attr('role', 'status');
 
+  // Add role="textbox" to date inputs for VoiceOver compatibility on iOS.
+  // This helps work around a WebKit bug where VoiceOver cannot open date pickers.
+  // https://dev.to/mfranzke/voiceover-bug-on-ios-safari-blocks-date-time-related-inputs-especially-in-react-4f61
+  $('input[type="date"]').attr('role', 'textbox');
+
 })(jQuery, Drupal, once);
