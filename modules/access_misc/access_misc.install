@@ -2031,3 +2031,209 @@ EOT;
     $node->save();
   }
 }
+
+/**
+ * Update node 267 body field with new markup.
+ */
+function access_misc_update_10034() {
+  $body = <<<EOT
+  	<div class="grid grid-cols-1 md--grid-cols-4 gap-5">
+  <div class="col-1 col-span-3">
+
+		<section class="mb-10" id="about">
+      	<p class="prose text-dark-teal text-2xl leading-9 mb-10"> Open OnDemand is an easy-to-use web portal that is being deployed on ACCESS resources to allow researchers to compute from anywhere without client software or command-line interface, and significantly speed up the time to science.</p>
+
+	<ul class="grid grid-cols-1 md--grid-cols-3 checkbullet-img" role="list">
+
+  	<li class="flex">
+      <div>
+        <h2 class="font-extrabold mb-1">Zero installation</h2>
+        <p>Run entirely in your browser. No software installation required.</p>
+      </div>
+      </li>
+
+     	<li class="flex">
+          <div>
+            <h2 class="font-extrabold mb-1">Easy to use</h2>
+            <p>A simple interface so you can start computing immediately.</p>
+          </div>
+      </li>
+
+      <li class="flex">
+        <div>
+          <h2 class="font-extrabold mb-1">Compatible with any device</h2>
+	  <p>Launch on any device with a browser—even a mobile phone or tablet.</p>
+        </div>
+      </li>
+
+    </ul>
+  </section>
+
+<section class="mb-20" id="resources-with-ondemand">
+ 	<h2 class="colored-square colored-square-orange">Resources with OnDemand</h2>
+        <p>Login to ACCESS OnDemand to utilize resources allocated to you. For more information, view the <a href="https://access-ci.atlassian.net/wiki/spaces/ACCESSdocumentation/pages/467110968/Resource+Providers">ACCESS Resource Documentation</a>. If you don't have an allocation yet, <a href="https://allocations.access-ci.org">you can request one</a>.</p>
+        <div class="grid grid-cols-1 lg--grid-cols-2 gap-10">
+            <div class="flex">
+                <img src="/sites/default/files/2024-11/aces.jpg" alt="Aces" class="w-40"/>
+                <div class="flex flex-col ms-5">
+                    <h3 text-black uppercase mb-0">ACES</h3>
+                    <p class="leading-tight mb-3">Texas A&amp;M University</p>
+                    <div class="text-sm"><a href="https://portal-aces.hprc.tamu.edu/" class="me-3">Login</a><a href="https://allocations.access-ci.org/resources/aces.tamu.access-ci.org">About ACES</a></div>
+                </div>
+            </div>
+            <div class="flex">
+                <img src="/sites/default/files/2024-11/anvil.jpg" alt="Anvil" class="w-40"/>
+                <div class="flex flex-col ms-5">
+                    <h3 class="text-black mb-0">Anvil</h3>
+                    <p class="leading-tight mb-3">Purdue University</p>
+                    <div class="text-sm"><a href="https://ondemand.anvil.rcac.purdue.edu/pun/sys/dashboard" class="me-3">Login</a><a href="https://allocations.access-ci.org/resources/anvil.purdue.access-ci.org">About Anvil</a></div>
+                </div>
+            </div>
+            <div class="flex">
+                <img src="/sites/default/files/2024-11/bridges-2.jpg" alt="Bridges-2" class="w-40"/>
+                <div class="flex flex-col ms-5">
+                    <h3 class="text-black mb-0">Bridges-2</h3>
+                    <p class="leading-tight mb-3">Pittsburgh Supercomputing Center</p>
+                    <div class="text-sm"><a href="https://ondemand.bridges2.psc.edu/" class="me-3">Login</a><a href="https://allocations.access-ci.org/resources/bridges2.psc.access-ci.org">About Bridges-2</a></div>
+                </div>
+            </div>
+            <div class="flex">
+                <img src="/sites/default/files/2024-11/delta.jpg" alt="Delta" class="w-40"/>
+                <div class="flex flex-col ms-5">
+                    <h3 class="text-black mb-0">Delta</h3>
+                    <p class="leading-tight mb-3">National Center for Supercomputing Applications</p>
+                    <div class="text-sm"><a href="https://openondemand.delta.ncsa.illinois.edu/" class="me-3">Login</a><a href="https://allocations.access-ci.org/resources/delta.ncsa.access-ci.org">About Delta</a></div>
+                </div>
+            </div>
+   <div class="flex">
+                <img src="/sites/default/files/2024-11/delta.jpg" alt="DeltaAI" class="w-40"/>
+                <div class="flex flex-col ms-5">
+                    <h3 class="text-black mb-0">DeltaAI</h3>
+                    <p class="leading-tight mb-3">National Center for Supercomputing Applications</p>
+                    <div class="text-sm"><a href="https://gh-ondemand.delta.ncsa.illinois.edu/" class="me-3">Login</a><a href="https://allocations.access-ci.org/resources/deltaai.ncsa.access-ci.org">About DeltaAI</a></div>
+                </div>
+            </div>
+            <div class="flex">
+                <img src="/sites/default/files/2024-11/Expanse.jpg" alt="Expanse" class="w-40"/>
+                <div class="flex flex-col ms-5">
+                    <h3 class="text-black mb-0">Expanse</h3>
+                    <p class="leading-tight mb-3">San Diego Supercomputer Center</p>
+                    <div class="text-sm"><a href="https://portal.expanse.sdsc.edu/" class="me-3">Login</a><a href="https://allocations.access-ci.org/resources/expanse.sdsc.access-ci.org">About Expanse</a></div>
+                </div>
+            </div>
+            <div class="flex">
+                <img src="/sites/default/files/2024-11/faster.jpg" alt="Faster" class="w-40"/>
+                <div class="flex flex-col ms-5">
+                    <h3 class="text-black mb-0">FASTER</h3>
+                    <p class="leading-tight mb-3">Texas A&amp;M University</p>
+                    <div class="text-sm"><a href="https://portal-faster-access.hprc.tamu.edu/" class="me-3">Login</a><a href="https://allocations.access-ci.org/resources/faster.tamu.access-ci.org">About FASTER</a></div>
+                </div>
+            </div>
+            <div class="flex">
+                <img src="/sites/default/files/2024-11/kyric.jpg" alt="KyRIC" class="w-40"/>
+                <div class="flex flex-col ms-5">
+                    <h3 class="text-black mb-0"">KyRIC</h3>
+                    <p class="leading-tight mb-3">University of Kentucky</p>
+                    <div class="text-sm"><a href="https://kxc-ood.ccs.uky.edu/" class="me-3">Login</a><a href="https://allocations.access-ci.org/resources/kyric.uky.access-ci.org">About KyRIC</a></div>
+                </div>
+            </div>
+            <div class="flex">
+                <img src="/sites/default/files/2024-12/Launch.jpg" alt="Launch" class="w-40"/>
+                <div class="flex flex-col ms-5">
+                    <h3 class="text-black mb-0">Launch</h3>
+                    <p class="leading-tight mb-3">Texas A&amp;M University</p>
+                    <div class="text-sm"><a href="https://portal-launch.hprc.tamu.edu/" class="me-3">Login</a><a href="https://allocations.access-ci.org/resources/launch.tamu.access-ci.org">About Launch</a></div>
+                </div>
+            </div>
+            <div class="flex">
+                <img src="/sites/default/files/2024-11/neocortex.jpg" alt="Neocortex" class="w-40"/>
+                <div class="flex flex-col ms-5">
+                    <h3 class="text-black mb-0">Neocortex</h3>
+                    <p class="leading-tight mb-3">Pittsburgh Supercomputing Center</p>
+                    <div class="text-sm"><a href="https://ondemand.neocortex.psc.edu/" class="me-3">Login</a><a href="https://allocations.access-ci.org/resources/neocortex.psc.access-ci.org">About Neocortex</a></div>
+                </div>
+            </div>
+            <div class="flex">
+                <img src="/sites/default/files/2024-11/ookami.jpg" alt="Ookami" class="w-40"/>
+                <div class="flex flex-col ms-5">
+                    <h3 class="text-black mb-0">Ookami</h3>
+                    <p class="leading-tight mb-3">Institute for Advanced Computation Science at Stony Brook University</p>
+                    <div class="text-sm"><a href="https://fj-ood.ookami.stonybrook.edu/" class="me-3">Login</a><a href="https://allocations.access-ci.org/resources/ookami.sbu.access-ci.org">About Ookami</a></div>
+                </div>
+            </div>
+        </div>
+  </section>
+
+  <section class="mb-10" id="ondemand-faq">
+ 	<h2 class="colored-square colored-square-orange">ACCESS OnDemand FAQ</h2>
+    <ul class="list-none ps-0" role="list">
+      <li class="ps-0">
+        [accordion summary="What is the difference between ACCESS OnDemand and Open OnDemand?" text=" ACCESS OnDemand is a standardized instance of Open OnDemand that is being adopted by ACCESS resource providers. <a href='https://www.youtube.com/watch?v=4-w-4wjlnPk&ab_channel=OH-TECH'>Watch a video about Open OnDemand.</a>"][/accordion]
+      </li>
+      <li class="ps-0">
+        [accordion summary="How can I learn to use ACCESS OnDemand?" text="Participating RPs have instructions on using their ACCESS OnDemand (AOD) service. You need to have an ACCESS allocation at the participating RP to use AOD."][/accordion]
+      </li>
+      <li class="ps-0">
+        [accordion summary="How do I get help using ACCESS OnDemand at a specific Resource Provider?" text="Each RP has support pages associated with their ACCESS OnDemand service. If you don’t find the answer you need on these pages, or at the resource provider’s help desk, you can open a <a href='https://support.access-ci.org/help-ticket'>help ticket</a>. The Open OnDemand team also offers a variety of ways to get support for platform-related topics. "][/accordion]
+      </li>
+      <li class="ps-0">
+        [accordion summary=" How do I request to have an application installed on a resource I use?" text="Open a <a href='https://support.access-ci.org/help-ticket'>help ticket</a>."][/accordion]
+      </li>
+      <li class="ps-0">
+        [accordion summary="I’m an ACCESS Resource Provider and I want to make OnDemand available on my systems. How do I get started?" text="Please follow the steps outlined in the <a href='https://readthedocs.access-ci.org/projects/integration-roadmaps/en/latest/tasks/ACCESS_OnDemand_Portal_Integration_v1.html'>ACCESS OnDemand service integration roadmap</a>."][/accordion]
+      </li>
+      <li class="ps-0">
+        [accordion summary="Open OnDemand has made it really easy for me to use ACCESS resources. Where can I learn more about it or get engaged in the community?" text="<a href='https://openondemand.org/get-involved'>Read this page</a> to learn the many ways to join the Open OnDemand community and get involved."][/accordion]
+      </li>
+    </ul>
+  </section>
+</div>
+
+<div class="hidden md--block col-2 sticky top-10 h-fit">
+ <nav aria-labelledby="on-this-page-title" class="hidden md--block bg-md-teal p-5 ms-auto h-fit">
+    <h2 id="on-this-page-title" class="font-extrabold text-white leading-5 py-2 text-sm">
+        ACCESS OnDemand</h2>
+
+    <ul class="ms-4 m-0 p-0 list-none">
+        <li>
+            <a class="font-semibold text-white leading-5 py-2 no-underline hover--underline hover--text-light-teal block"
+                href="#about">About</a>
+        </li>
+        <li>
+            <a class="font-semibold text-white leading-5 py-2 no-underline hover--underline hover--text-light-teal block"
+                href="#resources-with-ondemand">Resources with OnDemand</a>
+        </li>
+        <li>
+            <a class="font-semibold text-white leading-5 py-2 no-underline hover--underline hover--text-light-teal block"
+                href="#ondemand-faq">ACCESS OnDemand FAQ</a>
+        </li>
+        <li>
+            <a class="font-semibold text-white leading-5 py-2 no-underline hover--underline hover--text-light-teal block"
+                href="#ondemand-support">ACCESS OnDemand Support</a>
+        </li>
+    </ul>
+</nav>
+</div>
+</div>
+
+<section class="bg-light-teal -mx-50% px-50% py-10" id="ondemand-support">
+  <h2 class="colored-square colored-square-orange">ACCESS OnDemand Support</h2>
+
+  <div class="grid grid-cols-1 sm--grid-cols-2 md--grid-cols-3 gap-5">
+
+	[square icon="/themes/contrib/asp-theme/images/icons/documentation.svg" title="Documentation" link="https://osc.github.io/ood-documentation/latest" text="Search for a specific topic or browse for general info." ][/square]
+
+	[square icon="/themes/contrib/asp-theme/images/icons/discourse.svg" title="Discourse" link="https://discourse.openondemand.org" text="Browse recent questions on the Get Help thread or leave one of your own." ][/square]
+ [square icon="/themes/contrib/asp-theme/images/logos/ood.jpg" title="Community Hub" link="https://ondemand.connectci.org/" text="Events, Announcements, Affinity Groups and Knowledge Base."][/square]
+	</div>
+</section>
+EOT;
+  $node = \Drupal::entityTypeManager()->getStorage('node')->load(267);
+  if ($node) {
+    $node->set('body', [
+      'format' => 'full_no_editor',
+      'value' => $body,
+    ]);
+    $node->save();
+  }
+}
