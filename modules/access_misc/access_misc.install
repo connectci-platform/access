@@ -1870,3 +1870,164 @@ EOT;
   update_block_body(103, $body, 'full_no_editor');
 }
 
+/**
+ * Update node 6109 body field with new markup.
+ */
+function access_misc_update_10033() {
+  $body = <<<EOT
+<p class="prose text-dark-teal text-2xl leading-9 mb-10">
+  Try these cutting-edge tools designed to streamline your time to science. These tools drastically reduce development time, allowing researchers to swiftly unlock the full potential of HPC systems.
+</p>
+
+<div class="grid grid-cols-1 md--grid-cols-3 gap-10 mb-10">
+
+  <div class="border border-gray border-solid md--col-span-3"></div>
+
+  <!-- ACCESS OnDemand -->
+  <div class="flex flex-col items-center">
+    <p class="font-black text-center order-2">Improving the ACCESS experience</p>
+    <img class="w-56 mb-2 mx-auto not-prose order-1" src="/themes/contrib/asp-theme/images/logos/access-ondemand.svg" alt="ACCESS OnDemand logo">
+  </div>
+
+  <div class="flex flex-col">
+    <p>
+      Utilize remote computing resources easily from any device. The simplified interface makes it easy to use your favorite apps for data visualization, simulations, modeling, and more.
+    </p>
+    <div>
+      <a class="btn btn-primary" href="/tools/ondemand">FIND OUT MORE</a>
+    </div>
+  </div>
+
+  <div>
+    <ul class="list-none m-0 p-0 checkbullet-img" role="list">
+      <li class="flex mb-3 font-extrabold">
+        Remote access web portal
+      </li>
+      <li class="flex mb-3 font-extrabold">
+        Zero installation
+      </li>
+      <li class="flex mb-3 font-extrabold">
+        Easy to use
+      </li>
+      <li class="flex mb-3 font-extrabold">
+        Available on many resources
+      </li>
+    </ul>
+  </div>
+
+  <div class="border border-gray border-solid md--col-span-3"></div>
+
+  <!-- Pegasus -->
+  <div class="flex flex-col items-center">
+    <p class="font-black text-center order-2">Easy to use hosted workflow system</p>
+    <img class="w-56 mb-2 mx-auto not-prose order-1" src="/themes/contrib/asp-theme/images/logos/pegasus-stacked.svg" alt="Pegasus logo">
+  </div>
+
+  <div class="flex flex-col">
+    <p>
+      Orchestrate jobs and data movements across ACCESS resource providers. Workflow can be a single task, or contain 1,000s of tasks with interdependencies.
+    </p>
+    <div>
+      <a class="btn btn-primary" href="/tools/pegasus">FIND OUT MORE</a>
+    </div>
+  </div>
+
+  <div>
+    <ul class="list-none m-0 p-0 checkbullet-img" role="list">
+      <li class="flex mb-3 font-extrabold">
+        Data management
+      </li>
+      <li class="flex mb-3 font-extrabold">
+        Provenance tracking
+      </li>
+      <li class="flex mb-3 font-extrabold">
+        Automatic error recovery
+      </li>
+      <li class="flex mb-3 font-extrabold">
+        Reproducibility
+      </li>
+      <li class="flex mb-3 font-extrabold">
+        Reusability
+      </li>
+    </ul>
+  </div>
+
+  <div class="border border-gray border-solid md--col-span-3"></div>
+
+  <!-- Science Gateways -->
+  <div class="flex flex-col items-center">
+    <p class="font-black text-center order-2">Web platforms for research and education</p>
+    <img class="w-56 mb-2 mx-auto not-prose order-1" src="/themes/contrib/asp-theme/images/logos/science-gateways.svg" alt="Science Gateways logo">
+  </div>
+
+  <div class="flex flex-col">
+    <p>
+      Grow and broaden participation for communities of scientists and educators through simple web interfaces connected to software, data, and HPC resources.
+    </p>
+    <div>
+      <a class="btn btn-primary" href="/tools/science-gateways">FIND OUT MORE</a>
+    </div>
+  </div>
+
+  <div>
+    <ul class="list-none m-0 p-0 checkbullet-img" role="list">
+      <li class="flex mb-3 font-extrabold">
+        630+ science gateways
+      </li>
+      <li class="flex mb-3 font-extrabold">
+        Education and technical advice
+      </li>
+      <li class="flex mb-3 font-extrabold">
+        Project sustainability training
+      </li>
+      <li class="flex mb-3 font-extrabold">
+        User interface design consulting
+      </li>
+      <li class="flex mb-3 font-extrabold">
+        Community knowledge sharing
+      </li>
+    </ul>
+  </div>
+
+  <div class="border border-gray border-solid md--col-span-3"></div>
+
+  <!-- XDMoD -->
+  <div class="flex flex-col items-center">
+    <p class="font-black text-center order-2">Data to analyze and optimize your work</p>
+    <img class="w-56 mb-2 mx-auto not-prose order-1" src="/themes/contrib/asp-theme/images/logos/xdmod-dk.png" alt="XDMoD logo">
+  </div>
+
+  <div class="flex flex-col">
+    <p>
+      XDMoD collects usage data from all ACCESS allocated resources and provides a user interface to display the data.
+    </p>
+    <div>
+      <a class="btn btn-primary" href="/tools/xdmod">FIND OUT MORE</a>
+    </div>
+  </div>
+
+  <div>
+    <ul class="list-none m-0 p-0 checkbullet-img" role="list">
+      <li class="flex mb-3 font-extrabold">
+        Monitor allocation usage
+      </li>
+      <li class="flex mb-3 font-extrabold">
+        Optimize job efficiency and allocation usage
+      </li>
+      <li class="flex mb-3 font-extrabold">
+        View historical usage
+      </li>
+    </ul>
+  </div>
+
+</div>
+EOT;
+  $node = \Drupal::entityTypeManager()->getStorage('node')->load(6109);
+  if ($node) {
+    $node->set('body', [
+      'format' => 'full_no_editor',
+      'value' => $body,
+    ]);
+    $node->save();
+  }
+}
