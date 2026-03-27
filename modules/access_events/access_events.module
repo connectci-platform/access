@@ -914,7 +914,7 @@ function access_events_preprocess_views_view_field(&$variables) {
     // Load registrants for the event instance.
     $registrants = \Drupal::entityTypeManager()->getStorage('registrant')->loadByProperties(['eventinstance_id' => $id]);
 
-    $output = '<span class="visually-hidden">no<span>';
+    $output = '<span class="visually-hidden">no</span>';
 
     foreach ($registrants as $registrant) {
       $status = $registrant->get('status')->getValue()[0]['value'];
