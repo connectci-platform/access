@@ -97,6 +97,7 @@
   $('#toolbar-administration').attr('role', 'navigation');
   $('.messages').attr('role', 'status');
   $('.messages').attr('role', 'status');
+  $('.access-support .form-type-vertical-tabs label.visually-hidden').remove();
 
   // Add role="textbox" to date inputs for VoiceOver compatibility on iOS.
   // This helps work around a WebKit bug where VoiceOver cannot open date pickers.
