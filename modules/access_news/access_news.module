@@ -10,6 +10,7 @@ use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Component\Utility\Html;
+use Drupal\Core\Render\Markup;
 use Drupal\datetime\Plugin\Field\FieldType\DateTimeItemInterface;
 use Drupal\node\Entity\Node;
 use Drupal\recurring_events\Entity\EventInstance;
@@ -85,6 +86,14 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
 
   // Suggest tags for announcements.
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form') {
+
+    // A11y fixes
+    // Force h2 on titles.
+    $form['field_affinity_group_node']['widget']['#title'] = Markup::create('<h2 class="label mb-0">' . $form['field_affinity_group_node']['widget']['#title'] . '</h2>');
+    $form['field_affiliation']['widget']['#title'] = Markup::create('<h2 class="label">' . $form['field_affiliation']['widget']['#title'] . '</h2>');
+    $form['field_choose_where_to_share_this']['widget']['#title'] = Markup::create('<h2 class="label">' . $form['field_choose_where_to_share_this']['widget']['#title'] . '</h2>');
+    $form['field_news_external_link']['widget'][0]['#title'] = Markup::create('<h2 class="label mb-0">' . $form['field_news_external_link']['widget']['#title'] . '</h2>');
+
     // Replace title of 'Affiliation' and 'Choose where to share this Announcment' with h4
     $fields = ['field_affiliation', 'field_choose_where_to_share_this'];
 
