@@ -173,8 +173,8 @@ class MatchLookup {
       if (($match_status == 'Recruiting' && $match_name == 'Interested') || $match_name != 'Interested') {
         $lowercase = lcfirst($match_name);
         $first_letter = substr($lowercase, 0, 1);
-        $match_name = "<div data-tippy-content='$match_name'>
-          <div class='rounded-full text-white text-lg text-bold bg-md-teal p-0 w-6 h-6'><div class='text-center leading-5'>$first_letter</div></div>
+        $match_name = "<div data-tippy-content='$match_name' title='$match_name'>
+          <div class='rounded-full text-white text-lg text-bold bg-md-teal bg-dark p-0 w-6 h-6 mr-2'><div class='text-center leading-5'>$first_letter</div></div>
         </div>";
         $match_link .= "<li class='d-flex flex p-3 $stripe_class'>
           <div class='text-truncate' style='width: 400px;'>
