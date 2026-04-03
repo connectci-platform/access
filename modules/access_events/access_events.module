@@ -1719,6 +1719,6 @@ function access_events_replace_mv_conditions(array &$conditions, array $alias_to
 
   // Remove replaced conditions.
   foreach ($keys_to_remove as $key) {
-    unset($conditions[$key])
+    unset($conditions[$key]);
   }
 }
