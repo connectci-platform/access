@@ -1,0 +1,5 @@
+services:
+  access_misc.commands:
+    class: \Drupal\access_misc\Commands\AccessMiscCommands
+    tags:
+      - { name: drush.command }
