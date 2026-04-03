@@ -87,6 +87,23 @@ class PostSurvey {
   }
 
   /**
+   * Get the hostname for an event instance from its domain_access field.
+   *
+   * Falls back to the current request host if no domain is assigned.
+   */
+  protected function getEventDomain($event_instance) {
+    $domains = $event_instance->get('domain_access')->referencedEntities();
+    if (!empty($domains)) {
+      // Set the active domain so hook_mailer_init() routes through
+      // the correct SMTP transport.
+      $negotiator = \Drupal::service('domain.negotiator');
+      $negotiator->setActiveDomain(reset($domains));
+      return reset($domains)->getHostname();
+    }
+    return $this->requestStack->getCurrentRequest()->getHost();
+  }
+
+  /**
    * Send post-survey email.
    */
   public function postSurveyEmail() {
@@ -95,6 +112,9 @@ class PostSurvey {
     $entity_query->accessCheck(FALSE);
     $entity_query->condition('field_post_survey_sent', 0);
     $result = $entity_query->execute();
+
+    $negotiator = \Drupal::service('domain.negotiator');
+    $original_domain = $negotiator->getActiveDomain();
 
     foreach ($result as $entity_id) {
       $event_instance = $this->entityTypeManager->getStorage('eventinstance')->load($entity_id);
@@ -106,6 +126,7 @@ class PostSurvey {
 
       if ($before_end <= $now) {
         $policy = 'access_misc';
+        $domain = $this->getEventDomain($event_instance);
 
         $entity_query = $this->entityTypeManager->getStorage('registrant')->getQuery();
         $entity_query->accessCheck(FALSE);
@@ -126,7 +147,6 @@ class PostSurvey {
           $name = $registrant->field_first_name->value . ' ' . $registrant->field_last_name->value;
           $email = $registrant->title->value;
           $user_id = $registrant->user_id->target_id;
-          $domain = $this->requestStack->getCurrentRequest()->getHost();
           $post_survey_url = "https://$domain/events/$entity_id/post_survey/$user_id";
 
           // Render the full email body from the event's template field.
@@ -162,6 +182,10 @@ class PostSurvey {
       }
     }
 
+    // Restore the original active domain.
+    if ($original_domain) {
+      $negotiator->setActiveDomain($original_domain);
+    }
   }
 
   /**
@@ -175,6 +199,9 @@ class PostSurvey {
     $entity_query->condition('field_post_survey_reminder_sent', 0);
     $result = $entity_query->execute();
 
+    $negotiator = \Drupal::service('domain.negotiator');
+    $original_domain = $negotiator->getActiveDomain();
+
     foreach ($result as $entity_id) {
       $event_instance = $this->entityTypeManager->getStorage('eventinstance')->load($entity_id);
 
@@ -186,6 +213,7 @@ class PostSurvey {
 
       if ($reminder_date <= $now) {
         $policy = 'access_misc';
+        $domain = $this->getEventDomain($event_instance);
 
         $entity_query = $this->entityTypeManager->getStorage('registrant')->getQuery();
         $entity_query->accessCheck(FALSE);
@@ -206,7 +234,6 @@ class PostSurvey {
           $name = $registrant->field_first_name->value . ' ' . $registrant->field_last_name->value;
           $email = $registrant->title->value;
           $user_id = $registrant->user_id->target_id;
-          $domain = $this->requestStack->getCurrentRequest()->getHost();
           $post_survey_url = "https://$domain/events/$entity_id/post_survey/$user_id";
 
           // Render the full email body from the event's template field.
@@ -242,6 +269,10 @@ class PostSurvey {
       }
     }
 
+    // Restore the original active domain.
+    if ($original_domain) {
+      $negotiator->setActiveDomain($original_domain);
+    }
   }
 
 }

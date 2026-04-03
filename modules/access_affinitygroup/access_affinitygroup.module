@@ -1809,7 +1809,7 @@ function webform_submission_affinity_group_affinity_contact(&$form, FormStateInt
   $cc_list_id = $form['elements']['cc_list_id']['#value'];
   $ccListIds = [$cc_list_id];
   $subject = $form['elements']['subject']['#value'];
-  $message .= $form['elements']['message']['value']['#value'];
+  $message = $form['elements']['message']['value']['#value'];
   $message .= '<p>Sent by ' . $form['elements']['name']['#value'] . '</p>';
   $pubDate = date('m/d/Y');
   emailToAffinityGroups($message, "$subject", $pubDate, $agNames, NULL, $ccListIds, 1, NULL);

@@ -707,8 +707,8 @@ function weeklyNewsReport($noSend) {
     // need to make dates for searching on published_date (not date+time)
     $dtLastWeek = new \DateTime('-14 days');
     $dtToday = new \DateTime('today');
-    $dtTomorrow = new \DateTime('tomorrow');
-    $utmCampaign = 'Digest-' . $dtTomorrow->format('mdy');
+    $dtDigestDate = new \DateTime('today');
+    $utmCampaign = 'Digest-' . $dtDigestDate->format('mdy');
 
     $d1 = DrupalDateTime::createFromDateTime($dtLastWeek)
       ->format(DateTimeItemInterface::DATE_STORAGE_FORMAT);
@@ -717,15 +717,15 @@ function weeklyNewsReport($noSend) {
 
     $wrapper = new EmailWrapper();
     $newsHTML = newsRangeView($d1, $d2, $utmCampaign);
-    $mainHeader = $wrapper->mainHeadHTML("The ACCESS Digest // " . $dtTomorrow->format('F j, Y'));
+    $mainHeader = $wrapper->mainHeadHTML("The ACCESS Digest // " . $dtDigestDate->format('F j, Y'));
     $sectionHeader = $wrapper->sectionHeadHTML(t('Announcements'));
     $newsHTML = $newsHTML != '' ? $mainHeader . $sectionHeader . $newsHTML : $mainHeader;
     Drupal::logger('cron_accessnews')->notice('Digest: news from: ' . $d1 . ' to: ' . $d2);
 
-    // Gather all upcoming events for the next month (tomorrow, when digest is sent, to +1 month)
+    // Gather all upcoming events for the next month (today to +1 month)
     $timezone = new \DateTimeZone(DateTimeItemInterface::STORAGE_TIMEZONE);
-    $dtCurrent = new \DateTime('tomorrow', $timezone);
-    $dtNextMonth = new \DateTime('today+1 month + 2 day', $timezone);
+    $dtCurrent = new \DateTime('today', $timezone);
+    $dtNextMonth = new \DateTime('today+1 month + 1 day', $timezone);
 
     $d1 = DrupalDateTime::createFromDateTime($dtCurrent)
       ->format(DateTimeItemInterface::DATETIME_STORAGE_FORMAT);
@@ -743,9 +743,9 @@ function weeklyNewsReport($noSend) {
     $emailHTML = $wrapper->ccNewsRollupHTML($newsHTML, $eventHTML);
 
     // Create constant contact campaign. this does not send it.
-    $campaignName = uniqid('Access Digest: ' . $dtTomorrow->format('n/j/y') . ' ', FALSE);
+    $campaignName = uniqid('Access Digest: ' . $dtDigestDate->format('n/j/y') . ' ', FALSE);
 
-    $ccResponse = setupEmailCampaign('The ACCESS Digest // ' . $dtTomorrow->format('F j, Y'), $emailHTML, $campaignName);
+    $ccResponse = setupEmailCampaign('The ACCESS Digest // ' . $dtDigestDate->format('F j, Y'), $emailHTML, $campaignName);
     if (!$ccResponse) {
       \Drupal::logger('cron_accessnews')->error('weeklyNewsReport: error setting up campaign. Make sure Constant Contact calls are not disabled.');
     }

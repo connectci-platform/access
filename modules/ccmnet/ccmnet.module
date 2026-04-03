@@ -912,6 +912,15 @@ function ccmnet_cron() {
 
   // Allow testing mode to bypass environment and time restrictions
   if ($env == 'live' || $cypress_test == 'true') {
+    // Set the active domain so hook_mailer_init() routes emails through
+    // the CCMNet SMTP transport.
+    $negotiator = \Drupal::service('domain.negotiator');
+    $original_domain = $negotiator->getActiveDomain();
+    $domain = \Drupal\domain\Entity\Domain::load('ccmnet_org');
+    if ($domain) {
+      $negotiator->setActiveDomain($domain);
+    }
+
     // Send interested email between 1:00 am and 1:59 am (or anytime in test mode).
     if (date('G', time()) == 01 || $cypress_test == 'true') {
       $interested_status = \Drupal::state()->get('access_mentorship_interested');
@@ -933,7 +942,7 @@ function ccmnet_cron() {
         }
 
         $author = $node->getOwner()->getEmail();
-        $options = ['absolute' => FALSE];
+        $options = ['absolute' => TRUE];
         $here = Url::fromRoute('entity.node.canonical', ['node' => $interested_nid], $options);
         $link = $here->toString(TRUE)->getGeneratedUrl();
         $node_title = $node->getTitle();
@@ -980,6 +989,12 @@ function ccmnet_cron() {
       }
 
       \Drupal::state()->set('access_mentorship_interested', 0);
+    }
+
+    // Restore the original active domain so we don't pollute state
+    // for anything else running in this process.
+    if ($original_domain) {
+      $negotiator->setActiveDomain($original_domain);
     }
   }
 }

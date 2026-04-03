@@ -713,7 +713,7 @@ function access_events_user_delete_submit($form, FormStateInterface $form_state)
  */
 function access_events_views_pre_build(ViewExecutable $view) {
   // Handle timezone parameter for Events API v2.1 and v2.2
-  if ($view->id() == 'events_facet' && in_array($view->current_display, ['data_export_1', 'data_export_2', 'data_export_3'])) {
+  if ($view->id() == 'events_facet' && in_array($view->current_display, ['data_export_1', 'data_export_2', 'data_export_3', 'data_export_4'])) {
     $request = \Drupal::request();
     $timezone = $request->query->get('timezone', 'UTC');
 
@@ -1203,11 +1203,94 @@ function access_events_entity_presave(EntityInterface $entity) {
 }
 
 /**
- * Filter Events for the current domain.
+ * Implements hook_search_api_query_alter().
  *
- * @param ViewExecutable $view
- * @param QueryPluginBase $query
- * @return void
+ * Apply where_to_share filter at the Search API query level for API exports.
+ * This ensures correct pager counts — the Views-level filter on this
+ * multi-value field causes the search_api_db pager to miscount rows.
+ */
+function access_events_search_api_query_alter(\Drupal\search_api\Query\QueryInterface &$query) {
+  if ($query->getIndex()->id() !== 'events') {
+    return;
+  }
+
+  $search_id = $query->getSearchId();
+  $api_exports = [
+    'views_data_export:events_facet__data_export_4',
+  ];
+
+  if (in_array($search_id, $api_exports)) {
+    $query->addCondition('where_to_share', 'on_the_announcements_page');
+    // Also apply domain filter at query level (same as page displays do in
+    // views_query_alter) so it doesn't happen post-query and break pager counts.
+    $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
+    if ($domain_id) {
+      $query->addCondition('domain_access', $domain_id);
+    }
+  }
+}
+
+/**
+ * Implements hook_search_api_db_query_alter().
+ *
+ * Fix pager counts for events API exports. Multi-value field JOINs
+ * (where_to_share, domain_access) produce duplicate rows that inflate the
+ * pager count, causing pages to return fewer items than requested.
+ *
+ * Solution: replace LEFT JOIN + WHERE conditions on multi-value tables with
+ * EXISTS subqueries, which don't produce duplicate rows.
+ */
+function access_events_search_api_db_query_alter(\Drupal\Core\Database\Query\SelectInterface &$db_query, \Drupal\search_api\Query\QueryInterface $query) {
+  if ($query->getIndex()->id() !== 'events') {
+    return;
+  }
+
+  $search_id = $query->getSearchId();
+  $api_exports = [
+    'views_data_export:events_facet__data_export_4',
+  ];
+
+  if (!in_array($search_id, $api_exports)) {
+    return;
+  }
+
+  // Multi-value field JOINs inflate pager counts because the LEFT JOIN
+  // produces multiple rows per item. Fix: remove the JOINs and their
+  // WHERE conditions, replace with EXISTS subqueries.
+  $multi_value_tables = [
+    'search_api_db_events_where_to_share',
+    'search_api_db_events_domain_access',
+  ];
+
+  $tables = &$db_query->getTables();
+  $alias_to_table = [];
+  foreach ($tables as $alias => $info) {
+    if ($alias === 't') {
+      continue;
+    }
+    if (is_scalar($info['table']) && in_array($info['table'], $multi_value_tables)) {
+      $alias_to_table[$alias] = $info['table'];
+    }
+  }
+
+  if (empty($alias_to_table)) {
+    return;
+  }
+
+  // Recursively find and replace conditions on multi-value aliases with EXISTS.
+  // Conditions are nested in groups, so we walk the tree.
+  access_events_replace_mv_conditions($db_query->conditions(), $alias_to_table, $db_query);
+
+  // Remove the JOINs.
+  foreach (array_keys($alias_to_table) as $alias) {
+    unset($tables[$alias]);
+  }
+}
+
+/**
+ * Implements hook_views_query_alter().
+ *
+ * Filter events by the current domain on page and block displays.
  */
 function access_events_views_query_alter(ViewExecutable $view, QueryPluginBase $query) {
   if ($view->id() === 'events_facet' && ($view->current_display === 'page_1' || $view->current_display === 'page_2' || $view->current_display === 'block_1')) {
@@ -1577,5 +1660,65 @@ function _access_events_render_email_template($template_text, array $variables) 
 function access_events_entity_base_field_info_alter(&$fields, EntityTypeInterface $entity_type) {
   if ($entity_type->id() === 'eventseries' && isset($fields['event_registration'])) {
     $fields['event_registration']->setDescription('');
+  }
+}
+
+/**
+ * Recursively replace conditions on multi-value JOIN aliases with EXISTS subqueries.
+ *
+ * Walks the condition tree. When a condition references a multi-value table
+ * alias (e.g., "t_2.value = 'foo'"), it replaces it with an EXISTS subquery
+ * on the db_query and removes the original condition.
+ *
+ * @param array &$conditions
+ *   The conditions array (by reference) from a ConditionInterface.
+ * @param array $alias_to_table
+ *   Map of alias => table name for multi-value tables.
+ * @param \Drupal\Core\Database\Query\SelectInterface $db_query
+ *   The main DB query (EXISTS subqueries are added here).
+ */
+function access_events_replace_mv_conditions(array &$conditions, array $alias_to_table, \Drupal\Core\Database\Query\SelectInterface $db_query) {
+  $keys_to_remove = [];
+
+  foreach ($conditions as $key => &$condition) {
+    if ($key === '#conjunction') {
+      continue;
+    }
+    if (!is_array($condition)) {
+      continue;
+    }
+
+    $field = $condition['field'] ?? NULL;
+
+    // Recurse into nested condition groups.
+    if ($field instanceof \Drupal\Core\Database\Query\ConditionInterface) {
+      $nested = &$field->conditions();
+      access_events_replace_mv_conditions($nested, $alias_to_table, $db_query);
+      continue;
+    }
+
+    // Check if this condition references a multi-value alias.
+    if (!is_string($field)) {
+      continue;
+    }
+    foreach ($alias_to_table as $alias => $table_name) {
+      if (strpos($field, $alias . '.') === 0) {
+        // Add EXISTS subquery to the main query.
+        $subquery = \Drupal::database()->select($table_name, 'mv');
+        $subquery->addExpression('1');
+        $subquery->where('mv.item_id = t.item_id');
+        $subquery->condition('mv.value', $condition['value'], $condition['operator']);
+        $db_query->exists($subquery);
+
+        // Mark for removal.
+        $keys_to_remove[] = $key;
+        break;
+      }
+    }
+  }
+
+  // Remove replaced conditions.
+  foreach ($keys_to_remove as $key) {
+    unset($conditions[$key])
   }
 }
