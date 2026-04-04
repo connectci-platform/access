@@ -267,7 +267,8 @@ paths:
                       start_date: "2026-08-06T13:00:00Z"
                       end_date: "2026-08-06T14:00:00Z"
                       speakers: ""
-                      
+                      url: "https://support.access-ci.org/events/open-ondemand-tips-and-tricks-call"
+
         '400':
           description: Bad request - invalid parameters
           content:
@@ -379,7 +380,12 @@ components:
           type: string
           description: Comma-separated list of speaker names
           example: "Dr. Jane Smith, Prof. John Doe"
-          
+        url:
+          type: string
+          format: uri
+          description: Canonical URL to the event page on support.access-ci.org
+          example: "https://support.access-ci.org/events/open-ondemand-tips-and-tricks-call"
+
     Error:
       type: object
       properties:

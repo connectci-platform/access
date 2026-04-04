@@ -158,6 +158,20 @@ function access_misc_entity_type_build(array $entity_types) {
 }
 
 /**
+ * Implements hook_views_data().
+ */
+function access_misc_views_data() {
+  $data['views']['domain_aware_url'] = [
+    'title' => t('Domain-aware URL'),
+    'help' => t('Absolute URL for the entity, respecting its domain_access field.'),
+    'field' => [
+      'id' => 'domain_aware_url',
+    ],
+  ];
+  return $data;
+}
+
+/**
  * Implements hook_views_pre_render().
  */
 function access_misc_views_pre_render(ViewExecutable $view) {

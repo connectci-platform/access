@@ -140,6 +140,58 @@ class SiteTools {
   }
 
   /**
+   * Build an absolute URL for an entity, respecting its domain_access field.
+   *
+   * Uses the entity's first assigned domain to construct the URL.
+   * Falls back to the current domain, then to support.access-ci.org.
+   *
+   * @param string $relative_path
+   *   The relative path (e.g., '/events/9018', '/announcements/my-title').
+   * @param \Drupal\Core\Entity\EntityInterface|null $entity
+   *   The entity to get the domain from, or NULL to use current domain.
+   *
+   * @return string
+   *   The absolute URL.
+   */
+  public function buildDomainAwareUrl($relative_path, $entity = NULL) {
+    try {
+      // Try to get domain from entity's domain_access field.
+      if ($entity && $entity->hasField('domain_access')) {
+        $domains = $entity->get('domain_access')->getValue();
+
+        // For event instances, fall back to series if no domains.
+        if (empty($domains) && method_exists($entity, 'getEventSeries')) {
+          $series = $entity->getEventSeries();
+          if ($series) {
+            $domains = $series->get('domain_access')->getValue();
+          }
+        }
+
+        if (!empty($domains)) {
+          $domain = $this->entityTypeManager->getStorage('domain')
+            ->load($domains[0]['target_id']);
+          if ($domain) {
+            return $domain->buildUrl($relative_path);
+          }
+        }
+      }
+
+      // Fall back to current domain.
+      $current_domain = \Drupal::service('domain.negotiator')->getActiveDomain();
+      if ($current_domain) {
+        return $current_domain->buildUrl($relative_path);
+      }
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('access_misc')
+        ->error('Error building domain-aware URL: ' . $e->getMessage());
+    }
+
+    // Final fallback.
+    return 'https://support.access-ci.org' . $relative_path;
+  }
+
+  /**
    * Get noreply email address for a domain.
    *
    * @param string|null $domain

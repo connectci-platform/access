@@ -234,6 +234,7 @@ paths:
                       affinity_group: "Stampede-3, Anvil"
                       tags: "funding,ai,research"
                       affiliation: "ACCESS Collaboration,Community"
+                      url: "https://support.access-ci.org/announcements/new-funding-opportunity-ai-research"
                       
         '400':
           description: Bad request - invalid parameters
@@ -299,7 +300,12 @@ components:
           type: string
           description: Comma-separated list of organizational affiliations
           example: "ACCESS Collaboration,Community"
-          
+        url:
+          type: string
+          format: uri
+          description: Canonical URL to the full announcement on support.access-ci.org
+          example: "https://support.access-ci.org/announcements/new-funding-opportunity-ai-research"
+
     Error:
       type: object
       properties:
