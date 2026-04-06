@@ -543,18 +543,3 @@ function access_misc_deploy_10007() {
   $node->save();
 }
 
-/**
- * Change field_rp_description from text_long to text_with_summary.
- *
- * Drupal cannot change field storage type via config import, so we delete
- * the field storage first and let config import recreate it.
- */
-function access_misc_deploy_10008() {
-  $storage = \Drupal::entityTypeManager()->getStorage('field_storage_config');
-  $field = $storage->load('node.field_rp_description');
-  if ($field && $field->getType() === 'text_long') {
-    $field->delete();
-    field_purge_batch(100);
-    \Drupal::logger('access_misc')->notice('Deleted field_rp_description (text_long) so config import can recreate as text_with_summary.');
-  }
-}
