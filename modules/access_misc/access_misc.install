@@ -2237,3 +2237,20 @@ EOT;
     $node->save();
   }
 }
+
+/**
+ * Change field_rp_description from text_long to text_with_summary.
+ *
+ * Must run as update hook (before config import) because deploy hooks
+ * run after config import, which fails on field type changes.
+ */
+function access_misc_update_10035() {
+  $storage = \Drupal::entityTypeManager()->getStorage('field_storage_config');
+  $field = $storage->load('node.field_rp_description');
+  if ($field && $field->getType() === 'text_long') {
+    $field->delete();
+    field_purge_batch(100);
+    return t('Deleted field_rp_description (text_long) so config import can recreate as text_with_summary.');
+  }
+  return t('field_rp_description already correct type or does not exist.');
+}
