@@ -149,6 +149,7 @@ async function setMenu(menu, currentUri) {
       userEmail: email,
       userName: name,
       accessId: accessId,
+      resourceContext: embeddedTarget.dataset.resourceContext || undefined,
       loginUrl: "/login?redirect=" + currentUri,
       onAnalyticsEvent: onAnalyticsEvent,
       ...(drupalSettings.access.qaEndpoint && { qaEndpoint: drupalSettings.access.qaEndpoint }),
