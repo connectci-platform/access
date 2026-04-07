@@ -1,0 +1,30 @@
+uuid: 0363c329-c1d0-40f8-9840-9df465617504
+langcode: en
+status: true
+dependencies:
+  module:
+    - access_badges
+title: 'Access Badges: Pending Match Check'
+id: access_badges_pending_match
+weight: 0
+module: access_badges
+callback: '\Drupal\access_badges\Plugin\CronManager::checkPendingMatches'
+scheduler:
+  id: crontab
+  configuration:
+    rules:
+      - '0 5 * * *'
+    catch_up: 86400
+launcher:
+  id: serial
+  configuration:
+    timeouts:
+      lock_timeout: 3600
+    launcher:
+      thread: 0
+logger:
+  id: database
+  configuration:
+    method: '3'
+    expire: 1209600
+    retain: 1000

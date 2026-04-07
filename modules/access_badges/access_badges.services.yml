@@ -11,3 +11,9 @@ services:
     arguments: ['@access_badges.badge_sorter']
     tags:
       - { name: drush.command }
+  access_badges.csv_processor:
+    class: Drupal\access_badges\Service\CsvProcessor
+    arguments:
+      - '@database'
+      - '@entity_type.manager'
+      - '@access_badges.badgeTools'

@@ -72,3 +72,77 @@ function access_badges_cron() {
 
   }
 }
+
+/**
+ * Implements hook_user_insert().
+ *
+ * Auto-assigns badges from pending queue when a new user registers
+ * with a matching email address (exact match, case-insensitive via collation).
+ */
+function access_badges_user_insert(UserInterface $account) {
+  $email = $account->getEmail();
+  if (empty($email)) {
+    return;
+  }
+
+  $database = \Drupal::database();
+  $pending_rows = $database->select('access_badges_pending', 'p')
+    ->fields('p')
+    ->condition('p.email', $email)
+    ->execute()
+    ->fetchAll();
+
+  if (empty($pending_rows)) {
+    return;
+  }
+
+  $badge_tools = \Drupal::service('access_badges.badgeTools');
+
+  foreach ($pending_rows as $row) {
+    $assigned = $badge_tools->assignBadgeToUser($account->id(), $row->badge_tid, $row->vocabulary);
+    if ($assigned) {
+      $database->delete('access_badges_pending')
+        ->condition('id', $row->id)
+        ->execute();
+      \Drupal::logger('access_badges')->info('Auto-assigned badge @tid to user @uid via pending email match.', [
+        '@tid' => $row->badge_tid,
+        '@uid' => $account->id(),
+      ]);
+    }
+    else {
+      \Drupal::logger('access_badges')->warning('Badge @tid assignment failed for user @uid; pending row @id retained.', [
+        '@tid' => $row->badge_tid,
+        '@uid' => $account->id(),
+        '@id' => $row->id,
+      ]);
+    }
+  }
+}
+
+/**
+ * Implements hook_mail().
+ */
+function access_badges_mail($key, &$message, $params) {
+  if ($key === 'pending_match_digest') {
+    $message['subject'] = t('Badge Assignments: New matches need review');
+
+    $lines = [];
+    $lines[] = t('The following pending badge assignments have new user matches:');
+    $lines[] = '';
+
+    foreach ($params['matches'] as $match) {
+      $lines[] = t('- @csv_name (@csv_email) matched to @matched_name (@strength)', [
+        '@csv_name' => $match['csv_name'],
+        '@csv_email' => $match['csv_email'],
+        '@matched_name' => $match['matched_name'],
+        '@strength' => $match['strength'],
+      ]);
+    }
+
+    $lines[] = '';
+    $review_url = \Drupal\Core\Url::fromRoute('access_badges.review', [], ['absolute' => TRUE])->toString();
+    $lines[] = t('Review these matches at: @url', ['@url' => $review_url]);
+
+    $message['body'] = $lines;
+  }
+}

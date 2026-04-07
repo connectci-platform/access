@@ -1,0 +1,51 @@
+access_badges.pending:
+  path: '/admin/people/badge-assignments'
+  defaults:
+    _form: '\Drupal\access_badges\Form\BadgePendingForm'
+    _title: 'Pending Badge Assignments'
+  requirements:
+    _permission: 'administer users'
+
+access_badges.review:
+  path: '/admin/people/badge-assignments/review'
+  defaults:
+    _form: '\Drupal\access_badges\Form\BadgeReviewForm'
+    _title: 'Needs Review'
+  requirements:
+    _permission: 'administer users'
+
+access_badges.upload:
+  path: '/admin/people/badge-assignments/upload'
+  defaults:
+    _form: '\Drupal\access_badges\Form\BadgeCsvUploadForm'
+    _title: 'Upload CSV'
+  requirements:
+    _permission: 'administer users'
+
+access_badges.pending_delete:
+  path: '/admin/people/badge-assignments/delete/{id}'
+  defaults:
+    _controller: '\Drupal\access_badges\Controller\BadgePendingController::delete'
+    _title: 'Delete Pending Row'
+  requirements:
+    _permission: 'administer users'
+    id: \d+
+
+access_badges.assign_action:
+  path: '/admin/people/badge-assignments/assign/{uid}/{badge_tid}/{vocabulary}/{email}'
+  defaults:
+    _controller: '\Drupal\access_badges\Controller\BadgePendingController::assign'
+    _title: 'Assign Badge'
+  requirements:
+    _permission: 'administer users'
+    uid: \d+
+    badge_tid: \d+
+
+access_badges.pending_action:
+  path: '/admin/people/badge-assignments/send-to-pending/{email}/{first_name}/{last_name}/{organization}'
+  defaults:
+    _controller: '\Drupal\access_badges\Controller\BadgePendingController::sendToPending'
+    _title: 'Send to Pending'
+    organization: ''
+  requirements:
+    _permission: 'administer users'
