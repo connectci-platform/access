@@ -16,6 +16,7 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
 use Drupal\views\ViewExecutable;
 use Drupal\views\Plugin\views\query\QueryPluginBase;
 use Drupal\Component\Utility\Html;
+use Drupal\Core\Entity\EntityTypeInterface;
 
 /**
  * Implements hook_form_alter().
@@ -30,12 +31,30 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
 
-    $form['event_registration']['widget'][0]['registration']['#description'] = t('Check this box to enable event registration. You can set capacity, add surveys, and enable a waitlist if needed.');
+    $form['field_registration']['widget'][0]['uri']['#description'] = "";
+
+    $form['event_registration']['widget'][0]['registration']['#description'] = "";
+    $form['event_registration']['widget']['#description'] = "";
+    $form['event_registration']['#label_help'] =
+      t('Check this box to enable event registration. You can set capacity, add surveys, and enable a waitlist if needed.') .
+      "<br />" . t('The event registration configuration');
+
+
     $form['registration_reminders']['widget'][0]['data']['reminder_data']['reminder_units']['#default_value'] = 'day';
 
     // Remove required from fieldset 'recur_type' for a11y.
     $form['recur_type']['widget']['#required'] = FALSE;
     $form['field_event_type']['widget']['#required'] = FALSE;
+
+    // Force h2 on titles.
+    $form['field_affinity_group_node']['widget']['#title'] = Markup::create('<h2 class="label">' . $form['field_affinity_group_node']['widget']['#title'] . '</h2>');
+    $form['excluded_dates']['widget']['#title'] = Markup::create('<h2 class="label mb-0">' . $form['excluded_dates']['widget']['#title'] . '</h2>');
+    $form['field_other_authors']['widget']['#title'] = Markup::create('<h2 class="label mb-0">' . $form['field_other_authors']['widget']['#title'] . '</h2>');
+
+    $form['weekly_recurring_date']['widget'][0]['#title'] = Markup::create('<h2 class="label">' . $form['weekly_recurring_date']['widget']['#title'] . '</h2>');
+    $form['monthly_recurring_date']['widget'][0]['#title'] = Markup::create('<h2 class="label">' . $form['monthly_recurring_date']['widget']['#title'] . '</h2>');
+    $form['custom_date']['widget'][0]['#title'] = Markup::create('<h2 class="label">' . $form['custom_date']['widget']['#title'] . '</h2>');
+    $form['event_registration']['widget'][0]['#title'] = Markup::create('<h2 class="fieldset-legend mb-0">' . $form['event_registration']['widget'][0]['#title'] . '</h2>');
 
 
     // Hide the option to share in the ACCESS bi-weekly digest if not on Access.
@@ -58,6 +77,10 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
 
     foreach ($form['custom_date']['widget'] as $key => $value) {
       if (is_numeric($key)) {
+        $form['custom_date']['widget'][$key]['value']['#prefix'] = '<span class="label">' . t('Start date') . '</span>';
+        $form['custom_date']['widget'][$key]['value']['#attributes']['aria-label'] = t('Start date');
+        $form['custom_date']['widget'][$key]['end_value']['#prefix'] = '<span class="label">' . t('End date') . '</span>';
+        $form['custom_date']['widget'][$key]['end_value']['#attributes']['aria-label'] = t('End date');
         $form['custom_date']['widget'][$key]['day_occurance']['#suffix'] = $suffix;
       }
     }
@@ -222,6 +245,11 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   }
 
   if ($form_id == 'eventinstance_default_add_form' || $form_id == 'eventinstance_default_edit_form' || $form_id == 'eventinstance_default_clone_form') {
+    if ($form['notifications']) {
+      $form['notifications']['edit_message']['title']['#prefix'] = '';
+      $form['notifications']['edit_message']['title']['#suffix'] = '';
+    }
+
     // If user is not administrator, hide the field 'domain_access'.
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
@@ -334,7 +362,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     ];
 
     $form['field_tags_replace']['field_suggest_title'] = [
-      '#markup' => "<h4 class='label form-required mt-4'>Tags</h4>",
+      '#markup' => "<h2 class='label form-required mt-4 mb-0'>Tags</h2>",
     ];
 
     $form['field_tags_replace']['field_suggest'] = [
@@ -408,6 +436,36 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['event_registration']['widget'][0]['permitted_roles']['#access'] = FALSE;
     $form['#validate'][] = 'access_events_eventseries_validate';
   }
+}
+
+/**
+ * Implements hook_preprocess_field_multiple_value_form().
+ *
+ * Removes the drag handle and Order column from specific multi-value fields.
+ */
+function access_events_preprocess_field_multiple_value_form(&$variables) {
+  if (!$variables['multiple']) {
+    return;
+  }
+  $fields = ['field_other_authors', 'field_affinity_group_node'];
+  if (!in_array($variables['element']['#field_name'] ?? '', $fields)) {
+    return;
+  }
+
+  // Fix label header colspan: 2 covers drag handle + field, reduce to 1.
+  $variables['table']['#header'][0]['colspan'] = 1;
+  // Remove the Order column header (always last).
+  array_pop($variables['table']['#header']);
+
+  foreach ($variables['table']['#rows'] as &$row) {
+    unset($row['data'][0]); // field-multiple-drag (drag handle)
+    unset($row['data'][3]); // delta-order (weight select)
+    $row['data'] = array_values($row['data']);
+    $row['class'] = array_diff($row['class'] ?? [], ['draggable']);
+  }
+
+  // Remove tabledrag JS attachment.
+  unset($variables['table']['#tabledrag']);
 }
 
 /**
@@ -856,7 +914,7 @@ function access_events_preprocess_views_view_field(&$variables) {
     // Load registrants for the event instance.
     $registrants = \Drupal::entityTypeManager()->getStorage('registrant')->loadByProperties(['eventinstance_id' => $id]);
 
-    $output = '';
+    $output = '<span class="visually-hidden">no</span>';
 
     foreach ($registrants as $registrant) {
       $status = $registrant->get('status')->getValue()[0]['value'];
@@ -1315,6 +1373,11 @@ function access_events_module_implements_alter(&$implementations, $hook) {
   if ($hook === 'cron' && isset($implementations['recurring_events_reminders'])) {
     unset($implementations['recurring_events_reminders']);
   }
+  if ($hook === 'entity_base_field_info_alter' && isset($implementations['access_events'])) {
+    $group = $implementations['access_events'];
+    unset($implementations['access_events']);
+    $implementations['access_events'] = $group;
+  }
 }
 
 /**
@@ -1590,6 +1653,15 @@ function _access_events_render_email_template($template_text, array $variables) 
   }
 }
 
+
+/**
+ * Implements hook_entity_base_field_info_alter().
+ */
+function access_events_entity_base_field_info_alter(&$fields, EntityTypeInterface $entity_type) {
+  if ($entity_type->id() === 'eventseries' && isset($fields['event_registration'])) {
+    $fields['event_registration']->setDescription('');
+  }
+}
 
 /**
  * Recursively replace conditions on multi-value JOIN aliases with EXISTS subqueries.

@@ -98,6 +98,18 @@ function access_misc_page_attachments(&$variables) {
 }
 
 /**
+ * Implements hook_library_info_alter().
+ */
+function access_misc_library_info_alter(&$libraries, $extension) {
+  // Append our accessibility fix to the facets checkbox widget library so it
+  // loads right after and overrides the default makeCheckbox function.
+  if ($extension === 'facets' && isset($libraries['drupal.facets.checkbox-widget'])) {
+    $module_path = \Drupal::service('extension.list.module')->getPath('access_misc');
+    $libraries['drupal.facets.checkbox-widget']['js']['/' . $module_path . '/js/facets_checkbox_a11y.js'] = [];
+  }
+}
+
+/**
  * Implements hook_entity_view_mode_alter().
  */
 function access_misc_entity_view_mode_alter(&$view_mode, Drupal\Core\Entity\EntityInterface $entity, $context) {

@@ -31,19 +31,19 @@
 {% endif %}
 
 <a class="{{ classes }}" href="{{ link }}">
-	<img alt="{{ alt }}" class="{{ img_classes }}" src="{{ icon }}">
-
 	{% if title  is not empty %}
-    <h3 class="{{ text_classes }} uppercase">{{ title }}</h3>
+    <h3 class="{{ text_classes }} uppercase order-2">{{ title }}</h3>
   {% else %}
     <p>&nbsp;</p>
 	{% endif %}
 
+	<img alt="{{ alt }}" class="{{ img_classes }} order-1" src="{{ icon }}">
+
 	{% if text is not empty %}
-		<p class="{{ text_classes }} text-sm leading-tight">{{ text }}</p>
+		<p class="{{ text_classes }} text-sm leading-tight order-3">{{ text }}</p>
 	{% endif %}
 	{% if flipText is not empty %}
-		<p class="{{ text_classes }} hidden">{{ flipText }}</p>
+		<p class="{{ text_classes }} hidden order-3">{{ flipText }}</p>
 	{% endif %}
 	{% if flipBtnText is not empty %}
 		<span class="btn btn-primary {{ text_hover_classes }} hidden">{{ flipBtnText }}</span>
