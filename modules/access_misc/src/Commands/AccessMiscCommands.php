@@ -435,6 +435,16 @@ class AccessMiscCommands extends DrushCommands {
       }
     }
 
+    // --- Populate 'shared' portal for truly cross-portal notifications ---
+    // Always generate shared.md (even when empty) so it overwrites any stale
+    // static version committed to the catalog repo.
+    $byPortal['shared'] = [];
+    foreach ($notifications as $n) {
+      if ($n['is_shared']) {
+        $byPortal['shared'][] = $n;
+      }
+    }
+
     // --- Output ---
     if (!is_dir($outputDir)) {
       mkdir($outputDir, 0755, TRUE);
@@ -560,6 +570,13 @@ class AccessMiscCommands extends DrushCommands {
       $label = $this->portalLabel($portal);
       $md = $header;
       $md .= "# {$label} Notifications\n\n";
+      if (empty($records)) {
+        $md .= "_No notifications at this time._\n";
+        $filename = $outputDir . '/' . $portal . '.md';
+        file_put_contents($filename, $md);
+        $this->output()->writeln("Wrote {$filename}");
+        continue;
+      }
       $md .= "| Name | Trigger | Send Method | Subject | Recipient | Needs Review |\n";
       $md .= "|------|---------|-------------|---------|-----------|-------------|\n";
       foreach ($records as $r) {
