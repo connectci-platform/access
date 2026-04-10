@@ -43,6 +43,9 @@ class AccessMiscCommands extends DrushCommands {
     $configDir = $drupalRoot . '/sites/default/config/default';
     $modulesDir = $drupalRoot . '/modules/custom/access';
 
+    // Scan PHP source to detect actual recipient roles.
+    $roleMap = $this->detectRecipientRoles($modulesDir);
+
     $notifications = [];
     $counts = [];
 
@@ -113,6 +116,7 @@ class AccessMiscCommands extends DrushCommands {
         'needs_review' => FALSE,
         '_source' => 'symfony_mailer_policy',
       ];
+      $this->applyRoleMap($record, $roleMap, $id);
       $notifications[] = $record;
       $counts['symfony_mailer_policy']++;
     }
@@ -149,6 +153,7 @@ class AccessMiscCommands extends DrushCommands {
           'needs_review' => FALSE,
           '_source' => 'email_builder',
         ];
+        $this->applyRoleMap($record, $roleMap, $pluginId);
         $notifications[] = $record;
         $counts['email_builder']++;
       }
@@ -169,6 +174,7 @@ class AccessMiscCommands extends DrushCommands {
             'needs_review' => FALSE,
             '_source' => 'email_builder',
           ];
+          $this->applyRoleMap($record, $roleMap, "$pluginId." . $st[1]);
           $notifications[] = $record;
           $counts['email_builder']++;
         }
@@ -204,6 +210,7 @@ class AccessMiscCommands extends DrushCommands {
             'needs_review' => TRUE,
             '_source' => 'hook_mail',
           ];
+          $this->applyRoleMap($record, $roleMap, "{$module}.{$key}");
           $notifications[] = $record;
           $counts['hook_mail']++;
         }
@@ -241,6 +248,7 @@ class AccessMiscCommands extends DrushCommands {
           'needs_review' => TRUE,
           '_source' => 'hook_mail',
         ];
+        $this->applyRoleMap($record, $roleMap, "{$mod}.{$key}");
         $notifications[] = $record;
         $counts['hook_mail']++;
       }
@@ -381,6 +389,14 @@ class AccessMiscCommands extends DrushCommands {
         'needs_review' => FALSE,
         '_source' => 'webform_php',
       ];
+      // Detect recipient from mail calls in the handler source.
+      if (preg_match('/->mail\s*\(\s*\$(\w+)\s*,\s*\$(\w+)/', $content, $mailMatch)) {
+        $mailModule = $this->resolveStringVar($content, $mailMatch[1]);
+        $mKey = $this->resolveStringVar($content, $mailMatch[2]);
+        if ($mailModule && $mKey) {
+          $this->applyRoleMap($record, $roleMap, "$mailModule.$mKey");
+        }
+      }
       $notifications[] = $record;
       $counts['webform_php']++;
     }
@@ -617,6 +633,293 @@ class AccessMiscCommands extends DrushCommands {
    */
   private function mdEscape(string $value): string {
     return str_replace(['#', '[', ']'], ['\\#', '\\[', '\\]'], $value);
+  }
+
+  /**
+   * Scan PHP source files to detect recipient roles for email calls.
+   *
+   * Builds a map keyed by "policy.subtype" with recipient_role and recipient
+   * values by analyzing code surrounding SymfonyMail->email() and
+   * $mailManager->mail() calls.
+   */
+  private function detectRecipientRoles(string $modulesDir): array {
+    $roleMap = [];
+    $phpFiles = $this->findPhpFiles($modulesDir);
+
+    foreach ($phpFiles as $phpFile) {
+      $content = file_get_contents($phpFile);
+      $lines = explode("\n", $content);
+      $totalLines = count($lines);
+
+      for ($i = 0; $i < $totalLines; $i++) {
+        $line = $lines[$i];
+        $start = max(0, $i - 60);
+        $contextLines = array_slice($lines, $start, $i - $start + 1);
+        $context = implode("\n", $contextLines);
+
+        // SymfonyMail ->email($policyVar, $subtypeVar, $toVar, ...).
+        if (preg_match('/->email\s*\(\s*\$(\w+)\s*,\s*\$(\w+)\s*,\s*\$(\w+)/', $line, $m)) {
+          $policy = $this->resolveStringVar($context, $m[1]);
+          $subtype = $this->resolveStringVar($context, $m[2]);
+          $toVar = $m[3];
+          if ($policy && $subtype) {
+            $this->addRoleMapping($roleMap, "$policy.$subtype", $context, $toVar);
+          }
+        }
+
+        // $mailManager->mail('module', 'key', $to, ...).
+        if (preg_match('/->mail\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*[\'"]([^\'"]+)[\'"]\s*,\s*\$(\w+)/', $line, $m)) {
+          $this->addRoleMapping($roleMap, $m[1] . '.' . $m[2], $context, $m[3]);
+        }
+
+        // $mailManager->mail($moduleVar, $keyVar, $toVar, ...).
+        if (preg_match('/->mail\s*\(\s*\$(\w+)\s*,\s*\$(\w+)\s*,\s*\$(\w+)/', $line, $m)
+            && !preg_match('/->mail\s*\(\s*[\'"]/', $line)) {
+          $module = $this->resolveStringVar($context, $m[1]);
+          $mailKey = $this->resolveStringVar($context, $m[2]);
+          if ($module && $mailKey) {
+            $this->addRoleMapping($roleMap, "$module.$mailKey", $context, $m[3]);
+          }
+        }
+
+        // Wrapper calls: func_send('mail_key', $params).
+        if (preg_match('/\b(\w+_send)\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*\$(\w+)\s*\)/', $line, $m)) {
+          $module = $this->resolveWrapperModule($content, $m[1]);
+          if ($module) {
+            $mapKey = "$module." . $m[2];
+            $paramsVar = $m[3];
+            if (preg_match('/\$' . preg_quote($paramsVar, '/') . '\s*\[\s*[\'"]to[\'"]\s*\]\s*=\s*\$(\w+)/', $context, $pm)) {
+              $this->addRoleMapping($roleMap, $mapKey, $context, $pm[1]);
+            }
+          }
+        }
+      }
+
+      // File-level: associate entityQuery role conditions with unresolved
+      // wrapper calls in the same file.
+      preg_match_all("/condition\s*\(\s*'roles'\s*,\s*'([^']+)'\s*\)/", $content, $fileRoles);
+      preg_match_all('/\b(\w+_send)\s*\(\s*[\'"]([^\'"]+)[\'"]/', $content, $fileWrappers);
+      if (!empty($fileRoles[1]) && !empty($fileWrappers[1])) {
+        $roles = array_unique($fileRoles[1]);
+        foreach ($fileWrappers[1] as $idx => $wrapperName) {
+          $module = $this->resolveWrapperModule($content, $wrapperName);
+          if (!$module) {
+            continue;
+          }
+          $mapKey = "$module." . $fileWrappers[2][$idx];
+          if (!isset($roleMap[$mapKey])) {
+            $roleStr = implode(', ', $roles);
+            $roleMap[$mapKey] = [
+              'recipient_role' => $roleStr,
+              'recipient' => 'Roles: ' . $roleStr,
+            ];
+          }
+        }
+      }
+    }
+
+    return $roleMap;
+  }
+
+  /**
+   * Resolve a PHP variable to its last assigned string literal value.
+   */
+  private function resolveStringVar(string $context, string $varName): ?string {
+    if (preg_match_all('/\$' . preg_quote($varName, '/') . '\s*=\s*[\'"]([^\'"]+)[\'"]/', $context, $m)) {
+      return end($m[1]);
+    }
+    return NULL;
+  }
+
+  /**
+   * Add or merge a recipient role mapping.
+   */
+  private function addRoleMapping(array &$roleMap, string $key, string $context, string $toVar): void {
+    $info = $this->analyzeRecipientVar($context, $toVar);
+    if (!$info) {
+      return;
+    }
+    if (!isset($roleMap[$key])) {
+      $roleMap[$key] = $info;
+    }
+    else {
+      $existing = $roleMap[$key]['recipient_role'];
+      $new = $info['recipient_role'];
+      if ($existing !== $new && !str_contains($existing, $new)) {
+        $roleMap[$key]['recipient_role'] .= ', ' . $new;
+        $roleMap[$key]['recipient'] .= '; ' . $info['recipient'];
+      }
+    }
+  }
+
+  /**
+   * Analyze a recipient variable to determine role information.
+   */
+  private function analyzeRecipientVar(string $context, string $toVar): ?array {
+    $varPattern = preg_quote($toVar, '/');
+
+    // 1. $toVar from getEmails([$roleVar], ...).
+    if (preg_match('/\$' . $varPattern . '\s*=.*?getEmails\s*\(\s*\[\s*\$(\w+)\s*\]/', $context, $m)) {
+      $roleVar = $m[1];
+      if (preg_match('/\$' . preg_quote($roleVar, '/') . '\s*=.*getManagerRole/', $context)) {
+        return [
+          'recipient_role' => 'program_manager',
+          'recipient' => 'program manager (via getManagerRole)',
+        ];
+      }
+      $roles = $this->collectRoleAssignments($context, $roleVar);
+      if (!empty($roles)) {
+        $liveRoles = array_filter($roles, fn($r) => $r !== 'site_developer' || count($roles) === 1);
+        $liveRoles = array_values($liveRoles);
+        if (!empty($liveRoles)) {
+          $roleStr = implode(', ', $liveRoles);
+          return [
+            'recipient_role' => $roleStr,
+            'recipient' => 'Roles: ' . $roleStr,
+          ];
+        }
+      }
+    }
+
+    // 2. getEmails with string literal: getEmails(['role_name'], ...).
+    if (preg_match('/\$' . $varPattern . '\s*=.*?getEmails\s*\(\s*\[\s*[\'"]([^\'"]+)[\'"]\s*\]/', $context, $m)) {
+      return [
+        'recipient_role' => $m[1],
+        'recipient' => 'Roles: ' . $m[1],
+      ];
+    }
+
+    // 3. entityQuery with condition('roles', 'role') in context.
+    if (preg_match("/condition\s*\(\s*'roles'\s*,\s*'([^']+)'\s*\)/", $context, $m)
+        && !preg_match('/getEmails/', $context)) {
+      return [
+        'recipient_role' => $m[1],
+        'recipient' => 'Roles: ' . $m[1],
+      ];
+    }
+
+    // 4. Hardcoded email: $toVar = "email@domain".
+    if (preg_match('/\$' . $varPattern . '\s*=\s*["\']([^"\']+@[^"\'\s]+)["\']/', $context, $m)) {
+      return [
+        'recipient_role' => 'static_address',
+        'recipient' => $m[1],
+      ];
+    }
+
+    // 5. Queue pattern: $toVar .= '@domain'.
+    if (preg_match('/\$' . $varPattern . '\s*\.=\s*[\'"]@([^\'"]+)[\'"]/', $context, $m)) {
+      return [
+        'recipient_role' => 'external_queue',
+        'recipient' => 'queue email @' . $m[1],
+      ];
+    }
+
+    // 6. Variable name-based detection.
+    $varLower = strtolower($toVar);
+    if (str_contains($varLower, 'author')) {
+      return ['recipient_role' => 'content_author', 'recipient' => 'content author'];
+    }
+    if (preg_match('/mentor/', $varLower) && !preg_match('/admin|mentee/', $varLower)) {
+      return ['recipient_role' => 'mentor', 'recipient' => 'specific mentor user'];
+    }
+    if (str_contains($varLower, 'mentee')) {
+      return ['recipient_role' => 'mentee', 'recipient' => 'specific mentee user'];
+    }
+    if (str_contains($varLower, 'liaison')) {
+      return ['recipient_role' => 'liaison', 'recipient' => 'specific liaison user'];
+    }
+    if (str_contains($varLower, 'registered_person') || str_contains($varLower, 'registrant')) {
+      return ['recipient_role' => 'registrant', 'recipient' => 'event registrant'];
+    }
+
+    // 7. $toVar = $object->getEmail() — check object name for hints.
+    if (preg_match('/\$' . $varPattern . '\s*=\s*\$(\w+)->getEmail\(\)/', $context, $m)) {
+      $objectVar = strtolower($m[1]);
+      if (str_contains($objectVar, 'author')) {
+        return ['recipient_role' => 'content_author', 'recipient' => 'content author'];
+      }
+      if (str_contains($objectVar, 'mentor') && !str_contains($objectVar, 'admin')) {
+        return ['recipient_role' => 'mentor', 'recipient' => 'specific mentor user'];
+      }
+      if (str_contains($objectVar, 'mentee')) {
+        return ['recipient_role' => 'mentee', 'recipient' => 'specific mentee user'];
+      }
+      if (str_contains($objectVar, 'liaison')) {
+        return ['recipient_role' => 'liaison', 'recipient' => 'specific liaison user'];
+      }
+      return ['recipient_role' => 'authenticated', 'recipient' => 'specific user'];
+    }
+
+    // 8. Generic $email variable — check context for hints.
+    if ($varLower === 'email') {
+      if (preg_match('/registr/i', $context)) {
+        return ['recipient_role' => 'registrant', 'recipient' => 'event registrant'];
+      }
+      return ['recipient_role' => 'authenticated', 'recipient' => 'specific user'];
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Collect all string literal role assignments for a variable.
+   */
+  private function collectRoleAssignments(string $context, string $roleVar): array {
+    $roles = [];
+    $varPattern = preg_quote($roleVar, '/');
+
+    // Simple: $var = 'value'.
+    preg_match_all('/\$' . $varPattern . '\s*=\s*[\'"]([^\'"]+)[\'"]/', $context, $m);
+    if (!empty($m[1])) {
+      $roles = array_merge($roles, $m[1]);
+    }
+
+    // Ternary: $var = $cond ? 'val1' : 'val2'.
+    preg_match_all('/\$' . $varPattern . '\s*=\s*.*?\?\s*[\'"]([^\'"]+)[\'"]\s*:\s*[\'"]([^\'"]+)[\'"]/', $context, $m);
+    if (!empty($m[1])) {
+      $roles = array_merge($roles, $m[1], $m[2]);
+    }
+
+    return array_values(array_unique($roles));
+  }
+
+  /**
+   * Resolve the mail module name from a wrapper send function.
+   */
+  private function resolveWrapperModule(string $fileContent, string $funcName): ?string {
+    if (preg_match('/function\s+' . preg_quote($funcName, '/') . '\s*\([^)]*\)\s*\{([^}]+)\}/s', $fileContent, $m)) {
+      if (preg_match('/\$module\s*=\s*[\'"]([^\'"]+)[\'"]/', $m[1], $mm)) {
+        return $mm[1];
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Look up recipient role info from the role map.
+   */
+  private function lookupRoleMap(array $roleMap, string $key): ?array {
+    if (isset($roleMap[$key])) {
+      return $roleMap[$key];
+    }
+    // Prefix match for concatenated subtypes (e.g., 'project_created_').
+    foreach ($roleMap as $mapKey => $info) {
+      if (str_ends_with($mapKey, '_') && str_starts_with($key, $mapKey)) {
+        return $info;
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Apply detected role info from the role map to a notification record.
+   */
+  private function applyRoleMap(array &$record, array $roleMap, string $key): void {
+    $info = $this->lookupRoleMap($roleMap, $key);
+    if ($info) {
+      $record['recipient_role'] = $info['recipient_role'];
+      $record['recipient'] = $info['recipient'];
+    }
   }
 
 }
