@@ -67,7 +67,7 @@ class AccessMiscCommands extends DrushCommands {
         'recipient' => !empty($roles) ? 'Roles: ' . implode(', ', $roles) : ($data['author'] ? 'content author' : 'site mail'),
         'recipient_role' => !empty($roles) ? implode(', ', $roles) : 'any',
         'subject' => $data['subject'] ?? '',
-        'body_summary' => $this->summarizeHtml($data['body']['value'] ?? ''),
+        'body' => $this->cleanHtml($data['body']['value'] ?? ''),
         'edit_location' => 'config: ' . basename($file),
         'is_shared' => FALSE,
         'needs_review' => FALSE,
@@ -107,7 +107,7 @@ class AccessMiscCommands extends DrushCommands {
         'recipient' => 'varies',
         'recipient_role' => 'any',
         'subject' => $subject,
-        'body_summary' => $this->summarizeHtml($bodyVal),
+        'body' => $this->cleanHtml($bodyVal),
         'edit_location' => 'config: ' . basename($file),
         'is_shared' => FALSE,
         'needs_review' => FALSE,
@@ -143,7 +143,7 @@ class AccessMiscCommands extends DrushCommands {
           'recipient' => 'varies',
           'recipient_role' => 'any',
           'subject' => '',
-          'body_summary' => $this->classDocblock($content),
+          'body' => $this->classDocblock($content),
           'edit_location' => 'Module:' . basename($file),
           'is_shared' => FALSE,
           'needs_review' => FALSE,
@@ -163,7 +163,7 @@ class AccessMiscCommands extends DrushCommands {
             'recipient' => 'varies',
             'recipient_role' => 'any',
             'subject' => '',
-            'body_summary' => $st[2],
+            'body' => $st[2],
             'edit_location' => 'Module:' . basename(dirname(dirname(dirname(dirname($file))))) . ':' . basename($file),
             'is_shared' => FALSE,
             'needs_review' => FALSE,
@@ -198,7 +198,7 @@ class AccessMiscCommands extends DrushCommands {
             'recipient' => 'varies',
             'recipient_role' => 'any',
             'subject' => '',
-            'body_summary' => "hook_mail key '{$key}' in {$module}",
+            'body' => "hook_mail key '{$key}' in {$module}",
             'edit_location' => $relPath,
             'is_shared' => FALSE,
             'needs_review' => TRUE,
@@ -235,7 +235,7 @@ class AccessMiscCommands extends DrushCommands {
           'recipient' => 'varies',
           'recipient_role' => 'any',
           'subject' => '',
-          'body_summary' => "mail('{$mod}', '{$key}') call",
+          'body' => "mail('{$mod}', '{$key}') call",
           'edit_location' => $relPath,
           'is_shared' => FALSE,
           'needs_review' => TRUE,
@@ -269,7 +269,7 @@ class AccessMiscCommands extends DrushCommands {
             'recipient' => 'CC list members',
             'recipient_role' => 'any',
             'subject' => '',
-            'body_summary' => "ConstantContactApi::{$method}() in " . basename($phpFile),
+            'body' => "ConstantContactApi::{$method}() in " . basename($phpFile),
             'edit_location' => $relPath,
             'is_shared' => FALSE,
             'needs_review' => TRUE,
@@ -295,7 +295,7 @@ class AccessMiscCommands extends DrushCommands {
             'recipient' => 'CC list members',
             'recipient_role' => 'any',
             'subject' => '',
-            'body_summary' => 'ConstantContactApi used in ' . basename($phpFile),
+            'body' => 'ConstantContactApi used in ' . basename($phpFile),
             'edit_location' => $relPath,
             'is_shared' => FALSE,
             'needs_review' => TRUE,
@@ -334,7 +334,7 @@ class AccessMiscCommands extends DrushCommands {
           'recipient' => $settings['to_mail'] ?? 'varies',
           'recipient_role' => 'any',
           'subject' => $settings['subject'] ?? '',
-          'body_summary' => 'Webform email handler on ' . $webformId,
+          'body' => 'Webform email handler on ' . $webformId,
           'edit_location' => 'config: ' . basename($file),
           'is_shared' => FALSE,
           'needs_review' => FALSE,
@@ -375,7 +375,7 @@ class AccessMiscCommands extends DrushCommands {
         'recipient' => 'varies',
         'recipient_role' => 'any',
         'subject' => '',
-        'body_summary' => $description ?: "WebformHandler '{$handlerId}'",
+        'body' => $description ?: "WebformHandler '{$handlerId}'",
         'edit_location' => $relPath,
         'is_shared' => FALSE,
         'needs_review' => FALSE,
@@ -486,21 +486,11 @@ class AccessMiscCommands extends DrushCommands {
   }
 
   /**
-   * Summarize HTML body text to 1-2 sentences.
+   * Clean HTML body text by stripping tags and normalizing whitespace.
    */
-  private function summarizeHtml(string $html): string {
+  private function cleanHtml(string $html): string {
     $text = strip_tags($html);
     $text = preg_replace('/\s+/', ' ', trim($text));
-    // Truncate to ~200 chars at a sentence boundary.
-    if (strlen($text) > 200) {
-      $pos = strpos($text, '.', 150);
-      if ($pos !== FALSE && $pos < 250) {
-        $text = substr($text, 0, $pos + 1);
-      }
-      else {
-        $text = substr($text, 0, 200) . '…';
-      }
-    }
     return $text;
   }
 
@@ -579,7 +569,7 @@ class AccessMiscCommands extends DrushCommands {
           'Recipient' => $r['recipient'],
           'Recipient Role' => $r['recipient_role'],
           'Subject' => $r['subject'],
-          'Body Summary' => $r['body_summary'],
+          'Body' => $r['body'],
           'Edit Location' => $r['edit_location'],
           'Is Shared' => $r['is_shared'] ? 'yes' : 'no',
           'Needs Review' => $r['needs_review'] ? '⚠ yes' : 'no',
