@@ -20,13 +20,16 @@ use Drupal\views\ViewExecutable;
 
 
 /**
- * Implements hook_mailer_init().
+ * Implements hook_mailer_build().
  *
  * Route emails through the correct Mailgun SMTP transport based on
  * the active domain, and set From/Reply-To for proper SPF/DKIM
  * alignment via mg.* subdomains.
+ *
+ * Runs in the build phase (after DefaultsEmailAdjuster) so the
+ * domain-specific transport overrides the default.
  */
-function access_misc_mailer_init(\Drupal\symfony_mailer\EmailInterface $email) {
+function access_misc_mailer_build(\Drupal\symfony_mailer\EmailInterface $email) {
   $domain_transport_map = [
     'amp_cyberinfrastructure_org' => [
       'from' => 'noreply@mg.support.access-ci.org',
@@ -1193,6 +1196,32 @@ function access_misc_mail_alter(&$message) {
   $site_email = get_domain_email();
   if (!empty($site_email)) {
     $message['headers']['Reply-To'] = $site_email;
+  }
+
+  // For content_moderation_notifications emails sent while the editor is on
+  // the ACCESS Support domain, append a help-ticket footer and set a friendly
+  // From name. ACCESS policy is to route requests through the ticket system
+  // rather than to monitored email, so we make that explicit in the body.
+  if (strpos($message['id'], 'content_moderation_notifications_') === 0) {
+    $moduleHandler = \Drupal::service('module_handler');
+    if ($moduleHandler->moduleExists('domain')) {
+      $domain = \Drupal::service('domain.negotiator')->getActiveDomain();
+      if ($domain && $domain->id() === 'amp_cyberinfrastructure_org') {
+        $ticket_url = 'https://support.access-ci.org/help-ticket';
+        $is_html = !empty($message['headers']['Content-Type']) && stripos($message['headers']['Content-Type'], 'text/html') !== FALSE;
+        $footer = $is_html
+          ? '<hr><p><em>Please do not reply to this email. For help, open a ticket at <a href="' . $ticket_url . '">' . $ticket_url . '</a>.</em></p>'
+          : "\n\n--\nPlease do not reply to this email. For help, open a ticket at " . $ticket_url . "\n";
+        if (!isset($message['body']) || !is_array($message['body'])) {
+          $message['body'] = [];
+        }
+        $message['body'][] = $footer;
+
+        if (!empty($message['from'])) {
+          $message['headers']['From'] = 'ACCESS Support <' . $message['from'] . '>';
+        }
+      }
+    }
   }
 }
 
