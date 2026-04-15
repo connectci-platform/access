@@ -60,7 +60,7 @@ function access_misc_mailer_build(\Drupal\symfony_mailer\EmailInterface $email) 
 
   if ($domain_id && isset($domain_transport_map[$domain_id])) {
     $config = $domain_transport_map[$domain_id];
-    if (!empty($config['transport'])) {
+    if (!empty($config['transport']) && !getenv('IS_DDEV_PROJECT')) {
       $transport = MailerTransport::load($config['transport']);
       if ($transport) {
         $email->setTransportDsn($transport->getDsn());
