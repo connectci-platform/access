@@ -122,7 +122,7 @@ class AffinityBottomLeft extends BlockBase {
       }
     }
     $output = '<div class="bg-md-teal mb-10 not-prose"><div class="p-4">';
-    $output .= '<h2 class="text-white-er text-xl font-semibold mt-0 mb-3">Upcoming Events</h2>';
+    $output .= '<h2 class="text-white-er text-xl font-semibold mt-0 mb-3">Events</h2>';
     $affinity_group_tax = '';
     $affinity_group_title = '';
     if ($node) {
@@ -187,7 +187,7 @@ class AffinityBottomLeft extends BlockBase {
 
     // Build the announcement output.
     $output .= '<div class="bg-md-teal mb-10"><div class="p-4">';
-    $output .= '<h2 class="border-bottom pb-2 text-xl text-white-er font-semibold mt-0">Announcements</h2>';
+    $output .= '<h2 class="border-bottom pb-2 text-xl text-white-er font-semibold mt-0">News</h2>';
 
     if (!empty($announcement_nids)) {
       // Load and render announcements.
