@@ -4,7 +4,7 @@ services:
 
   access_badges.badge_sorter:
     class: Drupal\access_badges\Service\BadgeSorter
-    arguments: ['@entity_type.manager']
+    arguments: ['@entity_type.manager', '@database']
 
   access_badges.badges_commands:
     class: Drupal\access_badges\Commands\BadgesCommands
