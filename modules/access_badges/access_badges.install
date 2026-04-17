@@ -131,6 +131,14 @@ function access_badges_install() {
 
 
 /**
+ * Sort all user badges to match taxonomy term weight/name order.
+ */
+function access_badges_update_10001(): string {
+  $count = \Drupal::service('access_badges.badge_sorter')->sortAllUsers();
+  return "Sorted badges for $count users.";
+}
+
+/**
  * Remove Badges from taxonomy.
  */
 function access_badges_uninstall() {
