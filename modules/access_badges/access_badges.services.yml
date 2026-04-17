@@ -1,3 +1,13 @@
 services:
   access_badges.badgeTools:
     class: Drupal\access_badges\Plugin\BadgeTools
+
+  access_badges.badge_sorter:
+    class: Drupal\access_badges\Service\BadgeSorter
+    arguments: ['@entity_type.manager']
+
+  access_badges.badges_commands:
+    class: Drupal\access_badges\Commands\BadgesCommands
+    arguments: ['@access_badges.badge_sorter']
+    tags:
+      - { name: drush.command }
