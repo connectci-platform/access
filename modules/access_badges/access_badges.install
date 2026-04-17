@@ -131,45 +131,6 @@ function access_badges_install() {
 
 
 /**
- * Sort field_user_badges for all users to match badges taxonomy order.
- */
-function access_badges_update_9001(&$sandbox) {
-  // Load ordered tids from the badges vocabulary.
-  $tids = \Drupal::entityQuery('taxonomy_term')
-    ->condition('vid', 'badges')
-    ->accessCheck(FALSE)
-    ->sort('weight')
-    ->sort('name')
-    ->execute();
-
-  $order = array_flip(array_values($tids));
-
-  $uids = \Drupal::entityQuery('user')
-    ->condition('uid', 0, '>')
-    ->accessCheck(FALSE)
-    ->execute();
-
-  foreach ($uids as $uid) {
-    $user = \Drupal\user\Entity\User::load($uid);
-    $badges = $user->get('field_user_badges')->getValue();
-    if (empty($badges)) {
-      continue;
-    }
-
-    $user_tids = array_column($badges, 'target_id');
-    usort($user_tids, function ($a, $b) use ($order) {
-      $pos_a = $order[$a] ?? PHP_INT_MAX;
-      $pos_b = $order[$b] ?? PHP_INT_MAX;
-      return $pos_a - $pos_b;
-    });
-
-    $sorted = array_map(fn($tid) => ['target_id' => $tid], $user_tids);
-    $user->set('field_user_badges', $sorted);
-    $user->save();
-  }
-}
-
-/**
  * Remove Badges from taxonomy.
  */
 function access_badges_uninstall() {
