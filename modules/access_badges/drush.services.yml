@@ -1,0 +1,6 @@
+services:
+  access_badges.badges_commands:
+    class: Drupal\access_badges\Commands\BadgesCommands
+    arguments: ['@access_badges.badge_sorter']
+    tags:
+      - { name: drush.command }
