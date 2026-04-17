@@ -5,6 +5,7 @@
  */
 
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\user\UserInterface;
 
 /**
  * Implements hook_form_alter().
@@ -20,6 +21,43 @@ function access_badges_form_alter(&$form, FormStateInterface $form_state, $form_
       $form['field_user_badges']['widget']['actions']['ief_add_existing']['#access'] = FALSE;
     }
   }
+}
+
+/**
+ * Implements hook_user_presave().
+ */
+function access_badges_user_presave(UserInterface $user) {
+  _access_badges_sort_user_badges($user);
+}
+
+/**
+ * Sort field_user_badges to match the badges taxonomy term order.
+ */
+function _access_badges_sort_user_badges(UserInterface $user) {
+  $badges = $user->get('field_user_badges')->getValue();
+  if (empty($badges)) {
+    return;
+  }
+
+  // Load ordered tids from the badges vocabulary.
+  $tids = \Drupal::entityQuery('taxonomy_term')
+    ->condition('vid', 'badges')
+    ->accessCheck(FALSE)
+    ->sort('weight')
+    ->sort('name')
+    ->execute();
+
+  $order = array_flip(array_values($tids));
+  $user_tids = array_column($badges, 'target_id');
+
+  usort($user_tids, function ($a, $b) use ($order) {
+    $pos_a = $order[$a] ?? PHP_INT_MAX;
+    $pos_b = $order[$b] ?? PHP_INT_MAX;
+    return $pos_a - $pos_b;
+  });
+
+  $sorted = array_map(fn($tid) => ['target_id' => $tid], $user_tids);
+  $user->set('field_user_badges', $sorted);
 }
 
 /**
