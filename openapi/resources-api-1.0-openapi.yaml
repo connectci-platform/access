@@ -1,0 +1,371 @@
+openapi: 3.0.3
+info:
+  title: ACCESS Resource Documentation API
+  description: |
+    Public JSON endpoints for ACCESS resource provider documentation.
+    Drives syndication to Elastic search and the RAG ingestion pipeline.
+
+    ## What's in it
+    - **Resources** — ACCESS-allocated compute, storage, and cloud resources with team-authored documentation. Includes per-resource login info, file transfer methods, storage filesystems, queue specs, top software, and datasets.
+    - **Resource Groups** — logical groupings of related resources (e.g. "Bridges-2" covers Bridges-2 RM, GPU, EM). Used to set shared defaults that child resources inherit.
+    - **Inheritance** — when a resource leaves a field empty and its parent group has a value, the group's value is returned as the effective value. The API surfaces the resolved value so consumers don't need to track inheritance themselves.
+
+    ## Authentication
+    No authentication required - this is a public API.
+
+  version: 1.0.0
+  contact:
+    name: ACCESS Support
+    url: https://support.access-ci.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://support.access-ci.org/api/1.0
+    description: Production server
+
+paths:
+  /resources:
+    get:
+      summary: List resources
+      description: |
+        Returns all ACCESS resources with team-authored documentation.
+
+        **Default behavior:** Only resources whose `description` is populated are returned. Pass `?documented=false` to include CIDER-imported stubs that have no team-authored content yet.
+      operationId: listResources
+      tags:
+        - Resources
+      parameters:
+        - name: documented
+          in: query
+          description: |
+            When `true` (default), return only resources with a populated description. When `false`, return all CIDER-imported resources including stubs.
+          required: false
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: A list of resources.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    description: Number of resources returned.
+                  resources:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ResourceSummary'
+
+  /resources/{resource_id}:
+    get:
+      summary: Get resource detail
+      description: |
+        Returns full documentation for a single resource. Field values reflect Resource Group inheritance — if the resource leaves an inheritable field empty, the parent group's value is returned.
+      operationId: getResource
+      tags:
+        - Resources
+      parameters:
+        - name: resource_id
+          in: path
+          required: true
+          description: CIDER resource identifier (`field_cider_resource_id`).
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Resource detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceDetail'
+        '404':
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /resource-groups:
+    get:
+      summary: List resource groups
+      description: |
+        Returns Resource Groups with their member resources and the set of documentation sections populated across the group. Useful for RAG agents that need to scope capability menus per resource.
+      operationId: listResourceGroups
+      tags:
+        - Resource Groups
+      responses:
+        '200':
+          description: A list of resource groups.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  groups:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ResourceGroup'
+
+components:
+  schemas:
+    ResourceSummary:
+      type: object
+      properties:
+        nid:
+          type: integer
+          description: Drupal node ID.
+        title:
+          type: string
+        resource_id:
+          type: string
+          description: CIDER resource identifier, used as the path argument for the detail endpoint.
+        global_resource_id:
+          type: string
+          description: ACCESS global resource ID (e.g. `expanse.sdsc.access-ci.org`).
+        org_name:
+          type: string
+        status:
+          type: string
+          description: CIDER status (e.g. `production`, `retired`).
+        resource_type:
+          type: string
+          description: CIDER resource type (e.g. `Compute`, `Storage`, `Cloud`).
+        has_documentation:
+          type: boolean
+          description: True if team-authored description content exists.
+        url:
+          type: string
+          format: uri
+          description: Absolute URL of the resource documentation page.
+
+    ResourceDetail:
+      type: object
+      properties:
+        nid:
+          type: integer
+        title:
+          type: string
+        resource_id:
+          type: string
+        global_resource_id:
+          type: string
+        resource_type:
+          type: string
+        org_name:
+          type: string
+        org_url:
+          type: string
+          format: uri
+          nullable: true
+        status:
+          type: string
+        url:
+          type: string
+          format: uri
+        description:
+          type: string
+          nullable: true
+        mfa_required:
+          type: boolean
+        account_required:
+          type: boolean
+        ondemand_url:
+          type: string
+          format: uri
+          nullable: true
+        office_hours:
+          type: string
+          format: uri
+          nullable: true
+          description: Link to RP office hours. Inherited from Group when empty.
+        login_text:
+          type: string
+          nullable: true
+          description: Rich text displayed above SSH/OnDemand login boxes.
+        file_transfer_text:
+          type: string
+          nullable: true
+          description: Rich text displayed above the file transfer methods table.
+        jobs_info:
+          type: string
+          nullable: true
+          description: Rich text displayed above the queue specs table.
+        software_list_url:
+          type: string
+          format: uri
+          nullable: true
+          description: Link to the RP's official software list.
+        external_storage:
+          type: string
+          nullable: true
+        ssh_logins:
+          type: array
+          items:
+            $ref: '#/components/schemas/SshLogin'
+        login_help_links:
+          type: array
+          items:
+            $ref: '#/components/schemas/Link'
+        account_setup_url:
+          type: string
+          format: uri
+          nullable: true
+        support_links:
+          type: array
+          items:
+            $ref: '#/components/schemas/Link'
+        file_transfer:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileTransferMethod'
+        storage:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageFilesystem'
+        queue_specs:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueueSpec'
+        datasets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Dataset'
+        top_software:
+          type: array
+          description: Most-used software on this resource, from XDMoD job data.
+          items:
+            type: object
+
+    SshLogin:
+      type: object
+      required:
+        - hostname
+      properties:
+        hostname:
+          type: string
+          description: SSH login hostname (e.g. `login.expanse.sdsc.edu`).
+        username_placeholder:
+          type: string
+          nullable: true
+          description: RP-specific username hint shown in the example command (e.g. `PSC_USERNAME`). When empty, clients should display `<your_username>`.
+        docs_url:
+          type: string
+          format: uri
+          nullable: true
+          description: Optional link to per-node documentation or account setup.
+        recommended:
+          type: boolean
+
+    Link:
+      type: object
+      properties:
+        title:
+          type: string
+        url:
+          type: string
+          format: uri
+
+    FileTransferMethod:
+      type: object
+      properties:
+        method:
+          type: string
+          description: Transfer method name (e.g. `Globus`, `SCP`).
+        transfer_node:
+          type: string
+          nullable: true
+        transfer_url:
+          type: string
+          format: uri
+          nullable: true
+        recommended:
+          type: boolean
+
+    StorageFilesystem:
+      type: object
+      properties:
+        directory:
+          type: string
+        path:
+          type: string
+        quota:
+          type: string
+          nullable: true
+        purge:
+          type: string
+          nullable: true
+        backup:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+
+    QueueSpec:
+      type: object
+      properties:
+        name:
+          type: string
+        purpose:
+          type: string
+          nullable: true
+        cpus:
+          type: string
+          nullable: true
+        gpus:
+          type: string
+          nullable: true
+        ram:
+          type: string
+          nullable: true
+
+    Dataset:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+
+    ResourceGroup:
+      type: object
+      properties:
+        nid:
+          type: integer
+        slug:
+          type: string
+          description: URL-safe slug (e.g. `bridges-2`). Matches `data-resource-context` on the embedded QA bot.
+        title:
+          type: string
+        url:
+          type: string
+          format: uri
+        populated_sections:
+          type: array
+          description: Section identifiers that have content on any member resource (e.g. `login`, `file_transfer`, `storage`, `queue_specs`, `top_software`, `datasets`).
+          items:
+            type: string
+        variants:
+          type: array
+          items:
+            type: object
+            properties:
+              nid:
+                type: integer
+              title:
+                type: string
+              resource_id:
+                type: string
+              global_resource_id:
+                type: string
