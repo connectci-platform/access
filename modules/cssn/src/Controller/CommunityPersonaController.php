@@ -339,6 +339,7 @@ class CommunityPersonaController extends ControllerBase {
     }
 
     $nodes = \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($nids);
+    uasort($nodes, fn($a, $b) => strnatcasecmp($a->getTitle(), $b->getTitle()));
     $items = '';
     $n = 1;
     foreach ($nodes as $node) {
