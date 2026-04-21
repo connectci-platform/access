@@ -372,7 +372,7 @@ class CommunityPersonaController extends ControllerBase {
       else {
         // First letter of software name if no logo image is available.
         $first_letter = strtoupper(substr($title, -1));
-        $logo_html = '<div class="me-2 mr-2 d-flex align-items-center justify-content-center rounded text-gray-dark bg-header-gray font-weight-bold" style="width:24px;height:24px;font-size:14px;">' . $first_letter . '</div>';
+        $logo_html = '<div class="me-2 mr-2 d-flex align-items-center justify-content-center rounded text-gray-dark bg-gray bg-header-gray text-center font-weight-bold" style="width:24px;height:24px;font-size:14px;">' . $first_letter . '</div>';
       }
 
       }
@@ -380,7 +380,7 @@ class CommunityPersonaController extends ControllerBase {
       $n++;
     }
 
-    return '<ul class="appverse-contribs list-unstyled list-none mx-0 my-3 p-0">' . $items . '</ul>';
+    return '<ul class="appverse-contribs list-unstyled list-none mx-0 my-3 p-0 columns-3">' . $items . '</ul>';
   }
 
   /**
