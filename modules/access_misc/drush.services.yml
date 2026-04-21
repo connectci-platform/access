@@ -1,0 +1,6 @@
+services:
+  access_misc.commands:
+    class: \Drupal\access_misc\Commands\AccessMiscCommands
+    arguments: ['@access_misc.allocations_user_creator']
+    tags:
+      - { name: drush.command }

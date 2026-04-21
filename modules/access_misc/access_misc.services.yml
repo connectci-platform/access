@@ -14,6 +14,10 @@ services:
     class: Drupal\access_misc\Services\ImportAccessOrgs
     arguments: ["%access_misc.verbose%"]
 
+  access_misc.allocations_user_creator:
+    class: Drupal\access_misc\Services\AllocationsUserCreator
+    arguments: ["@http_client", "@entity_type.manager", "@file_system", "@logger.factory"]
+
   access_misc.symfony.mail:
     class: Drupal\access_misc\Services\SymfonyMail
 
