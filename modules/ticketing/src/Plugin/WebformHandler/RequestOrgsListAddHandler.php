@@ -72,22 +72,20 @@ class RequestOrgsListAddHandler extends WebformHandlerBase {
    */
   public function getMailMessageBody($data) {
     $ticketing_module_path = \Drupal::service('extension.list.module')->getPath('ticketing');
-    return twig_render_template(
-          $ticketing_module_path . '/templates/request-orgs-list-add-mail.html.twig',
-          [
-            'theme_hook_original' => 'not-applicable',
-            'name' => $data['your_name'],
-            'email' => $data['your_email'],
-            'organization' => $data['your_organization'],
-            'address_line_1' => $data['address_line_1'] ?? '',
-            'address_line_2' => $data['address_line_2'] ?? '',
-            'city' => $data['city'] ?? '',
-            'state_province_region' => $data['state_province_region'] ?? '',
-            'zip_postal_code' => $data['zip_postal_code'] ?? '',
-            'country' => $data['country'] ?? '',
-            'organization_webpage' => $data['organization_webpage'] ?? '',
-          ]
-      );
+    /** @var \Twig\Environment $twig */
+    $twig = \Drupal::service('twig');
+    return (string) $twig->load($ticketing_module_path . '/templates/request-orgs-list-add-mail.html.twig')->render([
+      'name' => $data['your_name'],
+      'email' => $data['your_email'],
+      'organization' => $data['your_organization'],
+      'address_line_1' => $data['address_line_1'] ?? '',
+      'address_line_2' => $data['address_line_2'] ?? '',
+      'city' => $data['city'] ?? '',
+      'state_province_region' => $data['state_province_region'] ?? '',
+      'zip_postal_code' => $data['zip_postal_code'] ?? '',
+      'country' => $data['country'] ?? '',
+      'organization_webpage' => $data['organization_webpage'] ?? '',
+    ]);
   }
 
 }
