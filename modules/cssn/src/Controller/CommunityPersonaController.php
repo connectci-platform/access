@@ -381,7 +381,7 @@ class CommunityPersonaController extends ControllerBase {
       $n++;
     }
 
-    return '<ul class="appverse-contribs list-unstyled list-none mx-0 my-3 p-0 columns-3">' . $items . '</ul>';
+    return '<ul class="appverse-contribs list-unstyled list-none mx-0 my-3 p-0">' . $items . '</ul>';
   }
 
   /**

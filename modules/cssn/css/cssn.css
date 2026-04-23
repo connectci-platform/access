@@ -1,0 +1,14 @@
+.appverse-contribs {
+  column-count: 3;
+  column-gap: 1rem;
+}
+
+.appverse-contribs > li {
+  break-inside: avoid;
+}
+
+@media (max-width: 768px) {
+  .appverse-contribs {
+    column-count: 1;
+  }
+}

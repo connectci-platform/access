@@ -1,4 +1,7 @@
 cssn_library:
+  css:
+    component:
+      css/cssn.css: {}
   js:
     js/cssn.js: {}
 cssn_directory:
