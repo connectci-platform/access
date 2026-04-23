@@ -615,15 +615,16 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
           $pubDate = NULL;
 
           // If there's only one event instance, link to that instance instead of the series.
-          if ($node->getInstanceCount() == 1) {
-            $instances = $node->get('event_instances')->referencedEntities();
-            if (!empty($instances)) {
-              $first_instance = reset($instances);
-              $newsUrl = _access_news_build_url_for_domain($first_instance, $currentDomainId);
-              $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
-            }
+          // Use referencedEntities() for both the count and the link so unpublished
+          // instances (counted by getInstanceCount but not loadable) don't cause a mismatch.
+          $instances = $node->get('event_instances')->referencedEntities();
+          $instanceCount = count($instances);
+          if ($instanceCount == 1) {
+            $first_instance = reset($instances);
+            $newsUrl = _access_news_build_url_for_domain($first_instance, $currentDomainId);
+            $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
           }
-          elseif ($node->getInstanceCount() > 1) {
+          elseif ($instanceCount > 1) {
             // Multiple instances - don't include a link button.
             $newsUrl = NULL;
           }
