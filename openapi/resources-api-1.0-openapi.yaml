@@ -126,6 +126,11 @@ components:
           description: Drupal node ID.
         title:
           type: string
+          description: Long descriptive name from CIDER (e.g. "Indiana Jetstream2 Large Memory").
+        short_name:
+          type: string
+          nullable: true
+          description: Shorter display name from CIDER (e.g. "Jetstream2 LM"). May be null for stale resources no longer in the active feed.
         resource_id:
           type: string
           description: CIDER resource identifier, used as the path argument for the detail endpoint.
@@ -155,6 +160,11 @@ components:
           type: integer
         title:
           type: string
+          description: Long descriptive name from CIDER.
+        short_name:
+          type: string
+          nullable: true
+          description: Shorter display name from CIDER. May be null for stale resources.
         resource_id:
           type: string
         global_resource_id:
@@ -365,6 +375,11 @@ components:
                 type: integer
               title:
                 type: string
+                description: Long descriptive name from CIDER.
+              short_name:
+                type: string
+                nullable: true
+                description: Shorter display name from CIDER.
               resource_id:
                 type: string
               global_resource_id:
