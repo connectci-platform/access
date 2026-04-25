@@ -469,6 +469,28 @@ function access_news_node_insert(Node $node) {
 }
 
 /**
+ * Implements hook_module_implements_alter().
+ *
+ * Move our entity_insert/entity_update handlers to the END of the hook list
+ * so affinityGroupBroadcast() runs AFTER recurring_events has populated
+ * `event_instances` on the EventSeries. Otherwise the broadcast email would
+ * link to the series URL (e.g. /events/series/914) instead of the single
+ * instance URL, since `getInstanceCount()` returns 0 before the contrib
+ * module's eventseries_insert hook fires to create instances.
+ *
+ * Module implementations are invoked alphabetically by default; "access_news"
+ * sorts before "recurring_events", so we reorder explicitly.
+ */
+function access_news_module_implements_alter(&$implementations, $hook) {
+  if (in_array($hook, ['entity_insert', 'entity_update'], TRUE)
+    && isset($implementations['access_news'])) {
+    $impl = $implementations['access_news'];
+    unset($implementations['access_news']);
+    $implementations['access_news'] = $impl;
+  }
+}
+
+/**
  * Implements hook_entity_insert().
  *
  *  * Provide message that approval is required.
@@ -615,16 +637,15 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
           $pubDate = NULL;
 
           // If there's only one event instance, link to that instance instead of the series.
-          // Use referencedEntities() for both the count and the link so unpublished
-          // instances (counted by getInstanceCount but not loadable) don't cause a mismatch.
-          $instances = $node->get('event_instances')->referencedEntities();
-          $instanceCount = count($instances);
-          if ($instanceCount == 1) {
-            $first_instance = reset($instances);
-            $newsUrl = _access_news_build_url_for_domain($first_instance, $currentDomainId);
-            $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
+          if ($node->getInstanceCount() == 1) {
+            $instances = $node->get('event_instances')->referencedEntities();
+            if (!empty($instances)) {
+              $first_instance = reset($instances);
+              $newsUrl = _access_news_build_url_for_domain($first_instance, $currentDomainId);
+              $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
+            }
           }
-          elseif ($instanceCount > 1) {
+          elseif ($node->getInstanceCount() > 1) {
             // Multiple instances - don't include a link button.
             $newsUrl = NULL;
           }
