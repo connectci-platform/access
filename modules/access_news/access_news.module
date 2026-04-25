@@ -469,6 +469,28 @@ function access_news_node_insert(Node $node) {
 }
 
 /**
+ * Implements hook_module_implements_alter().
+ *
+ * Move our entity_insert/entity_update handlers to the END of the hook list
+ * so affinityGroupBroadcast() runs AFTER recurring_events has populated
+ * `event_instances` on the EventSeries. Otherwise the broadcast email would
+ * link to the series URL (e.g. /events/series/914) instead of the single
+ * instance URL, since `getInstanceCount()` returns 0 before the contrib
+ * module's eventseries_insert hook fires to create instances.
+ *
+ * Module implementations are invoked alphabetically by default; "access_news"
+ * sorts before "recurring_events", so we reorder explicitly.
+ */
+function access_news_module_implements_alter(&$implementations, $hook) {
+  if (in_array($hook, ['entity_insert', 'entity_update'], TRUE)
+    && isset($implementations['access_news'])) {
+    $impl = $implementations['access_news'];
+    unset($implementations['access_news']);
+    $implementations['access_news'] = $impl;
+  }
+}
+
+/**
  * Implements hook_entity_insert().
  *
  *  * Provide message that approval is required.
