@@ -271,14 +271,16 @@ function access_cilink_preprocess_views_view_field(&$variables) {
                                   {{ type }}
                                 </div>
                               </div>
-                              <div class="px-2">
-                                <div class="text-dark-teal m-0 pt-3 font-bold text-lg">
-                                  {{ skillTitle }}
+                              {% if skillImage is not empty %}
+                                <div class="px-2">
+                                  <div class="text-dark-teal m-0 pt-3 font-bold text-lg">
+                                    {{ skillTitle }}
+                                  </div>
+                                  <div>
+                                    {{ skillImage | raw }}
+                                  </div>
                                 </div>
-                                <div>
-                                  {{ skillImage | raw }}
-                                </div>
-                              </div>
+                              {% endif %}
                               {% if authenticated %}
                                 <div class="pt-4 md--w-full">
                                   {{ editLink|raw }}
