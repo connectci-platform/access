@@ -32,7 +32,7 @@ class AccessCiUserLogin extends BlockBase {
         <div class="card-body">
           <h2>ACCESS ID</h2>
 
-          <a href="/login?redirect={{ current }}" class="button btn btn-primary">Login with Access CI</a>
+          <a href="/login?redirect={{ current }}" class="button btn btn-primary">Login with ACCESS CI</a>
 
           <div id="cilogon-auth-login-group">
 
