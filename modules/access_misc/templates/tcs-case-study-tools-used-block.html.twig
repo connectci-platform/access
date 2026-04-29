@@ -1,0 +1,32 @@
+{#
+/**
+ * @file
+ * Template for the TCS Case Study Tools Used block.
+ *
+ * Available variables:
+ * - tools: Array of tool data with name, logo_url, and link_url.
+ */
+#}
+
+<div class="tcs-tools-used-block">
+  <h2 class="h4 text-base p-2 font-bold leading-5 text-white m-0 bg-md-teal uppercase w-full">Access Tools</h2>
+  <div class="tcs-tools-used-block__item flex flex-wrap gap-4 my-5">
+    {% for tool in tools %}
+        {% if tool.link_url %}
+          <a href="{{ tool.link_url }}" target="_blank" rel="noopener noreferrer" class="w-[45%] block">
+        {% endif %}
+        {% if tool.logo_url %}
+          <img
+            src="{{ tool.logo_url }}"
+            alt="{{ tool.name }}"
+            class="tcs-tools-used-block__logo"
+          />
+        {% else %}
+          <span class="tcs-tools-used-block__name">{{ tool.name }}</span>
+        {% endif %}
+        {% if tool.link_url %}
+          </a>
+        {% endif %}
+    {% endfor %}
+  </div>
+</div>
