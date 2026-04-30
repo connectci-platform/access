@@ -59,7 +59,3 @@ facets_checkbox_a11y:
   version: 1.x
   js:
     js/facets_checkbox_a11y.js: {}
-tcs_researcher_stories:
-  version: 1.x
-  js:
-    js/researcher-stories.js: {}

@@ -220,8 +220,10 @@ function access_misc_views_data() {
  */
 function access_misc_views_pre_render(ViewExecutable $view) {
   if ($view->id() == 'tool_case_study') {
-    $view->element['#attached']['library'][] = 'access_misc/tcs_researcher_stories';
     $view->element['#attached']['library'][] = 'access_misc/copyclip';
+  }
+  if ($view->id() == 'tool_case_study_slideshow') {
+    $view->element['#attached']['library'][] = 'aspTheme/carousel';
   }
   if ($view->id() == 'infrastructure_news') {
     $view->element['#attached']['library'][] = 'access_misc/add_select';
