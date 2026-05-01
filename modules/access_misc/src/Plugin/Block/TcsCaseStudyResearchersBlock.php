@@ -116,6 +116,15 @@ class TcsCaseStudyResearchersBlock extends BlockBase implements ContainerFactory
         }
       }
 
+      $role = NULL;
+      if ($node->hasField('field_tcs_role') && !$node->get('field_tcs_role')->isEmpty()) {
+        $role_item = $node->get('field_tcs_role')->get($delta)
+          ?? $node->get('field_tcs_role')->get(0);
+        if ($role_item) {
+          $role = $role_item->value;
+        }
+      }
+
       $institution = NULL;
       if ($node->hasField('field_tcs_institution') && !$node->get('field_tcs_institution')->isEmpty()) {
         $institution_item = $node->get('field_tcs_institution')->get($delta)
@@ -129,6 +138,7 @@ class TcsCaseStudyResearchersBlock extends BlockBase implements ContainerFactory
         'uid' => $user->id(),
         'name' => $user->getDisplayName(),
         'photo_url' => $photo_url,
+        'role' => $role,
         'institution' => $institution,
       ];
       $delta++;
