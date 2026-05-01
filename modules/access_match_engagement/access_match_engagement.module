@@ -230,12 +230,12 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
     $form['field_students']['widget']['add_more']['#value'] = 'Add another person';
 
 
-    $domain = \Drupal::service('access_misc.sitetools')->getDomain();
+    $domainid = \Drupal::service('access_misc.sitetools')->getDomainId();
 
     // Make MATCH Engagements only on Access Support domain.
-    if ($domain == SiteTools::DOMAIN_ACCESS_SUPPORT) {
+    if ($domainid != SiteTools::DOMAIN_ACCESS_SUPPORT) {
       \Drupal::messenger()->addWarning(t('You must be on the Access Support domain to create a MATCH engagement.'));
-      $form['field_region']['widget']['#access'] = FALSE;
+      $form['#access'] = FALSE;
     }
 
   }
