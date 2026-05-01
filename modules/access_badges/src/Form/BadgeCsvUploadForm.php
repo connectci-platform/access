@@ -176,6 +176,8 @@ class BadgeCsvUploadForm extends FormBase {
     }
     else {
       $results = $this->processSync($file_path, $header_map, $badge_tid, $vocabulary);
+      $results['badge_tid'] = $badge_tid;
+      $results['vocabulary'] = $vocabulary;
       $form_state->set('csv_results', $results);
       $form_state->setRebuild();
     }
@@ -367,7 +369,7 @@ class BadgeCsvUploadForm extends FormBase {
         '#title' => $this->t('@count possible matches', ['@count' => count($possible)]),
         '#open' => TRUE,
         '#attributes' => ['class' => ['messages', 'messages--warning']],
-        'table' => $this->buildPossibleMatchesTable($possible),
+        'table' => $this->buildPossibleMatchesTable($possible, $results['badge_tid'] ?? 0, $results['vocabulary'] ?? 'badges'),
       ];
     }
 
@@ -411,7 +413,7 @@ class BadgeCsvUploadForm extends FormBase {
   /**
    * Builds table for possible matches with action buttons.
    */
-  protected function buildPossibleMatchesTable(array $possible_matches) {
+  protected function buildPossibleMatchesTable(array $possible_matches, $badge_tid = 0, $vocabulary = 'badges') {
     $header = [
       $this->t('CSV Email'),
       $this->t('CSV Name'),
@@ -422,8 +424,8 @@ class BadgeCsvUploadForm extends FormBase {
       $this->t('Actions'),
     ];
 
-    $badge_tid = $this->getRequest()->get('badge_tid') ?: 0;
-    $vocabulary = $this->getRequest()->get('vocabulary') ?: 'badges';
+    $badge_tid = (int) $badge_tid;
+    $vocabulary = $vocabulary ?: 'badges';
 
     $rows = [];
     foreach ($possible_matches as $match) {
@@ -459,6 +461,11 @@ class BadgeCsvUploadForm extends FormBase {
                   'first_name' => $match['first_name'],
                   'last_name' => $match['last_name'],
                   'organization' => $match['organization'] ?? '',
+                ], [
+                  'query' => [
+                    'badge_tid' => $badge_tid,
+                    'vocabulary' => $vocabulary,
+                  ],
                 ]),
                 '#attributes' => [
                   'class' => ['button', 'button--small'],

@@ -229,6 +229,18 @@ class CsvProcessor {
           ];
         }
         if (!empty($matches)) {
+          // Persist the best candidate as a review row so it appears in the
+          // Needs Review tab even after the user navigates away from the upload
+          // form results. Prefer a Recommended match over a Possible one.
+          $best = $matches[0];
+          foreach ($matches as $candidate) {
+            if ($candidate['strength'] === 'Recommended') {
+              $best = $candidate;
+              break;
+            }
+          }
+          $this->insertReviewRow($data, $badge_tid, $vocabulary, $best['uid']);
+
           return [
             'type' => 'possible_matches',
             'email' => $email,
@@ -341,6 +353,34 @@ class CsvProcessor {
       ->execute()
       ->fetchField();
     return $count > 0;
+  }
+
+  /**
+   * Inserts a 'review' status row with a matched UID into the pending table.
+   *
+   * @param array $data
+   *   Row data with email, first_name, last_name, organization.
+   * @param int $badge_tid
+   *   The badge term ID.
+   * @param string $vocabulary
+   *   The vocabulary machine name.
+   * @param int $matched_uid
+   *   The UID of the best-matched user candidate.
+   */
+  public function insertReviewRow(array $data, $badge_tid, $vocabulary, $matched_uid) {
+    $this->database->insert('access_badges_pending')
+      ->fields([
+        'email' => $data['email'],
+        'first_name' => $data['first_name'],
+        'last_name' => $data['last_name'],
+        'organization' => $data['organization'],
+        'badge_tid' => $badge_tid,
+        'vocabulary' => $vocabulary,
+        'created' => \Drupal::time()->getRequestTime(),
+        'status' => 'review',
+        'matched_uid' => $matched_uid,
+      ])
+      ->execute();
   }
 
   /**
