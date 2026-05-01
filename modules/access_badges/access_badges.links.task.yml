@@ -1,22 +1,23 @@
 # Top-level tab on People page.
 access_badges.badge_assignments:
   title: 'Badge Assignments'
-  route_name: access_badges.pending
+  route_name: access_badges.badge_assignments
   base_route: entity.user.collection
-  weight: 10
+  weight: -10
 
 # Sub-tabs within Badge Assignments.
 access_badges.pending:
   title: 'Pending'
   route_name: access_badges.pending
-  base_route: access_badges.pending
+  base_route: access_badges.badge_assignments
+  weight: -10
 
 access_badges.review:
   title: 'Needs Review'
   route_name: access_badges.review
-  base_route: access_badges.pending
+  base_route: access_badges.badge_assignments
 
 access_badges.upload:
   title: 'Upload'
   route_name: access_badges.upload
-  base_route: access_badges.pending
+  base_route: access_badges.badge_assignments

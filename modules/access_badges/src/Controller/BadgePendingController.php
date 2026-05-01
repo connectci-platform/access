@@ -47,6 +47,13 @@ class BadgePendingController extends ControllerBase {
   }
 
   /**
+   * Redirects the Badge Assignments landing page to the Pending sub-tab.
+   */
+  public function badgeAssignments() {
+    return new RedirectResponse(Url::fromRoute('access_badges.pending')->toString());
+  }
+
+  /**
    * Deletes a pending row.
    */
   public function delete($id) {

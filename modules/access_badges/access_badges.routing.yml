@@ -1,5 +1,13 @@
-access_badges.pending:
+access_badges.badge_assignments:
   path: '/admin/people/badge-assignments'
+  defaults:
+    _controller: '\Drupal\access_badges\Controller\BadgePendingController::badgeAssignments'
+    _title: 'Badge Assignments'
+  requirements:
+    _permission: 'administer users'
+
+access_badges.pending:
+  path: '/admin/people/badge-assignments/pending'
   defaults:
     _form: '\Drupal\access_badges\Form\BadgePendingForm'
     _title: 'Pending Badge Assignments'
