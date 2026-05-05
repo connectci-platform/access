@@ -45,6 +45,8 @@ class AccessMiscCommands extends DrushCommands {
 
     // Scan PHP source to detect actual recipient roles.
     $roleMap = $this->detectRecipientRoles($modulesDir);
+    // Scan PHP source to detect cron/queued mail timing.
+    $timingMap = $this->detectMailTiming($modulesDir);
 
     $notifications = [];
     $counts = [];
@@ -117,6 +119,7 @@ class AccessMiscCommands extends DrushCommands {
         '_source' => 'symfony_mailer_policy',
       ];
       $this->applyRoleMap($record, $roleMap, $id);
+      $this->applyTimingMap($record, $timingMap, $id);
       $notifications[] = $record;
       $counts['symfony_mailer_policy']++;
     }
@@ -154,6 +157,7 @@ class AccessMiscCommands extends DrushCommands {
           '_source' => 'email_builder',
         ];
         $this->applyRoleMap($record, $roleMap, $pluginId);
+        $this->applyTimingMap($record, $timingMap, $pluginId);
         $notifications[] = $record;
         $counts['email_builder']++;
       }
@@ -175,6 +179,7 @@ class AccessMiscCommands extends DrushCommands {
             '_source' => 'email_builder',
           ];
           $this->applyRoleMap($record, $roleMap, "$pluginId." . $st[1]);
+          $this->applyTimingMap($record, $timingMap, "$pluginId." . $st[1]);
           $notifications[] = $record;
           $counts['email_builder']++;
         }
@@ -211,6 +216,7 @@ class AccessMiscCommands extends DrushCommands {
             '_source' => 'hook_mail',
           ];
           $this->applyRoleMap($record, $roleMap, "{$module}.{$key}");
+          $this->applyTimingMap($record, $timingMap, "{$module}.{$key}");
           $notifications[] = $record;
           $counts['hook_mail']++;
         }
@@ -249,6 +255,7 @@ class AccessMiscCommands extends DrushCommands {
           '_source' => 'hook_mail',
         ];
         $this->applyRoleMap($record, $roleMap, "{$mod}.{$key}");
+        $this->applyTimingMap($record, $timingMap, "{$mod}.{$key}");
         $notifications[] = $record;
         $counts['hook_mail']++;
       }
@@ -395,8 +402,10 @@ class AccessMiscCommands extends DrushCommands {
         $mKey = $this->resolveStringVar($content, $mailMatch[2]);
         if ($mailModule && $mKey) {
           $this->applyRoleMap($record, $roleMap, "$mailModule.$mKey");
+          $this->applyTimingMap($record, $timingMap, "$mailModule.$mKey");
         }
       }
+      $this->applyTimingMap($record, $timingMap, $module . '.*');
       $notifications[] = $record;
       $counts['webform_php']++;
     }
@@ -926,6 +935,100 @@ class AccessMiscCommands extends DrushCommands {
       }
     }
     return NULL;
+  }
+
+  /**
+   * Scan modules for cron and queue-worker mail calls to build a timing map.
+   *
+   * Returns an array keyed by "module.mailkey" (or "module.*" as a wildcard)
+   * with values "cron" or "queued".
+   */
+  private function detectMailTiming(string $modulesDir): array {
+    $timingMap = [];
+    $phpFiles = $this->findPhpFiles($modulesDir);
+
+    foreach ($phpFiles as $phpFile) {
+      $content = file_get_contents($phpFile);
+
+      // hook_{module}_cron() implementations.
+      preg_match_all('/function\s+(\w+)_cron\s*\(\s*\)/', $content, $cronMatches, PREG_OFFSET_CAPTURE);
+      foreach ($cronMatches[0] as $idx => $match) {
+        $module = $cronMatches[1][$idx][0];
+        $body = $this->extractFunctionBodyAtOffset($content, $match[1]);
+        $this->extractMailKeysFromBody($body, $module, 'cron', $timingMap);
+      }
+
+      // Queue worker processItem() methods.
+      preg_match_all('/function\s+processItem\s*\(/', $content, $queueMatches, PREG_OFFSET_CAPTURE);
+      foreach ($queueMatches[0] as $match) {
+        $module = $this->moduleFromPath($phpFile);
+        $body = $this->extractFunctionBodyAtOffset($content, $match[1]);
+        $this->extractMailKeysFromBody($body, $module, 'queued', $timingMap);
+      }
+    }
+
+    return $timingMap;
+  }
+
+  /**
+   * Extract the body of a function starting at $offset (inclusive).
+   */
+  private function extractFunctionBodyAtOffset(string $content, int $offset): string {
+    $bracePos = strpos($content, '{', $offset);
+    if ($bracePos === FALSE) {
+      return '';
+    }
+    $depth = 0;
+    $len = strlen($content);
+    for ($i = $bracePos; $i < $len; $i++) {
+      if ($content[$i] === '{') {
+        $depth++;
+      }
+      elseif ($content[$i] === '}') {
+        $depth--;
+        if ($depth === 0) {
+          return substr($content, $bracePos, $i - $bracePos + 1);
+        }
+      }
+    }
+    return substr($content, $bracePos);
+  }
+
+  /**
+   * Extract mail module.key pairs from a function body and record their timing.
+   */
+  private function extractMailKeysFromBody(string $body, string $defaultModule, string $timing, array &$timingMap): void {
+    if (!preg_match('/(?:->mail\s*\(|drupal_mail\s*\(|->email\s*\()/', $body)) {
+      return;
+    }
+    preg_match_all(
+      '/(?:\$\w+->mail|drupal_mail)\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*[\'"]([^\'"]+)[\'"]/',
+      $body,
+      $mm
+    );
+    if (!empty($mm[1])) {
+      foreach ($mm[1] as $i => $mod) {
+        $timingMap[$mod . '.' . $mm[2][$i]] = $timing;
+      }
+    }
+    else {
+      $timingMap[$defaultModule . '.*'] = $timing;
+    }
+  }
+
+  /**
+   * Apply detected timing from the timing map to a notification record.
+   */
+  private function applyTimingMap(array &$record, array $timingMap, string $key): void {
+    if (isset($timingMap[$key])) {
+      $record['timing'] = $timingMap[$key];
+      return;
+    }
+    // Wildcard fallback: module.*.
+    $module = explode('.', $key, 2)[0];
+    if (isset($timingMap[$module . '.*'])) {
+      $record['timing'] = $timingMap[$module . '.*'];
+    }
   }
 
   /**
