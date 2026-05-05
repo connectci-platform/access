@@ -152,9 +152,15 @@ function access_misc_user_login(UserInterface $account) {
   $current = \Drupal::request()->query->get('current');
   if (!$destination) {
     $current_request = \Drupal::service('request_stack')->getCurrentRequest();
-    $url = Url::fromRoute('<front>', [], ['absolute' => 'true'])->toString();
-    if ($current) {
+    $route_name = \Drupal::routeMatch()->getRouteName();
+    if ($route_name === 'user.reset.login') {
+      $url = Url::fromRoute('entity.user.edit_form', ['user' => $account->id()], ['absolute' => TRUE])->toString();
+    }
+    elseif ($current) {
       $url = Url::fromUri("internal:$current")->toString();
+    }
+    else {
+      $url = Url::fromRoute('<front>', [], ['absolute' => TRUE])->toString();
     }
     $current_request->query->set(
       'destination',
