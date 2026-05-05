@@ -29,7 +29,7 @@ class AccessMiscCommands extends DrushCommands {
     $options = [
       'output-dir' => './notification-docs',
       'format' => 'markdown',
-    ]
+    ],
   ) {
     $outputDir = rtrim($options['output-dir'], '/');
     $format = $options['format'];
@@ -51,6 +51,9 @@ class AccessMiscCommands extends DrushCommands {
     $notifications = [];
     $counts = [];
 
+    // Known portals — used for "all portals" assignments.
+    $allPortals = ['access-support', 'campus-champions', 'ccmnet', 'open-ondemand', 'pascience'];
+
     // --- Source A: Content Moderation Notifications ---
     $cmFiles = glob($configDir . '/content_moderation_notifications.content_moderation_notification.*.yml');
     $counts['content_moderation'] = 0;
@@ -62,10 +65,10 @@ class AccessMiscCommands extends DrushCommands {
       $id = $data['id'] ?? basename($file, '.yml');
       $transitions = array_keys($data['transitions'] ?? []);
       $roles = array_keys($data['roles'] ?? []);
-      $portal = $this->portalFromKey($id);
+      $portals = $this->portalsFromWorkflow($data['workflow'] ?? '', $configDir);
       $record = [
         'name' => $data['label'] ?? $id,
-        'portals' => [$portal],
+        'portals' => $portals,
         'trigger' => 'content moderation transition: ' . implode(', ', $transitions),
         'send_method' => 'email',
         'timing' => 'immediate',
@@ -95,7 +98,7 @@ class AccessMiscCommands extends DrushCommands {
       if ($id === '_') {
         continue;
       }
-      // id format: "module.subtype"
+      // Id format: "module.subtype".
       $parts = explode('.', $id, 2);
       $module = $parts[0];
       $subtype = $parts[1] ?? '';
@@ -190,7 +193,11 @@ class AccessMiscCommands extends DrushCommands {
     $counts['hook_mail'] = 0;
     $phpFiles = $this->findPhpFiles($modulesDir);
     foreach ($phpFiles as $phpFile) {
-      $content = file_get_contents($phpFile);
+      if (basename($phpFile) === 'AccessMiscCommands.php') {
+        continue;
+      }
+      $raw = file_get_contents($phpFile);
+      $content = $this->stripPhpComments($raw);
       // Find hook_mail implementations.
       if (preg_match('/function\s+(\w+)_mail\s*\(\s*\$key/', $content, $m)) {
         $module = $m[1];
@@ -338,20 +345,19 @@ class AccessMiscCommands extends DrushCommands {
         if ($handlerPlugin !== 'email' && !str_contains(strtolower($handlerPlugin), 'email')) {
           continue;
         }
-        $portal = $this->portalFromKey($webformId);
         $settings = $handler['settings'] ?? [];
         $record = [
           'name' => ($handler['label'] ?? $handlerKey) . " ({$webformId})",
-          'portals' => [$portal],
+          'portals' => $allPortals,
           'trigger' => 'webform submission',
           'send_method' => 'email',
           'timing' => 'immediate',
           'recipient' => $settings['to_mail'] ?? 'varies',
           'recipient_role' => 'any',
           'subject' => $settings['subject'] ?? '',
-          'body' => 'Webform email handler on ' . $webformId,
+          'body' => $settings['body'] ?? '',
           'edit_location' => 'config: ' . basename($file),
-          'is_shared' => FALSE,
+          'is_shared' => TRUE,
           'needs_review' => FALSE,
           '_source' => 'webform_yaml',
         ];
@@ -374,8 +380,6 @@ class AccessMiscCommands extends DrushCommands {
       }
       $handlerId = $wm[1] ?? basename($file, '.php');
       $description = $wm[2] ?? '';
-      $module = $this->moduleFromPath($file);
-      $portal = $this->portalFromKey($module);
       $relPath = str_replace($drupalRoot . '/', '', $file);
       // Only include handlers that appear to send emails.
       if (!str_contains(strtolower($content), 'mail') && !str_contains(strtolower($handlerId), 'email')) {
@@ -383,7 +387,7 @@ class AccessMiscCommands extends DrushCommands {
       }
       $record = [
         'name' => $description ?: $handlerId,
-        'portals' => [$portal],
+        'portals' => $allPortals,
         'trigger' => 'webform submission',
         'send_method' => 'email',
         'timing' => 'immediate',
@@ -392,7 +396,7 @@ class AccessMiscCommands extends DrushCommands {
         'subject' => '',
         'body' => $description ?: "WebformHandler '{$handlerId}'",
         'edit_location' => $relPath,
-        'is_shared' => FALSE,
+        'is_shared' => TRUE,
         'needs_review' => FALSE,
         '_source' => 'webform_php',
       ];
@@ -410,28 +414,63 @@ class AccessMiscCommands extends DrushCommands {
       $counts['webform_php']++;
     }
 
-    // --- Deduplicate by name+portal ---
-    $seen = [];
-    $unique = [];
+    // --- Source H: Drupal core user emails (hardcoded, always shared) ---
+    $userEmails = [
+      [
+        'name' => 'Account registration confirmation',
+        'trigger' => 'user registers an account',
+        'recipient' => 'new user',
+        'edit_location' => 'config: user.mail (Account registration email)',
+      ],
+      [
+        'name' => 'Password reset',
+        'trigger' => 'user requests a password reset',
+        'recipient' => 'account owner',
+        'edit_location' => 'config: user.mail (Password recovery email)',
+      ],
+    ];
+    foreach ($userEmails as $ue) {
+      $notifications[] = $ue + [
+        'portals' => $allPortals,
+        'send_method' => 'email',
+        'timing' => 'immediate',
+        'recipient_role' => 'authenticated',
+        'subject' => '',
+        'body' => '',
+        'is_shared' => TRUE,
+        'needs_review' => FALSE,
+        '_source' => 'user_core',
+      ];
+    }
+    $counts['user_core'] = count($userEmails);
+
+    // --- Deduplicate and merge portals by content hash (subject + body) ---
+    // Name-based dedup fails because portal-prefixed names (ccmnet_*, amp_*)
+    // never collide even when the email content is identical.
+    // Records already marked is_shared (webforms, user core) bypass dedup.
+    $byHash = [];
+    $preShared = [];
     foreach ($notifications as $n) {
-      $key = $n['name'] . '|' . implode(',', $n['portals']);
-      if (!isset($seen[$key])) {
-        $seen[$key] = TRUE;
-        $unique[] = $n;
+      if ($n['is_shared']) {
+        $preShared[] = $n;
+        continue;
+      }
+      $hash = md5($n['subject'] . '||' . $n['body']);
+      if (!isset($byHash[$hash])) {
+        $byHash[$hash] = $n;
+      }
+      else {
+        $byHash[$hash]['portals'] = array_values(array_unique(
+          array_merge($byHash[$hash]['portals'], $n['portals'])
+        ));
       }
     }
-    $notifications = $unique;
+    $notifications = array_merge(array_values($byHash), $preShared);
 
-    // --- Mark is_shared for notifications appearing in 2+ portals ---
-    $namePortals = [];
-    foreach ($notifications as $n) {
-      $namePortals[$n['name']][] = $n['portals'][0];
-    }
+    // --- Mark is_shared for notifications merged across 2+ portals ---
     foreach ($notifications as &$n) {
-      $ps = array_unique($namePortals[$n['name']] ?? []);
-      if (count($ps) > 1) {
+      if (count($n['portals']) > 1) {
         $n['is_shared'] = TRUE;
-        $n['portals'] = $ps;
       }
     }
     unset($n);
@@ -484,6 +523,43 @@ class AccessMiscCommands extends DrushCommands {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Derive a portal name from a config key prefix or module name.
+   */
+
+  /**
+   * Derive the portal(s) for a content moderation workflow from its bundles.
+   *
+   * Loads the workflow YAML, maps each entity bundle to a portal via
+   * portalFromKey(), and returns the unique set. Entity types with no
+   * portal-specific bundles (eventinstance, eventseries) are treated as
+   * shared across all portals.
+   */
+  private function portalsFromWorkflow(string $workflowId, string $configDir): array {
+    $allPortals = ['access-support', 'campus-champions', 'ccmnet', 'open-ondemand', 'pascience'];
+    if (!$workflowId) {
+      return ['access-support'];
+    }
+    $wfFile = $configDir . '/workflows.workflow.' . $workflowId . '.yml';
+    if (!file_exists($wfFile)) {
+      return [$this->portalFromKey($workflowId)];
+    }
+    $wf = Yaml::parseFile($wfFile);
+    $entityTypes = $wf['type_settings']['entity_types'] ?? [];
+    $portals = [];
+    foreach ($entityTypes as $entityType => $bundles) {
+      // Events (eventinstance/eventseries) are site-wide — treat as shared.
+      if (in_array($entityType, ['eventinstance', 'eventseries'])) {
+        return $allPortals;
+      }
+      foreach ((array) $bundles as $bundle) {
+        $portals[] = $this->portalFromKey($bundle);
+      }
+    }
+    $unique = array_values(array_unique($portals));
+    return $unique ?: ['access-support'];
+  }
 
   /**
    * Derive a portal name from a config key prefix or module name.
@@ -546,11 +622,26 @@ class AccessMiscCommands extends DrushCommands {
     $files = [];
     $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS));
     foreach ($it as $file) {
-      if ($file->getExtension() === 'php') {
+      if (in_array($file->getExtension(), ['php', 'module', 'install', 'theme'])) {
         $files[] = $file->getPathname();
       }
     }
     return $files;
+  }
+
+  /**
+   * Strip single-line and block comments from PHP source before regex scanning.
+   */
+  private function stripPhpComments(string $source): string {
+    $tokens = token_get_all($source);
+    $out = '';
+    foreach ($tokens as $tok) {
+      if (is_array($tok) && in_array($tok[0], [T_COMMENT, T_DOC_COMMENT])) {
+        continue;
+      }
+      $out .= is_array($tok) ? $tok[1] : $tok;
+    }
+    return $out;
   }
 
   /**
