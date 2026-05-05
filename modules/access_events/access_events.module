@@ -244,7 +244,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['actions']['submit']['#submit'][] = 'access_misc_registrant_submit';
   }
 
-  if ($form_id == 'eventinstance_default_add_form' || $form_id == 'eventinstance_default_edit_form' || $form_id == 'eventinstance_default_clone_form') {
+  if ($form_id == 'eventinstance_default_form' || $form_id == 'eventinstance_default_add_form' || $form_id == 'eventinstance_default_edit_form' || $form_id == 'eventinstance_default_clone_form') {
     if ($form['notifications']) {
       $form['notifications']['edit_message']['title']['#prefix'] = '';
       $form['notifications']['edit_message']['title']['#suffix'] = '';
