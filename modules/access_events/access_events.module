@@ -1173,6 +1173,15 @@ function access_events_entity_presave(EntityInterface $entity) {
     $eventinstance = $entity;
     $eventseries = $eventinstance->getEventSeries();
 
+    // Wire field_inheritance state for instances created outside the
+    // EventCreationService (e.g. the "Add Instance" route on a series). Without
+    // this, inherited fields like title and body return empty.
+    // See: https://www.drupal.org/project/recurring_events/issues/3357979
+    if ($eventinstance->isNew() && $eventseries) {
+      \Drupal::service('recurring_events.event_creation_service')
+        ->configureDefaultInheritances($eventinstance, $eventseries->id());
+    }
+
     if ($eventseries) {
       $series_domain = $eventseries->get('domain_access')->getValue();
       $survey_url = $eventseries->get('field_post_survey_url')->uri;
