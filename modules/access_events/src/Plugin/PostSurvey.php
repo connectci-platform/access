@@ -135,7 +135,8 @@ class PostSurvey {
 
         $series = $event_instance->getEventSeries();
         $series_title = $series->get('title')->value;
-        $series_email_template = $series->get('field_post_survey_email_text')->value;
+        // Inheritance computed field — instance override falls back to series.
+        $email_template = $event_instance->get('post_survey_email_text')->value;
 
         foreach ($registrants as $registrant_id) {
           $registrant = $this->entityTypeManager->getStorage('registrant')->load($registrant_id);
@@ -150,7 +151,7 @@ class PostSurvey {
           $post_survey_url = "https://$domain/events/$entity_id/post_survey/$user_id";
 
           // Render the full email body from the event's template field.
-          $custom_body = _access_events_render_email_template($series_email_template, [
+          $custom_body = _access_events_render_email_template($email_template, [
             'name' => $name,
             'title' => $series_title,
             'post_survey_url' => $post_survey_url,
@@ -222,7 +223,8 @@ class PostSurvey {
 
         $series = $event_instance->getEventSeries();
         $series_title = $series->get('title')->value;
-        $series_email_template = $series->get('field_post_survey_email_text')->value;
+        // Inheritance computed field — instance override falls back to series.
+        $email_template = $event_instance->get('post_survey_email_text')->value;
 
         foreach ($registrants as $registrant_id) {
           $registrant = $this->entityTypeManager->getStorage('registrant')->load($registrant_id);
@@ -237,7 +239,7 @@ class PostSurvey {
           $post_survey_url = "https://$domain/events/$entity_id/post_survey/$user_id";
 
           // Render the full email body from the event's template field.
-          $custom_body = _access_events_render_email_template($series_email_template, [
+          $custom_body = _access_events_render_email_template($email_template, [
             'name' => $name,
             'title' => $series_title,
             'post_survey_url' => $post_survey_url,

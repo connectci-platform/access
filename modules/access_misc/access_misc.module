@@ -986,8 +986,9 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
   $event_url = _access_misc_get_event_domain_url($event_instance_id);
   $series_title_url = "<a href='$event_url'>$series_title</a>";
 
-  $series_screen_survey_url = $series->get('field_screen_survey_url')->uri;
-  $series_email_template = $series->get('field_screen_survey_email_text')->value;
+  // Inheritance computed fields — per-instance overrides fall back to series.
+  $screen_survey_url = $event_instance->get('screen_survey_url')->uri;
+  $email_template = $event_instance->get('screen_survey_email_text')->value;
 
   $registered_person_email = Xss::filter($form_state->getValues()['email'][0]['value']);
   $name = Xss::filter($form_state->getValues()['field_first_name'][0]['value']) . ' ' . Xss::filter($form_state->getValues()['field_last_name'][0]['value']);
@@ -995,7 +996,7 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
   $waitlist = Xss::filter($form_state->getValues()['add_to_waitlist']);
 
   // Subject for email.
-  $email_title = empty($series_screen_survey_url) ? t('Registration Pending for ') . $series_title : t('Please Complete a Pre-Screening Survey for ') . $series_title;
+  $email_title = empty($screen_survey_url) ? t('Registration Pending for ') . $series_title : t('Please Complete a Pre-Screening Survey for ') . $series_title;
 
   $policy = 'access_misc';
 
@@ -1005,9 +1006,9 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
     'name' => $name,
     'title_link' => new \Twig\Markup($series_title_url, 'UTF-8'),
     'start_date' => $start_date,
-    'screen_survey_url' => $series_screen_survey_url,
+    'screen_survey_url' => $screen_survey_url,
   ];
-  $custom_body = _access_events_render_email_template($series_email_template, $template_variables);
+  $custom_body = _access_events_render_email_template($email_template, $template_variables);
 
   // The 'register' policy uses custom_body + email_title only.
   // Extra variables (title, name, title_link, etc.) are needed by the
@@ -1886,14 +1887,23 @@ function _access_misc_build_json_ld($entity) {
       $json_ld['url'] = $request->getSchemeAndHttpHost() . $entity->toUrl()->toString();
       $json_ld['eventStatus'] = 'https://schema.org/EventScheduled';
 
-      // Event attendance mode and location.
-      if ($series && $series->hasField('field_event_virtual_meeting_link')
+      // Event attendance mode and location. For eventinstance, prefer the
+      // inheritance computed field so a per-instance override wins; fall back
+      // to the series field for the eventseries case.
+      $vm_field = NULL;
+      if ($entity_type == 'eventinstance' && $entity->hasField('virtual_meeting_link')
+        && !$entity->get('virtual_meeting_link')->isEmpty()) {
+        $vm_field = $entity->get('virtual_meeting_link');
+      }
+      elseif ($series && $series->hasField('field_event_virtual_meeting_link')
         && !$series->get('field_event_virtual_meeting_link')->isEmpty()) {
+        $vm_field = $series->get('field_event_virtual_meeting_link');
+      }
+      if ($vm_field) {
         $json_ld['eventAttendanceMode'] = 'https://schema.org/OnlineEventAttendanceMode';
         $json_ld['location'] = [
           '@type' => 'VirtualLocation',
-          'url' => $series->get('field_event_virtual_meeting_link')->uri
-            ?? $series->get('field_event_virtual_meeting_link')->value,
+          'url' => $vm_field->uri ?? $vm_field->value,
         ];
       }
       elseif ($entity->hasField('field_location') && !$entity->get('field_location')->isEmpty()) {

@@ -1013,7 +1013,8 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
         $dateTimeDisp = $startEvent->format('n/j/Y g:i a')
           . ' - ' . $endDisplay . " " . $tz;
 
-        $summary = $series->get('field_summary')->value;
+        // Inheritance computed field — instance override falls back to series.
+        $summary = $enode->get('event_summary')->value;
         if ($summary == NULL) {
           $body = empty($enode->description[0]) ? '' : $enode->description[0]->view('rollup_list');
           $body = \Drupal::service('renderer')->renderPlain($body);

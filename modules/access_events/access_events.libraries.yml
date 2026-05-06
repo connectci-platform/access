@@ -1,3 +1,13 @@
 events:
   js:
     js/events.js: {}
+
+eventinstance-form:
+  css:
+    component:
+      css/eventinstance-form.css: {}
+
+event-form:
+  css:
+    component:
+      css/event-form.css: {}

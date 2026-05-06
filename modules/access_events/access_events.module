@@ -255,22 +255,107 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $roles = $current_user->getRoles();
     if (!in_array('administrator', $roles)) {
       $form['domain_access']['#access'] = FALSE;
+      // Hide internal tracking number fields from non-admins.
+      foreach (['field_post_survey_sent', 'field_post_survey_reminder_sent'] as $f) {
+        if (isset($form[$f])) {
+          $form[$f]['#access'] = FALSE;
+        }
+      }
     }
+    else {
+      // Admins see the survey-tracking fields read-only as a true/false
+      // indicator (they're set by code; editing them by hand could break
+      // the survey-send tracking).
+      foreach (['field_post_survey_sent', 'field_post_survey_reminder_sent'] as $f) {
+        if (isset($form[$f]['widget'][0]['value'])) {
+          $value = $form[$f]['widget'][0]['value']['#default_value'] ?? NULL;
+          $form[$f]['widget'][0]['value']['#disabled'] = TRUE;
+          $form[$f]['widget'][0]['value']['#title_display'] = 'before';
+          // Render as a t/f indicator in the description rather than a number.
+          $sent = !empty($value);
+          $form[$f]['widget'][0]['value']['#description'] = $sent ? t('Sent') : t('Not sent yet');
+        }
+      }
+      // Reordering of the post-survey-sent indicators happens in #after_build
+      // (since later alters reset weights set here).
+      // Move domain_access to the very end for admins. Use #after_build so
+      // the weight wins against any later alter (domain_entity, field_group).
+      $form['#after_build'][] = '_access_events_eventinstance_after_build';
+    }
+
+    // The screen/pre/post-survey email accordions only matter when internal
+    // event registration is enabled on the parent series (the survey emails
+    // are sent through the registration flow). Hide the accordions and their
+    // contained fields when registration is off — they're noise otherwise.
+    $eventinstance = $form_state->getFormObject()->getEntity();
+    $series = method_exists($eventinstance, 'getEventSeries') ? $eventinstance->getEventSeries() : NULL;
+    $registration_on = FALSE;
+    if ($series && !$series->get('event_registration')->isEmpty()) {
+      $registration_on = !empty($series->get('event_registration')->getValue()[0]['registration']);
+    }
+    if (!$registration_on) {
+      $survey_fields = [
+        'field_screen_survey_email_text',
+        'field_screen_survey_url',
+        'field_pre_survey_email_text',
+        'field_pre_survey_url',
+        'field_post_survey_email_text',
+        'field_post_survey_url',
+        'field_post_survey_sent',
+        'field_post_survey_reminder_sent',
+      ];
+      foreach ($survey_fields as $f) {
+        if (isset($form[$f])) {
+          $form[$f]['#access'] = FALSE;
+        }
+      }
+      foreach (['group_screening_survey', 'group_surveys', 'group_post_survey'] as $g) {
+        if (isset($form['#fieldgroups'][$g])) {
+          unset($form['#fieldgroups'][$g]);
+        }
+      }
+    }
+
+    // The field_inheritance module renders a "Field Inheritance" admin
+    // widget (visible only to users with the `administer field inheritance`
+    // permission) at the top of the form. Collapse it (and its many nested
+    // per-field detail panels) by default — the state is wired automatically
+    // by access_events_entity_presave(), so admins rarely need to interact
+    // with this section.
+    if (isset($form['field_inheritance'])) {
+      $form['field_inheritance']['#open'] = FALSE;
+      if (isset($form['field_inheritance']['fields'])) {
+        foreach ($form['field_inheritance']['fields'] as $key => &$child) {
+          if (is_array($child) && ($child['#type'] ?? '') === 'details') {
+            $child['#open'] = FALSE;
+          }
+        }
+      }
+    }
+
+    // Suppress text-format help/guidelines on instance override fields. The
+    // series form hides these via theme CSS scoped to the recur-type widget
+    // (which only the series form has) — that selector can't match on
+    // instance forms. Attach a small CSS library here to mirror the rule.
+    $form['#attached']['library'][] = 'access_events/eventinstance-form';
+
+    // Shared event-form CSS (multi-value field table alignment, etc.) —
+    // applies to any theme on any portal.
+    $form['#attached']['library'][] = 'access_events/event-form';
+
+    // Email body field token-documentation prefixes — same on series and
+    // instance forms since the override semantics share the same tokens.
+    _access_events_attach_email_token_prefixes($form);
   }
 
   // Email body fields on event series forms.
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
     $templates = _access_events_email_templates();
 
-    // Token documentation for each email field.
-    $registration_tokens = '<p class="text-sm mt-2"><strong>Available tokens:</strong> <code>{{ name }}</code>, <code>{{ title_link }}</code>, <code>{{ start_date }}</code>, <code>{{ screen_survey_url }}</code></p>';
-    $form['field_screen_survey_email_text']['#prefix'] = t('This is the full email body sent when someone registers. You can customize the entire email using the tokens below.') . $registration_tokens;
+    _access_events_attach_email_token_prefixes($form);
 
-    $approval_tokens = '<p class="text-sm mt-2"><strong>Available tokens:</strong> <code>{{ name }}</code>, <code>{{ title_link }}</code>, <code>{{ start_date }}</code>, <code>{{ location }}</code>, <code>{{ event_start_time }}</code>, <code>{{ event_end_time }}</code>, <code>{{ pre_survey_url }}</code></p>';
-    $form['field_pre_survey_email_text']['#prefix'] = t('This is the full email body sent when a registration is approved. You can customize the entire email using the tokens below.') . $approval_tokens;
-
-    $post_survey_tokens = '<p class="text-sm mt-2"><strong>Available tokens:</strong> <code>{{ name }}</code>, <code>{{ title }}</code>, <code>{{ post_survey_url }}</code></p>';
-    $form['field_post_survey_email_text']['#prefix'] = t('This is the full email body sent near the end of the event with a post-survey link. A reminder is sent 3 days later if unused. You can customize the entire email using the tokens below.') . $post_survey_tokens;
+    // Shared event-form CSS — applies to any theme on any portal.
+    $form['#attached']['library'][] = 'access_events/event-form';
 
     // Pre-populate with default templates on add form only.
     if ($form_id == 'eventseries_default_add_form') {
@@ -945,7 +1030,8 @@ function access_events_preprocess_views_view_field(&$variables) {
     $event_instance_id = $variables['output']->__toString();
     $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
     $series = $event_instance->getEventSeries();
-    $link = $series->get('field_event_virtual_meeting_link')->getValue();
+    // Inheritance computed field — per-instance override falls back to series.
+    $link = $event_instance->get('virtual_meeting_link')->getValue();
 
     $variables['output'] = "";
 
@@ -1184,7 +1270,9 @@ function access_events_entity_presave(EntityInterface $entity) {
 
     if ($eventseries) {
       $series_domain = $eventseries->get('domain_access')->getValue();
-      $survey_url = $eventseries->get('field_post_survey_url')->uri;
+      // Use the inheritance computed field so an instance override flips on
+      // the survey-tracking flags here too.
+      $survey_url = $eventinstance->get('post_survey_url')->uri;
       $survey_sent_reminder = $eventinstance->get('field_post_survey_reminder_sent')->value;
       $survey_sent = $eventinstance->get('field_post_survey_sent')->value;
       if ($survey_url && $survey_sent == NULL && $survey_sent_reminder == NULL) {
@@ -1383,6 +1471,13 @@ function access_events_module_implements_alter(&$implementations, $hook) {
     unset($implementations['recurring_events_reminders']);
   }
   if ($hook === 'entity_base_field_info_alter' && isset($implementations['access_events'])) {
+    $group = $implementations['access_events'];
+    unset($implementations['access_events']);
+    $implementations['access_events'] = $group;
+  }
+  // Run our form_alter AFTER field_inheritance so we can collapse its admin
+  // widget on eventinstance forms (it sets #open=TRUE; we override to FALSE).
+  if ($hook === 'form_alter' && isset($implementations['access_events'])) {
     $group = $implementations['access_events'];
     unset($implementations['access_events']);
     $implementations['access_events'] = $group;
@@ -1603,6 +1698,52 @@ function access_events_registrant_eligibility_validate($form, FormStateInterface
       '@username' => $username,
       '@message' => $e->getMessage(),
     ]);
+  }
+}
+
+/**
+ * #after_build callback for the eventinstance form (admin only). Reorders
+ * the form so admin-only tracking fields land in sensible places: the
+ * post-survey-sent indicators move next to the post-survey email body, and
+ * domain_access moves to the very end. Runs after every hook_form_alter so
+ * the weight assignments aren't overwritten.
+ */
+function _access_events_eventinstance_after_build(array $element, \Drupal\Core\Form\FormStateInterface $form_state) {
+  if (isset($element['domain_access'])) {
+    $element['domain_access']['#weight'] = 99;
+  }
+  // Place the post-survey-sent indicators right after the post-survey
+  // accordion so they render in context. Setting these in form_alter is
+  // overwritten by later hooks; #after_build wins.
+  if (isset($element['field_post_survey_sent'])) {
+    $element['field_post_survey_sent']['#weight'] = 28.5;
+  }
+  if (isset($element['field_post_survey_reminder_sent'])) {
+    $element['field_post_survey_reminder_sent']['#weight'] = 28.6;
+  }
+  return $element;
+}
+
+/**
+ * Attaches token-documentation #prefix content to the three event email body
+ * fields. Used by both the series and the instance form_alters so editors see
+ * the same available-tokens reference whether they're authoring at series
+ * level or overriding at instance level.
+ */
+function _access_events_attach_email_token_prefixes(array &$form) {
+  $registration_tokens = '<p class="text-sm mt-2"><strong>Available tokens:</strong> <code>{{ name }}</code>, <code>{{ title_link }}</code>, <code>{{ start_date }}</code>, <code>{{ screen_survey_url }}</code></p>';
+  if (isset($form['field_screen_survey_email_text'])) {
+    $form['field_screen_survey_email_text']['#prefix'] = t('This is the full email body sent when someone registers. You can customize the entire email using the tokens below.') . $registration_tokens;
+  }
+
+  $approval_tokens = '<p class="text-sm mt-2"><strong>Available tokens:</strong> <code>{{ name }}</code>, <code>{{ title_link }}</code>, <code>{{ start_date }}</code>, <code>{{ location }}</code>, <code>{{ event_start_time }}</code>, <code>{{ event_end_time }}</code>, <code>{{ pre_survey_url }}</code></p>';
+  if (isset($form['field_pre_survey_email_text'])) {
+    $form['field_pre_survey_email_text']['#prefix'] = t('This is the full email body sent when a registration is approved. You can customize the entire email using the tokens below.') . $approval_tokens;
+  }
+
+  $post_survey_tokens = '<p class="text-sm mt-2"><strong>Available tokens:</strong> <code>{{ name }}</code>, <code>{{ title }}</code>, <code>{{ post_survey_url }}</code></p>';
+  if (isset($form['field_post_survey_email_text'])) {
+    $form['field_post_survey_email_text']['#prefix'] = t('This is the full email body sent near the end of the event with a post-survey link. A reminder is sent 3 days later if unused. You can customize the entire email using the tokens below.') . $post_survey_tokens;
   }
 }
 

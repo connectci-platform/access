@@ -35,7 +35,9 @@ class EventInstanceSidebar extends BlockBase {
     $series = $event_instance->getEventSeries();
     $current_user = \Drupal::currentUser();
 
-    $speakers = $series->get('field_event_speakers')->getValue();
+    // Read via the inheritance computed field so per-instance overrides win,
+    // falling back to the series value when unset.
+    $speakers = $event_instance->get('speakers')->getValue();
 
     // Get end date for checking if event is past.
     $end_date = $event_instance->date->end_date;
@@ -98,7 +100,8 @@ class EventInstanceSidebar extends BlockBase {
       }
     }
     else{
-      $registration = $series->get('field_registration')->getValue();
+      // Inheritance computed field — per-instance override falls back to series.
+      $registration = $event_instance->get('registration')->getValue();
       if ($registration) {
         $reg_link = Link::fromTextAndUrl($reg_title, Url::fromUri($registration[0]['uri']));
         $reg_link = $reg_link->toRenderable();

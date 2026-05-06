@@ -1,0 +1,26 @@
+/**
+ * Multi-value field tables (entity reference fields with cardinality > 1, like
+ * field_other_authors): Bootstrap's .table base sets `vertical-align: top`,
+ * which leaves the row's "X" delete button anchored to the top while the
+ * input below shifts down because of its label. Center the cells so input and
+ * delete button line up vertically.
+ *
+ * Loaded on both eventseries and eventinstance forms.
+ */
+.field-multiple-table > tbody > tr > td {
+  vertical-align: middle;
+}
+
+/* Cells already get table padding; strip the form-item's own padding/margin
+ * so spacing isn't doubled. */
+.field-multiple-table > tbody > tr > td > .form-item {
+  margin: 0;
+  padding: 0;
+}
+
+/* Drag handle: core sets margin: -0.4em 0.5em 0 which pushes it above center.
+ * Reset to a symmetric horizontal margin so vertical-align: middle on the
+ * cell actually centers the handle with the input row. */
+.field-multiple-table a.tabledrag-handle .handle {
+  margin: 0 0.5em;
+}

@@ -196,10 +196,10 @@ class EventWaitlist extends ControllerBase {
     $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
     $series = $event_instance->getEventSeries();
     $series_title = $series->get('title')->value;
-    $series_pre_survey_url = $series->get('field_pre_survey_url')->uri;
-    $series_email_template = $series->get('field_pre_survey_email_text')->value;
-    $series_location = $series->get('field_location')->value;
-    $location = $series_location ? $series_location : '';
+    // Inheritance computed fields — per-instance overrides fall back to series.
+    $pre_survey_url = $event_instance->get('pre_survey_url')->uri;
+    $email_template = $event_instance->get('pre_survey_email_text')->value;
+    $location = $event_instance->get('location')->value ?: '';
     $og_start_date = $event_instance->get('date')->start_date->__toString();
     $end_date = $event_instance->get('date')->end_date->__toString();
     $start_date = date('F j, Y', strtotime($og_start_date));
@@ -211,7 +211,7 @@ class EventWaitlist extends ControllerBase {
     $series_title_url = "<a href='$event_url'>$series_title</a>";
 
     // Subject for email.
-    $email_title = empty($series_pre_survey_url) ? t('Registration Confirmed for ') . $series_title : t('Registration accepted - please fill in survey before event for ') . $series_title;
+    $email_title = empty($pre_survey_url) ? t('Registration Confirmed for ') . $series_title : t('Registration accepted - please fill in survey before event for ') . $series_title;
 
     $policy = 'access_misc';
     $policy_subtype = 'registration_approved';
@@ -225,7 +225,7 @@ class EventWaitlist extends ControllerBase {
       'location' => $location,
       'event_start_time' => $event_start_time,
       'event_end_time' => $event_end_time,
-      'pre_survey_url' => $series_pre_survey_url,
+      'pre_survey_url' => $pre_survey_url,
     ];
 
     foreach ($this->registrantIds as $registrant_id) {
@@ -240,7 +240,7 @@ class EventWaitlist extends ControllerBase {
 
       // Render the full email body from the event's template field.
       $template_variables['name'] = $name;
-      $custom_body = _access_events_render_email_template($series_email_template, $template_variables);
+      $custom_body = _access_events_render_email_template($email_template, $template_variables);
 
       $variables = [
         'title' => $series_title,
@@ -252,7 +252,7 @@ class EventWaitlist extends ControllerBase {
       if (!empty($email) && isset($email[0]['value'])) {
         \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $email[0]['value'], $variables);
 
-        if (!empty($series_pre_survey_url)) {
+        if (!empty($pre_survey_url)) {
           // Update registrant entity with a timestamp on the 'field_pre_survey_sent' field.
           $registrant->set('field_pre_survey_sent', \Drupal::time()->getRequestTime());
           $registrant->save();

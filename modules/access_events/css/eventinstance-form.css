@@ -1,0 +1,26 @@
+/**
+ * Suppress text-format help/guidelines on eventinstance override fields where
+ * rich text doesn't add value.
+ *
+ * The series form hides these via theme CSS scoped to `html:has(#edit-recur-type-wrapper)`,
+ * but that selector doesn't match on the eventinstance form (no recur-type widget).
+ * Mirror the suppression here so the form has the same visual cleanness.
+ *
+ * Only suppressed for simple-text overrides (location is a single-line text
+ * field; summary is plain prose). Survey email bodies and body keep their
+ * format help since users may need the allowed-tags reference when writing
+ * HTML email templates.
+ */
+#edit-field-location-0-format,
+#edit-field-summary-0-format {
+  display: none;
+}
+
+/* The instance form lacks the page-wrapper bottom spacing other pages get;
+ * add breathing room below the action buttons. */
+form.eventinstance-default-form,
+form.eventinstance-default-add-form,
+form.eventinstance-default-edit-form,
+form.eventinstance-default-clone-form {
+  margin-bottom: 4rem;
+}
