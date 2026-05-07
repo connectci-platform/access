@@ -566,7 +566,7 @@ function access_misc_preprocess_views_view_field(&$variables) {
         }
 
         if ($items) {
-          $replacement = '<ul class="tcs-tools-used-block__item flex flex-wrap gap-4 my-5 list-none p-0">' . $items . '</ul>';
+          $replacement = '<ul class="tcs-tools-used-block__item flex flex-wrap gap-4 list-none p-0">' . $items . '</ul>';
         }
       }
 
