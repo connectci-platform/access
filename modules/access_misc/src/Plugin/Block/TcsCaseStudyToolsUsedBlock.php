@@ -115,8 +115,8 @@ class TcsCaseStudyToolsUsedBlock extends BlockBase implements ContainerFactoryPl
       }
 
       $link_url = NULL;
-      if ($term->hasField('field_tsc_link_to_tool') && !$term->get('field_tsc_link_to_tool')->isEmpty()) {
-        $link_url = $term->get('field_tsc_link_to_tool')->uri;
+      if ($term->hasField('field_tcs_link_to_tool') && !$term->get('field_tcs_link_to_tool')->isEmpty()) {
+        $link_url = $term->get('field_tcs_link_to_tool')->uri;
       }
 
       $tools[] = [

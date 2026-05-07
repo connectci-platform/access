@@ -542,8 +542,8 @@ function access_misc_preprocess_views_view_field(&$variables) {
           $link_url = '';
           $image_url = '';
 
-          if ($term->hasField('field_tsc_link_to_tool') && !$term->get('field_tsc_link_to_tool')->isEmpty()) {
-            $link_url = $term->get('field_tsc_link_to_tool')->uri;
+          if ($term->hasField('field_tcs_link_to_tool') && !$term->get('field_tcs_link_to_tool')->isEmpty()) {
+            $link_url = $term->get('field_tcs_link_to_tool')->uri;
           }
 
           if ($term->hasField('field_tool_logo') && !$term->get('field_tool_logo')->isEmpty()) {
