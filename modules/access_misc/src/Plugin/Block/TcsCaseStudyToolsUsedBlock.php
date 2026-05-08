@@ -94,45 +94,58 @@ class TcsCaseStudyToolsUsedBlock extends BlockBase implements ContainerFactoryPl
       return [];
     }
 
-    if ($node->get('field_tcs_access_tools_used')->isEmpty()) {
-      return [];
+    $resource_name = NULL;
+    $resource_url = NULL;
+
+    if (!$node->get('field_tcs_access_resource')->isEmpty()) {
+      $nid = $node->get('field_tcs_access_resource')->target_id;
+      $resource_node = $this->entityTypeManager->getStorage('node')->load($nid);
+      if ($resource_node) {
+        if (!$resource_node->get('field_cider_short_name')->isEmpty()) {
+          $resource_name = $resource_node->get('field_cider_short_name')->value;
+        }
+        $resource_url = $resource_node->toUrl()->toString();
+      }
     }
 
     $tools = [];
-    foreach ($node->get('field_tcs_access_tools_used') as $item) {
-      /** @var \Drupal\taxonomy\TermInterface $term */
-      $term = $item->entity;
-      if (!$term) {
-        continue;
-      }
 
-      $logo_url = NULL;
-      if ($term->hasField('field_tool_logo') && !$term->get('field_tool_logo')->isEmpty()) {
-        $file = $term->get('field_tool_logo')->entity;
-        if ($file) {
-          $logo_url = $this->fileUrlGenerator->generateAbsoluteString($file->getFileUri());
+    if (!$node->get('field_tcs_access_tools_used')->isEmpty()) {
+      foreach ($node->get('field_tcs_access_tools_used') as $item) {
+        /** @var \Drupal\taxonomy\TermInterface $term */
+        $term = $item->entity;
+        if (!$term) {
+          continue;
         }
+
+        $logo_url = NULL;
+        if ($term->hasField('field_tool_logo') && !$term->get('field_tool_logo')->isEmpty()) {
+          $file = $term->get('field_tool_logo')->entity;
+          if ($file) {
+            $logo_url = $this->fileUrlGenerator->generateAbsoluteString($file->getFileUri());
+          }
+        }
+
+        $link_url = NULL;
+        if ($term->hasField('field_tcs_link_to_tool') && !$term->get('field_tcs_link_to_tool')->isEmpty()) {
+          $link_url = $term->get('field_tcs_link_to_tool')->uri;
+        }
+
+        $tools[] = [
+          'name' => $term->getName(),
+          'logo_url' => $logo_url,
+          'link_url' => $link_url,
+        ];
       }
 
-      $link_url = NULL;
-      if ($term->hasField('field_tcs_link_to_tool') && !$term->get('field_tcs_link_to_tool')->isEmpty()) {
-        $link_url = $term->get('field_tcs_link_to_tool')->uri;
-      }
-
-      $tools[] = [
-        'name' => $term->getName(),
-        'logo_url' => $logo_url,
-        'link_url' => $link_url,
-      ];
     }
 
-    if (empty($tools)) {
-      return [];
-    }
 
     return [
       '#theme' => 'tcs_case_study_tools_used_block',
       '#tools' => $tools,
+      '#resource_name' => $resource_name,
+      '#resource_url' => $resource_url,
       '#cache' => [
         'tags' => $node->getCacheTags(),
         'contexts' => ['route'],
