@@ -998,3 +998,30 @@ function ccmnet_cron() {
     }
   }
 }
+
+/**
+ * Resolve the "Campus Champions AI Mentorship" program term ID.
+ *
+ * The term is created by ccmnet_update_10003() without an explicit tid, so
+ * each environment auto-assigns its own. Resolve by name + vocabulary at
+ * runtime to avoid hardcoding an environment-specific value. Cached per
+ * request via drupal_static().
+ *
+ * @return int|null
+ *   The tid, or NULL if the term doesn't exist.
+ */
+function _ccmnet_get_cc_program_tid(): ?int {
+  $cached = &drupal_static(__FUNCTION__);
+  if ($cached !== NULL) {
+    return $cached ?: NULL;
+  }
+  $terms = \Drupal::entityTypeManager()
+    ->getStorage('taxonomy_term')
+    ->loadByProperties([
+      'name' => 'Campus Champions AI Mentorship',
+      'vid' => 'mentorship_programs',
+    ]);
+  $term = reset($terms);
+  $cached = $term ? (int) $term->id() : 0;
+  return $cached ?: NULL;
+}
