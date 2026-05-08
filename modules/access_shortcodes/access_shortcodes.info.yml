@@ -1,7 +1,7 @@
 name: ACCESS Shortcodes
 description: 'Shortcodes for the ACCESS theme'
 type: module
-core_version_requirement: ^9 || ^10 | ^11
+core_version_requirement: ^10 || ^11
 package: Custom
 dependencies:
   - access
