@@ -77,6 +77,64 @@ class AllocationsClient {
     return $data['projects'];
   }
 
+  /**
+   * Returns the user's resources array, or NULL on failure.
+   *
+   * GET /identity/profiles/v1/people/{username}?resources=1
+   *
+   * Each item is an associative array including these keys (we care about
+   * the first three; pass others through opaquely):
+   * - cider_resource_id    (string) e.g. "delta-cpu.ncsa.access-ci.org"
+   * - billable_unit_type   (string) e.g. "Core-hours", "GPU-hours"
+   * - resource_name        (string) xdusage's internal "*.xsede.org" form
+   *
+   * Returns NULL on transient failure (HTTP error, missing key, malformed
+   * JSON), [] when the API succeeds but the user has no resources, or the
+   * array of resources on success.
+   *
+   * @return array<int, array<string, mixed>>|null
+   */
+  public function getResourcesForUser(string $username): ?array {
+    $apiKey = $this->getApiKey();
+    if (!$apiKey) {
+      return NULL;
+    }
+    $url = self::BASE . '/identity/profiles/v1/people/' . rawurlencode($username) . '?resources=1';
+    try {
+      $response = $this->http->request('GET', $url, [
+        'headers' => [
+          'XA-API-KEY' => $apiKey,
+          'XA-REQUESTER' => 'MATCH',
+          'Content-Type' => 'application/json',
+        ],
+        'http_errors' => FALSE,
+        'timeout' => 8,
+      ]);
+    }
+    catch (GuzzleException $e) {
+      $this->loggerFactory->get('access_affinitygroup')
+        ->error('Identity API HTTP error (resources) for user @u: @msg', [
+          '@u' => $username, '@msg' => $e->getMessage(),
+        ]);
+      return NULL;
+    }
+    $status = $response->getStatusCode();
+    if ($status !== 200) {
+      $this->loggerFactory->get('access_affinitygroup')
+        ->warning('Identity API HTTP @status (resources) for user @u', [
+          '@status' => $status, '@u' => $username,
+        ]);
+      return NULL;
+    }
+    $data = json_decode((string) $response->getBody(), TRUE);
+    if (!is_array($data)
+        || !array_key_exists('resources', $data)
+        || !is_array($data['resources'])) {
+      return NULL;
+    }
+    return $data['resources'];
+  }
+
   private function getApiKey(): ?string {
     $base = $this->fileSystem->realpath('private://');
     if ($base === FALSE) {

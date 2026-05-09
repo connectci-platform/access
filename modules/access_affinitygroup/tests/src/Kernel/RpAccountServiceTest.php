@@ -82,6 +82,9 @@ class RpAccountServiceTest extends KernelTestBase {
     $alloc->getProjectsForUser('aaadhavan')->willReturn([
       ['grant_number' => 'PHY250173', 'title' => 'Halo finding', 'allocation_type' => 'Accelerate', 'grant_type' => 'Diss.'],
     ]);
+    $alloc->getResourcesForUser('aaadhavan')->willReturn([
+      ['cider_resource_id' => 'delta-cpu.ncsa.access-ci.org', 'billable_unit_type' => 'Core-hours'],
+    ]);
 
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getPersonByPortalUsername('aaadhavan')->willReturn(['person_id' => 297776]);
@@ -117,6 +120,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $this->assertSame('PHY250173', $row['grant_number']);
     $this->assertSame('Halo finding', $row['grant_title']);
     $this->assertEquals(66897, $row['project_id']);
+    $this->assertSame('Core-hours', $row['billable_unit']);
 
     $reloaded = User::load($user->id());
     $this->assertEquals(297776, $reloaded->get('field_xdusage_person_id')->value);
@@ -214,6 +218,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $alloc->getProjectsForUser('aaadhavan')->willReturn([
       ['grant_number' => 'PHY250173', 'title' => 'Halo', 'allocation_type' => 'Accelerate', 'grant_type' => 'Diss.'],
     ]);
+    $alloc->getResourcesForUser(\Prophecy\Argument::any())->willReturn([]);
 
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getPersonByPortalUsername(\Prophecy\Argument::any())->shouldNotBeCalled(); // person_id already on user
@@ -280,6 +285,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $alloc->getProjectsForUser('aaadhavan')->willReturn([
       ['grant_number' => 'PHY250173', 'title' => 'Halo', 'allocation_type' => 'Accelerate', 'grant_type' => 'Diss.'],
     ]);
+    $alloc->getResourcesForUser(\Prophecy\Argument::any())->willReturn([]);
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getPersonByPortalUsername(\Prophecy\Argument::any())->shouldNotBeCalled();
     $xd->getProjectsMap()->willReturn([]); // empty map
@@ -398,6 +404,7 @@ class RpAccountServiceTest extends KernelTestBase {
     // Identity API succeeds with truly zero projects.
     $alloc = $this->prophesize(AllocationsClient::class);
     $alloc->getProjectsForUser('aaadhavan')->willReturn([]);
+    $alloc->getResourcesForUser(\Prophecy\Argument::any())->willReturn([]);
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getProjectsMap()->willReturn([]);
     $xd->getAccountForUser(\Prophecy\Argument::cetera())->shouldNotBeCalled();

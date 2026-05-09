@@ -102,4 +102,38 @@ class AllocationsClientTest extends UnitTestCase {
     $this->assertSame([], $client->getProjectsForUser('aaadhavan'));
   }
 
+  public function testGetResourcesForUserReturnsResourceArray(): void {
+    $http = $this->prophesize(ClientInterface::class);
+    $http->request(
+      'GET',
+      'https://allocations-api.access-ci.org/identity/profiles/v1/people/aaadhavan?resources=1',
+      Argument::any()
+    )->willReturn(new Response(200, [], json_encode([
+      'username' => 'aaadhavan',
+      'resources' => [
+        [
+          'resource_id' => 3031,
+          'cider_resource_id' => 'delta-cpu.ncsa.access-ci.org',
+          'billable_unit_type' => 'Core-hours',
+          'resource_name' => 'delta-cpu.ncsa.xsede.org',
+        ],
+      ],
+    ])));
+
+    $client = $this->makeClient($http->reveal());
+    $resources = $client->getResourcesForUser('aaadhavan');
+    $this->assertIsArray($resources);
+    $this->assertCount(1, $resources);
+    $this->assertSame('Core-hours', $resources[0]['billable_unit_type']);
+    $this->assertSame('delta-cpu.ncsa.access-ci.org', $resources[0]['cider_resource_id']);
+  }
+
+  public function testGetResourcesForUserReturnsNullOnHttpError(): void {
+    $http = $this->prophesize(ClientInterface::class);
+    $http->request('GET', Argument::any(), Argument::any())
+      ->willReturn(new Response(500, [], 'oops'));
+    $client = $this->makeClient($http->reveal());
+    $this->assertNull($client->getResourcesForUser('foo'));
+  }
+
 }

@@ -163,6 +163,23 @@ class RpAccountService {
       }
     }
 
+    // 2b. Build [info_resource_id => billable_unit_type] from the identity
+    //     API's per-user resources list. This is the only endpoint that
+    //     includes billable_unit_type. Failure here is non-fatal — we
+    //     proceed without unit data, and the upsert leaves billable_unit
+    //     as NULL on rows we can't enrich.
+    $resourceUnits = [];
+    $resources = $this->allocations->getResourcesForUser($username);
+    if (is_array($resources)) {
+      foreach ($resources as $r) {
+        $iri = $r['cider_resource_id'] ?? NULL;
+        $unit = $r['billable_unit_type'] ?? NULL;
+        if ($iri && $unit) {
+          $resourceUnits[$iri] = $unit;
+        }
+      }
+    }
+
     // 3. Cached projects map keyed by [grant_number][info_resource_id].
     $projectsMap = $this->xdusage->getProjectsMap();
 
@@ -193,6 +210,7 @@ class RpAccountService {
           'rp_nid' => (int) $rp_nid,
           'pid' => (int) $tuple['project_id'],
           'rid' => (int) $tuple['resource_id'],
+          'iri' => $iri,
           'tuple' => $tuple,
           'title' => $g['title'] ?? '',
         ];
@@ -220,7 +238,7 @@ class RpAccountService {
           'project_end' => $w['tuple']['project_end'] ?? NULL,
           'project_state' => $w['tuple']['project_state'] ?? NULL,
           'is_expired' => !empty($w['tuple']['is_expired']) ? 1 : 0,
-          'billable_unit' => $w['tuple']['billable_unit'] ?? NULL,
+          'billable_unit' => $resourceUnits[$w['iri']] ?? ($w['tuple']['billable_unit'] ?? NULL),
           'synced_at' => $now,
         ])
         ->execute();
