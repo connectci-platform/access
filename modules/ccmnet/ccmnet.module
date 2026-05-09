@@ -5,15 +5,18 @@
  * Module for customizing mentorship_engagement node.
  */
 
+use Drupal\access_misc\Plugin\Util\SiteTools;
 use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\Xss;
+use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\views\ViewExecutable;
+use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Url;
+use Drupal\node\NodeInterface;
 use Drupal\user\Entity\User;
-use Drupal\access_misc\Plugin\Util\SiteTools;
+use Drupal\views\ViewExecutable;
 
 /**
  * Implements hook_views_pre_render().
@@ -30,6 +33,11 @@ function ccmnet_views_pre_render(ViewExecutable $view) {
 
 /**
  * Implements hook_views_pre_view() for node templates.
+ *
+ * Also injects the resolved Campus Champions AI Mentorship program tid into
+ * the mentorship_status:page_2 program filter. The view config carries
+ * a placeholder 0 because tids are environment-specific (see
+ * _ccmnet_get_cc_program_tid()).
  */
 function ccmnet_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
   if ($view->id() == 'mentorship_status' && $display_id === 'block_1') {
@@ -45,6 +53,22 @@ function ccmnet_views_pre_view(ViewExecutable $view, $display_id, array &$args) 
     $domain = \Drupal::service('access_misc.sitetools')->getDomainId();
     $view_filters['field_domain_access']['value']['value'] = $domain;
     $view->display_handler->setOption('filters', $view_filters);
+  }
+  if ($view->id() === 'mentorship_status' && $display_id === 'page_2') {
+    $tid = _ccmnet_get_cc_program_tid();
+    if (!$tid) {
+      \Drupal::logger('ccmnet')->error('Campus Champions AI Mentorship term not found; mentorship_status:page_2 will return no results.');
+      // Early-return: this branch is currently the last per-display block in
+      // the hook. If shared logic is added below, refactor to per-display
+      // helpers rather than carrying the early-return forward.
+      return;
+    }
+    // Filter handler isn't built yet at pre_view; mutate display options directly.
+    $filters = $view->display_handler->getOption('filters');
+    if (isset($filters['field_mentorship_program_target_id'])) {
+      $filters['field_mentorship_program_target_id']['value'] = [$tid => (string) $tid];
+      $view->display_handler->setOption('filters', $filters);
+    }
   }
 }
 
@@ -127,21 +151,70 @@ function ccmnet_entity_update(EntityInterface $entity) {
 /**
  * Implements hook_entity_field_access().
  */
-function ccmnet_entity_field_access($operation, \Drupal\Core\Field\FieldDefinitionInterface $field_definition, \Drupal\Core\Session\AccountInterface $account, \Drupal\Core\Field\FieldItemListInterface $items = NULL) {
+function ccmnet_entity_field_access($operation, \Drupal\Core\Field\FieldDefinitionInterface $field_definition, AccountInterface $account, \Drupal\Core\Field\FieldItemListInterface $items = NULL) {
   // Restrict access to field_admin_notes on mentorship_engagement nodes
   if ($field_definition->getName() == 'field_admin_notes' && $field_definition->getTargetEntityTypeId() == 'node') {
     if ($items && $items->getEntity() && $items->getEntity()->bundle() == 'mentorship_engagement') {
-      $allowed_roles = ['administrator', 'ccmnet_pm', 'champions_mentorship_admin'];
+      $allowed_roles = ['administrator', 'ccmnet_pm', 'champions_mentorship_admin', 'campuschampionsadmin'];
       $user_roles = $account->getRoles();
       $has_access = !empty(array_intersect($allowed_roles, $user_roles));
 
       if (!$has_access) {
-        return \Drupal\Core\Access\AccessResult::forbidden()->addCacheContexts(['user.roles']);
+        return AccessResult::forbidden()->addCacheContexts(['user.roles']);
       }
     }
   }
 
-  return \Drupal\Core\Access\AccessResult::neutral();
+  return AccessResult::neutral();
+}
+
+/**
+ * Implements hook_node_access().
+ *
+ * Scope CC-only edit roles (champions_mentorship_admin,
+ * campuschampionsadmin) to mentorship engagements in the Campus
+ * Champions AI Mentorship program. Users who also hold administrator
+ * or ccmnet_pm are unaffected.
+ */
+function ccmnet_node_access(NodeInterface $node, $op, AccountInterface $account) {
+  if ($node->bundle() !== 'mentorship_engagement') {
+    return AccessResult::neutral();
+  }
+  if ($op !== 'update') {
+    return AccessResult::neutral();
+  }
+
+  $roles = $account->getRoles();
+
+  // Unrestricted edit roles fall through to standard permission checks.
+  if (in_array('administrator', $roles, TRUE) || in_array('ccmnet_pm', $roles, TRUE)) {
+    return AccessResult::neutral();
+  }
+
+  $cc_roles = ['champions_mentorship_admin', 'campuschampionsadmin'];
+  if (!array_intersect($cc_roles, $roles)) {
+    return AccessResult::neutral();
+  }
+
+  $cc_tid = _ccmnet_get_cc_program_tid();
+  if (!$cc_tid) {
+    // Term unresolved — fail closed. Otherwise both $cc_tid and an empty
+    // $program_tid would be NULL and the !== check below would fall
+    // through to neutral, accidentally widening edit access.
+    return AccessResult::forbidden('Campus Champions program term unresolved.')
+      ->addCacheContexts(['user.roles']);
+  }
+  $program_tid = $node->hasField('field_mentorship_program') && !$node->get('field_mentorship_program')->isEmpty()
+    ? (int) $node->get('field_mentorship_program')->target_id
+    : NULL;
+
+  if ($program_tid !== $cc_tid) {
+    return AccessResult::forbidden('Campus Champions admin roles can only edit Campus Champions AI Mentorship engagements.')
+      ->addCacheContexts(['user.roles'])
+      ->addCacheableDependency($node);
+  }
+
+  return AccessResult::neutral();
 }
 
 /**
