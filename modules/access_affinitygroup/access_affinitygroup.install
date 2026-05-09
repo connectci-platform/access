@@ -387,3 +387,26 @@ function access_affinitygroup_update_10009() {
   }
   return implode(' ', $messages);
 }
+
+/**
+ * Creates the access_user_rp_account table.
+ *
+ * The table is defined by access_affinitygroup_schema() but that only runs
+ * on module install. This module is already installed in production, so
+ * the table needs to be created via updb.
+ */
+function access_affinitygroup_update_10010() {
+  $schemas = access_affinitygroup_schema();
+  $schema = \Drupal::database()->schema();
+  $created = [];
+  foreach ($schemas as $name => $definition) {
+    if ($schema->tableExists($name)) {
+      continue;
+    }
+    $schema->createTable($name, $definition);
+    $created[] = $name;
+  }
+  return $created
+    ? 'Created table(s): ' . implode(', ', $created)
+    : 'All schema tables already exist; nothing to create.';
+}
