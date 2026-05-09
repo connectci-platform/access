@@ -971,6 +971,34 @@ function access_affinitygroup_user_login(UserInterface $account) {
     // This else just for debugging in early stages
     // showStatus("Login and NOT attempting add of new constant contact id.");.
   }
+
+  // Schedule a fire-and-forget RP account refresh on login. The dedupe
+  // gate uses a 1h window (LOGIN_REFRESH_INTERVAL), intentionally
+  // smaller than FRESHNESS_TTL — login traffic helps keep RP data fresh
+  // between page renders. Note: the gate is best-effort; two concurrent
+  // logins for the same uid can both pass before either writes the
+  // marker. The refresh is idempotent (DB upserts), so duplicate runs
+  // are safe.
+  $uid = (int) $account->id();
+  $cache = \Drupal::cache();
+  $marker = $cache->get(\Drupal\access_affinitygroup\Service\RpAccountService::SYNC_MARKER_PREFIX . $uid);
+  $threshold = \Drupal\access_affinitygroup\Service\RpAccountService::LOGIN_REFRESH_INTERVAL;
+  if (!$marker || ($marker->data + $threshold) < \Drupal::time()->getRequestTime()) {
+    register_shutdown_function(static function () use ($uid) {
+      try {
+        \Drupal::service('access_affinitygroup.rp_account')
+          ->refreshUserRpAccounts($uid);
+      }
+      catch (\Throwable $e) {
+        \Drupal::logger('access_affinitygroup')
+          ->error('Login-triggered rp-account refresh failed for uid @u: @m', [
+            '@u' => $uid,
+            '@m' => $e->getMessage(),
+            'exception' => $e,
+          ]);
+      }
+    });
+  }
 }
 
 /**

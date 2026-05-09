@@ -15,8 +15,11 @@ use Drupal\user\UserInterface;
 class RpAccountService {
 
   private const TABLE = 'access_user_rp_account';
-  private const FRESHNESS_TTL = 86400;
-  private const SYNC_MARKER_PREFIX = 'rp_account:user_synced:';
+  /** Read-side staleness TTL: rows synced more recently than this are treated as fresh by getAccountsForUser*. */
+  public const FRESHNESS_TTL = 86400;
+  /** Login-hook dedupe window: opportunistic refresh on login fires at most every LOGIN_REFRESH_INTERVAL seconds. Intentionally smaller than FRESHNESS_TTL — login traffic refreshes data BETWEEN page renders. */
+  public const LOGIN_REFRESH_INTERVAL = 3600;
+  public const SYNC_MARKER_PREFIX = 'rp_account:user_synced:';
   private const ACCESS_SUFFIX = '@access-ci.org';
 
   public function __construct(
