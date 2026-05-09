@@ -10,3 +10,9 @@ services:
       - '@key.repository'
       - '@cache.default'
       - '@logger.factory'
+  access_affinitygroup.allocations_client:
+    class: Drupal\access_affinitygroup\Service\AllocationsClient
+    arguments:
+      - '@http_client'
+      - '@file_system'
+      - '@logger.factory'
