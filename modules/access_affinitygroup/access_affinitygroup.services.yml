@@ -26,3 +26,7 @@ services:
       - '@cache.default'
       - '@logger.factory'
       - '@datetime.time'
+  access_affinitygroup.rp_account_access:
+    class: Drupal\access_affinitygroup\Access\RpAccountAccess
+    arguments:
+      - '@entity_type.manager'
