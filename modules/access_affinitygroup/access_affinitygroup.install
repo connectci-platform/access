@@ -6,6 +6,109 @@
  */
 
 /**
+ * Implements hook_schema().
+ */
+function access_affinitygroup_schema() {
+  $schema['access_user_rp_account'] = [
+    'description' => 'Per-user, per-RP, per-grant account data sourced from xdusage and identity APIs.',
+    'fields' => [
+      'uid' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Drupal user ID.',
+      ],
+      'rp_nid' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'access_active_resources_from_cid node ID.',
+      ],
+      'grant_number' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'description' => 'ACCESS grant number, e.g. PHY250173.',
+      ],
+      'project_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'xdusage project_id.',
+      ],
+      'resource_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'xdusage resource_id.',
+      ],
+      'grant_title' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'description' => 'Grant/project title from identity API.',
+      ],
+      'rp_username' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => FALSE,
+        'description' => 'portal_username for this user on this resource.',
+      ],
+      'account_state' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => FALSE,
+        'description' => 'active / inactive (per-user account state).',
+      ],
+      'project_balance' => [
+        'type' => 'numeric',
+        'precision' => 20,
+        'scale' => 4,
+        'not null' => FALSE,
+        'description' => 'Project-level balance (denormalized from /projects feed).',
+      ],
+      'project_end' => [
+        'type' => 'varchar',
+        'length' => 10,
+        'not null' => FALSE,
+        'description' => 'Project end date as ISO YYYY-MM-DD.',
+      ],
+      'project_state' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => FALSE,
+        'description' => 'Project-level state.',
+      ],
+      'is_expired' => [
+        'type' => 'int',
+        'size' => 'tiny',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+        'description' => 'Project-level expiration flag from /projects feed.',
+      ],
+      'billable_unit' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => FALSE,
+        'description' => 'Billable unit type, e.g. Core-hours.',
+      ],
+      'synced_at' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Last refresh timestamp. No separate created column by design — the row exists only as a current-state cache, not an audit log.',
+      ],
+    ],
+    'primary key' => ['uid', 'rp_nid', 'grant_number'],
+    'indexes' => [
+      'idx_uid_rp' => ['uid', 'rp_nid'],
+      'idx_synced' => ['synced_at'],
+    ],
+  ];
+  return $schema;
+}
+
+/**
  * Set initial refresh_token state.
  */
 function access_affinitygroup_update_10000() {
