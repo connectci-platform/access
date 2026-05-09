@@ -1,0 +1,482 @@
+<?php
+
+namespace Drupal\Tests\access_affinitygroup\Kernel;
+
+use Drupal\access_affinitygroup\Service\AllocationsClient;
+use Drupal\access_affinitygroup\Service\RpAccountService;
+use Drupal\access_affinitygroup\Service\XdusageClient;
+use Drupal\KernelTests\KernelTestBase;
+use Drupal\node\Entity\Node;
+use Drupal\node\Entity\NodeType;
+use Drupal\user\Entity\User;
+use Prophecy\PhpUnit\ProphecyTrait;
+
+/**
+ * @group access_affinitygroup
+ */
+class RpAccountServiceTest extends KernelTestBase {
+
+  use ProphecyTrait;
+
+  protected static $modules = [
+    'access_affinitygroup', 'user', 'system', 'node', 'field', 'text', 'filter', 'key',
+  ];
+
+  protected function setUp(): void {
+    parent::setUp();
+    $this->installEntitySchema('user');
+    $this->installEntitySchema('node');
+    $this->installSchema('access_affinitygroup', ['access_user_rp_account']);
+    $this->installConfig(['filter']);
+
+    NodeType::create(['type' => 'access_active_resources_from_cid', 'name' => 'RP'])->save();
+
+    \Drupal\field\Entity\FieldStorageConfig::create([
+      'field_name' => 'field_access_global_resource_id',
+      'entity_type' => 'node',
+      'type' => 'string',
+    ])->save();
+    \Drupal\field\Entity\FieldConfig::create([
+      'field_name' => 'field_access_global_resource_id',
+      'entity_type' => 'node',
+      'bundle' => 'access_active_resources_from_cid',
+    ])->save();
+
+    foreach (['field_xdusage_person_id' => 'integer', 'field_xdusage_person_synced' => 'timestamp'] as $f => $t) {
+      \Drupal\field\Entity\FieldStorageConfig::create([
+        'field_name' => $f, 'entity_type' => 'user', 'type' => $t,
+      ])->save();
+      \Drupal\field\Entity\FieldConfig::create([
+        'field_name' => $f, 'entity_type' => 'user', 'bundle' => 'user',
+      ])->save();
+    }
+  }
+
+  protected function makeService($alloc, $xd): RpAccountService {
+    return new RpAccountService(
+      \Drupal::database(),
+      \Drupal::entityTypeManager(),
+      $alloc,
+      $xd,
+      \Drupal::cache(),
+      \Drupal::service('logger.factory'),
+      \Drupal::service('datetime.time'),
+    );
+  }
+
+  public function testRefreshUserRpAccountsHappyPath(): void {
+    $rp = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Delta CPU',
+      'field_access_global_resource_id' => 'delta-cpu.ncsa.access-ci.org',
+    ]);
+    $rp->save();
+
+    $user = User::create([
+      'name' => 'aaadhavan@access-ci.org',
+      'mail' => 'a@example.com',
+    ]);
+    $user->save();
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $alloc->getProjectsForUser('aaadhavan')->willReturn([
+      ['grant_number' => 'PHY250173', 'title' => 'Halo finding', 'allocation_type' => 'Accelerate', 'grant_type' => 'Diss.'],
+    ]);
+
+    $xd = $this->prophesize(XdusageClient::class);
+    $xd->getPersonByPortalUsername('aaadhavan')->willReturn(['person_id' => 297776]);
+    $xd->getProjectsMap()->willReturn([
+      'PHY250173' => [
+        'delta-cpu.ncsa.access-ci.org' => [
+          'project_id' => 66897,
+          'resource_id' => 3031,
+          'project_balance' => '245119.85',
+          'project_end' => '2026-07-09',
+          'project_state' => 'active',
+          'is_expired' => FALSE,
+          'billable_unit' => 'Core-hours',
+        ],
+      ],
+    ]);
+    $xd->getAccountForUser(66897, 3031, 297776)->willReturn([
+      'portal_username' => 'aaadhavan',
+      'account_state' => 'active',
+    ]);
+
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+    $svc->refreshUserRpAccounts((int) $user->id());
+
+    $row = \Drupal::database()->select('access_user_rp_account', 'a')
+      ->fields('a')
+      ->condition('uid', (int) $user->id())
+      ->execute()
+      ->fetchAssoc();
+    $this->assertNotEmpty($row);
+    $this->assertSame('aaadhavan', $row['rp_username']);
+    $this->assertSame('active', $row['account_state']);
+    $this->assertSame('PHY250173', $row['grant_number']);
+    $this->assertSame('Halo finding', $row['grant_title']);
+    $this->assertEquals(66897, $row['project_id']);
+
+    $reloaded = User::load($user->id());
+    $this->assertEquals(297776, $reloaded->get('field_xdusage_person_id')->value);
+
+    $marker = \Drupal::cache()->get('rp_account:user_synced:' . $user->id());
+    $this->assertNotFalse($marker);
+  }
+
+  public function testRefreshSkipsUsersWithoutAccessCiSuffix(): void {
+    $user = User::create(['name' => 'localadmin', 'mail' => 'a@example.com']);
+    $user->save();
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $alloc->getProjectsForUser(\Prophecy\Argument::any())->shouldNotBeCalled();
+    $xd = $this->prophesize(XdusageClient::class);
+    $xd->getPersonByPortalUsername(\Prophecy\Argument::any())->shouldNotBeCalled();
+
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+    $svc->refreshUserRpAccounts((int) $user->id());
+
+    $this->assertFalse(\Drupal::cache()->get('rp_account:user_synced:' . $user->id()));
+  }
+
+  public function testGetAccountsForUserAndRpReturnsRowsFreshState(): void {
+    $rp = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Delta CPU',
+      'field_access_global_resource_id' => 'delta-cpu.ncsa.access-ci.org',
+    ]);
+    $rp->save();
+    $user = User::create(['name' => 'aaadhavan@access-ci.org', 'mail' => 'a@example.com']);
+    $user->save();
+
+    \Drupal::database()->insert('access_user_rp_account')->fields([
+      'uid' => (int) $user->id(),
+      'rp_nid' => (int) $rp->id(),
+      'grant_number' => 'PHY250173',
+      'project_id' => 66897,
+      'resource_id' => 3031,
+      'grant_title' => 'Halo finding',
+      'rp_username' => 'aaadhavan',
+      'account_state' => 'active',
+      'project_balance' => '245119.85',
+      'project_end' => '2026-07-09',
+      'project_state' => 'active',
+      'is_expired' => 0,
+      'billable_unit' => 'Core-hours',
+      'synced_at' => time(),
+    ])->execute();
+    \Drupal::cache()->set('rp_account:user_synced:' . $user->id(), time(), time() + 86400);
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $alloc->getProjectsForUser(\Prophecy\Argument::any())->shouldNotBeCalled();
+    $xd = $this->prophesize(XdusageClient::class);
+    $xd->getProjectsMap()->shouldNotBeCalled();
+
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $result = $svc->getAccountsForUserAndRp((int) $user->id(), (int) $rp->id());
+    $this->assertSame('rows_fresh', $result['state']);
+    $this->assertCount(1, $result['rows']);
+    $this->assertSame('aaadhavan', $result['rows'][0]['rp_username']);
+  }
+
+  public function testRefreshPrunesGrantsNotInIdentityResponse(): void {
+    $rp = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Delta CPU',
+      'field_access_global_resource_id' => 'delta-cpu.ncsa.access-ci.org',
+    ]);
+    $rp->save();
+
+    $user = User::create([
+      'name' => 'aaadhavan@access-ci.org',
+      'mail' => 'a@example.com',
+      'field_xdusage_person_id' => 297776,
+    ]);
+    $user->save();
+
+    // Pre-existing row for an old grant the user no longer has.
+    \Drupal::database()->insert('access_user_rp_account')->fields([
+      'uid' => (int) $user->id(),
+      'rp_nid' => (int) $rp->id(),
+      'grant_number' => 'OLD123',
+      'project_id' => 1,
+      'resource_id' => 1,
+      'rp_username' => 'old',
+      'account_state' => 'active',
+      'is_expired' => 0,
+      'synced_at' => time() - 90000,
+    ])->execute();
+
+    // Identity API now reports only PHY250173 (no OLD123).
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $alloc->getProjectsForUser('aaadhavan')->willReturn([
+      ['grant_number' => 'PHY250173', 'title' => 'Halo', 'allocation_type' => 'Accelerate', 'grant_type' => 'Diss.'],
+    ]);
+
+    $xd = $this->prophesize(XdusageClient::class);
+    $xd->getPersonByPortalUsername(\Prophecy\Argument::any())->shouldNotBeCalled(); // person_id already on user
+    $xd->getProjectsMap()->willReturn([
+      'PHY250173' => [
+        'delta-cpu.ncsa.access-ci.org' => [
+          'project_id' => 66897,
+          'resource_id' => 3031,
+          'project_balance' => '100',
+          'project_end' => '2027-01-01',
+          'project_state' => 'active',
+          'is_expired' => FALSE,
+          'billable_unit' => 'Core-hours',
+        ],
+      ],
+    ]);
+    $xd->getAccountForUser(66897, 3031, 297776)->willReturn([
+      'portal_username' => 'aaadhavan',
+      'account_state' => 'active',
+    ]);
+
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+    $svc->refreshUserRpAccounts((int) $user->id());
+
+    // OLD123 row should be pruned, PHY250173 row should be present.
+    $rows = \Drupal::database()->select('access_user_rp_account', 'a')
+      ->fields('a', ['grant_number'])
+      ->condition('uid', (int) $user->id())
+      ->execute()
+      ->fetchCol();
+    $this->assertEquals(['PHY250173'], $rows);
+  }
+
+  public function testRefreshDoesNotPruneWhenGrantInIdentityButMissingFromProjectsMap(): void {
+    $rp = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Delta CPU',
+      'field_access_global_resource_id' => 'delta-cpu.ncsa.access-ci.org',
+    ]);
+    $rp->save();
+    $user = User::create([
+      'name' => 'aaadhavan@access-ci.org',
+      'mail' => 'a@example.com',
+      'field_xdusage_person_id' => 297776,
+    ]);
+    $user->save();
+
+    // Pre-existing row for grant PHY250173.
+    \Drupal::database()->insert('access_user_rp_account')->fields([
+      'uid' => (int) $user->id(),
+      'rp_nid' => (int) $rp->id(),
+      'grant_number' => 'PHY250173',
+      'project_id' => 66897,
+      'resource_id' => 3031,
+      'rp_username' => 'aaadhavan',
+      'account_state' => 'active',
+      'is_expired' => 0,
+      'synced_at' => time() - 90000,
+    ])->execute();
+
+    // Identity API still reports PHY250173, but the projects map is empty
+    // (transient upstream gap).
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $alloc->getProjectsForUser('aaadhavan')->willReturn([
+      ['grant_number' => 'PHY250173', 'title' => 'Halo', 'allocation_type' => 'Accelerate', 'grant_type' => 'Diss.'],
+    ]);
+    $xd = $this->prophesize(XdusageClient::class);
+    $xd->getPersonByPortalUsername(\Prophecy\Argument::any())->shouldNotBeCalled();
+    $xd->getProjectsMap()->willReturn([]); // empty map
+    $xd->getAccountForUser(\Prophecy\Argument::cetera())->shouldNotBeCalled();
+
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+    $svc->refreshUserRpAccounts((int) $user->id());
+
+    // Row should still be there (NOT pruned despite missing-from-map).
+    $rows = \Drupal::database()->select('access_user_rp_account', 'a')
+      ->fields('a', ['grant_number'])
+      ->condition('uid', (int) $user->id())
+      ->execute()
+      ->fetchCol();
+    $this->assertEquals(['PHY250173'], $rows);
+  }
+
+  public function testRowsStaleStateWhenRefreshFailsButRowsExist(): void {
+    $rp = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Delta CPU',
+      'field_access_global_resource_id' => 'delta-cpu.ncsa.access-ci.org',
+    ]);
+    $rp->save();
+    $user = User::create([
+      'name' => 'aaadhavan@access-ci.org',
+      'mail' => 'a@example.com',
+      'field_xdusage_person_id' => 297776,
+    ]);
+    $user->save();
+
+    \Drupal::database()->insert('access_user_rp_account')->fields([
+      'uid' => (int) $user->id(),
+      'rp_nid' => (int) $rp->id(),
+      'grant_number' => 'PHY250173',
+      'project_id' => 66897,
+      'resource_id' => 3031,
+      'rp_username' => 'aaadhavan',
+      'account_state' => 'active',
+      'project_balance' => '100',
+      'is_expired' => 0,
+      'synced_at' => time() - 90000,
+    ])->execute();
+    // No fresh sync marker → triggers refresh.
+
+    // AllocationsClient returns NULL (transient failure).
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $alloc->getProjectsForUser('aaadhavan')->willReturn(NULL);
+    $xd = $this->prophesize(XdusageClient::class);
+    $xd->getProjectsMap()->shouldNotBeCalled();
+    $xd->getAccountForUser(\Prophecy\Argument::cetera())->shouldNotBeCalled();
+
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+    $result = $svc->getAccountsForUserAndRp((int) $user->id(), (int) $rp->id());
+
+    // Pre-existing row preserved; state is 'rows_stale' because refresh aborted before marker.
+    $this->assertSame('rows_stale', $result['state']);
+    $this->assertCount(1, $result['rows']);
+    $this->assertSame('PHY250173', $result['rows'][0]['grant_number']);
+  }
+
+  public function testErrorStateWhenRefreshThrowsAndNoExistingRows(): void {
+    $rp = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Delta CPU',
+      'field_access_global_resource_id' => 'delta-cpu.ncsa.access-ci.org',
+    ]);
+    $rp->save();
+    $user = User::create([
+      'name' => 'aaadhavan@access-ci.org',
+      'mail' => 'a@example.com',
+      'field_xdusage_person_id' => 297776,
+    ]);
+    $user->save();
+    // No DB rows. No fresh marker.
+
+    // AllocationsClient throws.
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $alloc->getProjectsForUser('aaadhavan')->willThrow(new \RuntimeException('boom'));
+    $xd = $this->prophesize(XdusageClient::class);
+
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+    $result = $svc->getAccountsForUserAndRp((int) $user->id(), (int) $rp->id());
+
+    $this->assertSame('error', $result['state']);
+    $this->assertSame([], $result['rows']);
+  }
+
+  public function testRefreshDeletesAllRowsWhenIdentityReturnsEmptySuccess(): void {
+    $rp = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Delta CPU',
+      'field_access_global_resource_id' => 'delta-cpu.ncsa.access-ci.org',
+    ]);
+    $rp->save();
+    $user = User::create([
+      'name' => 'aaadhavan@access-ci.org',
+      'mail' => 'a@example.com',
+      'field_xdusage_person_id' => 297776,
+    ]);
+    $user->save();
+
+    // Pre-existing rows.
+    \Drupal::database()->insert('access_user_rp_account')->fields([
+      'uid' => (int) $user->id(),
+      'rp_nid' => (int) $rp->id(),
+      'grant_number' => 'OLD123',
+      'project_id' => 1,
+      'resource_id' => 1,
+      'rp_username' => 'old',
+      'account_state' => 'active',
+      'is_expired' => 0,
+      'synced_at' => time() - 90000,
+    ])->execute();
+
+    // Identity API succeeds with truly zero projects.
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $alloc->getProjectsForUser('aaadhavan')->willReturn([]);
+    $xd = $this->prophesize(XdusageClient::class);
+    $xd->getProjectsMap()->willReturn([]);
+    $xd->getAccountForUser(\Prophecy\Argument::cetera())->shouldNotBeCalled();
+
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+    $svc->refreshUserRpAccounts((int) $user->id());
+
+    $count = (int) \Drupal::database()->select('access_user_rp_account', 'a')
+      ->condition('uid', (int) $user->id())
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    $this->assertSame(0, $count, 'All rows deleted when identity returns empty success.');
+
+    // Marker IS set (this was a successful sync).
+    $marker = \Drupal::cache()->get('rp_account:user_synced:' . $user->id());
+    $this->assertNotFalse($marker);
+  }
+
+  public function testRefreshAbortsWithoutWritesWhenIdentityReturnsNull(): void {
+    $rp = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Delta CPU',
+      'field_access_global_resource_id' => 'delta-cpu.ncsa.access-ci.org',
+    ]);
+    $rp->save();
+    $user = User::create([
+      'name' => 'aaadhavan@access-ci.org',
+      'mail' => 'a@example.com',
+      'field_xdusage_person_id' => 297776,
+    ]);
+    $user->save();
+
+    // Pre-existing rows that should NOT be touched.
+    \Drupal::database()->insert('access_user_rp_account')->fields([
+      'uid' => (int) $user->id(),
+      'rp_nid' => (int) $rp->id(),
+      'grant_number' => 'OLD123',
+      'project_id' => 1,
+      'resource_id' => 1,
+      'rp_username' => 'old',
+      'account_state' => 'active',
+      'is_expired' => 0,
+      'synced_at' => time() - 90000,
+    ])->execute();
+
+    // AllocationsClient signals transient failure.
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $alloc->getProjectsForUser('aaadhavan')->willReturn(NULL);
+    $xd = $this->prophesize(XdusageClient::class);
+    $xd->getProjectsMap()->shouldNotBeCalled();
+    $xd->getAccountForUser(\Prophecy\Argument::cetera())->shouldNotBeCalled();
+
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+    $svc->refreshUserRpAccounts((int) $user->id());
+
+    // Pre-existing row preserved.
+    $count = (int) \Drupal::database()->select('access_user_rp_account', 'a')
+      ->condition('uid', (int) $user->id())
+      ->countQuery()
+      ->execute()
+      ->fetchField();
+    $this->assertSame(1, $count);
+
+    // No sync marker.
+    $this->assertFalse(\Drupal::cache()->get('rp_account:user_synced:' . $user->id()));
+  }
+
+  public function testGetLiveBalanceForRowDelegatesToXdusageClient(): void {
+    $row = ['project_id' => 66897, 'resource_id' => 3031];
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $xd = $this->prophesize(XdusageClient::class);
+    $xd->getLiveBalance(66897, 3031)->shouldBeCalledOnce()->willReturn([
+      'project_balance' => '99.0', 'account_charges' => '1.0', 'billable_unit' => 'Core-hours',
+    ]);
+
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+    $result = $svc->getLiveBalanceForRow($row);
+    $this->assertSame('99.0', $result['project_balance']);
+  }
+}

@@ -16,3 +16,13 @@ services:
       - '@http_client'
       - '@file_system'
       - '@logger.factory'
+  access_affinitygroup.rp_account:
+    class: Drupal\access_affinitygroup\Service\RpAccountService
+    arguments:
+      - '@database'
+      - '@entity_type.manager'
+      - '@access_affinitygroup.allocations_client'
+      - '@access_affinitygroup.xdusage_client'
+      - '@cache.default'
+      - '@logger.factory'
+      - '@datetime.time'

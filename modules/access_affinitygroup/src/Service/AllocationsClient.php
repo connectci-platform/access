@@ -21,7 +21,7 @@ class AllocationsClient {
   ) {}
 
   /**
-   * Returns the projects array for a user, or [] on any failure.
+   * Returns the projects array for a user, or NULL on any failure.
    *
    * Each item is an associative array with the following keys (as
    * returned by /identity/profiles/v1/people/{username}?projects=1):
@@ -32,12 +32,16 @@ class AllocationsClient {
    *
    * Additional keys may be present and should be passed through opaquely.
    *
-   * @return array<int, array<string, mixed>>
+   * @return array<int, array<string, mixed>>|null
+   *   Returns the projects array on success (may be empty if the user has
+   *   no grants). Returns NULL on any failure (missing API key, HTTP error,
+   *   non-200 response, malformed JSON). Callers must distinguish empty
+   *   success ([]) from failure (null) — they have different semantics.
    */
-  public function getProjectsForUser(string $username): array {
+  public function getProjectsForUser(string $username): ?array {
     $apiKey = $this->getApiKey();
     if (!$apiKey) {
-      return [];
+      return NULL;
     }
     $url = self::BASE . '/identity/profiles/v1/people/' . rawurlencode($username) . '?projects=1';
     try {
@@ -56,7 +60,7 @@ class AllocationsClient {
         ->error('Identity API HTTP error for user @u: @msg', [
           '@u' => $username, '@msg' => $e->getMessage(),
         ]);
-      return [];
+      return NULL;
     }
     $status = $response->getStatusCode();
     if ($status !== 200) {
@@ -64,10 +68,13 @@ class AllocationsClient {
         ->warning('Identity API HTTP @status for user @u', [
           '@status' => $status, '@u' => $username,
         ]);
-      return [];
+      return NULL;
     }
     $data = json_decode((string) $response->getBody(), TRUE);
-    return $data['projects'] ?? [];
+    if (!is_array($data) || !array_key_exists('projects', $data) || !is_array($data['projects'])) {
+      return NULL;
+    }
+    return $data['projects'];
   }
 
   private function getApiKey(): ?string {

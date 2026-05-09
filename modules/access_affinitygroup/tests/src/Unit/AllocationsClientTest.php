@@ -63,35 +63,43 @@ class AllocationsClientTest extends UnitTestCase {
     $this->assertSame('PHY250173', $projects[0]['grant_number']);
   }
 
-  public function testGetProjectsForUserReturnsEmptyOnHttpError(): void {
+  public function testGetProjectsForUserReturnsNullOnHttpError(): void {
     $http = $this->prophesize(ClientInterface::class);
     $http->request('GET', Argument::any(), Argument::any())
       ->willReturn(new Response(500, [], 'oops'));
     $client = $this->makeClient($http->reveal());
-    $this->assertSame([], $client->getProjectsForUser('foo'));
+    $this->assertNull($client->getProjectsForUser('foo'));
   }
 
-  public function testGetProjectsForUserReturnsEmptyWhenNoProjectsKey(): void {
+  public function testGetProjectsForUserReturnsNullWhenNoProjectsKey(): void {
     $http = $this->prophesize(ClientInterface::class);
     $http->request('GET', Argument::any(), Argument::any())
       ->willReturn(new Response(200, [], json_encode(['username' => 'aaadhavan'])));
     $client = $this->makeClient($http->reveal());
-    $this->assertSame([], $client->getProjectsForUser('aaadhavan'));
+    $this->assertNull($client->getProjectsForUser('aaadhavan'));
   }
 
-  public function testGetProjectsForUserReturnsEmptyWhenSecretsMissingKey(): void {
+  public function testGetProjectsForUserReturnsNullWhenSecretsMissingKey(): void {
     $http = $this->prophesize(ClientInterface::class);
     // Should not be called when key is missing.
     $http->request(Argument::cetera())->shouldNotBeCalled();
     $client = $this->makeClient($http->reveal(), '{"other_key":"x"}');
-    $this->assertSame([], $client->getProjectsForUser('foo'));
+    $this->assertNull($client->getProjectsForUser('foo'));
   }
 
-  public function testGetProjectsForUserReturnsEmptyWhenSecretsMalformed(): void {
+  public function testGetProjectsForUserReturnsNullWhenSecretsMalformed(): void {
     $http = $this->prophesize(ClientInterface::class);
     $http->request(Argument::cetera())->shouldNotBeCalled();
     $client = $this->makeClient($http->reveal(), 'not-json{');
-    $this->assertSame([], $client->getProjectsForUser('foo'));
+    $this->assertNull($client->getProjectsForUser('foo'));
+  }
+
+  public function testGetProjectsForUserReturnsEmptyArrayWhenApiSucceedsWithZeroProjects(): void {
+    $http = $this->prophesize(ClientInterface::class);
+    $http->request('GET', Argument::any(), Argument::any())
+      ->willReturn(new Response(200, [], json_encode(['projects' => []])));
+    $client = $this->makeClient($http->reveal());
+    $this->assertSame([], $client->getProjectsForUser('aaadhavan'));
   }
 
 }
