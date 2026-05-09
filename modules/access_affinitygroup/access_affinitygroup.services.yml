@@ -3,3 +3,10 @@ services:
     class: Drupal\access_affinitygroup\EventSubscriber\AffinityGroupCacheClearSubscriber
     tags:
       - { name: event_subscriber }
+  access_affinitygroup.xdusage_client:
+    class: Drupal\access_affinitygroup\Service\XdusageClient
+    arguments:
+      - '@http_client'
+      - '@key.repository'
+      - '@cache.default'
+      - '@logger.factory'

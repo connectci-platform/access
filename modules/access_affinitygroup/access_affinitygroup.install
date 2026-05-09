@@ -337,3 +337,53 @@ function access_affinitygroup_update_10008() {
 
   return $message;
 }
+
+/**
+ * Adds field_xdusage_person_id and field_xdusage_person_synced to user entity.
+ */
+function access_affinitygroup_update_10009() {
+  $fields = [
+    'field_xdusage_person_id' => [
+      'type' => 'integer',
+      'label' => 'Xdusage Person ID',
+      'description' => 'The xdusage person_id for this user. Stable per user; written once after first refresh.',
+    ],
+    'field_xdusage_person_synced' => [
+      'type' => 'timestamp',
+      'label' => 'Xdusage Person Synced At',
+      'description' => 'Timestamp of last successful person_id sync.',
+    ],
+  ];
+
+  $messages = [];
+  foreach ($fields as $field_name => $info) {
+    if (\Drupal\field\Entity\FieldStorageConfig::loadByName('user', $field_name)) {
+      $messages[] = "Storage for $field_name already exists; skipping storage.";
+    }
+    else {
+      \Drupal\field\Entity\FieldStorageConfig::create([
+        'field_name' => $field_name,
+        'entity_type' => 'user',
+        'type' => $info['type'],
+        'cardinality' => 1,
+      ])->save();
+      $messages[] = "Created storage $field_name.";
+    }
+
+    if (\Drupal\field\Entity\FieldConfig::loadByName('user', 'user', $field_name)) {
+      $messages[] = "Field $field_name already exists on user bundle; skipping field.";
+    }
+    else {
+      \Drupal\field\Entity\FieldConfig::create([
+        'field_name' => $field_name,
+        'entity_type' => 'user',
+        'bundle' => 'user',
+        'label' => $info['label'],
+        'description' => $info['description'],
+        'required' => FALSE,
+      ])->save();
+      $messages[] = "Created field $field_name on user bundle.";
+    }
+  }
+  return implode(' ', $messages);
+}
