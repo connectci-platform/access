@@ -53,7 +53,9 @@ class RpAccountController extends ControllerBase {
       // "we don't yet know" (no_rows_unknown / error).
       $response['has_account'] = $state === 'no_rows_fresh' ? FALSE : NULL;
       $response['stale'] = in_array($state, ['rows_stale', 'no_rows_unknown', 'error'], TRUE);
-      return new JsonResponse($response);
+      return (new JsonResponse($response))
+        ->setPrivate()
+        ->setMaxAge(0);
     }
 
     $response['has_account'] = TRUE;
@@ -80,7 +82,9 @@ class RpAccountController extends ControllerBase {
       }
     }
 
-    return new JsonResponse($response);
+    return (new JsonResponse($response))
+      ->setPrivate()
+      ->setMaxAge(0);
   }
 
   private function formatGrant(array $row): array {

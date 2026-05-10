@@ -396,17 +396,14 @@ function access_affinitygroup_update_10009() {
  * the table needs to be created via updb.
  */
 function access_affinitygroup_update_10010() {
-  $schemas = access_affinitygroup_schema();
   $schema = \Drupal::database()->schema();
-  $created = [];
-  foreach ($schemas as $name => $definition) {
-    if ($schema->tableExists($name)) {
-      continue;
-    }
-    $schema->createTable($name, $definition);
-    $created[] = $name;
+  if ($schema->tableExists('access_user_rp_account')) {
+    return 'Table access_user_rp_account already exists; nothing to create.';
   }
-  return $created
-    ? 'Created table(s): ' . implode(', ', $created)
-    : 'All schema tables already exist; nothing to create.';
+  $schemas = access_affinitygroup_schema();
+  if (!isset($schemas['access_user_rp_account'])) {
+    throw new \LogicException('access_affinitygroup_schema() does not define access_user_rp_account.');
+  }
+  $schema->createTable('access_user_rp_account', $schemas['access_user_rp_account']);
+  return 'Created table access_user_rp_account.';
 }

@@ -204,8 +204,12 @@ class XdusageClient {
               break;
             }
           }
+          // Caller asked for a specific person; don't fall back to another row.
         }
-        $matched = $matched ?: ($apiRows ? reset($apiRows) : NULL);
+        else {
+          // No person_id requested — return project-level row (first/only row).
+          $matched = $apiRows ? reset($apiRows) : NULL;
+        }
         if ($matched) {
           $results[$rowKeys[$index]] = $this->extractBalance($matched);
         }

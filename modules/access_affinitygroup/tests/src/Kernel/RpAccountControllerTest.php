@@ -152,6 +152,8 @@ class RpAccountControllerTest extends KernelTestBase {
     $request->attributes->set('rp_account_effective_uid', (int) $user->id());
 
     $response = $this->makeController($svc->reveal())->get((int) $rp->id(), $request);
+    $this->assertTrue($response->headers->hasCacheControlDirective('private'));
+    $this->assertSame('0', $response->headers->getCacheControlDirective('max-age'));
     $body = json_decode($response->getContent(), TRUE);
 
     $this->assertTrue($body['has_account']);

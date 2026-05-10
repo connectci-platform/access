@@ -35,9 +35,13 @@ class RpAccountService {
   /**
    * Returns active rows + state for the (user, RP) pair.
    *
-   * Calls refreshUserRpAccounts() inline if the user's sync is stale.
-   * On refresh failure, falls back to existing rows if any (state=rows_stale)
-   * or returns state=error.
+   * Pure DB read. NEVER blocks on a refresh: if the user's sync marker is
+   * stale or missing, a fire-and-forget refresh is scheduled via
+   * register_shutdown_function so it runs after the response is flushed.
+   *
+   * The 'error' state is reserved for callers that explicitly attempt a
+   * synchronous refresh (e.g., a controller action) and observe failure;
+   * the read path no longer produces it.
    *
    * @return array{
    *   rows: array<int, array<string, mixed>>,
@@ -48,21 +52,9 @@ class RpAccountService {
     $rows = $this->loadActiveRows($uid, $rp_nid);
     $isFresh = $this->isUserSyncFresh($uid);
 
-    if ($rows && $isFresh) {
-      return ['rows' => $rows, 'state' => 'rows_fresh'];
-    }
-
+    // Always non-blocking: schedule a background refresh if stale.
     if (!$isFresh) {
-      try {
-        $this->refreshUserRpAccounts($uid);
-      }
-      catch (\Throwable $e) {
-        $this->loggerFactory->get('access_affinitygroup')
-          ->error('Refresh failed for uid @u: @m', ['@u' => $uid, '@m' => $e->getMessage()]);
-        return ['rows' => $rows, 'state' => $rows ? 'rows_stale' : 'error'];
-      }
-      $rows = $this->loadActiveRows($uid, $rp_nid);
-      $isFresh = $this->isUserSyncFresh($uid);
+      $this->scheduleRefreshIfStale($uid);
     }
 
     if ($rows) {
@@ -74,7 +66,8 @@ class RpAccountService {
   /**
    * Returns active rows + state across ALL RPs for the user.
    *
-   * Same return shape and state semantics as getAccountsForUserAndRp.
+   * Same return shape and state semantics as getAccountsForUserAndRp. Pure
+   * DB read with a non-blocking shutdown-phase refresh when stale.
    *
    * @return array{
    *   rows: array<int, array<string, mixed>>,
@@ -82,16 +75,8 @@ class RpAccountService {
    * }
    */
   public function getAccountsForUser(int $uid): array {
-    $refreshFailed = FALSE;
     if (!$this->isUserSyncFresh($uid)) {
-      try {
-        $this->refreshUserRpAccounts($uid);
-      }
-      catch (\Throwable $e) {
-        $this->loggerFactory->get('access_affinitygroup')
-          ->error('Refresh failed for uid @u: @m', ['@u' => $uid, '@m' => $e->getMessage()]);
-        $refreshFailed = TRUE;
-      }
+      $this->scheduleRefreshIfStale($uid);
     }
     $rows = $this->db->select(self::TABLE, 'a')
       ->fields('a')
@@ -103,9 +88,6 @@ class RpAccountService {
     $isFresh = $this->isUserSyncFresh($uid);
     if ($rows) {
       return ['rows' => $rows, 'state' => $isFresh ? 'rows_fresh' : 'rows_stale'];
-    }
-    if ($refreshFailed) {
-      return ['rows' => [], 'state' => 'error'];
     }
     return ['rows' => [], 'state' => $isFresh ? 'no_rows_fresh' : 'no_rows_unknown'];
   }
@@ -270,19 +252,23 @@ class RpAccountService {
   }
 
   /**
-   * Wraps XdusageClient::getLiveBalance for one row.
-   *
-   * Used by the controller for ?live=1 fan-out. NULL on API failure.
+   * Wraps XdusageClient::getLiveBalance for one row, scoped to a specific user.
    *
    * @param array $row
    *   A row from access_user_rp_account (must contain project_id, resource_id).
+   * @param int $person_id
+   *   The xdusage person_id to scope the balance lookup to. Passing this
+   *   ensures the API filter returns only that user's row; without it, the
+   *   API would return arbitrary first-row data which could leak another
+   *   user's balance.
    *
    * @return array{project_balance: ?string, account_charges: ?string, billable_unit: ?string}|null
    */
-  public function getLiveBalanceForRow(array $row): ?array {
+  public function getLiveBalanceForRow(array $row, int $person_id): ?array {
     return $this->xdusage->getLiveBalance(
       (int) $row['project_id'],
-      (int) $row['resource_id']
+      (int) $row['resource_id'],
+      $person_id
     );
   }
 
@@ -303,6 +289,35 @@ class RpAccountService {
       return FALSE;
     }
     return ($marker->data + self::FRESHNESS_TTL) > $this->time->getRequestTime();
+  }
+
+  /**
+   * Schedule a fire-and-forget refresh for $uid, deduped per-request.
+   *
+   * Uses register_shutdown_function so the actual API work runs after the
+   * response has been flushed to the user. Keeps a static map of uids
+   * already scheduled in this request to avoid double-scheduling when
+   * multiple read methods are called for the same user (e.g., a page that
+   * calls getAccountsForUserAndRp twice for two RPs).
+   */
+  private function scheduleRefreshIfStale(int $uid): void {
+    static $scheduled = [];
+    if (isset($scheduled[$uid])) {
+      return;
+    }
+    $scheduled[$uid] = TRUE;
+
+    register_shutdown_function(function () use ($uid) {
+      try {
+        $this->refreshUserRpAccounts($uid);
+      }
+      catch (\Throwable $e) {
+        $this->loggerFactory->get('access_affinitygroup')
+          ->error('Background refresh failed for uid @u: @m', [
+            '@u' => $uid, '@m' => $e->getMessage(),
+          ]);
+      }
+    });
   }
 
   /**

@@ -347,7 +347,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $this->assertSame('PHY250173', $result['rows'][0]['grant_number']);
   }
 
-  public function testErrorStateWhenRefreshThrowsAndNoExistingRows(): void {
+  public function testNoRowsUnknownStateWhenNoMarkerAndNoExistingRows(): void {
     $rp = Node::create([
       'type' => 'access_active_resources_from_cid',
       'title' => 'Delta CPU',
@@ -362,7 +362,9 @@ class RpAccountServiceTest extends KernelTestBase {
     $user->save();
     // No DB rows. No fresh marker.
 
-    // AllocationsClient throws.
+    // The read path NEVER blocks on a refresh, so even if AllocationsClient
+    // would throw at shutdown phase, the read returns immediately with
+    // 'no_rows_unknown'. The shutdown phase isn't observable in this test.
     $alloc = $this->prophesize(AllocationsClient::class);
     $alloc->getProjectsForUser('aaadhavan')->willThrow(new \RuntimeException('boom'));
     $xd = $this->prophesize(XdusageClient::class);
@@ -370,7 +372,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $svc = $this->makeService($alloc->reveal(), $xd->reveal());
     $result = $svc->getAccountsForUserAndRp((int) $user->id(), (int) $rp->id());
 
-    $this->assertSame('error', $result['state']);
+    $this->assertSame('no_rows_unknown', $result['state']);
     $this->assertSame([], $result['rows']);
   }
 
@@ -473,17 +475,17 @@ class RpAccountServiceTest extends KernelTestBase {
     $this->assertFalse(\Drupal::cache()->get('rp_account:user_synced:' . $user->id()));
   }
 
-  public function testGetLiveBalanceForRowDelegatesToXdusageClient(): void {
+  public function testGetLiveBalanceForRowDelegatesToXdusageClientWithPersonId(): void {
     $row = ['project_id' => 66897, 'resource_id' => 3031];
 
     $alloc = $this->prophesize(AllocationsClient::class);
     $xd = $this->prophesize(XdusageClient::class);
-    $xd->getLiveBalance(66897, 3031)->shouldBeCalledOnce()->willReturn([
+    $xd->getLiveBalance(66897, 3031, 297776)->shouldBeCalledOnce()->willReturn([
       'project_balance' => '99.0', 'account_charges' => '1.0', 'billable_unit' => 'Core-hours',
     ]);
 
     $svc = $this->makeService($alloc->reveal(), $xd->reveal());
-    $result = $svc->getLiveBalanceForRow($row);
+    $result = $svc->getLiveBalanceForRow($row, 297776);
     $this->assertSame('99.0', $result['project_balance']);
   }
 }
