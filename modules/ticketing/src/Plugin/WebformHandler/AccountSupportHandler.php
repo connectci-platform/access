@@ -69,16 +69,14 @@ class AccountSupportHandler extends WebformHandlerBase {
 
   public function getXMailMessageBody($data) {
     $ticketing_module_path = \Drupal::service('extension.list.module')->getPath('ticketing');
-    return twig_render_template(
-          $ticketing_module_path . '/templates/account-support-mail.html.twig',
-          [
-            'theme_hook_original' => 'not-applicable',
-            'name' => $data['your_name'],
-            'email' => $data['email'],
-            'access_id' => $data['access_id'],
-            'comment' => $data['comment'],
-          ]
-      );
+    /** @var \Twig\Environment $twig */
+    $twig = \Drupal::service('twig');
+    return (string) $twig->load($ticketing_module_path . '/templates/account-support-mail.html.twig')->render([
+      'name' => $data['your_name'],
+      'email' => $data['email'],
+      'access_id' => $data['access_id'],
+      'comment' => $data['comment'],
+    ]);
   }
 
 }

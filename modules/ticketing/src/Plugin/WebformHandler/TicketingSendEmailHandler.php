@@ -195,16 +195,14 @@ class TicketingSendEmailHandler extends WebformHandlerBase {
 
   public function getXMailMessageBody($description, $tags, $suggested_tag, $from_email) {
     $ticketing_module_path = \Drupal::service('extension.list.module')->getPath('ticketing');
-    return twig_render_template(
-          $ticketing_module_path . '/templates/ticketing-mail.html.twig',
-          [
-            'theme_hook_original' => 'not-applicable',
-            'problem_description' => $description,
-            'tags' => $tags,
-            'suggested_tag' => $suggested_tag,
-            'email' => $from_email,
-          ]
-      );
+    /** @var \Twig\Environment $twig */
+    $twig = \Drupal::service('twig');
+    return (string) $twig->load($ticketing_module_path . '/templates/ticketing-mail.html.twig')->render([
+      'problem_description' => $description,
+      'tags' => $tags,
+      'suggested_tag' => $suggested_tag,
+      'email' => $from_email,
+    ]);
   }
 
 }

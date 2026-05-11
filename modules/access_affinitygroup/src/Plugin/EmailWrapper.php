@@ -811,7 +811,7 @@ DIVIDERHTML;
     $fbIcon = $this->imageUrl('circleIconFacebook.png');
     $bsIcon = $this->imageUrl('circleIconBluesky.png');
     $ytIcon = $this->imageUrl('circleIconYoutube.png');
-    $nsfLogo = ACCESS_SUPPORT_URL . '/themes/custom/accesstheme/assets/NSF_4-Color_bitmap_Logo_350x350.png';
+    $nsfLogo = ACCESS_SUPPORT_URL . '/themes/contrib/asp-theme/assets/NSF_4-Color_bitmap_Logo_350x350.png';
 
     $emailText = <<<EMAILTEXT1
     <html lang="en-US">
