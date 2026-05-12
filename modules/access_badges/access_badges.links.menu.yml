@@ -1,0 +1,6 @@
+access_badges.badge_assignments:
+  title: 'Badge Assignments'
+  route_name: access_badges.pending
+  parent: user.admin_index
+  description: 'Manage pending badge assignments from CSV uploads.'
+  weight: 10

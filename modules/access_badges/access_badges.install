@@ -139,9 +139,105 @@ function access_badges_update_10001(): string {
 }
 
 /**
+ * Create access_badges_pending table for CSV badge assignment queue.
+ */
+function access_badges_update_10002() {
+  $schema = \Drupal::database()->schema();
+  if (!$schema->tableExists('access_badges_pending')) {
+    $schema->createTable('access_badges_pending', _access_badges_pending_schema());
+  }
+}
+
+/**
+ * Returns the schema definition for the access_badges_pending table.
+ */
+function _access_badges_pending_schema() {
+  return [
+    'description' => 'Pending badge assignments from CSV uploads.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary key.',
+      ],
+      'email' => [
+        'type' => 'varchar',
+        'length' => 254,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Email from CSV.',
+      ],
+      'first_name' => [
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'First name.',
+      ],
+      'last_name' => [
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Last name.',
+      ],
+      'organization' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Organization name from CSV.',
+      ],
+      'badge_tid' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Target badge taxonomy term ID.',
+      ],
+      'vocabulary' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => 'badges',
+        'description' => 'Vocabulary machine name.',
+      ],
+      'created' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when row was added.',
+      ],
+      'status' => [
+        'type' => 'varchar',
+        'length' => 16,
+        'not null' => TRUE,
+        'default' => 'pending',
+        'description' => 'Row status: pending or review.',
+      ],
+      'matched_uid' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'description' => 'Matched user ID, NULL until candidate found.',
+      ],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'email' => ['email'],
+      'badge_tid' => ['badge_tid'],
+      'name' => ['first_name', 'last_name'],
+    ],
+  ];
+}
+
+/**
  * Remove Badges from taxonomy.
  */
 function access_badges_uninstall() {
+  // Drop the pending badges table.
+  \Drupal::database()->schema()->dropTable('access_badges_pending');
+
   \Drupal::database()->truncate('user__field_user_badges')->execute();
 
 
