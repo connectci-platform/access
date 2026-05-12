@@ -1,0 +1,34 @@
+<?php
+
+use Drupal\Core\Form\FormStateInterface;
+
+/**
+ * @file
+ * Module for Enttiy Copy.
+ */
+
+/**
+ * Implements hook_form_alter().
+ */
+function access_entity_copy_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  if ($form_id == 'node_mentorship_engagement_form') {
+    $nid = is_numeric(\Drupal::request()->get('copy')) ? \Drupal::request()->get('copy') : 0;
+    if ($nid) {
+      $node_storage = \Drupal::entityTypeManager()->getStorage('node');
+      $entity = $node_storage->load($nid);
+      if ($entity->type->target_id == 'mentorship_engagement') {
+        $title = $entity->get('title')->value;
+        $summary = $entity->get('body')->summary;
+        $body = $entity->get('body')->value;
+        $form['title']['widget'][0]['value']['#default_value'] = $title;
+        $form['body']['widget'][0]['summary']['#default_value'] = $summary;
+        $form['body']['widget'][0]['#default_value'] = $body;
+      } else {
+        \Drupal::messenger()->addMessage('Entity not a mentorship');
+      }
+    } else {
+      \Drupal::messenger()->addMessage('Not a valid mentorship id to copy');
+    }
+  }
+}
+
