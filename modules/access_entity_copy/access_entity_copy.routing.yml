@@ -1,0 +1,8 @@
+access_entity_copy.copy_mentorship:
+  path: '/node/{node}/copy'
+  defaults:
+    _controller: '\Drupal\access_entity_copy\Controller\EntityCopyController::copyMentorship'
+    _title: 'Copy'
+  requirements:
+    _permission: 'create mentorship_engagement content'
+    _custom_access: '\Drupal\access_entity_copy\Controller\EntityCopyController::accessCheck'
