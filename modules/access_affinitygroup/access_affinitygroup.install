@@ -6,6 +6,109 @@
  */
 
 /**
+ * Implements hook_schema().
+ */
+function access_affinitygroup_schema() {
+  $schema['access_user_rp_account'] = [
+    'description' => 'Per-user, per-RP, per-grant account data sourced from xdusage and identity APIs.',
+    'fields' => [
+      'uid' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Drupal user ID.',
+      ],
+      'rp_nid' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'access_active_resources_from_cid node ID.',
+      ],
+      'grant_number' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'description' => 'ACCESS grant number, e.g. PHY250173.',
+      ],
+      'project_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'xdusage project_id.',
+      ],
+      'resource_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'xdusage resource_id.',
+      ],
+      'grant_title' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'description' => 'Grant/project title from identity API.',
+      ],
+      'rp_username' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => FALSE,
+        'description' => 'portal_username for this user on this resource.',
+      ],
+      'account_state' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => FALSE,
+        'description' => 'active / inactive (per-user account state).',
+      ],
+      'project_balance' => [
+        'type' => 'numeric',
+        'precision' => 20,
+        'scale' => 4,
+        'not null' => FALSE,
+        'description' => 'Project-level balance (denormalized from /projects feed).',
+      ],
+      'project_end' => [
+        'type' => 'varchar',
+        'length' => 10,
+        'not null' => FALSE,
+        'description' => 'Project end date as ISO YYYY-MM-DD.',
+      ],
+      'project_state' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => FALSE,
+        'description' => 'Project-level state.',
+      ],
+      'is_expired' => [
+        'type' => 'int',
+        'size' => 'tiny',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+        'description' => 'Project-level expiration flag from /projects feed.',
+      ],
+      'billable_unit' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => FALSE,
+        'description' => 'Billable unit type, e.g. Core-hours.',
+      ],
+      'synced_at' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Last refresh timestamp. No separate created column by design — the row exists only as a current-state cache, not an audit log.',
+      ],
+    ],
+    'primary key' => ['uid', 'rp_nid', 'grant_number'],
+    'indexes' => [
+      'idx_uid_rp' => ['uid', 'rp_nid'],
+      'idx_synced' => ['synced_at'],
+    ],
+  ];
+  return $schema;
+}
+
+/**
  * Set initial refresh_token state.
  */
 function access_affinitygroup_update_10000() {
@@ -233,4 +336,74 @@ function access_affinitygroup_update_10008() {
   \Drupal::logger('access_affinitygroup')->info('Update 10008: @message', ['@message' => $message]);
 
   return $message;
+}
+
+/**
+ * Adds field_xdusage_person_id and field_xdusage_person_synced to user entity.
+ */
+function access_affinitygroup_update_10009() {
+  $fields = [
+    'field_xdusage_person_id' => [
+      'type' => 'integer',
+      'label' => 'Xdusage Person ID',
+      'description' => 'The xdusage person_id for this user. Stable per user; written once after first refresh.',
+    ],
+    'field_xdusage_person_synced' => [
+      'type' => 'timestamp',
+      'label' => 'Xdusage Person Synced At',
+      'description' => 'Timestamp of last successful person_id sync.',
+    ],
+  ];
+
+  $messages = [];
+  foreach ($fields as $field_name => $info) {
+    if (\Drupal\field\Entity\FieldStorageConfig::loadByName('user', $field_name)) {
+      $messages[] = "Storage for $field_name already exists; skipping storage.";
+    }
+    else {
+      \Drupal\field\Entity\FieldStorageConfig::create([
+        'field_name' => $field_name,
+        'entity_type' => 'user',
+        'type' => $info['type'],
+        'cardinality' => 1,
+      ])->save();
+      $messages[] = "Created storage $field_name.";
+    }
+
+    if (\Drupal\field\Entity\FieldConfig::loadByName('user', 'user', $field_name)) {
+      $messages[] = "Field $field_name already exists on user bundle; skipping field.";
+    }
+    else {
+      \Drupal\field\Entity\FieldConfig::create([
+        'field_name' => $field_name,
+        'entity_type' => 'user',
+        'bundle' => 'user',
+        'label' => $info['label'],
+        'description' => $info['description'],
+        'required' => FALSE,
+      ])->save();
+      $messages[] = "Created field $field_name on user bundle.";
+    }
+  }
+  return implode(' ', $messages);
+}
+
+/**
+ * Creates the access_user_rp_account table.
+ *
+ * The table is defined by access_affinitygroup_schema() but that only runs
+ * on module install. This module is already installed in production, so
+ * the table needs to be created via updb.
+ */
+function access_affinitygroup_update_10010() {
+  $schema = \Drupal::database()->schema();
+  if ($schema->tableExists('access_user_rp_account')) {
+    return 'Table access_user_rp_account already exists; nothing to create.';
+  }
+  $schemas = access_affinitygroup_schema();
+  if (!isset($schemas['access_user_rp_account'])) {
+    throw new \LogicException('access_affinitygroup_schema() does not define access_user_rp_account.');
+  }
+  $schema->createTable('access_user_rp_account', $schemas['access_user_rp_account']);
+  return 'Created table access_user_rp_account.';
 }
