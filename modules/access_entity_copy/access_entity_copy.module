@@ -18,9 +18,13 @@ function access_entity_copy_form_alter(&$form, FormStateInterface $form_state, $
       $entity = $node_storage->load($nid);
       if ($entity->type->target_id == 'mentorship_engagement') {
         $title = $entity->get('title')->value;
+        $type = $entity->get('field_me_looking_for')->value;
+        $attributes = $entity->get('field_me_preferred_attributes')->value;
         $summary = $entity->get('body')->summary;
         $body = $entity->get('body')->value;
         $form['title']['widget'][0]['value']['#default_value'] = $title;
+        $form['field_me_looking_for']['widget']['#default_value'] = $type;
+        $form['field_me_preferred_attributes']['widget'][0]['#default_value'] = $attributes;
         $form['body']['widget'][0]['summary']['#default_value'] = $summary;
         $form['body']['widget'][0]['#default_value'] = $body;
       } else {
