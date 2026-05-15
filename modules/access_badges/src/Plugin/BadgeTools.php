@@ -127,6 +127,11 @@ class BadgeTools {
    * Add badges to user.
    */
   public function addUserBadges($badge) {
+    foreach ($this->userBadges as $existing) {
+      if ($existing['target_id'] == $badge) {
+        return;
+      }
+    }
     $this->userBadges[] = ['target_id' => $badge];
   }
 
