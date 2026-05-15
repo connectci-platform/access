@@ -16,6 +16,10 @@ function access_entity_copy_form_alter(&$form, FormStateInterface $form_state, $
     if ($nid) {
       $node_storage = \Drupal::entityTypeManager()->getStorage('node');
       $entity = $node_storage->load($nid);
+      if ($entity === null) {
+        \Drupal::messenger()->addMessage('Entity does not exist');
+        return;
+      }
       if ($entity->type->target_id == 'mentorship_engagement') {
         $title = $entity->get('title')->value;
         $type = $entity->get('field_me_looking_for')->value;
