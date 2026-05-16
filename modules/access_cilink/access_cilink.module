@@ -84,6 +84,18 @@ function access_cilink_views_query_alter($view, $query) {
       $program = reset($program);
 
       if (!empty($program)) {
+        // The domain field is exclude:true in the view so Views skips its JOIN.
+        // Add the join manually before filtering on it.
+        $join_manager = \Drupal::service('plugin.manager.views.join');
+        $join = $join_manager->createInstance('standard', [
+          'type' => 'LEFT',
+          'table' => 'webform_submission_data',
+          'field' => 'sid',
+          'left_table' => 'webform_submission',
+          'left_field' => 'sid',
+          'extra' => [['field' => 'name', 'value' => 'domain']],
+        ]);
+        $query->addRelationship('webform_submission_field_resource_domain', $join, 'webform_submission_data');
         $query->addWhere('AND', 'webform_submission_field_resource_domain.value', $program, '=');
       }
     }
