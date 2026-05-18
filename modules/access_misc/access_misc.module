@@ -316,6 +316,18 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
     ($view->id() == 'people_with_interest_tags' && $view->getDisplay()->view->element['#display_id'] == 'block_1') ||
     ($view->id() == 'people_with_interest_tags' && $view->getDisplay()->view->element['#display_id'] == 'page_1')
   ) {
+    // The page_1 display's URL is /tags/{arg}/people-with-{interest|expertise}.
+    // The taxonomy contextual filter expects a tid, but a slug here gives
+    // friendlier URLs. Convert a non-numeric arg to its tid by looking up the
+    // term in the tags vocabulary.
+    if (!empty($args[0]) && !is_numeric($args[0])) {
+      $terms = \Drupal::entityTypeManager()->getStorage('taxonomy_term')
+        ->loadByProperties(['name' => $args[0], 'vid' => 'tags']);
+      if ($term = reset($terms)) {
+        $args[0] = $term->id();
+      }
+    }
+
     $view_filters = $view->display_handler->getOption('filters');
     $program = \Drupal::service('access_misc.sitetools')->getProgram();
 
@@ -359,7 +371,7 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
     $term = term_lookup_from_path();
     if (!empty($term['tid'])) {
       $footer = \Drupal::service('access_misc.viewstools');
-      $footer->setFooter($view, 'more people', '/tags/' . $term['tid'] . '/people-with-expertise', 'block_1');
+      $footer->setFooter($view, 'more people', '/tags/' . $term['title'] . '/people-with-expertise', 'block_1');
     }
   }
 
@@ -367,7 +379,7 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
     $term = term_lookup_from_path();
     if (!empty($term['tid'])) {
       $footer = \Drupal::service('access_misc.viewstools');
-      $footer->setFooter($view, 'more people', '/tags/' . $term['tid'] . '/people-with-interest', 'block_1');
+      $footer->setFooter($view, 'more people', '/tags/' . $term['title'] . '/people-with-interest', 'block_1');
     }
   }
 
