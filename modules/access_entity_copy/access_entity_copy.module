@@ -13,7 +13,7 @@ use Drupal\Core\Form\FormStateInterface;
 function access_entity_copy_form_alter(&$form, FormStateInterface $form_state, $form_id) {
   if ($form_id == 'node_mentorship_engagement_form') {
     $nid = is_numeric(\Drupal::request()->get('copy')) ? \Drupal::request()->get('copy') : 0;
-    if ($nid) {
+    if ($nid != 0) {
       $node_storage = \Drupal::entityTypeManager()->getStorage('node');
       $entity = $node_storage->load($nid);
       if ($entity === null) {
