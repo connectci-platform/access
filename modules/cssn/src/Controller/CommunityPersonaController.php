@@ -1018,6 +1018,10 @@ class CommunityPersonaController extends ControllerBase {
       // Load the user using the user id.
       $user = User::load($user_id);
       if ($user !== NULL) {
+        if ($user->hasField('field_hide_community_profile') &&
+            (bool) $user->get('field_hide_community_profile')->value === TRUE) {
+          return t('Community Profile');
+        }
         $user_first_name = $user->get('field_user_first_name')->value;
         $user_last_name = $user->get('field_user_last_name')->value;
         return "$user_first_name $user_last_name";
