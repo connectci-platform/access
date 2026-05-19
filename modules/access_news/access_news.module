@@ -757,7 +757,7 @@ function weeklyNewsReport($noSend) {
     Drupal::logger('cron_accessnews')->notice('Digest: events from: ' . $d1 . ' to: ' . $d2);
     $conference = eventsRangeView($d1, $d2, 'Conference', t('Conferences'), $utmCampaign);
     $trainings = eventsRangeView($d1, $d2, 'Training', t('Training'), $utmCampaign);
-    $other = eventsRangeView($d1, $d2, 'other', t('Other Events'), $utmCampaign);
+    $other = eventsRangeView($d1, $d2, 'zz_other', t('Other Events'), $utmCampaign);
     $office_hours = eventsRangeView($d1, $d2, 'Office Hours', t('Office Hours'), $utmCampaign);
 
     $eventHTML = $conference . $trainings .  $office_hours . $other;
