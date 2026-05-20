@@ -135,6 +135,65 @@ class AllocationsClient {
     return $data['resources'];
   }
 
+  /**
+   * Returns the user's eligibility for ACCESS allocations, or NULL on failure.
+   *
+   * GET /identity/profiles/v1/people/{username}
+   *
+   * Inspects the `isEligible` and `eligibleReason` fields on the user's
+   * profile. The reason text is the human-readable explanation of what's
+   * missing (e.g. "Country of Residence is not set.") — display verbatim.
+   *
+   * @return array{eligible: bool, reason: string|null}|null
+   *   Returns `['eligible' => TRUE, 'reason' => NULL]` for eligible users,
+   *   `['eligible' => FALSE, 'reason' => '...']` for ineligible users, or
+   *   NULL on transient failure (HTTP error, missing key, malformed JSON,
+   *   non-200 response). Callers must distinguish NULL (unknown) from
+   *   FALSE (known ineligible). An empty-string `eligibleReason` on an
+   *   ineligible user is normalized to NULL — callers can test `reason
+   *   !== NULL` to decide whether to display a reason message.
+   */
+  public function getEligibilityForUser(string $username): ?array {
+    $apiKey = $this->getApiKey();
+    if (!$apiKey) {
+      return NULL;
+    }
+    $url = self::BASE . '/identity/profiles/v1/people/' . rawurlencode($username);
+    try {
+      $response = $this->http->request('GET', $url, [
+        'headers' => [
+          'XA-API-KEY' => $apiKey,
+          'XA-REQUESTER' => 'MATCH',
+          'Content-Type' => 'application/json',
+        ],
+        'http_errors' => FALSE,
+        'timeout' => 8,
+      ]);
+    }
+    catch (GuzzleException $e) {
+      $this->loggerFactory->get('access_affinitygroup')
+        ->error('Identity API HTTP error for user @u (eligibility): @msg', [
+          '@u' => $username, '@msg' => $e->getMessage(),
+        ]);
+      return NULL;
+    }
+    $status = $response->getStatusCode();
+    if ($status !== 200) {
+      $this->loggerFactory->get('access_affinitygroup')
+        ->warning('Identity API HTTP @status for user @u (eligibility)', [
+          '@status' => $status, '@u' => $username,
+        ]);
+      return NULL;
+    }
+    $data = json_decode((string) $response->getBody(), TRUE);
+    if (!is_array($data) || !array_key_exists('isEligible', $data)) {
+      return NULL;
+    }
+    $eligible = ($data['isEligible'] === 'yes');
+    $reason = $eligible ? NULL : (string) ($data['eligibleReason'] ?? '');
+    return ['eligible' => $eligible, 'reason' => $reason ?: NULL];
+  }
+
   private function getApiKey(): ?string {
     $base = $this->fileSystem->realpath('private://');
     if ($base === FALSE) {
