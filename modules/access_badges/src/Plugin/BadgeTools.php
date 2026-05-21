@@ -305,4 +305,30 @@ class BadgeTools {
     return TRUE;
   }
 
+  /**
+   * Remove a single badge from a user by UID.
+   *
+   * @param int $uid
+   *   The user ID.
+   * @param int $badge_tid
+   *   The badge taxonomy term ID.
+   * @param string $vocabulary
+   *   The vocabulary machine name.
+   *
+   * @return bool
+   *   TRUE if removed, FALSE if user did not have the badge.
+   */
+  public function removeBadgeFromUser($uid, $badge_tid, $vocabulary = 'badges') {
+    if (!$this->checkBadges($badge_tid, $uid, $vocabulary)) {
+      return FALSE;
+    }
+    $this->loadUserBadges($uid, $vocabulary);
+    $this->userBadges = array_values(array_filter(
+      $this->userBadges,
+      fn($b) => $b['target_id'] != $badge_tid
+    ));
+    $this->saveUserBadges($vocabulary);
+    return TRUE;
+  }
+
 }
