@@ -2254,3 +2254,36 @@ function access_misc_update_10035() {
   }
   return t('field_rp_description already correct type or does not exist.');
 }
+
+/**
+ * Backfill field_hide_community_profile = 0 for all users missing the record.
+ */
+function access_misc_update_10036() {
+  $db = \Drupal::database();
+
+  $existing_uids = $db->select('user__field_hide_community_profile', 'f')
+    ->fields('f', ['entity_id'])
+    ->execute()
+    ->fetchCol();
+
+  $all_uids = $db->select('users', 'u')
+    ->fields('u', ['uid'])
+    ->execute()
+    ->fetchCol();
+
+  $missing_uids = array_diff($all_uids, $existing_uids);
+
+  foreach ($missing_uids as $uid) {
+    $db->insert('user__field_hide_community_profile')
+      ->fields([
+        'bundle' => 'user',
+        'deleted' => 0,
+        'entity_id' => $uid,
+        'revision_id' => $uid,
+        'langcode' => 'en',
+        'delta' => 0,
+        'field_hide_community_profile_value' => 0,
+      ])
+      ->execute();
+  }
+}

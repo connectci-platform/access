@@ -276,8 +276,8 @@ function access_misc_views_post_render(ViewExecutable $view) {
       ($view->id() == 'people_with_expertise_tags' && isset($view->getDisplay()->view->element['#display_id']) && $view->getDisplay()->view->element['#display_id'] == 'page_1')) {
     $path = \Drupal::service('path.current')->getPath();
     $path_args = explode('/', $path);
-    $tid = is_numeric($path_args[2]) ? $path_args[2] : FALSE;
-    if ($term = term::load($tid)) {
+    $tid = is_numeric($path_args[2]) ? $path_args[2] : NULL;
+    if ($tid && $term = term::load($tid)) {
       $title = 'People with interest in ' . $term->get('name')->value;
       if ($view->id() == 'people_with_expertise_tags') {
         $title = 'People with expertise in ' . $term->get('name')->value;
