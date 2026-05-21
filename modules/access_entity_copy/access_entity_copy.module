@@ -36,6 +36,7 @@ function access_entity_copy_form_alter(&$form, FormStateInterface $form_state, $
       } else {
         \Drupal::messenger()->addMessage('Entity not a mentorship');
       }
+    } elseif(\Drupal::request()->get('copy') == null) {
     } else {
       \Drupal::messenger()->addMessage('Not a valid mentorship id to copy');
     }
