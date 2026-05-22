@@ -669,46 +669,31 @@ function access_cilink_webform_submission_resource_submit($form, FormStateInterf
   // Invalidate KB block on AG.
   \Drupal::service('cache_tags.invalidator')->invalidateTags(['affinity_group_ci_links', 'config:block.blockresources_for_affinity_group']);
 
-  // Get current user.
-  $user = \Drupal::currentUser();
-  $kb_one = \Drupal::service('access_badges.badgeTools')->getBadgeTid('KB Resource Contributor (1)');
-  $kb_five = \Drupal::service('access_badges.badgeTools')->getBadgeTid('KB Resource Contributor (5)');
-  $kb_ten = \Drupal::service('access_badges.badgeTools')->getBadgeTid('KB Resource Contributor (10)');
-  // Look up webform submissions by user for the resource webform.
-  $query = \Drupal::entityQuery('webform_submission')
+  $account = \Drupal::currentUser();
+  $badge_tools = \Drupal::service('access_badges.badgeTools');
+  $kb_one = $badge_tools->getBadgeTid('KB Resource Contributor (1)');
+  $kb_five = $badge_tools->getBadgeTid('KB Resource Contributor (5)');
+  $kb_ten = $badge_tools->getBadgeTid('KB Resource Contributor (10)');
+
+  $submission_count = \Drupal::entityQuery('webform_submission')
     ->condition('webform_id', 'resource')
-    ->condition('uid', $user->id())
-    ->accessCheck(FALSE);
-  $submission_ids = $query->execute();
+    ->condition('uid', $account->id())
+    ->accessCheck(FALSE)
+    ->count()
+    ->execute();
 
-  // Lookup user field 'field_user_badges'.
-  $user = User::load($user->id());
-  $badgetid = $user->get('field_user_badges')->getValue();
+  $uid = $account->id();
 
-  if (count($submission_ids) == 1) {
-    $badgetid[] = ['target_id' => $kb_one];
-    $user->set('field_user_badges', $badgetid);
-    $user->save();
+  if ($submission_count == 1) {
+    $badge_tools->assignBadgeToUser($uid, $kb_one);
   }
-  if (count($submission_ids) == 5) {
-    foreach ($badgetid as $key => $value) {
-      if ($value['target_id'] == $kb_one) {
-        unset($badgetid[$key]);
-      }
-    }
-    $badgetid[] = ['target_id' => $kb_five];
-    $user->set('field_user_badges', $badgetid);
-    $user->save();
+  elseif ($submission_count == 5) {
+    $badge_tools->removeBadgeFromUser($uid, $kb_one);
+    $badge_tools->assignBadgeToUser($uid, $kb_five);
   }
-  if (count($submission_ids) == 10) {
-    foreach ($badgetid as $key => $value) {
-      if ($value['target_id'] == $kb_five) {
-        unset($badgetid[$key]);
-      }
-    }
-    $badgetid[] = ['target_id' => $kb_ten];
-    $user->set('field_user_badges', $badgetid);
-    $user->save();
+  elseif ($submission_count == 10) {
+    $badge_tools->removeBadgeFromUser($uid, $kb_five);
+    $badge_tools->assignBadgeToUser($uid, $kb_ten);
   }
 }
 
