@@ -33,3 +33,8 @@ services:
       - '@access.eligibility_state'
     tags:
       - { name: event_subscriber }
+
+  access.vary_deduplicate_subscriber:
+    class: Drupal\access\EventSubscriber\VaryDeduplicateSubscriber
+    tags:
+      - { name: event_subscriber }
