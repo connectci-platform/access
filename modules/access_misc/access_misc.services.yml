@@ -3,6 +3,10 @@ services:
     class: '\Drupal\access_misc\EventSubscriber\Subscriber'
     tags:
       - { name: "event_subscriber" }
+  access_misc.text_mode_subscriber:
+    class: '\Drupal\access_misc\EventSubscriber\TextModeSubscriber'
+    tags:
+      - { name: "event_subscriber" }
   access_misc.addtags:
     class: Drupal\access_misc\Plugin\NodeAddTags
     arguments: ["@renderer"]
