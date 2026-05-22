@@ -10,7 +10,7 @@ import {
   qaBot,
   siteMenus,
   universalMenus,
-} from "https://unpkg.com/@access-ci/ui@0.20.5/dist/access-ci-ui.js";
+} from "https://unpkg.com/@access-ci/ui@0.20.6/dist/access-ci-ui.js";
 
 (function (Drupal, drupalSettings) {
 
@@ -121,6 +121,10 @@ async function setMenu(menu, currentUri) {
     window.dataLayer.push({ event: event.type, ...event, chatbot_env: chatbotEnv });
   };
 
+  // Default to the agent at qa.access-ci.org. drupalSettings.access.qaEndpoint
+  // can override (used by staging/dev to point at qa-bot-proxy or a local agent).
+  const qaEndpoint = drupalSettings.access.qaEndpoint || "https://qa.access-ci.org/api/v1/query";
+
   // Initialize floating qa-bot if target exists (using npm version)
   const floatingTarget = document.getElementById("qa-bot");
   if (floatingTarget && !floatingTarget.hasAttribute('data-initialized')) {
@@ -133,7 +137,7 @@ async function setMenu(menu, currentUri) {
       accessId: accessId,
       loginUrl: "/login?redirect=" + currentUri,
       onAnalyticsEvent: onAnalyticsEvent,
-      ...(drupalSettings.access.qaEndpoint && { qaEndpoint: drupalSettings.access.qaEndpoint }),
+      qaEndpoint: qaEndpoint,
     });
     floatingTarget.setAttribute('data-initialized', 'true');
   }
@@ -152,7 +156,7 @@ async function setMenu(menu, currentUri) {
       resourceContext: embeddedTarget.dataset.resourceContext || undefined,
       loginUrl: "/login?redirect=" + currentUri,
       onAnalyticsEvent: onAnalyticsEvent,
-      ...(drupalSettings.access.qaEndpoint && { qaEndpoint: drupalSettings.access.qaEndpoint }),
+      qaEndpoint: qaEndpoint,
     });
     embeddedTarget.setAttribute('data-initialized', 'true');
   }
