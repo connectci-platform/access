@@ -1,0 +1,12 @@
+services:
+  access_content_api.text_extractor:
+    class: Drupal\access_content_api\TextExtractor
+
+  access_content_api.layout_walker:
+    class: Drupal\access_content_api\LayoutWalker
+    arguments:
+      - '@entity_type.manager'
+      - '@entity_display.repository'
+      - '@plugin.manager.block'
+      - '@renderer'
+      - '@current_user'

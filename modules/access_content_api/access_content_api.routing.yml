@@ -1,0 +1,30 @@
+access_content_api.content_index:
+  path: '/.well-known/content-index.json'
+  defaults:
+    _controller: '\Drupal\access_content_api\Controller\ContentIndexController::index'
+  requirements:
+    # Public unauthenticated API — content index discovery endpoint.
+    _access: 'TRUE'
+  options:
+    no_cache: FALSE
+
+access_content_api.content_by_id:
+  path: '/api/1.0/content/{id}'
+  defaults:
+    _controller: '\Drupal\access_content_api\Controller\ContentController::byId'
+  requirements:
+    # Public unauthenticated API — per-page text content endpoint.
+    _access: 'TRUE'
+    id: '\d+'
+  options:
+    no_cache: FALSE
+
+access_content_api.content_by_path:
+  path: '/api/1.0/content'
+  defaults:
+    _controller: '\Drupal\access_content_api\Controller\ContentController::byPath'
+  requirements:
+    # Public unauthenticated API — path-based alias lookup endpoint.
+    _access: 'TRUE'
+  options:
+    no_cache: FALSE
