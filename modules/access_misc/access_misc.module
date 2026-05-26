@@ -33,8 +33,7 @@ function access_misc_theme() {
     'tcs_case_study_tools_used_block' => [
       'variables' => [
         'tools' => [],
-        'resource_name' => NULL,
-        'resource_url' => NULL,
+        'resources' => [],
       ],
       'template' => 'tcs-case-study-tools-used-block',
     ],

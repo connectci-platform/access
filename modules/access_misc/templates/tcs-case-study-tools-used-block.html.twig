@@ -5,8 +5,7 @@
  *
  * Available variables:
  * - tools: Array of tool data with name, logo_url, and link_url.
- * - resource_name: Short name of the linked ACCESS resource node.
- * - resource_url: URL of the linked ACCESS resource node.
+ * - resources: Array of ACCESS resource data with name and url.
  */
 #}
 
@@ -32,10 +31,10 @@
     {% endfor %}
   </div>
   <h2 class="h4 text-base px-2 font-bold leading-5 text-white m-0 bg-md-teal uppercase w-full">Allocation Information</h2>
-  {% if resource_name and resource_url %}
+  {% if resources %}
   <div class="field field--name-field-tcs-access-resource field--type-entity-reference field--label-inline clearfix">
     <div class="field__label">ACCESS Resource</div>
-    <div class="field__item"><a href="{{ resource_url }}">{{ resource_name }}</a></div>
+      {% for resource in resources %}{{ loop.first ? '' : ', ' }}<a href="{{ resource.url }}">{{ resource.name }}</a>{% endfor %}
   </div>
   {% endif %}
 </div>

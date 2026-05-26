@@ -94,17 +94,22 @@ class TcsCaseStudyToolsUsedBlock extends BlockBase implements ContainerFactoryPl
       return [];
     }
 
-    $resource_name = NULL;
-    $resource_url = NULL;
+    $resources = [];
 
     if (!$node->get('field_tcs_access_resource')->isEmpty()) {
-      $nid = $node->get('field_tcs_access_resource')->target_id;
-      $resource_node = $this->entityTypeManager->getStorage('node')->load($nid);
-      if ($resource_node) {
-        if (!$resource_node->get('field_cider_short_name')->isEmpty()) {
-          $resource_name = $resource_node->get('field_cider_short_name')->value;
+      foreach ($node->get('field_tcs_access_resource') as $item) {
+        $resource_node = $item->entity;
+        if (!$resource_node) {
+          continue;
         }
-        $resource_url = $resource_node->toUrl()->toString();
+        $name = NULL;
+        if (!$resource_node->get('field_cider_short_name')->isEmpty()) {
+          $name = $resource_node->get('field_cider_short_name')->value;
+        }
+        $resources[] = [
+          'name' => $name ?? $resource_node->label(),
+          'url' => $resource_node->toUrl()->toString(),
+        ];
       }
     }
 
@@ -144,8 +149,7 @@ class TcsCaseStudyToolsUsedBlock extends BlockBase implements ContainerFactoryPl
     return [
       '#theme' => 'tcs_case_study_tools_used_block',
       '#tools' => $tools,
-      '#resource_name' => $resource_name,
-      '#resource_url' => $resource_url,
+      '#resources' => $resources,
       '#cache' => [
         'tags' => $node->getCacheTags(),
         'contexts' => ['route'],
