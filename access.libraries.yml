@@ -5,3 +5,9 @@ header_footer_library:
   dependencies:
     - core/drupal
     - core/drupalSettings
+
+eligibility_banner:
+  version: 1.x
+  css:
+    component:
+      css/eligibility-banner.css: {}

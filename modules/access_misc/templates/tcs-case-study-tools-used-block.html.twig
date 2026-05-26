@@ -1,0 +1,41 @@
+{#
+/**
+ * @file
+ * Template for the TCS Case Study Tools Used block.
+ *
+ * Available variables:
+ * - tools: Array of tool data with name, logo_url, and link_url.
+ * - resource_name: Short name of the linked ACCESS resource node.
+ * - resource_url: URL of the linked ACCESS resource node.
+ */
+#}
+
+<div class="tcs-tools-used-block">
+  <h2 class="h4 text-base px-2 font-bold leading-5 text-white m-0 bg-md-teal uppercase w-full mb-1">Access Tools</h2>
+  <div class="tcs-tools-used-block__item  grid grid-cols-2 gap-4 my-3">
+    {% for tool in tools %}
+        {% if tool.link_url %}
+          <a href="{{ tool.link_url }}" target="_blank" rel="noopener noreferrer" class="block">
+        {% endif %}
+        {% if tool.logo_url %}
+          <img
+            src="{{ tool.logo_url }}"
+            alt="{{ tool.name }}"
+            class="tcs-tools-used-block__logo"
+          />
+        {% else %}
+          <span class="tcs-tools-used-block__name">{{ tool.name }}</span>
+        {% endif %}
+        {% if tool.link_url %}
+          </a>
+        {% endif %}
+    {% endfor %}
+  </div>
+  <h2 class="h4 text-base px-2 font-bold leading-5 text-white m-0 bg-md-teal uppercase w-full">Allocation Information</h2>
+  {% if resource_name and resource_url %}
+  <div class="field field--name-field-tcs-access-resource field--type-entity-reference field--label-inline clearfix">
+    <div class="field__label">ACCESS Resource</div>
+    <div class="field__item"><a href="{{ resource_url }}">{{ resource_name }}</a></div>
+  </div>
+  {% endif %}
+</div>

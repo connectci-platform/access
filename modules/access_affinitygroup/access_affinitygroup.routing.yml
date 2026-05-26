@@ -15,3 +15,14 @@ access_affinitygroup.simplelist:
   options:
     no_cache: 'TRUE'
 
+access_affinitygroup.rp_account:
+  path: '/api/1.0/rp-account/{rp_nid}'
+  defaults:
+    _controller: '\Drupal\access_affinitygroup\Controller\RpAccountController::get'
+  requirements:
+    rp_nid: '\d+'
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.rp_account_access:check'
+  options:
+    no_cache: TRUE
+

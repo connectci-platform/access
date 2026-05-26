@@ -1,0 +1,38 @@
+/* Standard Bootstrap "warning" yellow (#856404 text on #fff3cd background
+ * with #ffc107 left bar). aspTheme's .messages--warning is actually blue,
+ * so we declare our own .messages--bootstrap-warning variant matching
+ * the canonical Bootstrap warning palette. */
+.access-eligibility-banner.messages--bootstrap-warning {
+  color: #856404;
+  background-color: #fff3cd;
+  box-shadow: -8px 0 0 #ffc107;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 15px 20px 15px 35px;
+}
+
+[dir="rtl"] .access-eligibility-banner.messages--bootstrap-warning {
+  box-shadow: 8px 0 0 #ffc107;
+}
+
+.access-eligibility-banner__icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.access-eligibility-banner__message {
+  flex-grow: 1;
+}
+
+.access-eligibility-banner__link {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+.access-eligibility-banner__link:hover,
+.access-eligibility-banner__link:focus {
+  text-decoration: none;
+}
