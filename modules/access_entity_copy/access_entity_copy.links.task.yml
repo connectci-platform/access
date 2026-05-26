@@ -1,0 +1,5 @@
+access_entity_copy.copy_mentorship:
+  title: 'Copy'
+  route_name: access_entity_copy.copy_mentorship
+  base_route: entity.node.canonical
+  weight: 10
