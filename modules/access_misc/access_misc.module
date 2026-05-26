@@ -33,8 +33,7 @@ function access_misc_theme() {
     'tcs_case_study_tools_used_block' => [
       'variables' => [
         'tools' => [],
-        'resource_name' => NULL,
-        'resource_url' => NULL,
+        'resources' => [],
       ],
       'template' => 'tcs-case-study-tools-used-block',
     ],
@@ -229,6 +228,18 @@ function access_misc_views_data() {
 function access_misc_views_pre_render(ViewExecutable $view) {
   if ($view->id() == 'tool_case_study') {
     $view->element['#attached']['library'][] = 'access_misc/copyclip';
+    // Deduplicate rows by nid — multi-value field_tcs_access_resource causes
+    // duplicate rows via LEFT JOIN when a node references multiple resources.
+    $seen = [];
+    foreach ($view->result as $index => $row) {
+      $nid = $row->nid;
+      if (isset($seen[$nid])) {
+        unset($view->result[$index]);
+      }
+      else {
+        $seen[$nid] = TRUE;
+      }
+    }
   }
   if ($view->id() == 'tool_case_study_slideshow') {
     $view->element['#attached']['library'][] = 'aspTheme/carousel';
