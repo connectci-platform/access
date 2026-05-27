@@ -2259,31 +2259,15 @@ function access_misc_update_10035() {
  * Backfill field_hide_community_profile = 0 for all users missing the record.
  */
 function access_misc_update_10036() {
-  $db = \Drupal::database();
-
-  $existing_uids = $db->select('user__field_hide_community_profile', 'f')
-    ->fields('f', ['entity_id'])
-    ->execute()
-    ->fetchCol();
-
-  $all_uids = $db->select('users', 'u')
-    ->fields('u', ['uid'])
-    ->execute()
-    ->fetchCol();
-
-  $missing_uids = array_diff($all_uids, $existing_uids);
-
-  foreach ($missing_uids as $uid) {
-    $db->insert('user__field_hide_community_profile')
-      ->fields([
-        'bundle' => 'user',
-        'deleted' => 0,
-        'entity_id' => $uid,
-        'revision_id' => $uid,
-        'langcode' => 'en',
-        'delta' => 0,
-        'field_hide_community_profile_value' => 0,
-      ])
-      ->execute();
-  }
+  // Single-query backfill: looping inserts at scale (~50k users) risks
+  // exceeding Pantheon's deploy step time budget. INSERT..SELECT runs in
+  // sub-second time regardless of row count.
+  \Drupal::database()->query("
+    INSERT INTO {user__field_hide_community_profile}
+      (bundle, deleted, entity_id, revision_id, langcode, delta, field_hide_community_profile_value)
+    SELECT 'user', 0, u.uid, u.uid, 'en', 0, 0
+    FROM {users} u
+    LEFT JOIN {user__field_hide_community_profile} f ON f.entity_id = u.uid
+    WHERE f.entity_id IS NULL
+  ");
 }
