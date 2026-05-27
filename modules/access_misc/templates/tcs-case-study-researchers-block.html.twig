@@ -1,0 +1,45 @@
+{#
+/**
+ * @file
+ * Template for the TCS Case Study Researchers block.
+ *
+ * Available variables:
+ * - researchers: Array of researcher data with uid, name, photo_url, and institution.
+ */
+#}
+
+<div class="tcs-researchers-block flex gap-3">
+    {% for researcher in researchers %}
+      <div class="tcs-researchers-block__photo flex-shrink-0">
+        <a href="/community-persona/{{ researcher.uid }}">
+          {% if researcher.photo_url %}
+            <img
+              src="{{ researcher.photo_url }}"
+              alt="{{ researcher.name }} photo"
+              class="rounded-full"
+              width="60"
+              height="60"
+              style="object-fit: cover;"
+            />
+          {% else %}
+            <img
+              src="/modules/custom/access/modules/cssn/images/profile.gif"
+              alt="{{ researcher.name }} default photo"
+              class="rounded-full"
+              width="60"
+              height="60"
+              style="object-fit: cover;"
+            />
+          {% endif %}
+        </a>
+      </div>
+      <div class="tcs-researchers-block__info">
+        <div class="tcs-researchers-block__name">
+          <a href="/community-persona/{{ researcher.uid }}">{{ researcher.name }}</a>
+        </div>
+        {% if researcher.institution %}
+            <div class="tcs-researchers-block__institution text-muted small">{{ researcher.role }}, {{ researcher.institution }}</div>
+        {% endif %}
+      </div>
+    {% endfor %}
+</div>

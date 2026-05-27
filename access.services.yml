@@ -15,3 +15,21 @@ services:
   access.jwks_controller:
     class: Drupal\access\Controller\JwksController
     arguments: ['@access.jwt_key_provider']
+
+  # Per-request value object. Under PHP-FPM, Drupal's container is rebuilt
+  # per request so the default singleton scope is effectively per-request.
+  # If this site ever moves to a persistent worker runtime (FrankenPHP,
+  # RoadRunner, Octane-style), revisit this: shared: false with a factory
+  # would be needed, or the state should live on $request->attributes.
+  access.eligibility_state:
+    class: Drupal\access\EligibilityState
+
+  access.eligibility_check_subscriber:
+    class: Drupal\access\EventSubscriber\EligibilityCheckSubscriber
+    arguments:
+      - '@current_user'
+      - '@entity_type.manager'
+      - '@access_affinitygroup.allocations_client'
+      - '@access.eligibility_state'
+    tags:
+      - { name: event_subscriber }
