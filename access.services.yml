@@ -38,3 +38,8 @@ services:
     class: Drupal\access\EventSubscriber\VaryDeduplicateSubscriber
     tags:
       - { name: event_subscriber }
+
+  access.vary_debug_subscriber:
+    class: Drupal\access\EventSubscriber\VaryDebugSubscriber
+    tags:
+      - { name: event_subscriber }
