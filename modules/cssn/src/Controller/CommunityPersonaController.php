@@ -755,7 +755,13 @@ class CommunityPersonaController extends ControllerBase {
       $user = User::load($user_id);
       // Don't show profile for people who haven't joined a region/program.
       if ($user !== NULL && count($user->field_region->getValue()) > 0) {
-        $should_user_load = TRUE;
+        if ($user->hasField('field_hide_community_profile') &&
+            (bool) $user->get('field_hide_community_profile')->value === TRUE) {
+          $should_user_load = FALSE;
+        }
+        else {
+          $should_user_load = TRUE;
+        }
       }
       else {
         $should_user_load = FALSE;
@@ -981,11 +987,15 @@ class CommunityPersonaController extends ControllerBase {
       return $persona_page;
     }
     else {
+      $cache_tags = ['community_persona'];
+      if (is_numeric($user_id)) {
+        $cache_tags[] = 'user:' . $user_id;
+      }
       return [
         '#type' => 'markup',
         '#title' => 'User not found',
         '#cache' => [
-          'tags' => ['community_persona'],
+          'tags' => $cache_tags,
         ],
         '#markup' => t('No public profile available for this person.'),
       ];
@@ -1008,6 +1018,10 @@ class CommunityPersonaController extends ControllerBase {
       // Load the user using the user id.
       $user = User::load($user_id);
       if ($user !== NULL) {
+        if ($user->hasField('field_hide_community_profile') &&
+            (bool) $user->get('field_hide_community_profile')->value === TRUE) {
+          return t('Community Profile');
+        }
         $user_first_name = $user->get('field_user_first_name')->value;
         $user_last_name = $user->get('field_user_last_name')->value;
         return "$user_first_name $user_last_name";
