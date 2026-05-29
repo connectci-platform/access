@@ -407,3 +407,42 @@ function access_affinitygroup_update_10010() {
   $schema->createTable('access_user_rp_account', $schemas['access_user_rp_account']);
   return 'Created table access_user_rp_account.';
 }
+
+/**
+ * Delete duplicate access_active_resources_from_cid nodes by cider_resource_id,
+ * keeping only the node with the lowest nid for each resource.
+ */
+function access_affinitygroup_update_10011(): string {
+  $db = \Drupal::database();
+  $node_storage = \Drupal::entityTypeManager()->getStorage('node');
+
+  // Find all cider_resource_id values that appear on more than one node.
+  $duplicate_ids = $db->query("
+    SELECT field_cider_resource_id_value
+    FROM node__field_cider_resource_id
+    GROUP BY field_cider_resource_id_value
+    HAVING COUNT(*) > 1
+  ")->fetchCol();
+
+  if (empty($duplicate_ids)) {
+    return 'No duplicate CiDeR resource IDs found; nothing to delete.';
+  }
+
+  $deleted = 0;
+  foreach ($duplicate_ids as $cider_id) {
+    $nids = $db->query("
+      SELECT entity_id
+      FROM node__field_cider_resource_id
+      WHERE field_cider_resource_id_value = :cider_id
+      ORDER BY entity_id ASC
+    ", [':cider_id' => $cider_id])->fetchCol();
+
+    // Keep lowest nid, delete the rest.
+    array_shift($nids);
+    $nodes = $node_storage->loadMultiple($nids);
+    $node_storage->delete($nodes);
+    $deleted += count($nids);
+  }
+
+  return "Deleted {$deleted} duplicate CiDeR resource node(s) across " . count($duplicate_ids) . " resource ID(s).";
+}
