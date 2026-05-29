@@ -4,11 +4,15 @@
 
   Drupal.behaviors.accessMiscFiltersHeading = {
     attach: function (context, settings) {
-      // Add "Filters" heading before the first facet block
-      var $firstBlock = $('.block-facet--checkbox', context).first();
-      if ($firstBlock.length && !$firstBlock.prev('h2.md--hidden').length) {
-        $firstBlock.before('<h2 class="md--hidden d-block d-lg-none">Filters</h2>');
-      }
+      // Add "Filters" heading before the first facet block in each sibling group.
+      // Pages with multiple views each have their own container, so checking for
+      // a preceding facet sibling correctly identifies the first of each group.
+      $('.block-facet--checkbox', context).each(function () {
+        var $block = $(this);
+        if (!$block.prev('.block-facet--checkbox').length && !$block.prev('h2.md--hidden').length) {
+          $block.before('<h2 class="md--hidden d-block d-lg-none">Filters</h2>');
+        }
+      });
     }
   };
 
