@@ -2446,6 +2446,17 @@ function access_misc_update_10039() {
       'context_mapping' => [],
     ]
   ));
+  $section1->appendComponent(new \Drupal\layout_builder\SectionComponent(
+    '6d08a5fb-e24c-49c2-a41e-ab95d74c8cb9',
+    'first',
+    [
+      'id' => 'facet_block:upcoming_tips_tricks_event_affiliation',
+      'label' => 'Affiliation',
+      'label_display' => 'visible',
+      'provider' => 'facets',
+      'context_mapping' => [],
+    ]
+  ));
   $sections[] = $section1;
 
   // Section 2: One column — Recorded Tips & Tricks Title block.
@@ -2511,6 +2522,28 @@ function access_misc_update_10039() {
   ));
   $section3->appendComponent(new \Drupal\layout_builder\SectionComponent(
     '65990e19-4ca3-48ad-90e5-596391aa48de',
+    'first',
+    [
+      'id' => 'facet_block:recorded_tips_tricks_tags',
+      'label' => 'Tags',
+      'label_display' => 'visible',
+      'provider' => 'facets',
+      'context_mapping' => [],
+    ]
+  ));
+  $section3->appendComponent(new \Drupal\layout_builder\SectionComponent(
+    'bb414f47-961d-4dab-9a03-22944fc33555',
+    'first',
+    [
+      'id' => 'facet_block:recorded_tips_tricks_event_affiliation',
+      'label' => 'Affiliation',
+      'label_display' => 'visible',
+      'provider' => 'facets',
+      'context_mapping' => [],
+    ]
+  ));
+  $section3->appendComponent(new \Drupal\layout_builder\SectionComponent(
+    '4df8a82c-0492-46a3-b9ae-3ccacaa4a645',
     'first',
     [
       'id' => 'facet_block:recorded_tips_tricks_tags',
