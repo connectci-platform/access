@@ -2356,3 +2356,172 @@ function access_misc_update_10038() {
   // 3. Cheap insurance after the hand-edited core.extension above.
   drupal_flush_all_caches();
 }
+
+/**
+ * Update node 12067 (Events) body and restore layout builder sections.
+ */
+function access_misc_update_10039() {
+  $nid = 12067;
+
+  $node = Node::load($nid);
+  if (!$node) {
+    return;
+  }
+
+  $sections = [];
+
+  // Section 0: One column — body field + Upcoming Tips and Tricks Title block.
+  $section0 = new \Drupal\layout_builder\Section('layout_onecol', ['label' => '']);
+  $section0->appendComponent(new \Drupal\layout_builder\SectionComponent(
+    'c0ffbca3-1681-4cad-9785-aeddb3b5c326',
+    'content',
+    [
+      'id' => 'field_block:node:page:body',
+      'label_display' => '0',
+      'context_mapping' => ['entity' => 'layout_builder.entity'],
+      'formatter' => [
+        'type' => 'text_default',
+        'label' => 'hidden',
+        'settings' => [],
+        'third_party_settings' => [],
+      ],
+    ]
+  ));
+  $section0->appendComponent(new \Drupal\layout_builder\SectionComponent(
+    'd1b12e61-8b1c-4d14-b998-e45938ce78d5',
+    'content',
+    [
+      'id' => 'block_content:9307c992-9a91-494e-81bb-65a64368c624',
+      'label' => 'Upcoming Tips and Tricks - Title',
+      'label_display' => '0',
+      'provider' => 'block_content',
+      'status' => 1,
+      'info' => '',
+      'view_mode' => 'full',
+      'context_mapping' => [],
+    ]
+  ));
+  $sections[] = $section0;
+
+  // Section 1: Two column (25-75) — Upcoming Tips and Tricks view + filters/facets.
+  $section1 = new \Drupal\layout_builder\Section('layout_twocol_section', [
+    'label' => 'Upcoming Tips and Tricks view',
+    'column_widths' => '25-75',
+    'context_mapping' => [],
+  ]);
+  $section1->appendComponent(new \Drupal\layout_builder\SectionComponent(
+    'b9fe901b-30d4-422e-baaf-6b93ccdc5c33',
+    'second',
+    [
+      'id' => 'views_block:events_facet-upcoming_tips_tricks',
+      'label' => '',
+      'label_display' => '0',
+      'provider' => 'views',
+      'views_label' => '',
+      'items_per_page' => 'none',
+      'exposed' => [],
+      'context_mapping' => [],
+    ]
+  ));
+  $section1->appendComponent(new \Drupal\layout_builder\SectionComponent(
+    'f49f6521-e117-45ba-a2da-6fc406643e43',
+    'first',
+    [
+      'id' => 'views_exposed_filter_block:events_facet-upcoming_tips_tricks',
+      'label' => '',
+      'label_display' => '0',
+      'provider' => 'views',
+      'views_label' => '',
+      'context_mapping' => [],
+    ]
+  ));
+  $section1->appendComponent(new \Drupal\layout_builder\SectionComponent(
+    '9985f6f3-9ec2-4b05-8b90-bf544efcc4d6',
+    'first',
+    [
+      'id' => 'facet_block:upcoming_tips_tricks_event_affiliation',
+      'label' => 'Upcoming Tips & Tricks - Event Affiliation',
+      'label_display' => '0',
+      'provider' => 'facets',
+      'context_mapping' => [],
+    ]
+  ));
+  $sections[] = $section1;
+
+  // Section 2: One column — Recorded Tips & Tricks Title block.
+  $section2 = new \Drupal\layout_builder\Section('layout_onecol', ['label' => 'Recorded Tips & Tricks - Title']);
+  $section2->appendComponent(new \Drupal\layout_builder\SectionComponent(
+    'bea54677-4101-4ffd-ac13-91068532003d',
+    'content',
+    [
+      'id' => 'block_content:892d3275-03a2-435b-9256-3e681545c077',
+      'label' => 'Recorded Tips & Tricks - Title',
+      'label_display' => '0',
+      'provider' => 'block_content',
+      'status' => 1,
+      'info' => '',
+      'view_mode' => 'full',
+      'context_mapping' => [],
+    ]
+  ));
+  $sections[] = $section2;
+
+  // Section 3: Two column (25-75) — Recorded Tips and Tricks view + filters/facets.
+  $section3 = new \Drupal\layout_builder\Section('layout_twocol_section', [
+    'label' => 'Recorded Tips and Tricks - view',
+    'column_widths' => '25-75',
+    'context_mapping' => [],
+  ]);
+  $section3->appendComponent(new \Drupal\layout_builder\SectionComponent(
+    '0fe915cd-4677-4cf8-b3a4-4713b361ca96',
+    'second',
+    [
+      'id' => 'views_block:events_facet-recorded_tips_tricks',
+      'label' => '',
+      'label_display' => '0',
+      'provider' => 'views',
+      'views_label' => '',
+      'items_per_page' => 'none',
+      'exposed' => [],
+      'context_mapping' => [],
+    ]
+  ));
+  $section3->appendComponent(new \Drupal\layout_builder\SectionComponent(
+    '87e8504d-68b5-4af3-8e97-bd73f42dce43',
+    'first',
+    [
+      'id' => 'views_exposed_filter_block:events_facet-recorded_tips_tricks',
+      'label' => '',
+      'label_display' => '0',
+      'provider' => 'views',
+      'views_label' => '',
+      'context_mapping' => [],
+    ]
+  ));
+  $section3->appendComponent(new \Drupal\layout_builder\SectionComponent(
+    'd85fdf88-a2ce-433f-a100-e8466db92f49',
+    'first',
+    [
+      'id' => 'facet_block:recorded_tips_tricks_event_affiliation',
+      'label' => 'Affiliation',
+      'label_display' => 'visible',
+      'provider' => 'facets',
+      'context_mapping' => [],
+    ]
+  ));
+  $section3->appendComponent(new \Drupal\layout_builder\SectionComponent(
+    '65990e19-4ca3-48ad-90e5-596391aa48de',
+    'first',
+    [
+      'id' => 'facet_block:recorded_tips_tricks_tags',
+      'label' => 'Tags',
+      'label_display' => 'visible',
+      'provider' => 'facets',
+      'context_mapping' => [],
+    ]
+  ));
+  $sections[] = $section3;
+
+  $node->set('layout_builder__layout', $sections);
+  $node->save();
+}
