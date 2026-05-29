@@ -619,9 +619,9 @@ function access_misc_preprocess_views_view_field(&$variables) {
     $title = $node ? $node->label() : '';
     $clean_id = \Drupal\Component\Utility\Html::getId($title);
 
-    $copyclip_html = '<button class="text-sm copyclip ms-4 absolute right-0 z-10" style="top: 0.5rem;" onclick="copyclip(\'https://support.access-ci.org/tools/researcher-stories#' . $clean_id . '\', event)">'
+    $copyclip_html = '<button class="text-sm copyclip ms-4 absolute right-[15px] z-10" style="top: 0.5rem;" onclick="copyclip(\'https://support.access-ci.org/tools/researcher-stories#' . $clean_id . '\', event)">'
       . '<span class="default-message block leading-5 text-dark-teal">'
-      . '<i class="bi-link"></i><br>Copy link</span>'
+      . '<i class="bi-link text-xl leading-none"></i><br>Copy link</span>'
       . '<span class="copied-message text-dark-teal hidden d-none">'
       . '<i class="bi-check"></i><br>Copied!</span>'
       . '</button>';
