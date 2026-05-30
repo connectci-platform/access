@@ -461,15 +461,33 @@ function update_removed_ag_leader_roles($entity, $coordinator_ids) {
  */
 function add_ag_taxonomy_term($entity) {
   $ag_title = $entity->getTitle();
-  $exists = !empty(ag_taxonomy_lookup($ag_title));
   $tid = NULL;
-  if ($exists) {
-    $tid = array_keys(ag_taxonomy_lookup($ag_title))[0];
-  } else {
-    $tid = create_ag_taxonomy_term($ag_title);
+
+  // If the node already references a term, rename it rather than creating a new one.
+  if (!$entity->get('field_affinity_group')->isEmpty()) {
+    $existing_tid = $entity->get('field_affinity_group')->target_id;
+    $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($existing_tid);
+    if ($term) {
+      if ($term->getName() !== $ag_title) {
+        $term->setName($ag_title);
+        $term->save();
+        reindex_ag_event_instances($entity->id());
+      }
+      $tid = $existing_tid;
+    }
   }
 
-  // Set entity's field_affinity_group to new term.
+  // Fall back: look up by name or create a new term.
+  if (!$tid) {
+    $matches = ag_taxonomy_lookup($ag_title);
+    if (!empty($matches)) {
+      $tid = array_keys($matches)[0];
+    }
+    else {
+      $tid = create_ag_taxonomy_term($ag_title);
+    }
+  }
+
   $entity->set('field_affinity_group', $tid);
 }
 
@@ -713,6 +731,39 @@ function create_ag_taxonomy_term($ag_title) {
   ]);
   $term->save();
   return $term->tid->value;
+}
+
+/**
+ * Re-index all event instances belonging to event series that reference the
+ * given affinity group node. Called after an AG rename so the events search
+ * index reflects the new title without requiring a manual full re-index.
+ */
+function reindex_ag_event_instances($ag_nid) {
+  $index = \Drupal\search_api\Entity\Index::load('events');
+  if (!$index) {
+    return;
+  }
+
+  $series_ids = \Drupal::entityQuery('eventseries')
+    ->condition('field_affinity_group_node', $ag_nid)
+    ->accessCheck(FALSE)
+    ->execute();
+
+  if (empty($series_ids)) {
+    return;
+  }
+
+  $instance_ids = \Drupal::entityQuery('eventinstance')
+    ->condition('eventseries_id', $series_ids, 'IN')
+    ->accessCheck(FALSE)
+    ->execute();
+
+  if (empty($instance_ids)) {
+    return;
+  }
+
+  $item_ids = array_map(fn($id) => $id . ':en', $instance_ids);
+  $index->trackItemsUpdated('entity:eventinstance', $item_ids);
 }
 
 /**
