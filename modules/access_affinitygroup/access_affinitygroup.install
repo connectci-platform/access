@@ -412,43 +412,82 @@ function access_affinitygroup_update_10010() {
  * Delete duplicate access_active_resources_from_cid nodes by cider_resource_id,
  * keeping only the node with the lowest nid for each resource.
  */
-function access_affinitygroup_update_10011(): string {
+function access_affinitygroup_update_10011(array &$sandbox): string {
   $db = \Drupal::database();
   $protected_nids = [6462, 12070];
-  $chunk_size = 10;
+  $batch_size = 50;
 
-  $duplicate_ids = $db->query("
-    SELECT field_cider_resource_id_value
-    FROM node__field_cider_resource_id
-    GROUP BY field_cider_resource_id_value
-    HAVING COUNT(*) > 1
-  ")->fetchCol();
-
-  $to_delete = [];
-  foreach ($duplicate_ids as $cider_id) {
-    $nids = $db->query("
-      SELECT entity_id
+  if (!isset($sandbox['nids'])) {
+    $duplicate_ids = $db->query("
+      SELECT field_cider_resource_id_value
       FROM node__field_cider_resource_id
-      WHERE field_cider_resource_id_value = :cider_id
-      ORDER BY entity_id ASC
-    ", [':cider_id' => $cider_id])->fetchCol();
+      GROUP BY field_cider_resource_id_value
+      HAVING COUNT(*) > 1
+    ")->fetchCol();
 
-    array_shift($nids);
-    $nids = array_diff($nids, $protected_nids);
-    foreach ($nids as $nid) {
-      $to_delete[] = $nid;
+    $to_delete = [];
+    foreach ($duplicate_ids as $cider_id) {
+      $nids = $db->query("
+        SELECT entity_id
+        FROM node__field_cider_resource_id
+        WHERE field_cider_resource_id_value = :cider_id
+        ORDER BY entity_id ASC
+      ", [':cider_id' => $cider_id])->fetchCol();
+
+      array_shift($nids);
+      foreach (array_diff($nids, $protected_nids) as $nid) {
+        $to_delete[] = (int) $nid;
+      }
     }
+
+    $sandbox['nids'] = array_values($to_delete);
+    $sandbox['total'] = count($to_delete);
+    $sandbox['deleted'] = 0;
+    $sandbox['offset'] = 0;
   }
 
-  if (empty($to_delete)) {
+  if (empty($sandbox['nids'])) {
+    $sandbox['#finished'] = 1;
     return 'No duplicate CiDeR resource nodes found; nothing to delete.';
   }
 
-  $queue = \Drupal::queue('access_affinitygroup_delete_duplicate_cider_nodes');
-  foreach (array_chunk($to_delete, $chunk_size) as $chunk) {
-    $queue->createItem($chunk);
+  $batch = array_slice($sandbox['nids'], $sandbox['offset'], $batch_size);
+
+  if (!empty($batch)) {
+    // Get all revision IDs for this batch before deleting revision tables.
+    $vids = $db->query(
+      "SELECT vid FROM {node_revision} WHERE nid IN (:nids[])",
+      [':nids[]' => $batch]
+    )->fetchCol();
+
+    // Delete from all node field tables (current and revision).
+    $node_tables = $db->query("SHOW TABLES LIKE 'node\\_\\_%'")->fetchCol();
+    foreach ($node_tables as $table) {
+      $db->delete($table)->condition('entity_id', $batch, 'IN')->execute();
+    }
+
+    // Delete from node_access.
+    $db->delete('node_access')->condition('nid', $batch, 'IN')->execute();
+
+    // Delete revision rows.
+    if (!empty($vids)) {
+      $db->delete('node_field_revision')->condition('vid', $vids, 'IN')->execute();
+      $db->delete('node_revision')->condition('vid', $vids, 'IN')->execute();
+    }
+
+    // Delete core node rows last (has FK constraints).
+    $db->delete('node_field_data')->condition('nid', $batch, 'IN')->execute();
+    $db->delete('node')->condition('nid', $batch, 'IN')->execute();
+
+    $sandbox['deleted'] += count($batch);
+    $sandbox['offset'] += $batch_size;
   }
 
-  $total = count($to_delete);
-  return "Queued {$total} duplicate CiDeR resource node(s) for deletion via cron.";
+  $sandbox['#finished'] = $sandbox['offset'] >= $sandbox['total'] ? 1 : $sandbox['offset'] / $sandbox['total'];
+
+  if ($sandbox['#finished'] >= 1) {
+    return "Deleted {$sandbox['deleted']} duplicate CiDeR resource node(s) ({$sandbox['total']} total).";
+  }
+
+  return "Deleted {$sandbox['deleted']} of {$sandbox['total']} duplicate CiDeR resource node(s)...";
 }
