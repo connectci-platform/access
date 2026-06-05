@@ -412,61 +412,43 @@ function access_affinitygroup_update_10010() {
  * Delete duplicate access_active_resources_from_cid nodes by cider_resource_id,
  * keeping only the node with the lowest nid for each resource.
  */
-function access_affinitygroup_update_10011(array &$sandbox): string {
+function access_affinitygroup_update_10011(): string {
   $db = \Drupal::database();
-  $node_storage = \Drupal::entityTypeManager()->getStorage('node');
   $protected_nids = [6462, 12070];
-  $batch_size = 5;
+  $chunk_size = 10;
 
-  // First pass: collect all nids to delete.
-  if (!isset($sandbox['nids'])) {
-    $duplicate_ids = $db->query("
-      SELECT field_cider_resource_id_value
+  $duplicate_ids = $db->query("
+    SELECT field_cider_resource_id_value
+    FROM node__field_cider_resource_id
+    GROUP BY field_cider_resource_id_value
+    HAVING COUNT(*) > 1
+  ")->fetchCol();
+
+  $to_delete = [];
+  foreach ($duplicate_ids as $cider_id) {
+    $nids = $db->query("
+      SELECT entity_id
       FROM node__field_cider_resource_id
-      GROUP BY field_cider_resource_id_value
-      HAVING COUNT(*) > 1
-    ")->fetchCol();
+      WHERE field_cider_resource_id_value = :cider_id
+      ORDER BY entity_id ASC
+    ", [':cider_id' => $cider_id])->fetchCol();
 
-    $to_delete = [];
-    foreach ($duplicate_ids as $cider_id) {
-      $nids = $db->query("
-        SELECT entity_id
-        FROM node__field_cider_resource_id
-        WHERE field_cider_resource_id_value = :cider_id
-        ORDER BY entity_id ASC
-      ", [':cider_id' => $cider_id])->fetchCol();
-
-      array_shift($nids);
-      $nids = array_diff($nids, $protected_nids);
-      foreach ($nids as $nid) {
-        $to_delete[] = $nid;
-      }
+    array_shift($nids);
+    $nids = array_diff($nids, $protected_nids);
+    foreach ($nids as $nid) {
+      $to_delete[] = $nid;
     }
-
-    $sandbox['nids'] = array_values($to_delete);
-    $sandbox['total'] = count($to_delete);
-    $sandbox['deleted'] = 0;
-    $sandbox['offset'] = 0;
   }
 
-  if (empty($sandbox['nids'])) {
-    $sandbox['#finished'] = 1;
+  if (empty($to_delete)) {
     return 'No duplicate CiDeR resource nodes found; nothing to delete.';
   }
 
-  $batch = array_slice($sandbox['nids'], $sandbox['offset'], $batch_size);
-  if (!empty($batch)) {
-    $nodes = $node_storage->loadMultiple($batch);
-    $node_storage->delete($nodes);
-    $sandbox['deleted'] += count($batch);
-    $sandbox['offset'] += $batch_size;
+  $queue = \Drupal::queue('access_affinitygroup_delete_duplicate_cider_nodes');
+  foreach (array_chunk($to_delete, $chunk_size) as $chunk) {
+    $queue->createItem($chunk);
   }
 
-  $sandbox['#finished'] = $sandbox['offset'] >= $sandbox['total'] ? 1 : $sandbox['offset'] / $sandbox['total'];
-
-  if ($sandbox['#finished'] >= 1) {
-    return "Deleted {$sandbox['deleted']} duplicate CiDeR resource node(s) ({$sandbox['total']} total queued).";
-  }
-
-  return "Deleted {$sandbox['deleted']} of {$sandbox['total']} duplicate CiDeR resource node(s)...";
+  $total = count($to_delete);
+  return "Queued {$total} duplicate CiDeR resource node(s) for deletion via cron.";
 }
