@@ -437,8 +437,12 @@ function access_affinitygroup_update_10011(): string {
       ORDER BY entity_id ASC
     ", [':cider_id' => $cider_id])->fetchCol();
 
-    // Keep lowest nid, delete the rest.
+    // Keep lowest nid, delete the rest. Skip protected NIDs.
     array_shift($nids);
+    $nids = array_diff($nids, [6462, 12070]);
+    if (empty($nids)) {
+      continue;
+    }
     $nodes = $node_storage->loadMultiple($nids);
     $node_storage->delete($nodes);
     $deleted += count($nids);
