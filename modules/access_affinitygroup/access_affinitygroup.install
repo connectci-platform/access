@@ -416,7 +416,7 @@ function access_affinitygroup_update_10011(array &$sandbox): string {
   $db = \Drupal::database();
   $node_storage = \Drupal::entityTypeManager()->getStorage('node');
   $protected_nids = [6462, 12070];
-  $batch_size = 12;
+  $batch_size = 5;
 
   // First pass: collect all nids to delete.
   if (!isset($sandbox['nids'])) {
