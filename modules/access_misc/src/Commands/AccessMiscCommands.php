@@ -16,8 +16,9 @@ class AccessMiscCommands extends DrushCommands {
    * Generate a catalog of all notification emails in the system.
    *
    * Scans config YAML files, EmailBuilder plugins, WebformHandler plugins,
-   * and PHP source for hook_mail / drupal_mail / ConstantContactApi usage,
-   * then writes per-portal markdown files plus an index.md summary.
+   * core contact forms, and PHP source for hook_mail / drupal_mail /
+   * ConstantContactApi usage, then writes per-portal markdown files plus an
+   * index.md summary.
    *
    * @command access_misc:generate-notification-catalog
    * @aliases gen-notif-catalog
@@ -444,6 +445,70 @@ class AccessMiscCommands extends DrushCommands {
     }
     $counts['user_core'] = count($userEmails);
 
+    // --- Source I: Core contact forms (admin/structure/contact) ---
+    // Each contact.form.*.yml sends the submitter's message to its
+    // configured recipients on submission. Forms with a non-empty 'reply'
+    // also send an auto-reply back to the person who submitted the form.
+    $contactFiles = glob($configDir . '/contact.form.*.yml');
+    $counts['contact_form'] = 0;
+    foreach ($contactFiles as $file) {
+      $data = Yaml::parseFile($file);
+      if (!$data) {
+        continue;
+      }
+      $id = $data['id'] ?? basename($file, '.yml');
+      $label = $data['label'] ?? $id;
+      $recipients = (array) ($data['recipients'] ?? []);
+      $portal = $this->portalFromKey($id);
+
+      // The personal contact form has no fixed recipients — messages are
+      // delivered to whichever user is being contacted.
+      $recipientStr = !empty($recipients)
+        ? implode(', ', $recipients)
+        : ($id === 'personal' ? 'user being contacted' : 'site mail');
+      $recipientRole = !empty($recipients) ? 'static_address'
+        : ($id === 'personal' ? 'authenticated' : 'any');
+
+      // Main notification: message sent to the form recipients.
+      $notifications[] = [
+        'name' => "Contact form: {$label}",
+        'portals' => [$portal],
+        'trigger' => "contact form submission (/contact/{$id})",
+        'send_method' => 'email',
+        'timing' => 'immediate',
+        'recipient' => $recipientStr,
+        'recipient_role' => $recipientRole,
+        'subject' => '',
+        'body' => "User-submitted message via the \"{$label}\" contact form.",
+        'edit_location' => 'config: ' . basename($file),
+        'is_shared' => FALSE,
+        'needs_review' => FALSE,
+        '_source' => 'contact_form',
+      ];
+      $counts['contact_form']++;
+
+      // Optional auto-reply sent back to the person who submitted the form.
+      $reply = trim($data['reply'] ?? '');
+      if ($reply !== '') {
+        $notifications[] = [
+          'name' => "Contact form auto-reply: {$label}",
+          'portals' => [$portal],
+          'trigger' => "contact form submission (/contact/{$id})",
+          'send_method' => 'email',
+          'timing' => 'immediate',
+          'recipient' => 'form submitter',
+          'recipient_role' => 'sender',
+          'subject' => '',
+          'body' => $this->cleanHtml($reply),
+          'edit_location' => 'config: ' . basename($file),
+          'is_shared' => FALSE,
+          'needs_review' => FALSE,
+          '_source' => 'contact_form',
+        ];
+        $counts['contact_form']++;
+      }
+    }
+
     // --- Deduplicate and merge portals by content hash (subject + body) ---
     // Name-based dedup fails because portal-prefixed names (ccmnet_*, amp_*)
     // never collide even when the email content is identical.
@@ -572,10 +637,10 @@ class AccessMiscCommands extends DrushCommands {
     if (str_starts_with($lower, 'ondemand') || str_contains($lower, 'open_ondemand') || str_contains($lower, 'openondemand') || str_starts_with($lower, 'appverse')) {
       return 'open-ondemand';
     }
-    if (str_starts_with($lower, 'affinitygroup') || str_starts_with($lower, 'access_affinitygroup')) {
+    if (str_starts_with($lower, 'affinitygroup') || str_starts_with($lower, 'access_affinitygroup') || str_starts_with($lower, 'campus_champions')) {
       return 'campus-champions';
     }
-    if (str_contains($lower, 'pascience') || str_starts_with($lower, 'access_misc_project')) {
+    if (str_contains($lower, 'pascience') || str_starts_with($lower, 'pa_science') || str_starts_with($lower, 'access_misc_project')) {
       return 'pascience';
     }
     if (str_starts_with($lower, 'access_misc') || str_starts_with($lower, 'access_news') || str_starts_with($lower, 'access_cilink')) {
