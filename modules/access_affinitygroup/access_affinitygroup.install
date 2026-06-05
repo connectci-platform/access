@@ -409,13 +409,40 @@ function access_affinitygroup_update_10010() {
 }
 
 /**
- * Delete duplicate access_active_resources_from_cid nodes by cider_resource_id,
- * keeping only the node with the lowest nid for each resource.
+ * Delete duplicate CiDeR resource nodes, keeping the lowest nid per resource.
+ *
+ * Duplicates are matched by field_cider_resource_id on the
+ * access_active_resources_from_cid bundle.
+ *
+ * For each duplicate removed this also cleans up all related data: default and
+ * revision field tables, node_access, path aliases (+ revisions), redirects,
+ * core search and Search API index entries, and statistics (node_counter /
+ * history). Entity references in other content that point at a duplicate are
+ * repointed to the retained node, and each repoint is logged to watchdog.
  */
 function access_affinitygroup_update_10011(array &$sandbox): string {
   $db = \Drupal::database();
+  $logger = \Drupal::logger('access_affinitygroup');
   $protected_nids = [6462, 12070];
   $batch_size = 50;
+
+  // Entity-reference fields (in OTHER entities) that may point at the duplicate
+  // resource nodes. Each duplicate's references are repointed to the retained
+  // node so affinity groups, resource groups, etc. keep their association.
+  // Listed as [table => target_id column]; both the default and revision data
+  // tables are handled.
+  $ref_fields = [
+    'node__field_cider_resources' => 'field_cider_resources_target_id',
+    'node_revision__field_cider_resources' => 'field_cider_resources_target_id',
+    'node__field_cider_resource' => 'field_cider_resource_target_id',
+    'node_revision__field_cider_resource' => 'field_cider_resource_target_id',
+    'node__field_affected_infrastructure' => 'field_affected_infrastructure_target_id',
+    'node_revision__field_affected_infrastructure' => 'field_affected_infrastructure_target_id',
+    'node__field_tcs_access_resource' => 'field_tcs_access_resource_target_id',
+    'node_revision__field_tcs_access_resource' => 'field_tcs_access_resource_target_id',
+    'user__field_cider_resources' => 'field_cider_resources_target_id',
+    'user_revision__field_cider_resources' => 'field_cider_resources_target_id',
+  ];
 
   if (!isset($sandbox['nids'])) {
     $duplicate_ids = $db->query("
@@ -425,7 +452,10 @@ function access_affinitygroup_update_10011(array &$sandbox): string {
       HAVING COUNT(*) > 1
     ")->fetchCol();
 
+    // Map each duplicate (to-be-deleted) nid to the retained nid (lowest nid
+    // for its cider_resource_id) so references can be repointed.
     $to_delete = [];
+    $keep_map = [];
     foreach ($duplicate_ids as $cider_id) {
       $nids = $db->query("
         SELECT entity_id
@@ -434,15 +464,19 @@ function access_affinitygroup_update_10011(array &$sandbox): string {
         ORDER BY entity_id ASC
       ", [':cider_id' => $cider_id])->fetchCol();
 
-      array_shift($nids);
+      $keep = (int) array_shift($nids);
       foreach (array_diff($nids, $protected_nids) as $nid) {
-        $to_delete[] = (int) $nid;
+        $nid = (int) $nid;
+        $to_delete[] = $nid;
+        $keep_map[$nid] = $keep;
       }
     }
 
     $sandbox['nids'] = array_values($to_delete);
+    $sandbox['keep_map'] = $keep_map;
     $sandbox['total'] = count($to_delete);
     $sandbox['deleted'] = 0;
+    $sandbox['repointed'] = 0;
     $sandbox['offset'] = 0;
   }
 
@@ -454,28 +488,143 @@ function access_affinitygroup_update_10011(array &$sandbox): string {
   $batch = array_slice($sandbox['nids'], $sandbox['offset'], $batch_size);
 
   if (!empty($batch)) {
-    // Get all revision IDs for this batch before deleting revision tables.
-    $vids = $db->query(
-      "SELECT vid FROM {node_revision} WHERE nid IN (:nids[])",
-      [':nids[]' => $batch]
-    )->fetchCol();
+    // Repoint references from each duplicate to its retained node, and log
+    // every repoint to watchdog.
+    foreach ($batch as $deleted_nid) {
+      $keep_nid = $sandbox['keep_map'][$deleted_nid];
+      foreach ($ref_fields as $table => $column) {
+        if (!$db->schema()->tableExists($table)) {
+          continue;
+        }
+        $affected = $db->update($table)
+          ->fields([$column => $keep_nid])
+          ->condition($column, $deleted_nid)
+          ->execute();
+        if ($affected) {
+          $sandbox['repointed'] += $affected;
+          $logger->notice(
+            'access_affinitygroup_update_10011: repointed @count reference(s) in @table.@column from deleted node @from to retained node @to.',
+            [
+              '@count' => $affected,
+              '@table' => $table,
+              '@column' => $column,
+              '@from' => $deleted_nid,
+              '@to' => $keep_nid,
+            ]
+          );
+        }
+      }
+    }
 
-    // Delete from all node field tables (current and revision).
-    $node_tables = $db->query("SHOW TABLES LIKE 'node\\_\\_%'")->fetchCol();
-    foreach ($node_tables as $table) {
+    // Repointing can leave an entity referencing the retained node twice (once
+    // originally, once from a repointed duplicate). Remove those duplicate
+    // rows, keeping the lowest delta per (entity, langcode, target), scoped to
+    // the retained nids touched in this batch.
+    $keep_nids = array_values(array_unique(array_map(
+      fn($nid) => $sandbox['keep_map'][$nid],
+      $batch
+    )));
+    // Build named placeholders for the IN list (array placeholders are only
+    // expanded by the query builder, not by prepareStatement()).
+    $keep_args = [];
+    foreach ($keep_nids as $i => $keep_nid) {
+      $keep_args[':keep' . $i] = $keep_nid;
+    }
+    $keep_in = implode(', ', array_keys($keep_args));
+    foreach ($ref_fields as $table => $column) {
+      if (!$db->schema()->tableExists($table)) {
+        continue;
+      }
+      $is_revision = str_contains($table, '_revision__');
+      $join = "t1.entity_id = t2.entity_id
+        AND t1.langcode = t2.langcode
+        AND t1.deleted = t2.deleted
+        AND t1.{$column} = t2.{$column}
+        AND t1.delta > t2.delta";
+      if ($is_revision) {
+        $join .= "\n        AND t1.revision_id = t2.revision_id";
+      }
+      // rowCount() on a modification query requires a prepared statement with
+      // $allow_row_count = TRUE; raw query() does not permit it.
+      $statement = $db->prepareStatement(
+        "DELETE t1 FROM {{$table}} t1
+          INNER JOIN {{$table}} t2 ON {$join}
+          WHERE t1.{$column} IN ({$keep_in})",
+        [],
+        TRUE
+      );
+      $statement->execute($keep_args);
+      $removed = $statement->rowCount();
+      if ($removed) {
+        $logger->notice(
+          'access_affinitygroup_update_10011: removed @count duplicate reference row(s) in @table after repointing.',
+          ['@count' => $removed, '@table' => $table]
+        );
+      }
+    }
+
+    // Delete from all node field tables: default (node__*) AND revision
+    // (node_revision__*). The original LIKE 'node__%' pattern matched only the
+    // default field tables, orphaning every node_revision__* field row.
+    $field_tables = $db->query("SHOW TABLES LIKE 'node\\_\\_%'")->fetchCol();
+    $rev_field_tables = $db->query("SHOW TABLES LIKE 'node\\_revision\\_\\_%'")->fetchCol();
+    foreach (array_merge($field_tables, $rev_field_tables) as $table) {
       $db->delete($table)->condition('entity_id', $batch, 'IN')->execute();
     }
 
     // Delete from node_access.
     $db->delete('node_access')->condition('nid', $batch, 'IN')->execute();
 
-    // Delete revision rows.
-    if (!empty($vids)) {
-      $db->delete('node_field_revision')->condition('vid', $vids, 'IN')->execute();
-      $db->delete('node_revision')->condition('vid', $vids, 'IN')->execute();
+    // Path aliases (pathauto/path_alias) for /node/{nid}, incl. revisions.
+    if ($db->schema()->tableExists('path_alias')) {
+      $paths = array_map(fn($nid) => '/node/' . $nid, $batch);
+      $alias_ids = $db->query(
+        "SELECT id FROM {path_alias} WHERE path IN (:paths[])",
+        [':paths[]' => $paths]
+      )->fetchCol();
+      $db->delete('path_alias')->condition('path', $paths, 'IN')->execute();
+      if (!empty($alias_ids) && $db->schema()->tableExists('path_alias_revision')) {
+        $db->delete('path_alias_revision')->condition('id', $alias_ids, 'IN')->execute();
+      }
     }
 
-    // Delete core node rows last (has FK constraints).
+    // Redirects (redirect module) pointing at internal:/node/{nid}.
+    if ($db->schema()->tableExists('redirect')) {
+      $uris = array_map(fn($nid) => 'internal:/node/' . $nid, $batch);
+      $db->delete('redirect')->condition('redirect_redirect__uri', $uris, 'IN')->execute();
+    }
+
+    // Core search index entries (search module).
+    foreach (['search_index', 'search_dataset'] as $search_table) {
+      if ($db->schema()->tableExists($search_table)) {
+        $db->delete($search_table)
+          ->condition('sid', $batch, 'IN')
+          ->condition('type', 'node_search')
+          ->execute();
+      }
+    }
+
+    // Search API tracked items (item_id like entity:node/{nid}:{langcode}).
+    if ($db->schema()->tableExists('search_api_item')) {
+      foreach ($batch as $nid) {
+        $db->delete('search_api_item')
+          ->condition('item_id', 'entity:node/' . $nid . ':%', 'LIKE')
+          ->execute();
+      }
+    }
+
+    // Statistics: view counters and per-user read history.
+    foreach (['node_counter', 'history'] as $stats_table) {
+      if ($db->schema()->tableExists($stats_table)) {
+        $db->delete($stats_table)->condition('nid', $batch, 'IN')->execute();
+      }
+    }
+
+    // Delete revision base/data rows (keyed by nid).
+    $db->delete('node_field_revision')->condition('nid', $batch, 'IN')->execute();
+    $db->delete('node_revision')->condition('nid', $batch, 'IN')->execute();
+
+    // Delete core node rows last.
     $db->delete('node_field_data')->condition('nid', $batch, 'IN')->execute();
     $db->delete('node')->condition('nid', $batch, 'IN')->execute();
 
@@ -486,8 +635,8 @@ function access_affinitygroup_update_10011(array &$sandbox): string {
   $sandbox['#finished'] = $sandbox['offset'] >= $sandbox['total'] ? 1 : $sandbox['offset'] / $sandbox['total'];
 
   if ($sandbox['#finished'] >= 1) {
-    return "Deleted {$sandbox['deleted']} duplicate CiDeR resource node(s) ({$sandbox['total']} total).";
+    return "Deleted {$sandbox['deleted']} duplicate CiDeR resource node(s) ({$sandbox['total']} total); repointed {$sandbox['repointed']} reference(s).";
   }
 
-  return "Deleted {$sandbox['deleted']} of {$sandbox['total']} duplicate CiDeR resource node(s)...";
+  return "Deleted {$sandbox['deleted']} of {$sandbox['total']} duplicate CiDeR resource node(s); repointed {$sandbox['repointed']} reference(s) so far...";
 }
