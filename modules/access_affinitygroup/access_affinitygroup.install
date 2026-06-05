@@ -412,41 +412,61 @@ function access_affinitygroup_update_10010() {
  * Delete duplicate access_active_resources_from_cid nodes by cider_resource_id,
  * keeping only the node with the lowest nid for each resource.
  */
-function access_affinitygroup_update_10011(): string {
+function access_affinitygroup_update_10011(array &$sandbox): string {
   $db = \Drupal::database();
   $node_storage = \Drupal::entityTypeManager()->getStorage('node');
+  $protected_nids = [6462, 12070];
+  $batch_size = 25;
 
-  // Find all cider_resource_id values that appear on more than one node.
-  $duplicate_ids = $db->query("
-    SELECT field_cider_resource_id_value
-    FROM node__field_cider_resource_id
-    GROUP BY field_cider_resource_id_value
-    HAVING COUNT(*) > 1
-  ")->fetchCol();
-
-  if (empty($duplicate_ids)) {
-    return 'No duplicate CiDeR resource IDs found; nothing to delete.';
-  }
-
-  $deleted = 0;
-  foreach ($duplicate_ids as $cider_id) {
-    $nids = $db->query("
-      SELECT entity_id
+  // First pass: collect all nids to delete.
+  if (!isset($sandbox['nids'])) {
+    $duplicate_ids = $db->query("
+      SELECT field_cider_resource_id_value
       FROM node__field_cider_resource_id
-      WHERE field_cider_resource_id_value = :cider_id
-      ORDER BY entity_id ASC
-    ", [':cider_id' => $cider_id])->fetchCol();
+      GROUP BY field_cider_resource_id_value
+      HAVING COUNT(*) > 1
+    ")->fetchCol();
 
-    // Keep lowest nid, delete the rest. Skip protected NIDs.
-    array_shift($nids);
-    $nids = array_diff($nids, [6462, 12070]);
-    if (empty($nids)) {
-      continue;
+    $to_delete = [];
+    foreach ($duplicate_ids as $cider_id) {
+      $nids = $db->query("
+        SELECT entity_id
+        FROM node__field_cider_resource_id
+        WHERE field_cider_resource_id_value = :cider_id
+        ORDER BY entity_id ASC
+      ", [':cider_id' => $cider_id])->fetchCol();
+
+      array_shift($nids);
+      $nids = array_diff($nids, $protected_nids);
+      foreach ($nids as $nid) {
+        $to_delete[] = $nid;
+      }
     }
-    $nodes = $node_storage->loadMultiple($nids);
-    $node_storage->delete($nodes);
-    $deleted += count($nids);
+
+    $sandbox['nids'] = array_values($to_delete);
+    $sandbox['total'] = count($to_delete);
+    $sandbox['deleted'] = 0;
+    $sandbox['offset'] = 0;
   }
 
-  return "Deleted {$deleted} duplicate CiDeR resource node(s) across " . count($duplicate_ids) . " resource ID(s).";
+  if (empty($sandbox['nids'])) {
+    $sandbox['#finished'] = 1;
+    return 'No duplicate CiDeR resource nodes found; nothing to delete.';
+  }
+
+  $batch = array_slice($sandbox['nids'], $sandbox['offset'], $batch_size);
+  if (!empty($batch)) {
+    $nodes = $node_storage->loadMultiple($batch);
+    $node_storage->delete($nodes);
+    $sandbox['deleted'] += count($batch);
+    $sandbox['offset'] += $batch_size;
+  }
+
+  $sandbox['#finished'] = $sandbox['offset'] >= $sandbox['total'] ? 1 : $sandbox['offset'] / $sandbox['total'];
+
+  if ($sandbox['#finished'] >= 1) {
+    return "Deleted {$sandbox['deleted']} duplicate CiDeR resource node(s) ({$sandbox['total']} total queued).";
+  }
+
+  return "Deleted {$sandbox['deleted']} of {$sandbox['total']} duplicate CiDeR resource node(s)...";
 }
