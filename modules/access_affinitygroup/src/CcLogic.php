@@ -62,4 +62,25 @@ class CcLogic {
     return $domainClass === 'open-ondemand' ? 'openondemand' : 'support';
   }
 
+  /**
+   * TRUE when a refresh should be skipped because another process already did it.
+   *
+   * Constant Contact rotates refresh tokens, so a caller that is about to refresh
+   * a token which has changed in storage since it last read it must adopt the
+   * newly-stored token instead of refreshing again (a second rotation would
+   * invalidate the token the other process just stored).
+   *
+   * @param string|null $usedRefreshToken
+   *   The refresh token this caller read before contending for the lock.
+   * @param string|null $currentStoredRefreshToken
+   *   The refresh token currently in state, re-read after acquiring the lock.
+   */
+  public static function shouldSkipRefresh(?string $usedRefreshToken, ?string $currentStoredRefreshToken): bool {
+    // Nothing stored, or unchanged: this caller should perform the refresh.
+    if ($currentStoredRefreshToken === NULL || $currentStoredRefreshToken === '') {
+      return FALSE;
+    }
+    return $currentStoredRefreshToken !== $usedRefreshToken;
+  }
+
 }

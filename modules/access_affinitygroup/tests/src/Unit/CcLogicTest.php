@@ -89,4 +89,29 @@ class CcLogicTest extends UnitTestCase {
     ];
   }
 
+  /**
+   * @covers ::shouldSkipRefresh
+   * @dataProvider skipRefreshCases
+   */
+  public function testShouldSkipRefresh(?string $usedRefreshToken, ?string $currentStoredRefreshToken, bool $expected): void {
+    $this->assertSame($expected, CcLogic::shouldSkipRefresh($usedRefreshToken, $currentStoredRefreshToken));
+  }
+
+  /**
+   * Data provider for testShouldSkipRefresh().
+   */
+  public static function skipRefreshCases(): array {
+    return [
+      // Token unchanged in storage: this caller performs the refresh.
+      'unchanged token' => ['tok-a', 'tok-a', FALSE],
+      // Someone else rotated since we read it: skip the redundant rotation.
+      'changed token' => ['tok-a', 'tok-b', TRUE],
+      // Nothing stored yet: this caller performs the refresh.
+      'empty current stored' => ['tok-a', '', FALSE],
+      'null current stored' => ['tok-a', NULL, FALSE],
+      // We read nothing but a token now exists: another process rotated, skip.
+      'null used, non-empty current' => [NULL, 'tok-b', TRUE],
+    ];
+  }
+
 }

@@ -285,9 +285,60 @@ class ConstantContactApi {
    * Refresh Constant Contact Token and set new ones.
    */
   public function newToken() {
-    try {
-      $refreshToken = $this->refreshToken;
+    $env = $this->environment;
+    // Capture the refresh token from a FRESH read before contending for the
+    // lock. Use getRefreshToken() (the per-env string) rather than
+    // $this->refreshToken, whose format historically differed between get/set.
+    // The same value is compared in shouldSkipRefresh() AND sent in the POST
+    // body, so the comparison operand and the refresh payload are identical.
+    $usedRefresh = $this->getRefreshToken();
+    $lockName = 'access_affinitygroup.cc_token_refresh.' . $env;
+    $lock = \Drupal::lock();
 
+    // Fail-closed acquire. A caller may only rotate while holding the lock; the
+    // 60s lifetime is the stale-lock self-heal (DatabaseLockBackend has no
+    // lock-age API) — a crashed holder cannot block sends for over a minute.
+    $haveLock = $lock->acquire($lockName, 60);
+    if (!$haveLock) {
+      // Holder is mid-refresh. If they already rotated, adopt and go (no wait).
+      if (CcLogic::shouldSkipRefresh($usedRefresh, $this->getRefreshToken())) {
+        $this->accessToken = $this->getAppToken();
+        \Drupal::logger('access_affinitygroup')->notice(
+          'CC token already refreshed by another process for env @env; skipping redundant refresh.',
+          ['@env' => $env]
+        );
+        return;
+      }
+      // Wait once for the holder to finish, then try to take the lock.
+      $lock->wait($lockName, 5);
+      $haveLock = $lock->acquire($lockName, 60);
+      if (!$haveLock) {
+        // Still contended. Do NOT rotate without the lock — a second concurrent
+        // rotation would invalidate the other process's freshly-stored token.
+        // Fall through to the caller's honest-failure path instead.
+        \Drupal::logger('access_affinitygroup')->warning(
+          'CC token refresh contended for env @env; another process holds the refresh lock, not refreshing this call.',
+          ['@env' => $env]
+        );
+        return;
+      }
+    }
+
+    // We hold the lock. Re-read: a changed refresh token means another process
+    // rotated while we waited. It is written AFTER the access token in the
+    // success path below, so a changed refresh token guarantees the new access
+    // token is already stored — adopt it and skip a redundant rotation.
+    if (CcLogic::shouldSkipRefresh($usedRefresh, $this->getRefreshToken())) {
+      $this->accessToken = $this->getAppToken();
+      \Drupal::logger('access_affinitygroup')->notice(
+        'CC token already refreshed by another process for env @env; skipping redundant refresh.',
+        ['@env' => $env]
+      );
+      $lock->release($lockName);
+      return;
+    }
+
+    try {
       $clientId = $this->clientId;
       $clientSecret = $this->clientSecret;
       // Use cURL to get a new access token and refresh token.
@@ -296,9 +347,15 @@ class ConstantContactApi {
       // Define base URL.
       $base = 'https://authz.constantcontact.com/oauth2/default/v1/token';
 
-      // Create full request URL.
-      $url = $base . '?refresh_token=' . $refreshToken . '&grant_type=refresh_token';
-      curl_setopt($ch, CURLOPT_URL, $url);
+      // Send the refresh token in the POST body, not the URL query string —
+      // query strings are logged by web servers, proxies, and CDNs far more
+      // readily than POST bodies. http_build_query() also url-encodes the
+      // token, which the old string concatenation never did.
+      curl_setopt($ch, CURLOPT_URL, $base);
+      curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
+        'refresh_token' => $usedRefresh,
+        'grant_type' => 'refresh_token',
+      ]));
 
       // Set authorization header
       // Make string of "API_KEY:SECRET".
@@ -321,9 +378,10 @@ class ConstantContactApi {
       $httpCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
       curl_close($ch);
 
-      $env = $this->environment;
-
       if (!isset($result->error)) {
+        // Write-ordering invariant: access token BEFORE refresh token, so a
+        // changed refresh token in state guarantees the new access token is
+        // already stored (the skip path above relies on this). Do not reorder.
         $this->setAccessToken($result->access_token);
         $this->setRefreshToken($result->refresh_token);
         \Drupal::logger('access_affinitygroup')->notice("Constant Contact: new access_token and refresh_token stored $env");
@@ -353,6 +411,10 @@ class ConstantContactApi {
     }
     catch (\Exception $e) {
       \Drupal::logger('access_affinitygroup')->notice('Exception in new token: ' . $e->getMessage());
+    }
+    finally {
+      // Release on every exit path (success, CC error, exception).
+      $lock->release($lockName);
     }
   }
 
@@ -640,10 +702,9 @@ class ConstantContactApi {
 
     $token_array = $tokenjson ? json_decode($tokenjson, TRUE) : [];
     $token_array[$env] = $access_token;
-    $access_token = json_encode($token_array);
-
+    \Drupal::state()->set('access_affinitygroup.access_token', json_encode($token_array));
+    // Store the per-env value (symmetric with getAppToken()), not the JSON blob.
     $this->accessToken = $access_token;
-    \Drupal::state()->set('access_affinitygroup.access_token', $access_token);
   }
 
   /**
@@ -698,10 +759,9 @@ class ConstantContactApi {
 
     $token_array = $tokenjson ? json_decode($tokenjson, TRUE) : [];
     $token_array[$env] = $refresh_token;
-    $refresh_token = json_encode($token_array);
-
+    \Drupal::state()->set('access_affinitygroup.refresh_token', json_encode($token_array));
+    // Store the per-env value (symmetric with getRefreshToken()), not the JSON blob.
     $this->refreshToken = $refresh_token;
-    \Drupal::state()->set('access_affinitygroup.refresh_token', $refresh_token);
   }
 
   /*
