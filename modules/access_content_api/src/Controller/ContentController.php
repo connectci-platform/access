@@ -103,7 +103,13 @@ final class ContentController extends ControllerBase {
     }
 
     $alias = $this->aliasManager->getAliasByPath('/node/' . $nid);
-    $html = $this->layoutWalker->render($node);
+
+    $cacheMetadata = new CacheableMetadata();
+    $cacheMetadata->addCacheTags(['node:' . $nid]);
+    $cacheMetadata->setCacheMaxAge(self::CACHE_MAX_AGE);
+    $cacheMetadata->setCacheContexts(['user.roles:anonymous']);
+
+    $html = $this->layoutWalker->render($node, $cacheMetadata);
     $text = $this->textExtractor->extract($html);
 
     $data = [
@@ -115,11 +121,6 @@ final class ContentController extends ControllerBase {
       'last_modified' => date('c', $changed),
       'text' => $text,
     ];
-
-    $cacheMetadata = new CacheableMetadata();
-    $cacheMetadata->addCacheTags(['node:' . $nid]);
-    $cacheMetadata->setCacheMaxAge(self::CACHE_MAX_AGE);
-    $cacheMetadata->setCacheContexts(['user.roles:anonymous']);
 
     $response = new CacheableJsonResponse($data);
     $response->addCacheableDependency($cacheMetadata);
@@ -156,7 +157,7 @@ final class ContentController extends ControllerBase {
    * Returns a 404 JSON response.
    */
   private function notFound(): Response {
-    return new Response('Not Found', 404, ['Content-Type' => 'application/json']);
+    return new Response(json_encode(['error' => 'Not Found']), 404, ['Content-Type' => 'application/json']);
   }
 
 }

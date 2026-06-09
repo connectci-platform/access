@@ -48,13 +48,13 @@ class TextExtractorTest extends UnitTestCase {
   }
 
   /**
-   * Tests that nested lists preserve item content.
+   * Tests that nested lists are indented two spaces per level.
    */
   public function testNestedListsIndent(): void {
     $html = '<ul><li>top<ul><li>nested</li></ul></li></ul>';
     $result = $this->extractor->extract($html);
-    $this->assertStringContainsString('top', $result);
-    $this->assertStringContainsString('nested', $result);
+    $this->assertMatchesRegularExpression('/^- top/m', $result);
+    $this->assertMatchesRegularExpression('/^  - nested/m', $result);
   }
 
   /**

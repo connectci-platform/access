@@ -10,3 +10,8 @@ services:
       - '@plugin.manager.block'
       - '@renderer'
       - '@current_user'
+      - '@logger.channel.access_content_api'
+
+  logger.channel.access_content_api:
+    parent: logger.channel_base
+    arguments: ['access_content_api']
