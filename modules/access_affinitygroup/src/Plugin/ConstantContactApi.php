@@ -2,6 +2,8 @@
 
 namespace Drupal\access_affinitygroup\Plugin;
 
+use Drupal\access_affinitygroup\CcLogic;
+
 /**
  * Make Constant Contact api call.
  */
@@ -85,34 +87,38 @@ class ConstantContactApi {
       $this->supressErrDisplay = FALSE;
 
       if (empty($this->clientSecret) || empty($this->clientId)) {
-        $policy = 'affinitygroup';
-        $policy_subtype = 'cc_error';
-        $role = 'site_developer';
-        $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-        if (!empty($site_dev_emails)) {
-          $message = t('Constant Contact: client id or secret not set.');
-          $variables = [
-            'message' => $message,
-          ];
+        if (CcLogic::isLiveEnv(getenv('PANTHEON_ENVIRONMENT') ?: NULL)) {
+          $policy = 'affinitygroup';
+          $policy_subtype = 'cc_error';
+          $role = 'site_developer';
+          $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
+          if (!empty($site_dev_emails)) {
+            $message = t('Constant Contact: client id or secret not set.');
+            $variables = [
+              'message' => $message,
+            ];
 
-          \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+            \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+          }
         }
       }
     }
     catch (\Exception $e) {
-      $policy = 'affinitygroup';
-      $policy_subtype = 'cc_error';
-      $role = 'site_developer';
-      $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-
       \Drupal::logger('access_affinitygroup')->notice('Exception in constantContactApi constructor: ' . $e->getMessage());
 
-      if (!empty($site_dev_emails)) {
-        $message = t('Exception in constantContactApi constructor: ') . $e->getMessage();
-        $variables = [
-          'message' => $message,
-        ];
-        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+      if (CcLogic::isLiveEnv(getenv('PANTHEON_ENVIRONMENT') ?: NULL)) {
+        $policy = 'affinitygroup';
+        $policy_subtype = 'cc_error';
+        $role = 'site_developer';
+        $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
+
+        if (!empty($site_dev_emails)) {
+          $message = t('Exception in constantContactApi constructor: ') . $e->getMessage();
+          $variables = [
+            'message' => $message,
+          ];
+          \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+        }
       }
     }
   }
@@ -122,6 +128,13 @@ class ConstantContactApi {
    */
   public function setSupressErrDisplay($v) {
     $this->supressErrDisplay = $v;
+  }
+
+  /**
+   * The HTTP status code from the most recent apiCall().
+   */
+  public function getHttpResponseCode() {
+    return $this->httpResponseCode;
   }
 
   /**
@@ -184,24 +197,15 @@ class ConstantContactApi {
    * Get the current environment.
    */
   public function getEnvironment() {
-    $env = getenv('PANTHEON_ENVIRONMENT');
-    $forcedToken = \Drupal::state()->get('access_affinitygroup.forcedTokenSettings');
+    $pantheonEnv = getenv('PANTHEON_ENVIRONMENT');
+    $forced = \Drupal::state()->get('access_affinitygroup.forcedTokenSettings');
+    $domainClass = \Drupal::service('access_misc.sitetools')->getDomain();
 
-    if ($env == 'local') {
-      $env = 'test';
-    }
-    else {
-      $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
-
-      if ($current_domain_name == 'open-ondemand') {
-        $env = 'openondemand';
-      }
-      else {
-        $env = 'support';
-      }
-    }
-
-    $env = $forcedToken ? $forcedToken : $env;
+    $env = CcLogic::resolveCcEnvironment(
+      $pantheonEnv === FALSE ? NULL : $pantheonEnv,
+      $domainClass,
+      $forced ?: NULL
+    );
 
     $this->environment = $env;
 
@@ -330,18 +334,20 @@ class ConstantContactApi {
         \Drupal::logger('access_affinitygroup')->error("Token Error: env $env");
         $this->apiError($result->error, $result->error_description);
 
-        $policy = 'affinitygroup';
-        $policy_subtype = 'cc_error';
-        $role = 'site_developer';
-        $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
+        if (CcLogic::isLiveEnv(getenv('PANTHEON_ENVIRONMENT') ?: NULL)) {
+          $policy = 'affinitygroup';
+          $policy_subtype = 'cc_error';
+          $role = 'site_developer';
+          $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
 
-        if (!empty($site_dev_emails)) {
-          $host = \Drupal::request()->getSchemeAndHttpHost();
-          $message = 'New token error at host ' . $host . '. See logs for access_affinitygroup.';
-          $variables = [
-            'message' => $message,
-          ];
-          \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+          if (!empty($site_dev_emails)) {
+            $host = \Drupal::request()->getSchemeAndHttpHost();
+            $message = 'New token error at host ' . $host . '. See logs for access_affinitygroup.';
+            $variables = [
+              'message' => $message,
+            ];
+            \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+          }
         }
       }
     }
@@ -446,6 +452,38 @@ class ConstantContactApi {
       return $this->apiCall($endpoint, $post_data, $type, $retryCount + 1);
     }
 
+    // A 401 means the access token expired. Refresh once using the stored
+    // refresh token, then retry the original call a single time. Guard with
+    // $retryCount so a persistently-bad token cannot loop.
+    //
+    // LIVE ONLY (CcLogic::isLiveEnv): refreshing rotates the shared refresh
+    // token and would invalidate live's tokens if done from a non-live env
+    // (same root-cause guard as the cron refresh in access_affinitygroup_cron).
+    // On non-live a 401 falls through to the normal error path and surfaces the
+    // honest failure message rather than silently rotating a live token slot.
+    // NOTE: this guards on the Pantheon env, not the resolved CC env — so when
+    // the forced-override escape hatch points a multidev at a live account, a
+    // 401 there will NOT auto-refresh. That is intentional (see the testing
+    // section): only live may rotate live tokens.
+    $pantheonEnv = getenv('PANTHEON_ENVIRONMENT');
+    if ($this->httpResponseCode == 401 && $retryCount < 1 && CcLogic::isLiveEnv($pantheonEnv === FALSE ? NULL : $pantheonEnv)) {
+      \Drupal::logger('access_affinitygroup')->notice(
+        'Constant Contact 401 on @endpoint; attempting token refresh and one retry.',
+        ['@endpoint' => $endpoint]
+      );
+      // Suppress raw CC error display during the refresh so a failed refresh
+      // does not dump a technical error on top of the caller's user-facing
+      // message (e.g. the honest "could not confirm" send message). Restore
+      // the prior setting afterward.
+      $prevSupress = $this->supressErrDisplay;
+      $this->setSupressErrDisplay(TRUE);
+      $this->newToken();
+      $this->setSupressErrDisplay($prevSupress);
+      // newToken() persists and sets $this->accessToken on success; pick it up.
+      $this->accessToken = $this->getAppToken();
+      return $this->apiCall($endpoint, $post_data, $type, $retryCount + 1);
+    }
+
     // Skip error logging for 409 Conflict — callers like addContact() handle
     // this by extracting the existing contact ID from the error response.
     if ($this->httpResponseCode != 409) {
@@ -453,11 +491,10 @@ class ConstantContactApi {
       if (!empty($errMsg)) {
         $this->apiError($errMsg, "");
       }
-      else {
-        if (empty($returned_result)) {
-          $this->apiError("Error from Constant Contact: no result", "");
-          return NULL;
-        }
+      elseif (!CcLogic::httpSucceeded($this->httpResponseCode) && empty($returned_result)) {
+        // Non-2xx with no body: a genuine failure with no parseable detail.
+        $this->apiError("Error from Constant Contact: no result", "");
+        return NULL;
       }
     }
 
