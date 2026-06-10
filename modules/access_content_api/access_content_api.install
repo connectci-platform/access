@@ -1,0 +1,32 @@
+<?php
+
+/**
+ * @file
+ * Install and update hooks for Access Content API.
+ */
+
+/**
+ * Populate access_content_api.settings on existing sites.
+ *
+ * config/install only runs on a fresh module install, so sites that updated to
+ * this version have empty settings, which would make every endpoint serve
+ * nothing (empty support domain id / view mode). Seed the defaults for any
+ * value not already set, leaving admin overrides intact.
+ */
+function access_content_api_update_10001(): void {
+  $config = \Drupal::configFactory()->getEditable('access_content_api.settings');
+  $defaults = [
+    'support_domain_id' => 'amp_cyberinfrastructure_org',
+    'text_view_mode' => 'text',
+  ];
+  $changed = FALSE;
+  foreach ($defaults as $key => $value) {
+    if (empty($config->get($key))) {
+      $config->set($key, $value);
+      $changed = TRUE;
+    }
+  }
+  if ($changed) {
+    $config->save();
+  }
+}
