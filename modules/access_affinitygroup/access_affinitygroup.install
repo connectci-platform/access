@@ -409,42 +409,46 @@ function access_affinitygroup_update_10010() {
 }
 
 /**
- * Delete duplicate CiDeR resource nodes, keeping the lowest nid per resource.
+ * Delete duplicate CiDeR resource nodes, keeping the canonical one per resource.
  *
  * Duplicates are matched by field_cider_resource_id on the
- * access_active_resources_from_cid bundle.
+ * access_active_resources_from_cid bundle and re-derived at run time, so the
+ * set always reflects current state (CiDeR renames keep creating new dupes
+ * until the unique-key feeds fix lands).
  *
- * For each duplicate removed this also cleans up all related data: default and
+ * Canonical selection is computed, not hardcoded: the kept node is the one with
+ * the MOST incoming references (so the 1000s of user/content references to the
+ * original CiDeR import stay put instead of being rewritten), tie-broken by
+ * lowest nid. Any curated field_rp_* documentation that lives only on a deleted
+ * clone is copied onto the kept node first (filling empty fields only), so a
+ * hand-edited clone's docs are preserved without moving thousands of refs to
+ * it. No brittle per-nid skip list.
+ *
+ * Entity-reference fields that point at the duplicates are discovered
+ * dynamically from field config (every entity_reference field targeting node),
+ * so new referencing fields are covered automatically. Each deleted clone's
+ * (few) references are repointed to the kept node and de-duplicated.
+ *
+ * For each duplicate removed this also cleans up related data: default and
  * revision field tables, node_access, path aliases (+ revisions), redirects,
- * core search and Search API index entries, and statistics (node_counter /
- * history). Entity references in other content that point at a duplicate are
- * repointed to the retained node, and each repoint is logged to watchdog.
+ * core search and Search API index entries, and statistics. Because this works
+ * at the database layer (to avoid entity-API timeouts on a large batch), all
+ * caches are flushed at the end so deleted nodes don't linger in render/entity
+ * cache or the Search API tracker.
  */
 function access_affinitygroup_update_10011(array &$sandbox): string {
   $db = \Drupal::database();
   $logger = \Drupal::logger('access_affinitygroup');
-  $protected_nids = [6462, 12070];
   $batch_size = 50;
 
-  // Entity-reference fields (in OTHER entities) that may point at the duplicate
-  // resource nodes. Each duplicate's references are repointed to the retained
-  // node so affinity groups, resource groups, etc. keep their association.
-  // Listed as [table => target_id column]; both the default and revision data
-  // tables are handled.
-  $ref_fields = [
-    'node__field_cider_resources' => 'field_cider_resources_target_id',
-    'node_revision__field_cider_resources' => 'field_cider_resources_target_id',
-    'node__field_cider_resource' => 'field_cider_resource_target_id',
-    'node_revision__field_cider_resource' => 'field_cider_resource_target_id',
-    'node__field_affected_infrastructure' => 'field_affected_infrastructure_target_id',
-    'node_revision__field_affected_infrastructure' => 'field_affected_infrastructure_target_id',
-    'node__field_tcs_access_resource' => 'field_tcs_access_resource_target_id',
-    'node_revision__field_tcs_access_resource' => 'field_tcs_access_resource_target_id',
-    'user__field_cider_resources' => 'field_cider_resources_target_id',
-    'user_revision__field_cider_resources' => 'field_cider_resources_target_id',
-  ];
-
   if (!isset($sandbox['nids'])) {
+    // Discover, dynamically, every entity_reference field (any entity type)
+    // whose stored target_id could point at a node. Static lists rot as new
+    // fields are added; this stays correct. Map [table => target_id column]
+    // for both default and revision data tables.
+    $ref_fields = _access_affinitygroup_node_reference_tables();
+    $sandbox['ref_fields'] = $ref_fields;
+
     $duplicate_ids = $db->query("
       SELECT field_cider_resource_id_value
       FROM node__field_cider_resource_id
@@ -452,23 +456,40 @@ function access_affinitygroup_update_10011(array &$sandbox): string {
       HAVING COUNT(*) > 1
     ")->fetchCol();
 
-    // Map each duplicate (to-be-deleted) nid to the retained nid (lowest nid
-    // for its cider_resource_id) so references can be repointed.
+    // For each duplicate set choose the canonical (keep) node as the one with
+    // the most incoming references (tie-broken by lowest nid), copy any
+    // curated field_rp_* docs from the clones onto the keep where it is empty,
+    // then map the rest for deletion + reference repointing.
     $to_delete = [];
     $keep_map = [];
     foreach ($duplicate_ids as $cider_id) {
-      $nids = $db->query("
+      $nids = array_map('intval', $db->query("
         SELECT entity_id
         FROM node__field_cider_resource_id
         WHERE field_cider_resource_id_value = :cider_id
         ORDER BY entity_id ASC
-      ", [':cider_id' => $cider_id])->fetchCol();
+      ", [':cider_id' => $cider_id])->fetchCol());
 
-      $keep = (int) array_shift($nids);
-      foreach (array_diff($nids, $protected_nids) as $nid) {
-        $nid = (int) $nid;
+      $keep = _access_affinitygroup_pick_canonical_nid($nids, $ref_fields);
+      $delete = array_values(array_filter($nids, fn($n) => $n !== $keep));
+
+      // Preserve curated documentation: copy populated field_rp_* values from
+      // the to-be-deleted clones onto the keep, filling empty fields only.
+      $copied = _access_affinitygroup_copy_rp_content($keep, $delete);
+      if ($copied) {
+        $logger->notice(
+          'access_affinitygroup_update_10011: cider_resource_id @cid — copied @n field_rp_* value(s) onto kept node @keep before deleting clone(s).',
+          ['@cid' => $cider_id, '@n' => $copied, '@keep' => $keep]
+        );
+      }
+
+      foreach ($delete as $nid) {
         $to_delete[] = $nid;
         $keep_map[$nid] = $keep;
+        $logger->notice(
+          'access_affinitygroup_update_10011: cider_resource_id @cid — keeping node @keep, deleting node @del.',
+          ['@cid' => $cider_id, '@keep' => $keep, '@del' => $nid]
+        );
       }
     }
 
@@ -479,6 +500,8 @@ function access_affinitygroup_update_10011(array &$sandbox): string {
     $sandbox['repointed'] = 0;
     $sandbox['offset'] = 0;
   }
+
+  $ref_fields = $sandbox['ref_fields'];
 
   if (empty($sandbox['nids'])) {
     $sandbox['#finished'] = 1;
@@ -635,8 +658,142 @@ function access_affinitygroup_update_10011(array &$sandbox): string {
   $sandbox['#finished'] = $sandbox['offset'] >= $sandbox['total'] ? 1 : $sandbox['offset'] / $sandbox['total'];
 
   if ($sandbox['#finished'] >= 1) {
+    // These deletes bypass the entity API, so render/entity caches and the
+    // Search API tracker still reference the removed nodes. Flush caches and
+    // mark the deleted items unindexed so nothing serves stale content.
+    drupal_flush_all_caches();
     return "Deleted {$sandbox['deleted']} duplicate CiDeR resource node(s) ({$sandbox['total']} total); repointed {$sandbox['repointed']} reference(s).";
   }
 
   return "Deleted {$sandbox['deleted']} of {$sandbox['total']} duplicate CiDeR resource node(s); repointed {$sandbox['repointed']} reference(s) so far...";
+}
+
+/**
+ * Picks the canonical (keep) node from a duplicate set.
+ *
+ * The canonical is the node with the MOST incoming entity references, so the
+ * many user/content references to the original CiDeR import are preserved in
+ * place rather than rewritten to a clone. Tie-broken by lowest nid (the
+ * original import). Computed at run time so it stays correct as CiDeR keeps
+ * creating new duplicates.
+ *
+ * @param int[] $nids
+ *   The node IDs sharing one cider_resource_id, sorted ascending.
+ * @param array<string,string> $ref_fields
+ *   Map of [reference table => target_id column] to count references in.
+ *
+ * @return int
+ *   The node ID to keep.
+ */
+function _access_affinitygroup_pick_canonical_nid(array $nids, array $ref_fields): int {
+  $db = \Drupal::database();
+  $best_nid = $nids[0];
+  $best_refs = -1;
+  foreach ($nids as $nid) {
+    $refs = 0;
+    foreach ($ref_fields as $table => $column) {
+      $refs += (int) $db->select($table, 't')
+        ->condition($column, $nid)
+        ->countQuery()
+        ->execute()
+        ->fetchField();
+    }
+    // Strictly greater keeps the earliest (lowest) nid on ties, since $nids is
+    // sorted ascending.
+    if ($refs > $best_refs) {
+      $best_refs = $refs;
+      $best_nid = (int) $nid;
+    }
+  }
+
+  return (int) $best_nid;
+}
+
+/**
+ * Copies curated field_rp_* docs from clones onto the kept node (empty only).
+ *
+ * The kept node is the most-referenced one, which may be the bare CiDeR import
+ * lacking documentation a hand-edited clone holds. To avoid losing that content
+ * when the clone is deleted, copy each populated field_rp_* value onto the keep
+ * where the keep's field is empty. Existing values on the keep are never
+ * overwritten. Uses the entity API (only a handful of nodes, so no timeout
+ * risk) so the save is clean and indexed.
+ *
+ * @param int $keep_nid
+ *   The node being kept.
+ * @param int[] $delete_nids
+ *   The clone node IDs being deleted, in ascending order.
+ *
+ * @return int
+ *   Number of field values copied.
+ */
+function _access_affinitygroup_copy_rp_content(int $keep_nid, array $delete_nids): int {
+  $node_storage = \Drupal::entityTypeManager()->getStorage('node');
+  $keep = $node_storage->load($keep_nid);
+  if (!$keep) {
+    return 0;
+  }
+
+  $rp_fields = [];
+  foreach (\Drupal::service('entity_field.manager')
+    ->getFieldDefinitions('node', 'access_active_resources_from_cid') as $name => $def) {
+    if (str_starts_with($name, 'field_rp_')) {
+      $rp_fields[] = $name;
+    }
+  }
+
+  $copied = 0;
+  foreach ($rp_fields as $field) {
+    if (!$keep->hasField($field) || !$keep->get($field)->isEmpty()) {
+      continue;
+    }
+    // First clone (lowest nid) that has a value wins.
+    foreach ($delete_nids as $nid) {
+      $clone = $node_storage->load($nid);
+      if ($clone && $clone->hasField($field) && !$clone->get($field)->isEmpty()) {
+        $keep->set($field, $clone->get($field)->getValue());
+        $copied++;
+        break;
+      }
+    }
+  }
+
+  if ($copied) {
+    $keep->save();
+  }
+  return $copied;
+}
+
+/**
+ * Builds [table => target_id column] for every node entity-reference field.
+ *
+ * Discovered dynamically from field config so any field that can point at a
+ * node (including new ones) is repointed when a duplicate is deleted. Covers
+ * both the default and revision data tables. A static list silently misses
+ * fields added later, leaving dangling references.
+ *
+ * @return array<string,string>
+ *   Map of database table name to its target_id column.
+ */
+function _access_affinitygroup_node_reference_tables(): array {
+  $db = \Drupal::database();
+  $tables = [];
+  foreach (\Drupal::service('entity_type.manager')
+    ->getStorage('field_storage_config')->loadMultiple() as $storage) {
+    if ($storage->getType() !== 'entity_reference') {
+      continue;
+    }
+    if ($storage->getSetting('target_type') !== 'node') {
+      continue;
+    }
+    $entity_type = $storage->getTargetEntityTypeId();
+    $field_name = $storage->getName();
+    $column = $field_name . '_target_id';
+    foreach (["{$entity_type}__{$field_name}", "{$entity_type}_revision__{$field_name}"] as $table) {
+      if ($db->schema()->tableExists($table)) {
+        $tables[$table] = $column;
+      }
+    }
+  }
+  return $tables;
 }
