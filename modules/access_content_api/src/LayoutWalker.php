@@ -18,8 +18,6 @@ use Psr\Log\LoggerInterface;
  */
 class LayoutWalker {
 
-  const TEXT_VIEW_MODE = 'text';
-
   const DENYLIST_EXACT = [
     'field_block:node:page:comment_node_page',
     'field_block:node:page:field_image',
@@ -40,6 +38,7 @@ class LayoutWalker {
     protected RendererInterface $renderer,
     protected AccountInterface $currentUser,
     protected LoggerInterface $logger,
+    protected ContentEligibility $eligibility,
   ) {}
 
   /**
@@ -102,7 +101,7 @@ class LayoutWalker {
    */
   private function renderFallback(NodeInterface $node, CacheableMetadata $cacheMetadata): string {
     $view_builder = $this->entityTypeManager->getViewBuilder('node');
-    $build = $view_builder->view($node, self::TEXT_VIEW_MODE);
+    $build = $view_builder->view($node, $this->eligibility->getTextViewMode());
     $html = '';
     $context = new RenderContext();
     $this->renderer->executeInRenderContext($context, function () use (&$html, $build) {
@@ -127,7 +126,7 @@ class LayoutWalker {
         $plugin->setContextValue('entity', $node);
       }
       if (isset($contexts['view_mode'])) {
-        $plugin->setContextValue('view_mode', self::TEXT_VIEW_MODE);
+        $plugin->setContextValue('view_mode', $this->eligibility->getTextViewMode());
       }
 
       $build = $plugin->build();

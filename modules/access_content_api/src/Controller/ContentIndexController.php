@@ -2,10 +2,10 @@
 
 namespace Drupal\access_content_api\Controller;
 
+use Drupal\access_content_api\ContentEligibility;
 use Drupal\Core\Cache\CacheableJsonResponse;
 use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\Core\Entity\EntityDisplayRepositoryInterface;
 use Drupal\path_alias\AliasManagerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -14,13 +14,11 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  */
 final class ContentIndexController extends ControllerBase {
 
-  const SUPPORT_DOMAIN_ID = 'amp_cyberinfrastructure_org';
-  const TEXT_VIEW_MODE = 'text';
   const CACHE_MAX_AGE = 900;
 
   public function __construct(
     protected AliasManagerInterface $aliasManager,
-    protected EntityDisplayRepositoryInterface $entityDisplayRepository,
+    protected ContentEligibility $eligibility,
   ) {}
 
   /**
@@ -29,7 +27,7 @@ final class ContentIndexController extends ControllerBase {
   public static function create(ContainerInterface $container): static {
     return new static(
       $container->get('path_alias.manager'),
-      $container->get('entity_display.repository'),
+      $container->get('access_content_api.eligibility'),
     );
   }
 
@@ -43,22 +41,29 @@ final class ContentIndexController extends ControllerBase {
       ->accessCheck(TRUE)
       ->condition('type', 'page')
       ->condition('status', 1)
-      ->condition('field_domain_access', self::SUPPORT_DOMAIN_ID)
       ->sort('nid', 'ASC');
+
+    // Match isOnSupportDomain(): a node qualifies if it is assigned to the
+    // support domain OR flagged "all affiliates" (site-wide public). The index
+    // must agree with the per-id endpoint, or the two will disagree.
+    $domainOrAffiliates = $query->orConditionGroup()
+      ->condition('field_domain_access', $this->eligibility->getSupportDomainId())
+      ->condition('field_domain_all_affiliates', 1);
+    $query->condition($domainOrAffiliates);
 
     $nids = $query->execute();
 
     $pages = [];
     foreach ($nodeStorage->loadMultiple($nids) as $node) {
-      if (!$this->hasTextViewMode($node->bundle())) {
+      if (!$this->eligibility->hasTextViewMode($node->bundle())) {
         continue;
       }
       $nid = $node->id();
       $alias = $this->aliasManager->getAliasByPath('/node/' . $nid);
       $pages[] = [
         'title' => $node->label(),
-        'path' => $alias,
-        'content_url' => '/api/1.0/content/' . $nid,
+        'path' => $this->eligibility->supportDomainUrl($alias),
+        'content_url' => $this->eligibility->supportDomainUrl('/api/1.0/content/' . $nid),
         'last_modified' => date('c', $node->getChangedTime()),
         'content_type' => $node->bundle(),
       ];
@@ -82,14 +87,6 @@ final class ContentIndexController extends ControllerBase {
     $response->addCacheableDependency($cacheMetadata);
 
     return $response;
-  }
-
-  /**
-   * Checks whether a bundle has the text view mode configured.
-   */
-  private function hasTextViewMode(string $bundle): bool {
-    $modes = $this->entityDisplayRepository->getViewModeOptionsByBundle('node', $bundle);
-    return isset($modes[self::TEXT_VIEW_MODE]);
   }
 
 }

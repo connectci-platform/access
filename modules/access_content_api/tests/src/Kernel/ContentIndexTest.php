@@ -55,6 +55,59 @@ class ContentIndexTest extends ContentApiKernelTestBase {
   }
 
   /**
+   * All-affiliates pages appear in the index (parity with the per-id endpoint).
+   *
+   * Such nodes have empty field_domain_access but are site-wide public, so the
+   * index must not filter them out — otherwise the index and detail disagree.
+   */
+  public function testIndexIncludesAllAffiliatesPages(): void {
+    $node = $this->createPage([
+      'title' => 'All Affiliates Index Page',
+      'field_domain_access' => [],
+      'field_domain_all_affiliates' => 1,
+    ]);
+
+    $controller = \Drupal::classResolver()->getInstanceFromDefinition(
+      ContentIndexController::class
+    );
+    $data = json_decode($controller->index()->getContent(), TRUE);
+
+    $titles = array_column($data['pages'], 'title');
+    $this->assertContains('All Affiliates Index Page', $titles);
+  }
+
+  /**
+   * Index entries expose absolute path and content_url for RAG citation.
+   */
+  public function testIndexUrlsAreAbsolute(): void {
+    $node = $this->createPage(['title' => 'Absolute URL Index Page']);
+    PathAlias::create([
+      'path' => '/node/' . $node->id(),
+      'alias' => '/index-abs',
+    ])->save();
+
+    $controller = \Drupal::classResolver()->getInstanceFromDefinition(
+      ContentIndexController::class
+    );
+    $response = $controller->index();
+    $data = json_decode($response->getContent(), TRUE);
+
+    $entry = NULL;
+    foreach ($data['pages'] as $page) {
+      if ($page['title'] === 'Absolute URL Index Page') {
+        $entry = $page;
+        break;
+      }
+    }
+    $this->assertNotNull($entry);
+    $this->assertSame('https://support.access-ci.org/index-abs', $entry['path']);
+    $this->assertSame(
+      'https://support.access-ci.org/api/1.0/content/' . $node->id(),
+      $entry['content_url']
+    );
+  }
+
+  /**
    * Tests that nodes assigned only to a different domain are excluded.
    *
    * Creates a second domain, then one page on the support domain and one

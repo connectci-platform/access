@@ -60,7 +60,7 @@ class ContentEndpointTest extends ContentApiKernelTestBase {
         'value' => '<p>Open OnDemand is an easy-to-use web portal.</p>',
         'format' => 'basic_html',
       ],
-      'field_domain_access' => [['target_id' => ContentController::SUPPORT_DOMAIN_ID]],
+      'field_domain_access' => [['target_id' => static::SUPPORT_DOMAIN_ID]],
     ]);
     $node->save();
 

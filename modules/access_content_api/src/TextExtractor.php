@@ -16,30 +16,49 @@ class TextExtractor {
     }
 
     // Remove style and script blocks entirely.
-    $text = preg_replace('/<(style|script)[^>]*>.*?<\/\1>/si', '', $html);
+    $text = $this->pregReplace('/<(style|script)[^>]*>.*?<\/\1>/si', '', $html);
 
-    // Expand anchors: <a href="url">label</a> → label (url).
-    $text = preg_replace_callback(
-      '/<a\s[^>]*href=["\']([^"\'#][^"\']*)["\'][^>]*>(.*?)<\/a>/si',
+    // Remove nav blocks (jump menus / tables of contents) entirely — they are
+    // navigation chrome, not content, and pollute RAG embeddings.
+    $text = $this->pregReplace('/<nav\b[^>]*>.*?<\/nav>/si', '', $text);
+
+    // Headings → markdown markers (## Heading) so chunkers get real section
+    // boundaries. Done before generic block handling so the level is known.
+    $text = $this->pregReplaceCallback(
+      '/<h([1-6])[^>]*>(.*?)<\/h\1>/si',
       function (array $m): string {
         $label = trim(strip_tags($m[2]));
-        $url = trim($m[1]);
         if ($label === '') {
-          return '';
+          return "\n";
+        }
+        return "\n" . str_repeat('#', (int) $m[1]) . ' ' . $label . "\n";
+      },
+      $text
+    );
+
+    // Expand anchors: <a href="url">label</a> → label (url).
+    // The opening quote is captured and backreferenced so the URL may contain
+    // the other quote character (e.g. an apostrophe in a double-quoted href)
+    // without being truncated.
+    $text = $this->pregReplaceCallback(
+      '/<a\s[^>]*href=(["\'])(#?)((?:(?!\1).)*)\1[^>]*>(.*?)<\/a>/si',
+      function (array $m): string {
+        // $m[2] is "#" for in-page anchors, which emit the label only.
+        $label = trim(strip_tags($m[4]));
+        $url = trim($m[3]);
+        if ($label === '' || $m[2] === '#') {
+          return $label;
         }
         return $label . ' (' . $url . ')';
       },
       $text
     );
 
-    // Drop internal anchors (#...) without emitting the URL.
-    $text = preg_replace('/<a\s[^>]*href=["\']#[^"\']*["\'][^>]*>(.*?)<\/a>/si', '$1', $text);
-
-    // Drop remaining anchors without href.
-    $text = preg_replace('/<a[^>]*>(.*?)<\/a>/si', '$1', $text);
+    // Drop remaining anchors (no href, or already handled above) to label.
+    $text = $this->pregReplace('/<a[^>]*>(.*?)<\/a>/si', '$1', $text);
 
     // Tables: simple rows → cell1 | cell2.
-    $text = preg_replace_callback(
+    $text = $this->pregReplaceCallback(
       '/<tr[^>]*>(.*?)<\/tr>/si',
       function (array $m): string {
         preg_match_all('/<t[dh][^>]*>(.*?)<\/t[dh]>/si', $m[1], $cells);
@@ -51,18 +70,18 @@ class TextExtractor {
       },
       $text
     );
-    $text = preg_replace('/<\/?table[^>]*>/si', "\n", $text);
+    $text = $this->pregReplace('/<\/?table[^>]*>/si', "\n", $text);
 
     // Lists: process innermost first, bubbling indentation outward.
     $text = $this->processLists($text);
 
     // Block-level tags → newlines.
     $block = 'p|div|h1|h2|h3|h4|h5|h6|ul|ol|dl|dt|dd|blockquote|pre|section|article|header|footer|nav|main|aside|figure|figcaption|details|summary';
-    $text = preg_replace('/<\/(' . $block . ')[^>]*>/si', "\n", $text);
-    $text = preg_replace('/<(' . $block . ')[^>]*>/si', "\n", $text);
+    $text = $this->pregReplace('/<\/(' . $block . ')[^>]*>/si', "\n", $text);
+    $text = $this->pregReplace('/<(' . $block . ')[^>]*>/si', "\n", $text);
 
     // <br> → newline.
-    $text = preg_replace('/<br\s*\/?>/si', "\n", $text);
+    $text = $this->pregReplace('/<br\s*\/?>/si', "\n", $text);
 
     // Strip remaining tags.
     $text = strip_tags($text);
@@ -70,13 +89,13 @@ class TextExtractor {
     // Decode HTML entities.
     $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
-    // Normalize whitespace: trim each line, collapse blank lines.
+    // Normalize whitespace: clean each line, collapse blank lines.
     $lines = explode("\n", $text);
-    $lines = array_map('rtrim', $lines);
     $normalized = [];
     $blankCount = 0;
     foreach ($lines as $line) {
-      if (trim($line) === '') {
+      $line = $this->normalizeLineWhitespace($line);
+      if ($line === '') {
         $blankCount++;
         if ($blankCount <= 1) {
           $normalized[] = '';
@@ -96,13 +115,13 @@ class TextExtractor {
    */
   private function processLists(string $html): string {
     for ($pass = 0; $pass < 20; $pass++) {
-      $new = preg_replace_callback(
+      $new = $this->pregReplaceCallback(
         '/<(ul|ol)[^>]*>((?:(?!<(?:ul|ol)[^>]*>).)*?)<\/(?:ul|ol)>/si',
         function (array $m): string {
-          $items = preg_replace_callback(
+          $items = $this->pregReplaceCallback(
             '/<li[^>]*>(.*?)<\/li>/si',
             function (array $li): string {
-              $content = preg_replace('/<br\s*\/?>/si', "\n", $li[1]);
+              $content = $this->pregReplace('/<br\s*\/?>/si', "\n", $li[1]);
               $raw = strip_tags($content);
               $lines = array_values(array_filter(
                 array_map('rtrim', explode("\n", $raw)),
@@ -137,6 +156,60 @@ class TextExtractor {
       $html = $new;
     }
     return $html;
+  }
+
+  /**
+   * Cleans a single line's whitespace.
+   *
+   * Preserves the list-structure indentation this class emits (pairs of
+   * leading spaces, optionally followed by a "- " bullet) so nested lists keep
+   * their shape, strips any other leading whitespace (tabs and ragged runs that
+   * leak from rendered layout markup), and collapses interior whitespace runs
+   * to a single space.
+   */
+  private function normalizeLineWhitespace(string $line): string {
+    // Preserve leading indentation ONLY for actual list items, which this class
+    // emits as pairs of leading spaces followed by a "- " bullet. Any other
+    // leading whitespace (tabs, ragged or even-length runs from rendered layout
+    // markup) is accidental and stripped.
+    $indent = '';
+    $bullet = '';
+    if (preg_match('/^((?:  )*)(- )/', $line, $prefix)) {
+      $indent = $prefix[1];
+      $bullet = $prefix[2];
+    }
+
+    // Collapse all whitespace (incl. tabs) to single spaces, then trim ends.
+    $content = substr($line, strlen($indent) + strlen($bullet));
+    $content = trim((string) $this->pregReplace('/\s+/', ' ', $content));
+
+    if ($content === '') {
+      return '';
+    }
+    return $indent . $bullet . $content;
+  }
+
+  /**
+   * NULL-safe preg_replace.
+   *
+   * preg_replace returns NULL when a limit (e.g. pcre.backtrack_limit) is hit,
+   * which would otherwise null out the whole text and propagate through the
+   * extraction chain. On failure, return the subject unchanged so only the
+   * offending fragment is left as-is rather than wiping all output.
+   */
+  private function pregReplace(string $pattern, string $replacement, string $subject): string {
+    $result = preg_replace($pattern, $replacement, $subject);
+    return $result ?? $subject;
+  }
+
+  /**
+   * NULL-safe preg_replace_callback.
+   *
+   * @see self::pregReplace()
+   */
+  private function pregReplaceCallback(string $pattern, callable $callback, string $subject): string {
+    $result = preg_replace_callback($pattern, $callback, $subject);
+    return $result ?? $subject;
   }
 
 }

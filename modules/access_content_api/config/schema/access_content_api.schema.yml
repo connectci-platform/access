@@ -1,0 +1,10 @@
+access_content_api.settings:
+  type: config_object
+  label: 'Access Content API settings'
+  mapping:
+    support_domain_id:
+      type: string
+      label: 'Support domain machine name'
+    text_view_mode:
+      type: string
+      label: 'View mode rendered for plain-text extraction'

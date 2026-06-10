@@ -2,12 +2,15 @@
 
 namespace Drupal\access_content_api\Controller;
 
+use Drupal\access_content_api\ContentEligibility;
 use Drupal\access_content_api\TextExtractor;
 use Drupal\access_content_api\LayoutWalker;
 use Drupal\Core\Cache\CacheableJsonResponse;
 use Drupal\Core\Cache\CacheableMetadata;
+use Drupal\Core\Cache\CacheableResponse;
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\Core\Entity\EntityDisplayRepositoryInterface;
+use Drupal\Core\Session\AccountInterface;
+use Drupal\Core\Session\AnonymousUserSession;
 use Drupal\node\NodeInterface;
 use Drupal\path_alias\AliasManagerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -19,15 +22,13 @@ use Symfony\Component\HttpFoundation\Response;
  */
 final class ContentController extends ControllerBase {
 
-  const SUPPORT_DOMAIN_ID = 'amp_cyberinfrastructure_org';
-  const TEXT_VIEW_MODE = 'text';
   const CACHE_MAX_AGE = 3600;
 
   public function __construct(
     protected AliasManagerInterface $aliasManager,
-    protected EntityDisplayRepositoryInterface $entityDisplayRepository,
     protected TextExtractor $textExtractor,
     protected LayoutWalker $layoutWalker,
+    protected ContentEligibility $eligibility,
   ) {}
 
   /**
@@ -36,9 +37,9 @@ final class ContentController extends ControllerBase {
   public static function create(ContainerInterface $container): static {
     return new static(
       $container->get('path_alias.manager'),
-      $container->get('entity_display.repository'),
       $container->get('access_content_api.text_extractor'),
       $container->get('access_content_api.layout_walker'),
+      $container->get('access_content_api.eligibility'),
     );
   }
 
@@ -47,6 +48,8 @@ final class ContentController extends ControllerBase {
    */
   public function byId(Request $request, int $id): Response {
     $node = $this->entityTypeManager()->getStorage('node')->load($id);
+    // The {id} route param is already part of the page cache key, so no extra
+    // cache context is needed to keep per-node responses distinct.
     return $this->buildResponse($request, $node);
   }
 
@@ -69,13 +72,19 @@ final class ContentController extends ControllerBase {
     }
 
     $node = $this->entityTypeManager()->getStorage('node')->load((int) $m[1]);
-    return $this->buildResponse($request, $node);
+    // This route reads the node from the ?path query arg, which is NOT part of
+    // the default page cache key, so the response must vary by it or the cache
+    // would serve one path's content for another.
+    return $this->buildResponse($request, $node, ['url.query_args:path']);
   }
 
   /**
    * Builds a cacheable JSON response for a node, or a 404.
+   *
+   * @param string[] $extraCacheContexts
+   *   Additional cache contexts the calling route requires.
    */
-  private function buildResponse(Request $request, mixed $node): Response {
+  private function buildResponse(Request $request, mixed $node, array $extraCacheContexts = []): Response {
     if (!$node instanceof NodeInterface) {
       return $this->notFound();
     }
@@ -84,11 +93,18 @@ final class ContentController extends ControllerBase {
       return $this->notFound();
     }
 
-    if (!$this->hasTextViewMode($node->bundle())) {
+    if (!$this->eligibility->hasTextViewMode($node->bundle())) {
       return $this->notFound();
     }
 
-    if (!$this->isOnSupportDomain($node)) {
+    if (!$this->eligibility->isOnSupportDomain($node)) {
+      return $this->notFound();
+    }
+
+    // Enforce node-access grants as the anonymous user, so this endpoint never
+    // serves content that an anonymous visitor (and the access-checked index)
+    // could not see. load() does not access-check, so this must be explicit.
+    if (!$node->access('view', $this->anonymousUser())) {
       return $this->notFound();
     }
 
@@ -96,18 +112,22 @@ final class ContentController extends ControllerBase {
     $changed = $node->getChangedTime();
     $etag = '"' . $nid . '-' . $changed . '"';
 
+    $cacheMetadata = new CacheableMetadata();
+    $cacheMetadata->addCacheTags(['node:' . $nid]);
+    $cacheMetadata->setCacheMaxAge(self::CACHE_MAX_AGE);
+    $cacheMetadata->setCacheContexts(array_merge(['user.roles:anonymous'], $extraCacheContexts));
+
     if ($request->headers->get('If-None-Match') === $etag) {
-      $response = new Response('', 304);
+      // Carry the same cache metadata as the 200 so cache layers vary the 304
+      // identically (notably url.query_args:path on the byPath route).
+      $response = new CacheableResponse('', 304);
       $response->headers->set('ETag', $etag);
+      $response->addCacheableDependency($cacheMetadata);
       return $response;
     }
 
     $alias = $this->aliasManager->getAliasByPath('/node/' . $nid);
-
-    $cacheMetadata = new CacheableMetadata();
-    $cacheMetadata->addCacheTags(['node:' . $nid]);
-    $cacheMetadata->setCacheMaxAge(self::CACHE_MAX_AGE);
-    $cacheMetadata->setCacheContexts(['user.roles:anonymous']);
+    $url = $this->eligibility->supportDomainUrl($alias);
 
     $html = $this->layoutWalker->render($node, $cacheMetadata);
     $text = $this->textExtractor->extract($html);
@@ -116,9 +136,12 @@ final class ContentController extends ControllerBase {
       'version' => 1,
       'id' => (int) $nid,
       'title' => $node->label(),
-      'path' => $alias,
+      'path' => $url,
       'content_type' => $node->bundle(),
       'last_modified' => date('c', $changed),
+      // Hash of the extracted text so consumers can skip re-embedding pages
+      // whose content is unchanged even when last_modified shifts.
+      'content_hash' => hash('sha256', $text),
       'text' => $text,
     ];
 
@@ -131,26 +154,10 @@ final class ContentController extends ControllerBase {
   }
 
   /**
-   * Checks whether a bundle has the text view mode configured.
+   * Returns the anonymous user account for access checks.
    */
-  private function hasTextViewMode(string $bundle): bool {
-    $modes = $this->entityDisplayRepository->getViewModeOptionsByBundle('node', $bundle);
-    return isset($modes[self::TEXT_VIEW_MODE]);
-  }
-
-  /**
-   * Returns TRUE if the node is assigned to the support domain.
-   */
-  private function isOnSupportDomain(NodeInterface $node): bool {
-    if (!$node->hasField('field_domain_access')) {
-      return FALSE;
-    }
-    foreach ($node->get('field_domain_access') as $item) {
-      if ($item->getValue()['target_id'] === self::SUPPORT_DOMAIN_ID) {
-        return TRUE;
-      }
-    }
-    return FALSE;
+  private function anonymousUser(): AccountInterface {
+    return new AnonymousUserSession();
   }
 
   /**
