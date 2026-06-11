@@ -3,6 +3,7 @@
 namespace Drupal\access_llm;
 
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\Core\Config\ImmutableConfig;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Link;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
@@ -38,7 +39,7 @@ class AiReferenceGenerator {
   /**
    * Renderer.
    *
-   * @var \Drupal\Core\Render\Renderer
+   * @var \Drupal\Core\Render\RendererInterface
    */
   protected $renderer;
 
@@ -80,7 +81,7 @@ class AiReferenceGenerator {
   /**
    * The Taxonomy array.
    *
-   * @var array
+   * @var array<int|string, string>
    */
   protected $termData;
 
@@ -120,7 +121,7 @@ class AiReferenceGenerator {
    * @param string $bundle
    *   Node bundle machine name.
    *
-   * @return array
+   * @return array<int, array{field_name: string, view_mode: string}>
    *   Array with configurations.
    */
   public function getBundleAiReferencesConfiguration($bundle) {
@@ -152,11 +153,14 @@ class AiReferenceGenerator {
    * @param string $view_mode
    *   Entity view mode.
    *
-   * @return array
+   * @return array<string, array<int, int|string>>
    *   Array with suggestions.
    */
   public function getAiSuggestions(NodeInterface $node, $field_name, $view_mode) {
     $config = $this->config->get('ai_auto_reference.settings');
+
+    // Node edit link to use in logs.
+    $node_edit_link = Link::fromTextAndUrl($node->label(), Url::fromRoute('entity.node.edit_form', ['node' => $node->id()]))->toString();
 
     try {
       // Might be 4000, 8000, 32000 depending on version used and
@@ -177,7 +181,7 @@ class AiReferenceGenerator {
 
       // Get the rendered contents of the node.
       $render_output = $render_controller->view($node, $view_mode);
-      $rendered_output = $this->renderer->renderPlain($render_output);
+      $rendered_output = $this->renderer->renderInIsolation($render_output);
       $contents = strip_tags($rendered_output);
 
       // Switching back to admin theme.
@@ -192,9 +196,6 @@ class AiReferenceGenerator {
       $prompt = 'For the contents within brackets: ({CONTENTS})';
       $prompt .= 'Which two to four of the following | separated options are highly relevant and moderately relevant? [{POSSIBLE_RESULTS}]';
       $prompt .= 'Return selections from within the square brackets only and as a valid json array within two array keys "highly" and "moderately" for your relevance';
-
-      // Node edit link to use in logs.
-      $node_edit_link = Link::fromTextAndUrl($node->label(), Url::fromRoute('entity.node.edit_form', ['node' => $node->id()]))->toString();
 
       // If the prompt is longer than the limit, get a summary of the contents.
       $prompt_length = $tokenizer->count($prompt);
@@ -225,9 +226,9 @@ class AiReferenceGenerator {
 
         // Get the summary back.
         $response = $this->aiApiCall($config, $summary_prompt);
-        if (isset($response->choices[0]->message->content)) {
+        if ($response !== '') {
           // Replace the contents with summarized contents.
-          $contents = $response->choices[0]->message->content;
+          $contents = $response;
         }
       }
 
@@ -236,7 +237,7 @@ class AiReferenceGenerator {
       $prompt = str_replace('{CONTENTS}', $contents, $prompt);
       // Get the array of 'highly' and 'moderately' related results back.
       if ($answer = $this->aiApiCall($config, $prompt)) {
-        $answer = json_decode($answer, 1);
+        $answer = json_decode($answer, TRUE);
         $suggestions['h'] = !empty($answer['highly']) ? array_keys(array_intersect($possible_results, $answer['highly'])) : [];
         $suggestions['m'] = !empty($answer['moderately']) ? array_keys(array_intersect($possible_results, $answer['moderately'])) : [];
         return $suggestions;
@@ -255,10 +256,53 @@ class AiReferenceGenerator {
   }
 
   /**
+   * Gets the allowed values for an entity reference field.
    *
+   * @param \Drupal\node\NodeInterface $node
+   *   Node object.
+   * @param string $field_name
+   *   Field machine name.
+   *
+   * @return array<int|string, string>
+   *   Array of referenceable entity labels, keyed by entity ID.
    */
-  public function generateTaxonomyPrompt($vid, $depth, $contents) {
-    $terms = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadTree($vid);
+  protected function getFieldAllowedValues(NodeInterface $node, string $field_name): array {
+    $field_definition = $node->getFieldDefinition($field_name);
+    $target_type = $field_definition->getSetting('target_type');
+    $handler_settings = $field_definition->getSetting('handler_settings');
+    $target_bundles = $handler_settings['target_bundles'] ?? [];
+
+    $storage = $this->entityTypeManager->getStorage($target_type);
+    $query = $storage->getQuery()->accessCheck(TRUE);
+    if (!empty($target_bundles)) {
+      $bundle_key = $this->entityTypeManager->getDefinition($target_type)->getKey('bundle');
+      if ($bundle_key) {
+        $query->condition($bundle_key, array_values($target_bundles), 'IN');
+      }
+    }
+    $ids = $query->execute();
+
+    $values = [];
+    foreach ($storage->loadMultiple($ids) as $entity) {
+      $values[$entity->id()] = $entity->label();
+    }
+
+    return $values;
+  }
+
+  /**
+   * Generates a taxonomy suggestion prompt.
+   *
+   * @param string $vid
+   *   Taxonomy vocabulary machine name.
+   * @param int $depth
+   *   Taxonomy tree depth to filter terms by, or 0 for all terms.
+   * @param string $contents
+   *   The contents to suggest taxonomy terms for.
+   */
+  public function generateTaxonomyPrompt($vid, $depth, $contents): void {
+    $term_data = [];
+    $terms = $this->entityTypeManager->getStorage('taxonomy_term')->loadTree($vid);
     foreach ($terms as $term) {
       if ($depth === 0) {
         $term_data[$term->tid] = $term->name;
@@ -284,9 +328,12 @@ class AiReferenceGenerator {
   }
 
   /**
+   * Gets the taxonomy term IDs suggested by the AI.
    *
+   * @return array<int, int|string>
+   *   Array of suggested taxonomy term IDs.
    */
-  public function taxonomyIdSuggested() {
+  public function taxonomyIdSuggested(): array {
     $suggestion = $this->aiApiCall();
     $suggestions = json_decode($suggestion);
     $tag_suggestions = [];
@@ -301,8 +348,11 @@ class AiReferenceGenerator {
 
   /**
    * Generate a summary text prompt.
+   *
+   * @param string $text
+   *   The text to summarize.
    */
-  public function generateSummaryPrompt($text) {
+  public function generateSummaryPrompt($text): void {
 
     $prompt = 'For the contents within brackets: ({BODY}) ';
     $prompt .= 'Return a summary of the text.';
@@ -315,8 +365,11 @@ class AiReferenceGenerator {
 
   /**
    * Generate a summary text.
+   *
+   * @return string
+   *   The summary text suggested by the AI.
    */
-  public function summarySuggested() {
+  public function summarySuggested(): string {
     $suggestion = $this->aiApiCall();
 
     return $suggestion;
@@ -325,15 +378,20 @@ class AiReferenceGenerator {
   /**
    * Performs AI API call.
    *
+   * @param \Drupal\Core\Config\ImmutableConfig|null $config
+   *   The ai_auto_reference settings, used to determine the model to use.
+   * @param string|null $prompt
+   *   The prompt to send, or NULL to use the previously generated prompt.
+   *
    * @return string
    *   AI answer.
    */
-  public function aiApiCall() {
+  public function aiApiCall(?ImmutableConfig $config = NULL, ?string $prompt = NULL): string {
     $result = '';
     $key_id = 'access_llm_open_ai_api';
     $api_key = $this->key->getKey($key_id)->getKeyValue();
     $openai_client = \OpenAI::client($api_key);
-    $service_model = 'gpt-4';
+    $service_model = $config?->get('model') ?? 'gpt-4';
 
     // Default payload applicable to all models.
     $payload = [
@@ -341,7 +399,7 @@ class AiReferenceGenerator {
       'messages' => [
         [
           'role' => 'user',
-          'content' => $this->prompt,
+          'content' => $prompt ?? $this->prompt,
         ],
       ],
     ];
