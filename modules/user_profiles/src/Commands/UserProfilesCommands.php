@@ -2,23 +2,38 @@
 
 namespace Drupal\user_profiles\Commands;
 
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Entity\ContentEntityInterface;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\Extension\ModuleHandlerInterface;
+use Drupal\flag\FlagServiceInterface;
 use Drupal\node\Entity\Node;
+use Drupal\recurring_events\EventInterface;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\user\Entity\User;
 use Drupal\webform\Entity\WebformSubmission;
 use Drush\Commands\DrushCommands;
 
 /**
- * A Drush commandfile to migrate profile data from
- * one user to another.
+ * A Drush commandfile to migrate profile data from one user to another.
  *
  * @package Drupal\user_profiles\Commands
  */
 class UserProfilesCommands extends DrushCommands {
 
+  public function __construct(
+    protected EntityTypeManagerInterface $entityTypeManager,
+    protected ModuleHandlerInterface $moduleHandler,
+    protected Connection $database,
+    protected FlagServiceInterface $flagService,
+  ) {
+    parent::__construct();
+  }
+
   /**
-   * Migrate user data from one user to another.  The following
-   * will get updated:
+   * Migrate user data from one user to another.
+   *
+   * The following will get updated:
    *  - flags:  affinity groups, interest, skill, upvote, interested-in-project
    *  - webform submissions
    *  - roles
@@ -26,29 +41,30 @@ class UserProfilesCommands extends DrushCommands {
    *  - nodes (ownership and user reference fields)
    *  - event series (ownership and other authors)
    *  - event instances (ownership)
-   *  - event registrations
+   *  - event registrations.
    *
-   * @command user_profiles:mergeUser
    * @param string $from_user_id
    *   Id of user id to merge from.
    * @param string $to_user_id
    *   Id of user id to merge to.
    *
+   * @command user_profiles:mergeUser
    * @aliases mergeUser
    * @usage user_profiles:mergeUser
    */
-  public function mergeUser(string $from_user_id, string $to_user_id) {
+  public function mergeUser(string $from_user_id, string $to_user_id): void {
 
     $this->output()->writeln("------------- Merge user $from_user_id into $to_user_id ---------------------------------");
 
-    $user_from = User::load($from_user_id);
-    $user_to = User::load($to_user_id);
+    $user_storage = $this->entityTypeManager->getStorage('user');
+    $user_from = $user_storage->load($from_user_id);
+    $user_to = $user_storage->load($to_user_id);
 
-    if (!$user_from) {
+    if (!$user_from instanceof User) {
       $this->output()->writeln("  *** No user found with id $from_user_id");
       return;
     }
-    if (!$user_to) {
+    if (!$user_to instanceof User) {
       $this->output()->writeln("  *** No user found with id $to_user_id");
       return;
     }
@@ -83,11 +99,12 @@ class UserProfilesCommands extends DrushCommands {
    * @param \Drupal\user\Entity\User $user_to
    *   To user.
    */
-  private function mergeNodes(User $user_from, User $user_to) {
+  private function mergeNodes(User $user_from, User $user_to): void {
 
-    \Drupal::moduleHandler()->loadInclude('node', 'inc', 'node.admin');
+    $this->moduleHandler->loadInclude('node', 'inc', 'node.admin');
 
-    $nodes = \Drupal::entityQuery('node')
+    $node_storage = $this->entityTypeManager->getStorage('node');
+    $nodes = $node_storage->getQuery()
       ->accessCheck(FALSE)
       ->condition('uid', $user_from->id())
       ->execute();
@@ -100,10 +117,13 @@ class UserProfilesCommands extends DrushCommands {
     $this->output()->writeln("Migrating nodes");
     $this->output()->writeln("  Changing ownership of these node titles: ");
     foreach ($nodes as $nid) {
-      $node = Node::load($nid);
-      $this->output()->writeln("    " . $node->getTitle());
+      $node = $node_storage->load($nid);
+      if ($node instanceof Node) {
+        $this->output()->writeln("    " . $node->getTitle());
+      }
     }
 
+    // @phpstan-ignore-next-line function.notFound
     node_mass_update($nodes, ['uid' => $user_to->id()], NULL, TRUE);
   }
 
@@ -119,7 +139,7 @@ class UserProfilesCommands extends DrushCommands {
    * @param \Drupal\user\Entity\User $user_to
    *   To user.
    */
-  private function mergeNodeUserReferences(User $user_from, User $user_to) {
+  private function mergeNodeUserReferences(User $user_from, User $user_to): void {
     $this->output()->writeln("Migrating user references in nodes");
 
     // Define which content types have which user reference fields.
@@ -128,10 +148,12 @@ class UserProfilesCommands extends DrushCommands {
       'mentorship_engagement' => ['field_mentor', 'field_mentee'],
     ];
 
+    $node_storage = $this->entityTypeManager->getStorage('node');
+
     foreach ($content_type_fields as $content_type => $fields) {
       foreach ($fields as $field_name) {
         // Find nodes where this field references the from_user.
-        $query = \Drupal::entityQuery('node')
+        $query = $node_storage->getQuery()
           ->accessCheck(FALSE)
           ->condition('type', $content_type)
           ->condition($field_name, $user_from->id());
@@ -143,7 +165,10 @@ class UserProfilesCommands extends DrushCommands {
 
         $this->output()->writeln("  Updating $field_name in $content_type nodes");
         foreach ($nids as $nid) {
-          $node = Node::load($nid);
+          $node = $node_storage->load($nid);
+          if (!$node instanceof Node) {
+            continue;
+          }
           $field_values = $node->get($field_name)->getValue();
           $updated = FALSE;
 
@@ -182,17 +207,19 @@ class UserProfilesCommands extends DrushCommands {
    * @param \Drupal\user\Entity\User $user_to
    *   To user.
    */
-  private function mergeEventSeries(User $user_from, User $user_to) {
+  private function mergeEventSeries(User $user_from, User $user_to): void {
     $this->output()->writeln("Migrating event series");
 
     // Check if eventseries entity type exists.
-    if (!\Drupal::entityTypeManager()->hasDefinition('eventseries')) {
+    if (!$this->entityTypeManager->hasDefinition('eventseries')) {
       $this->output()->writeln("  Event series entity type not found, skipping");
       return;
     }
 
+    $series_storage = $this->entityTypeManager->getStorage('eventseries');
+
     // Transfer ownership of event series.
-    $series_ids = \Drupal::entityQuery('eventseries')
+    $series_ids = $series_storage->getQuery()
       ->accessCheck(FALSE)
       ->condition('uid', $user_from->id())
       ->execute();
@@ -200,8 +227,8 @@ class UserProfilesCommands extends DrushCommands {
     if (!empty($series_ids)) {
       $this->output()->writeln("  Transferring ownership of event series");
       foreach ($series_ids as $series_id) {
-        $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($series_id);
-        if ($series) {
+        $series = $series_storage->load($series_id);
+        if ($series instanceof EventInterface) {
           $this->output()->writeln("    Transferring '{$series->label()}' (id: $series_id)");
           $series->setOwnerId($user_to->id());
           $series->save();
@@ -210,7 +237,7 @@ class UserProfilesCommands extends DrushCommands {
     }
 
     // Update field_other_authors references.
-    $series_with_author = \Drupal::entityQuery('eventseries')
+    $series_with_author = $series_storage->getQuery()
       ->accessCheck(FALSE)
       ->condition('field_other_authors', $user_from->id())
       ->execute();
@@ -218,8 +245,8 @@ class UserProfilesCommands extends DrushCommands {
     if (!empty($series_with_author)) {
       $this->output()->writeln("  Updating field_other_authors in event series");
       foreach ($series_with_author as $series_id) {
-        $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($series_id);
-        if ($series && $series->hasField('field_other_authors')) {
+        $series = $series_storage->load($series_id);
+        if ($series instanceof EventInterface && $series->hasField('field_other_authors')) {
           $authors = $series->get('field_other_authors')->getValue();
           $updated = FALSE;
 
@@ -262,16 +289,18 @@ class UserProfilesCommands extends DrushCommands {
    * @param \Drupal\user\Entity\User $user_to
    *   To user.
    */
-  private function mergeEventInstances(User $user_from, User $user_to) {
+  private function mergeEventInstances(User $user_from, User $user_to): void {
     $this->output()->writeln("Migrating event instances");
 
     // Check if eventinstance entity type exists.
-    if (!\Drupal::entityTypeManager()->hasDefinition('eventinstance')) {
+    if (!$this->entityTypeManager->hasDefinition('eventinstance')) {
       $this->output()->writeln("  Event instance entity type not found, skipping");
       return;
     }
 
-    $instance_ids = \Drupal::entityQuery('eventinstance')
+    $instance_storage = $this->entityTypeManager->getStorage('eventinstance');
+
+    $instance_ids = $instance_storage->getQuery()
       ->accessCheck(FALSE)
       ->condition('uid', $user_from->id())
       ->execute();
@@ -283,8 +312,8 @@ class UserProfilesCommands extends DrushCommands {
 
     $this->output()->writeln("  Transferring ownership of " . count($instance_ids) . " event instances");
     foreach ($instance_ids as $instance_id) {
-      $instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($instance_id);
-      if ($instance) {
+      $instance = $instance_storage->load($instance_id);
+      if ($instance instanceof EventInterface) {
         $instance->setOwnerId($user_to->id());
         $instance->save();
       }
@@ -300,16 +329,18 @@ class UserProfilesCommands extends DrushCommands {
    * @param \Drupal\user\Entity\User $user_to
    *   To user.
    */
-  private function mergeEventRegistrations(User $user_from, User $user_to) {
+  private function mergeEventRegistrations(User $user_from, User $user_to): void {
     $this->output()->writeln("Migrating event registrations");
 
     // Check if registrant entity type exists.
-    if (!\Drupal::entityTypeManager()->hasDefinition('registrant')) {
+    if (!$this->entityTypeManager->hasDefinition('registrant')) {
       $this->output()->writeln("  Registrant entity type not found, skipping");
       return;
     }
 
-    $registrant_ids = \Drupal::entityQuery('registrant')
+    $storage = $this->entityTypeManager->getStorage('registrant');
+
+    $registrant_ids = $storage->getQuery()
       ->accessCheck(FALSE)
       ->condition('user_id', $user_from->id())
       ->execute();
@@ -320,14 +351,13 @@ class UserProfilesCommands extends DrushCommands {
     }
 
     $this->output()->writeln("  Transferring " . count($registrant_ids) . " event registrations");
-    $storage = \Drupal::entityTypeManager()->getStorage('registrant');
 
     foreach ($registrant_ids as $registrant_id) {
       $registrant = $storage->load($registrant_id);
-      if ($registrant) {
+      if ($registrant instanceof ContentEntityInterface) {
         // Check if to_user already has a registration for this event instance.
         $event_instance_id = $registrant->get('eventinstance_id')->target_id;
-        $existing = \Drupal::entityQuery('registrant')
+        $existing = $storage->getQuery()
           ->accessCheck(FALSE)
           ->condition('user_id', $user_to->id())
           ->condition('eventinstance_id', $event_instance_id)
@@ -361,12 +391,13 @@ class UserProfilesCommands extends DrushCommands {
    * @param \Drupal\user\Entity\User $user_to
    *   To user.
    */
-  private function mergeUserFields(User $user_from, User $user_to) {
+  private function mergeUserFields(User $user_from, User $user_to): void {
     $this->output()->writeln("Migrating user fields");
 
     /* Here's a list of all fields -- only a subset of these are migrated.
 
-    $fields = \Drupal::service('entity_field.manager')->getFieldDefinitions('user', 'user');
+    $fields = \Drupal::service('entity_field.manager')
+    ->getFieldDefinitions('user', 'user');
 
     [0] => uid
     [1] => uuid
@@ -571,7 +602,7 @@ class UserProfilesCommands extends DrushCommands {
    * @param \Drupal\user\Entity\User $user_to
    *   To user.
    */
-  private function mergeRoles(User $user_from, User $user_to) {
+  private function mergeRoles(User $user_from, User $user_to): void {
     $this->output()->writeln("Migrating roles");
 
     $roles = $user_from->getRoles();
@@ -605,10 +636,11 @@ class UserProfilesCommands extends DrushCommands {
    *
    *   Can node_mass_update do this?
    */
-  private function mergeWebformSubmissions(User $user_from, User $user_to) {
+  private function mergeWebformSubmissions(User $user_from, User $user_to): void {
     $this->output()->writeln("Migrating webform submissions");
 
-    $ws_query = \Drupal::entityQuery('webform_submission')
+    $ws_storage = $this->entityTypeManager->getStorage('webform_submission');
+    $ws_query = $ws_storage->getQuery()
       ->condition('uid', $user_from->id())
       ->accessCheck(FALSE);
     $ws_results = $ws_query->execute();
@@ -617,7 +649,10 @@ class UserProfilesCommands extends DrushCommands {
       return;
     }
     foreach ($ws_results as $ws_result) {
-      $ws = WebformSubmission::load($ws_result);
+      $ws = $ws_storage->load($ws_result);
+      if (!$ws instanceof WebformSubmission) {
+        continue;
+      }
       $ws_id = $ws->getWebform()->id();
       $ws->setOwner($user_to);
       $ws->save();
@@ -635,27 +670,35 @@ class UserProfilesCommands extends DrushCommands {
    * @param \Drupal\user\Entity\User $user_to
    *   To user.
    */
-  private function mergeFlag($flag_name, User $user_from, User $user_to) {
+  private function mergeFlag(string $flag_name, User $user_from, User $user_to): void {
     $this->output()->writeln("Migrating flags with name '$flag_name'");
 
-    $term = \Drupal::database()->select('flagging', 'fl');
-    $term->condition('fl.uid', $user_from->id());
-    $term->condition('fl.flag_id', $flag_name);
-    $term->fields('fl', ['entity_id']);
-    $flagged_items = $term->execute()->fetchCol();
+    $select = $this->database->select('flagging', 'fl');
+    $select->condition('fl.uid', $user_from->id());
+    $select->condition('fl.flag_id', $flag_name);
+    $select->fields('fl', ['entity_id']);
+    $flagged_items = $select->execute()->fetchCol();
     if ($flagged_items == NULL) {
       $this->output()->writeln("  From-user has no flags with name '$flag_name'");
       return;
     }
 
+    $term_storage = $this->entityTypeManager->getStorage('taxonomy_term');
+
     foreach ($flagged_items as $flagged_item) {
-      $term = Term::load($flagged_item);
+      $term = $term_storage->load($flagged_item);
+      if (!$term instanceof Term) {
+        continue;
+      }
       $title = $term->get('name')->value;
 
       // Check if already flagged. If not, set the flag.
-      $flag_service = \Drupal::service('flag');
-      $flag = $flag_service->getFlagById($flag_name);
-      $flag_status = $flag_service->getFlagging($flag, $term, $user_to);
+      $flag = $this->flagService->getFlagById($flag_name);
+      if (!$flag) {
+        $this->output()->writeln("*** Error, flag '$flag_name' not found, skipping.");
+        continue;
+      }
+      $flag_status = $this->flagService->getFlagging($flag, $term, $user_to);
       if (!$flag_status) {
         $bundles = $flag->getBundles();
         if (!empty($bundles) && !in_array($term->bundle(), $bundles)) {
@@ -665,7 +708,7 @@ class UserProfilesCommands extends DrushCommands {
         }
         else {
           $this->output()->writeln("  Adding flag $flag_name with title '$title' to to-user");
-          $flag_service->flag($flag, $term, $user_to);
+          $this->flagService->flag($flag, $term, $user_to);
         }
       }
       else {

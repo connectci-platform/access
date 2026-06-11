@@ -1,5 +1,6 @@
 services:
   user_profile.commands:
     class: \Drupal\user_profiles\Commands\UserProfilesCommands
+    arguments: ['@entity_type.manager', '@module_handler', '@database', '@flag']
     tags:
       - { name: drush.command }
