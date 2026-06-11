@@ -2,10 +2,16 @@
 
 namespace Drupal\ticketing\Plugin\WebformHandler;
 
-use Drupal\webform\Plugin\WebformHandlerBase;
-use Drupal\webform\WebformSubmissionInterface;
+use Drupal\Component\Utility\EmailValidatorInterface;
+use Drupal\Core\Extension\ModuleExtensionList;
+use Drupal\Core\Mail\MailManagerInterface;
+use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\file\Entity\File;
 use Drupal\taxonomy\Entity\Term;
+use Drupal\webform\Plugin\WebformHandlerBase;
+use Drupal\webform\WebformSubmissionInterface;
+use Symfony\Component\DependencyInjection\ContainerInterface;
+use Twig\Environment;
 
 /**
  * Create and send the request ticketing email.
@@ -20,24 +26,89 @@ use Drupal\taxonomy\Entity\Term;
  * )
  */
 class TicketingSendEmailHandler extends WebformHandlerBase {
+
+  /**
+   * Whether debug messages should be displayed.
+   *
+   * @var bool
+   */
   public $debug = FALSE;
+
+  /**
+   * The current user.
+   *
+   * @var \Drupal\Core\Session\AccountProxyInterface
+   */
+  protected AccountProxyInterface $currentUser;
+
+  /**
+   * The mail manager.
+   *
+   * @var \Drupal\Core\Mail\MailManagerInterface
+   */
+  protected MailManagerInterface $mailManager;
+
+  /**
+   * The module extension list.
+   *
+   * @var \Drupal\Core\Extension\ModuleExtensionList
+   */
+  protected ModuleExtensionList $moduleExtensionList;
+
+  /**
+   * The Twig environment.
+   *
+   * @var \Twig\Environment
+   */
+  protected Environment $twig;
+
+  /**
+   * The email validator.
+   *
+   * @var \Drupal\Component\Utility\EmailValidatorInterface
+   */
+  protected EmailValidatorInterface $emailValidator;
+
+  /**
+   * {@inheritdoc}
+   *
+   * @param \Symfony\Component\DependencyInjection\ContainerInterface $container
+   *   The service container.
+   * @param array<string, mixed> $configuration
+   *   A configuration array containing information about the plugin
+   *   instance.
+   * @param string $plugin_id
+   *   The plugin_id for the plugin instance.
+   * @param mixed $plugin_definition
+   *   The plugin implementation definition.
+   */
+  public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition): static {
+    $instance = parent::create($container, $configuration, $plugin_id, $plugin_definition);
+    $instance->currentUser = $container->get('current_user');
+    $instance->mailManager = $container->get('plugin.manager.mail');
+    $instance->moduleExtensionList = $container->get('extension.list.module');
+    $instance->twig = $container->get('twig');
+    $instance->emailValidator = $container->get('email.validator');
+    return $instance;
+  }
 
   /**
    * {@inheritdoc}
    */
-  public function postSave(WebformSubmissionInterface $webformSubmission, $update = TRUE) {
+  public function postSave(WebformSubmissionInterface $webformSubmission, $update = TRUE): void {
     $data = $webformSubmission->getData();
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'in postSave() = $data = ' . print_r($data, TRUE);
-      \Drupal::messenger()->addStatus($msg);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- in postSave() = $data = ' . print_r($data, TRUE);
+      $this->messenger()->addStatus($msg);
     }
 
     // Adjust the To: email address based on form selections with this logic:
-    //  1 - if a resource is selected, use it
-    //  2 - if an allocations category is provided, use that category (with some possible overrides)
-    //  3 - if some other category is selected, use that
-    //  4 - otherwise use the default queue.
+    // 1 - if a resource is selected, use it
+    // 2 - if an allocations category is provided, use that category
+    // (with some possible overrides)
+    // 3 - if some other category is selected, use that
+    // 4 - otherwise use the default queue.
     if ($data['resource'] !== 'issue_not_resource_related') {
       $to = $data['resource'];
 
@@ -59,8 +130,9 @@ class TicketingSendEmailHandler extends WebformHandlerBase {
         $to = 'ACCESS-Metrics';
       }
       elseif ((str_starts_with($to, "ACCESS-Operations-Security"))) {
-        // 2022-09-13 -- both "ACCESS-Operations-Security" and "ACCESS-Operations-Security-Accounts"
-        // should go to ACCESS-Operations-Security
+        // 2022-09-13 -- both "ACCESS-Operations-Security" and
+        // "ACCESS-Operations-Security-Accounts" should go to
+        // ACCESS-Operations-Security.
         $to = "ACCESS-Operations-Security";
       }
     }
@@ -88,14 +160,14 @@ class TicketingSendEmailHandler extends WebformHandlerBase {
       $valid_ccs = [];
       foreach ($ccs as $cc) {
         $cc = trim($cc);
-        $valid = \Drupal::service('email.validator')->isValid($cc);
+        $valid = $this->emailValidator->isValid($cc);
 
         if ($valid) {
           $valid_ccs[] = $cc;
         }
         else {
           $msg = "In the CC list, \"$cc\" is not a valid email address and was not used";
-          \Drupal::messenger()->addWarning($msg);
+          $this->messenger()->addWarning($msg);
         }
       }
       $params['headers']['cc'] = implode(',', $valid_ccs);
@@ -108,21 +180,20 @@ class TicketingSendEmailHandler extends WebformHandlerBase {
     }
 
     // Get the body.
-    $user = \Drupal::currentUser();
-    $from_email = $user->getEmail();
+    $from_email = $this->currentUser->getEmail();
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . '$from_email = ' . print_r($from_email, TRUE);
-      \Drupal::messenger()->addStatus($msg);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- $from_email = ' . print_r($from_email, TRUE);
+      $this->messenger()->addStatus($msg);
     }
 
-    $body = (string) $this->getXMailMessageBody($data['problem_description'], $data['tag_names'],
+    $body = (string) $this->getMailMessageBody($data['problem_description'], $data['tag_names'],
           $data['suggested_tag'], $from_email);
     $params['body'] = $body;
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'in postSave() = $body = ' . print_r($body, TRUE);
-      \Drupal::messenger()->addStatus($msg);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- in postSave() = $body = ' . print_r($body, TRUE);
+      $this->messenger()->addStatus($msg);
     }
 
     // Add attachments.
@@ -139,22 +210,21 @@ class TicketingSendEmailHandler extends WebformHandlerBase {
     }
 
     // Settings for the mail send.
-    $langcode = \Drupal::currentUser()->getPreferredLangcode();
+    $langcode = $this->currentUser->getPreferredLangcode();
     $send = TRUE;
     $module = 'ticketing';
     $key = "ticketing";
-    $mailManager = \Drupal::service('plugin.manager.mail');
 
-    $result = $mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
+    $result = $this->mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
 
-    if ($result === FALSE || (array_key_exists('result', $result) && !$result['result'])) {
+    if (!$result['result']) {
       $msg = "There was a problem sending the email";
-      \Drupal::messenger()->addWarning($msg);
+      $this->messenger()->addWarning($msg);
     }
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'mail $result = ' . print_r($result, TRUE);
-      \Drupal::messenger()->addStatus($msg);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- mail $result = ' . print_r($result, TRUE);
+      $this->messenger()->addStatus($msg);
     }
 
     // If user suggested a tag, send that to the support email.
@@ -175,29 +245,41 @@ class TicketingSendEmailHandler extends WebformHandlerBase {
       $params['to'] = $to;
       $params['title'] = "request for new tag: $new_tag";
       $params['body'] = "The user with email $from_email has suggested this new tag:  $new_tag";
-      ;
 
-      $result = $mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
+      $result = $this->mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
 
-      if ($result === FALSE || (array_key_exists('result', $result) && !$result['result'])) {
+      if (!$result['result']) {
         $msg = "There was a problem sending the email";
-        \Drupal::messenger()->addWarning($msg);
+        $this->messenger()->addWarning($msg);
       }
 
       if ($this->debug) {
-        $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'mail $result = ' . print_r($result, TRUE);
-        \Drupal::messenger()->addStatus($msg);
+        $msg = basename(__FILE__) . ':' . __LINE__ . ' -- mail $result = ' . print_r($result, TRUE);
+        $this->messenger()->addStatus($msg);
       }
 
     }
 
   }
 
-  public function getXMailMessageBody($description, $tags, $suggested_tag, $from_email) {
-    $ticketing_module_path = \Drupal::service('extension.list.module')->getPath('ticketing');
-    /** @var \Twig\Environment $twig */
-    $twig = \Drupal::service('twig');
-    return (string) $twig->load($ticketing_module_path . '/templates/ticketing-mail.html.twig')->render([
+  /**
+   * Builds the ticketing email body.
+   *
+   * @param string $description
+   *   The problem description.
+   * @param array<int, string> $tags
+   *   The selected tag names.
+   * @param string $suggested_tag
+   *   A user-suggested tag.
+   * @param string $from_email
+   *   The submitter's email address.
+   *
+   * @return string
+   *   The rendered email body.
+   */
+  public function getMailMessageBody(string $description, array $tags, string $suggested_tag, string $from_email): string {
+    $ticketing_module_path = $this->moduleExtensionList->getPath('ticketing');
+    return (string) $this->twig->load($ticketing_module_path . '/templates/ticketing-mail.html.twig')->render([
       'problem_description' => $description,
       'tags' => $tags,
       'suggested_tag' => $suggested_tag,
