@@ -324,21 +324,21 @@ class ConstantContactApi {
       }
     }
 
-    // We hold the lock. Re-read: a changed refresh token means another process
-    // rotated while we waited. It is written AFTER the access token in the
-    // success path below, so a changed refresh token guarantees the new access
-    // token is already stored — adopt it and skip a redundant rotation.
-    if (CcLogic::shouldSkipRefresh($usedRefresh, $this->getRefreshToken())) {
-      $this->accessToken = $this->getAppToken();
-      \Drupal::logger('access_affinitygroup')->notice(
-        'CC token already refreshed by another process for env @env; skipping redundant refresh.',
-        ['@env' => $env]
-      );
-      $lock->release($lockName);
-      return;
-    }
-
     try {
+      // We hold the lock. Re-read: a changed refresh token means another
+      // process rotated while we waited. It is written AFTER the access token
+      // in the success path below, so a changed refresh token guarantees the
+      // new access token is already stored — adopt it and skip a redundant
+      // rotation. The finally below releases the lock on this return too.
+      if (CcLogic::shouldSkipRefresh($usedRefresh, $this->getRefreshToken())) {
+        $this->accessToken = $this->getAppToken();
+        \Drupal::logger('access_affinitygroup')->notice(
+          'CC token already refreshed by another process for env @env; skipping redundant refresh.',
+          ['@env' => $env]
+        );
+        return;
+      }
+
       $clientId = $this->clientId;
       $clientSecret = $this->clientSecret;
       // Use cURL to get a new access token and refresh token.
