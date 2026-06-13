@@ -548,51 +548,11 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     array_unshift($form['actions']['submit']['#submit'], 'access_events_save_summary');
 
     // Tags ai suggestion.
-    $form['field_tags_replace'] = [
-      '#type' => 'container',
-      '#attributes' => [
-        'id' => 'field-tags-replace',
-        'data-suggest' => '0',
-      ],
-      '#weight' => 20,
-    ];
-
-    $form['field_tags_replace']['field_suggest_title'] = [
-      '#markup' => "<h2 class='label form-required mt-4 mb-0'>Tags</h2>",
-    ];
-
-    $form['field_tags_replace']['field_suggest'] = [
-      '#type' => 'container',
-      '#attributes' => [
-        'class' => [
-          'bg-light-teal',
-          'my-5',
-          'p-5'
-        ]
-      ],
-    ];
-
-    $form['field_tags_replace']['field_suggest']['tag_list'] = [
-      '#markup' => "<div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary. Limited to 6 tags.</div>",
-    ];
-    $form['field_tags_replace']['field_suggest']['replace_button'] = [
-      '#type' => 'button',
-      '#value' => t('Suggest Tags'),
-      '#limit_validation_errors' => array(),
-      '#attributes' => [
-        'class' => [
-          'ml-0'
-        ],
-      ],
-      '#ajax' => [
-        'callback' => 'access_events_replace_event_section_callback',
-        'wrapper' => 'field-tags-replace',
-      ],
-    ];
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
-    ];
-
+    \Drupal::service('access_misc.tag_suggester')->build($form, [
+      'weight' => 20,
+      'panel_title' => "<h2 class='label form-required mt-4 mb-0'>Tags</h2>",
+      'panel_intro' => 'Get tag suggestions based on your description and then curate as necessary. Limited to 6 tags.',
+    ]);
 
     $add_tags = \Drupal::service('access_misc.addtags');
     $output = $add_tags->getView();
@@ -622,7 +582,6 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     ];
 
     // Attach javascript.
-    $form['#attached']['library'][] = 'access_misc/node_add_tags';
     $form['#attached']['library'][] = 'access_events/events';
 
     // Registration form.
@@ -742,61 +701,6 @@ function access_events_ag_validate(&$form, FormStateInterface $form_state) {
     }
   }
 
-}
-
-/**
- * Ajax callback function to replace the section with '#markup'.
- */
-function access_events_replace_event_section_callback(array &$form, FormStateInterface $form_state) {
-  $raw_data = $form_state->getUserInput();
-  $body = $raw_data['body'][0]['value'];
-  $body_filter = $body ? Xss::filter($body) : '';
-  $suggested_tag_ids = '0';
-  $tag_count = count($raw_data['field_tags'] ?? []);
-  $tag_limit = 6;
-  $tag_amount = $tag_limit - $tag_count;
-
-  $form['field_tags_replace']['user_message'] = [
-    '#markup' => "",
-  ];
-
-  if ($tag_amount <= 0) {
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
-      <strong class='text-sky-900'>You already have 6 tags</strong><br />
-      You can remove some tags to get more suggestions.</div>",
-    ];
-  }
-  elseif (strlen($body_filter) >= 100) {
-    try {
-      $llm = \Drupal::service('access_llm.ai_references_generator');
-      $llm->generateTaxonomyPrompt('tags', 1, $body_filter);
-      $suggestions = array_slice($llm->taxonomyIdSuggested(), 0, $tag_amount);
-      $suggested_tag_ids = implode(', ', $suggestions);
-      $form['field_tags_replace']['user_message'] = [
-        '#markup' => "",
-      ];
-    }
-    catch (\Throwable $e) {
-      $form['field_tags_replace']['user_message'] = [
-        '#markup' => "<div class='match-tag-list bg-yellow-200 text-yellow-900 my-5 p-5'>
-        <strong class='text-yellow-900'>AI tag suggestions are not available</strong><br />
-        Please select tags manually from the list below.</div>",
-      ];
-    }
-  }
-  else {
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "<div class='match-tag-list bg-blue-200 text-sky-900 my-5 p-5'>
-      <strong class='text-sky-900'>Fill in the description above to get suggested tags.</strong><br />
-                    Your description must be over 100 characters to get a suggestion.</div>",
-    ];
-  }
-
-  $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
-
-  // Return the updated section.
-  return $form['field_tags_replace'];
 }
 
 /**
