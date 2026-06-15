@@ -29,6 +29,7 @@
  * title changes.
  */
 
+use Drupal\access_affinitygroup\CcLogic;
 use Drupal\access_affinitygroup\Plugin\AllocationsUsersImport;
 use Drupal\access_affinitygroup\Plugin\ConstantContactApi;
 use Drupal\access_affinitygroup\Plugin\SimpleListsApi;
@@ -1174,8 +1175,14 @@ function access_affinitygroup_cron() {
 
   try {
 
-    // 1. Refresh the Constant Contact Token
-    if (shouldRun('token')) {
+    // 1. Refresh the Constant Contact Token.
+    // ONLY on live (CcLogic::isLiveEnv): the 'support'/'openondemand' refresh
+    // tokens rotate on every refresh, and they are shared via the database. If
+    // a non-live environment (dev / multidev with a pulled-down DB) refreshes
+    // them, Constant Contact invalidates the tokens live still holds, breaking
+    // live sends. This is the same root-cause guard as the 401 auto-refresh.
+    $pantheonEnv = getenv('PANTHEON_ENVIRONMENT');
+    if (CcLogic::isLiveEnv($pantheonEnv === FALSE ? NULL : $pantheonEnv) && shouldRun('token')) {
 
       $currentTime = \Drupal::time()->getCurrentTime();
       \Drupal::state()->set('access_affinitygroup.crontime-t', $currentTime);
@@ -1398,9 +1405,9 @@ function setupEmailCampaign($emailSubject, $emailHtml, $campaignName) {
 function sendEmailCampaign($campaignId, $campaignActivityId, $ccListIds) {
   if (!isCCEnabled()) {
     showStatus("Constant Contact interface has been disabled.");
-    return;
+    return FALSE;
   }
-  // first, get the activity object.
+  // First, get the activity object.
   $sent = FALSE;
   $cca = new ConstantContactApi();
   $ccActivity = $cca->apiCall("/emails/activities/$campaignActivityId");
@@ -1412,14 +1419,18 @@ function sendEmailCampaign($campaignId, $campaignActivityId, $ccListIds) {
     $ccActivity->contact_list_ids = $ccListIds;
 
     $ccActivity = json_encode($ccActivity);
-    $ccResponse = $cca->apiCall("/emails/activities/$campaignActivityId", $ccActivity, 'PUT');
+    $cca->apiCall("/emails/activities/$campaignActivityId", $ccActivity, 'PUT');
 
-    if (!empty($ccResponse)) {
-      // finally, send it, scheduled with 0 signifying: now.
+    // The PUT must succeed (2xx) before we schedule.
+    if (CcLogic::httpSucceeded($cca->getHttpResponseCode())) {
+      // Finally, send it, scheduled with 0 signifying: now.
       $schedule = ['scheduled_date' => '0'];
       $schedule = json_encode($schedule);
-      $ccResponse = $cca->apiCall("/emails/activities/$campaignActivityId/schedules", $schedule, 'POST');
-      $sent = ($ccResponse != NULL);
+      $cca->apiCall("/emails/activities/$campaignActivityId/schedules", $schedule, 'POST');
+
+      // The schedule endpoint can return a 2xx with an empty body, so judge
+      // success by HTTP status, never by response-body presence.
+      $sent = CcLogic::httpSucceeded($cca->getHttpResponseCode());
     }
   }
   if ($sent) {
@@ -1428,13 +1439,16 @@ function sendEmailCampaign($campaignId, $campaignActivityId, $ccListIds) {
       '@activity_id' => $campaignActivityId,
     ]);
     showStatus("Your message was sent to this Affinity Group.");
-  } else {
-    \Drupal::logger('access_affinitygroup')->error('Failed to send email campaign: Campaign ID @campaign_id, Activity ID @activity_id', [
+  }
+  else {
+    \Drupal::logger('access_affinitygroup')->error('Failed to send email campaign: Campaign ID @campaign_id, Activity ID @activity_id (last HTTP @code)', [
       '@campaign_id' => $campaignId,
       '@activity_id' => $campaignActivityId,
+      '@code' => $cca->getHttpResponseCode(),
     ]);
-    showStatus("Error while trying to email announcement to affinity group.");
+    showStatus("We could not confirm your message was sent. It has NOT been re-sent automatically. Please wait a few minutes and check, or contact a site administrator before trying again, so the group does not receive duplicate emails.");
   }
+  return $sent;
 }
 
 /**
