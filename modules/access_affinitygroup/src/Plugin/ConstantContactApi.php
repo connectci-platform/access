@@ -680,6 +680,15 @@ class ConstantContactApi {
   }
 
   /**
+   * Returns the HTTP response code from the most recent apiCall().
+   *
+   * @return int|null
+   */
+  public function getResponseCode() {
+    return $this->httpResponseCode;
+  }
+
+  /**
    * Check if a valid connection can be made to constant contact.
    *
    * @return bool

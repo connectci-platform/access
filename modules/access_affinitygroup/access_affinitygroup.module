@@ -245,8 +245,41 @@ function access_affinitygroup_entity_presave(EntityInterface $entity) {
         return;
       }
 
-      // Get all existing CC lists.
       $cca = new ConstantContactApi();
+      $title = $entity->getTitle();
+
+      // If this AG already has a CC list id, try to update it in place
+      // rather than searching by name (which breaks on rename).
+      $storedListIdValue = $entity->get('field_list_id')->getValue();
+      $storedListId = !empty($storedListIdValue) ? $storedListIdValue[0]['value'] : '';
+
+      if (!empty($storedListId)) {
+        $existing = $cca->apiCall("/contact_lists/$storedListId");
+        $responseCode = $cca->getResponseCode();
+
+        if (!empty($existing)) {
+          if ($existing->name != $title) {
+            $put_data = json_encode([
+              'name' => $title,
+              'favorite' => $existing->favorite,
+            ]);
+            $updated = $cca->apiCall("/contact_lists/$storedListId", $put_data, 'PUT');
+            if (empty($updated)) {
+              showStatus('Constant Contact list rename failed; field_list_id left unchanged.');
+            }
+          }
+          return;
+        }
+        elseif ($responseCode != 404) {
+          // Transient/other error - abort without creating a duplicate.
+          showStatus('Could not verify Constant Contact list; skipping to avoid duplicate.');
+          return;
+        }
+        // else: 404, the list was deleted upstream - fall through to
+        // lookup-or-create below.
+      }
+
+      // Get all existing CC lists.
       $lists = $cca->apiCall('/contact_lists');
       if (empty($lists)) {
         return;
@@ -255,7 +288,6 @@ function access_affinitygroup_entity_presave(EntityInterface $entity) {
       // Debug info: here you can see all lists CC knows about along with their List IDs
       // kint($lists);
       // look for this AG in the list of CC lists (title== listname)
-      $title = $entity->getTitle();
       $list_exists = FALSE;
       foreach ($lists->lists as $list) {
         if ($list->name == $title) {
@@ -462,15 +494,33 @@ function update_removed_ag_leader_roles($entity, $coordinator_ids) {
  */
 function add_ag_taxonomy_term($entity) {
   $ag_title = $entity->getTitle();
-  $exists = !empty(ag_taxonomy_lookup($ag_title));
   $tid = NULL;
-  if ($exists) {
-    $tid = array_keys(ag_taxonomy_lookup($ag_title))[0];
-  } else {
-    $tid = create_ag_taxonomy_term($ag_title);
+
+  // If the node already references a term, rename it rather than creating a new one.
+  if (!$entity->get('field_affinity_group')->isEmpty()) {
+    $existing_tid = $entity->get('field_affinity_group')->target_id;
+    $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($existing_tid);
+    if ($term) {
+      if ($term->getName() !== $ag_title) {
+        $term->setName($ag_title);
+        $term->save();
+        reindex_ag_event_instances($entity->id());
+      }
+      $tid = $existing_tid;
+    }
   }
 
-  // Set entity's field_affinity_group to new term.
+  // Fall back: look up by name or create a new term.
+  if (!$tid) {
+    $matches = ag_taxonomy_lookup($ag_title);
+    if (!empty($matches)) {
+      $tid = array_keys($matches)[0];
+    }
+    else {
+      $tid = create_ag_taxonomy_term($ag_title);
+    }
+  }
+
   $entity->set('field_affinity_group', $tid);
 }
 
@@ -717,6 +767,39 @@ function create_ag_taxonomy_term($ag_title) {
 }
 
 /**
+ * Re-index all event instances belonging to event series that reference the
+ * given affinity group node. Called after an AG rename so the events search
+ * index reflects the new title without requiring a manual full re-index.
+ */
+function reindex_ag_event_instances($ag_nid) {
+  $index = \Drupal\search_api\Entity\Index::load('events');
+  if (!$index) {
+    return;
+  }
+
+  $series_ids = \Drupal::entityQuery('eventseries')
+    ->condition('field_affinity_group_node', $ag_nid)
+    ->accessCheck(FALSE)
+    ->execute();
+
+  if (empty($series_ids)) {
+    return;
+  }
+
+  $instance_ids = \Drupal::entityQuery('eventinstance')
+    ->condition('eventseries_id', $series_ids, 'IN')
+    ->accessCheck(FALSE)
+    ->execute();
+
+  if (empty($instance_ids)) {
+    return;
+  }
+
+  $item_ids = array_map(fn($id) => $id . ':en', $instance_ids);
+  $index->trackItemsUpdated('entity:eventinstance', $item_ids);
+}
+
+/**
  * Call CC API to add user to the email list corresponding to the entityId.
  */
 function subscribeToCCList($taxonomyId, $userDetails) {
@@ -787,24 +870,28 @@ function access_affinitygroup_entity_delete(EntityInterface $entity) {
       if (!isCCEnabled()) {
         return;
       }
-      $title = $entity->getTitle();
       $cca = new ConstantContactApi();
-      $lists = $cca->apiCall('/contact_lists');
-      $list_exists = FALSE;
-      foreach ($lists->lists as $list) {
-        if ($list->name == $title) {
-          // Constant Contact contains affinity group
-          // title in list.
-          $list_id = $list->list_id;
-          break;
+
+      $storedListIdValue = $entity->get('field_list_id')->getValue();
+      $list_id = !empty($storedListIdValue) ? $storedListIdValue[0]['value'] : '';
+
+      if (empty($list_id)) {
+        // Fall back: search CC for a list whose name matches the title.
+        $title = $entity->getTitle();
+        $lists = $cca->apiCall('/contact_lists');
+        if (!empty($lists)) {
+          foreach ($lists->lists as $list) {
+            if ($list->name == $title) {
+              // Constant Contact contains affinity group
+              // title in list.
+              $list_id = $list->list_id;
+              break;
+            }
+          }
         }
       }
 
-      if (isset($list_id)) {
-        $post_data = [
-          'list_id' => $list_id,
-        ];
-        $post_data = json_encode($post_data);
+      if (!empty($list_id)) {
         $cca->apiCall("/contact_lists/$list_id", $list_id, 'DELETE');
       }
     }
