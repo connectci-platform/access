@@ -1872,3 +1872,16 @@ function access_events_replace_mv_conditions(array &$conditions, array $alias_to
     unset($conditions[$key]);
   }
 }
+
+/**
+ * Implements hook_views_data_alter().
+ *
+ * Use a plain-text handler for event_summary so the events REST API returns
+ * decoded text rather than HTML-escaped values.
+ */
+function access_events_views_data_alter(array &$data) {
+  $table = 'search_api_datasource_events_entity_eventinstance';
+  if (isset($data[$table]['event_summary']['field']['id']) && $data[$table]['event_summary']['field']['id'] === 'search_api') {
+    $data[$table]['event_summary']['field']['id'] = 'access_events_search_api_plain_text';
+  }
+}
