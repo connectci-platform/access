@@ -2,6 +2,9 @@
 
 namespace Drupal\ccmnet\Plugin\Util;
 
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
+
 /**
  * Lookup connected Match+ nodes.
  *
@@ -12,27 +15,55 @@ namespace Drupal\ccmnet\Plugin\Util;
  * )
  */
 class MentorshipLookup {
+
+  /**
+   * The database connection.
+   *
+   * @var \Drupal\Core\Database\Connection
+   */
+  private $database;
+
+  /**
+   * The entity type manager.
+   *
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   */
+  private $entityTypeManager;
+
   /**
    * Store matching nodes.
    *
-   * @var array
+   * @var array<int|string, mixed>
    */
   private $matches;
 
   /**
    * Array of sorted matches.
    *
-   * @var array
+   * @var array<int|string, mixed>
    */
   private $mentorshipsSorted;
 
   /**
    * Function to return matching nodes.
+   *
+   * @param \Drupal\Core\Database\Connection $database
+   *   The database connection.
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
+   *   The entity type manager.
+   * @param array<string, string> $mentorships_fields
+   *   The mentorship field map.
+   * @param int|string $mentor_user_id
+   *   The mentor user ID.
+   * @param bool $public
+   *   Whether the lookup is for a public profile.
    */
-  public function __construct($mentorships_fields, $mentor_user_id, $public = FALSE) {
+  public function __construct(Connection $database, EntityTypeManagerInterface $entity_type_manager, array $mentorships_fields, $mentor_user_id, bool $public = FALSE) {
+    $this->database = $database;
+    $this->entityTypeManager = $entity_type_manager;
     // If not public, add engagements authored by User.
     if (!$public) {
-      $query = \Drupal::database()->select('node_field_data', 'nfd');
+      $query = $this->database->select('node_field_data', 'nfd');
       $query->fields('nfd', ['nid']);
       $query->condition('nfd.type', 'mentorship_engagement');
       $query->condition('nfd.uid', $mentor_user_id);
@@ -40,7 +71,7 @@ class MentorshipLookup {
       $nids = array_column($result, 'nid');
       $this->matches['author'] = [
         'name' => 'Author',
-        'nodes' => \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($nids),
+        'nodes' => $this->entityTypeManager->getStorage('node')->loadMultiple($nids),
       ];
     }
     foreach ($mentorships_fields as $match_field_key => $match_field) {
@@ -51,9 +82,16 @@ class MentorshipLookup {
 
   /**
    * Function to Run entity query by type.
+   *
+   * @param string $match_field_name
+   *   The human readable match field name.
+   * @param string $match_field
+   *   The field machine name to match against.
+   * @param int|string $mentor_user_id
+   *   The mentor user ID.
    */
-  public function runQuery($match_field_name, $match_field, $mentor_user_id) {
-    $query = \Drupal::entityQuery('node')
+  public function runQuery(string $match_field_name, string $match_field, $mentor_user_id): void {
+    $query = $this->entityTypeManager->getStorage('node')->getQuery()
       ->condition('type', 'mentorship_engagement')
       ->condition($match_field, $mentor_user_id)
       ->accessCheck(FALSE)
@@ -61,7 +99,7 @@ class MentorshipLookup {
     if ($query != NULL) {
       $this->matches[$match_field] = [
         'name' => $match_field_name,
-        'nodes' => \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($query),
+        'nodes' => $this->entityTypeManager->getStorage('node')->loadMultiple($query),
       ];
     }
   }
@@ -69,7 +107,7 @@ class MentorshipLookup {
   /**
    * Function to lookup nodes and sort array.
    */
-  public function gatherMatches($public) {
+  public function gatherMatches(bool $public): void {
     $matches = $this->matches;
     $match_array = [];
     if ($matches == NULL) {
@@ -82,7 +120,7 @@ class MentorshipLookup {
         $match_name = $match['name'];
         $field_status = $node->get('field_me_state')->getValue();
         $field_status = $field_status[0]['target_id'];
-        $field_status = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($field_status);
+        $field_status = $this->entityTypeManager->getStorage('taxonomy_term')->load($field_status);
         $field_status = $field_status->getName();
 
         // Don't display engagement with a non-public status on public profile.
@@ -107,7 +145,7 @@ class MentorshipLookup {
   /**
    * Function to sort by status - needs update if used.
    */
-  public function sortStatusMatches() {
+  public function sortStatusMatches(): void {
     $matches = $this->mentorshipsSorted;
     $draft = $this->arrayPickSort($matches, 'draft');
     $in_review = $this->arrayPickSort($matches, 'in_review');
@@ -126,11 +164,19 @@ class MentorshipLookup {
 
   /**
    * Function to pick out a status into an array and sort by title.
+   *
+   * @param array<int|string, mixed>|null $array
+   *   The array to filter and sort.
+   * @param string $sortby
+   *   The status to filter by.
+   *
+   * @return array<int|string, mixed>
+   *   The filtered and sorted array.
    */
-  public function arrayPickSort($array, $sortby) {
+  public function arrayPickSort($array, string $sortby): array {
     $sorted = [];
     if ($array == NULL) {
-      return;
+      return [];
     }
     foreach ($array as $key => $value) {
       if ($value['status'] && $value['status'][0]['value'] == $sortby) {
@@ -146,11 +192,11 @@ class MentorshipLookup {
   /**
    * Function to return styled list.
    */
-  public function getMentorshipList() {
+  public function getMentorshipList(): ?string {
     $n = 1;
     $mentorship_link = '';
     if ($this->mentorshipsSorted == NULL) {
-      return;
+      return NULL;
     }
     foreach ($this->mentorshipsSorted as $mentorship) {
       $stripe_class = $n % 2 == 0 ? 'bg-light bg-light-teal' : '';
@@ -181,8 +227,11 @@ class MentorshipLookup {
 
   /**
    * Function to return matching nodes.
+   *
+   * @return array<int|string, mixed>|null
+   *   The matching nodes, or NULL if none.
    */
-  public function getMatches() {
+  public function getMatches(): ?array {
     return $this->matches;
   }
 

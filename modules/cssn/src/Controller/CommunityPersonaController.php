@@ -216,7 +216,7 @@ class CommunityPersonaController extends ControllerBase {
       'field_mentee' => 'Mentee',
       'field_me_ccmnet_leadership' => 'CCMNet Leadership Team Liaison',
     ];
-    $mentorships = new MentorshipLookup($fields, $user->id(), $public);
+    $mentorships = new MentorshipLookup(\Drupal::database(), \Drupal::entityTypeManager(), $fields, $user->id(), $public);
     $mentorship_list = $mentorships->getMentorshipList();
     $mentorship_link = "<ul class='list-unstyled mx-0 my-3 p-0'>";
     if ($mentorship_list == NULL && $public === FALSE) {

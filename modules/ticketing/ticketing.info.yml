@@ -3,6 +3,5 @@ description: Ticketing Module
 package: Custom
 type: module
 core_version_requirement: ^10 || ^11
-version: 1.0
 dependencies:
-  - access
+  - access:access

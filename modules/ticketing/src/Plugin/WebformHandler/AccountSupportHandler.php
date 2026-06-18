@@ -2,8 +2,13 @@
 
 namespace Drupal\ticketing\Plugin\WebformHandler;
 
+use Drupal\Core\Extension\ModuleExtensionList;
+use Drupal\Core\Mail\MailManagerInterface;
+use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\webform\Plugin\WebformHandlerBase;
 use Drupal\webform\WebformSubmissionInterface;
+use Symfony\Component\DependencyInjection\ContainerInterface;
+use Twig\Environment;
 
 /**
  * Create and send the account support email.
@@ -18,19 +23,76 @@ use Drupal\webform\WebformSubmissionInterface;
  * )
  */
 class AccountSupportHandler extends WebformHandlerBase {
+
+  /**
+   * Whether debug messages should be displayed.
+   *
+   * @var bool
+   */
   public $debug = FALSE;
+
+  /**
+   * The current user.
+   *
+   * @var \Drupal\Core\Session\AccountProxyInterface
+   */
+  protected AccountProxyInterface $currentUser;
+
+  /**
+   * The mail manager.
+   *
+   * @var \Drupal\Core\Mail\MailManagerInterface
+   */
+  protected MailManagerInterface $mailManager;
+
+  /**
+   * The module extension list.
+   *
+   * @var \Drupal\Core\Extension\ModuleExtensionList
+   */
+  protected ModuleExtensionList $moduleExtensionList;
+
+  /**
+   * The Twig environment.
+   *
+   * @var \Twig\Environment
+   */
+  protected Environment $twig;
+
+  /**
+   * {@inheritdoc}
+   *
+   * @param \Symfony\Component\DependencyInjection\ContainerInterface $container
+   *   The service container.
+   * @param array<string, mixed> $configuration
+   *   A configuration array containing information about the plugin
+   *   instance.
+   * @param string $plugin_id
+   *   The plugin_id for the plugin instance.
+   * @param mixed $plugin_definition
+   *   The plugin implementation definition.
+   */
+  public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition): static {
+    $instance = parent::create($container, $configuration, $plugin_id, $plugin_definition);
+    $instance->currentUser = $container->get('current_user');
+    $instance->mailManager = $container->get('plugin.manager.mail');
+    $instance->moduleExtensionList = $container->get('extension.list.module');
+    $instance->twig = $container->get('twig');
+    return $instance;
+  }
 
   /**
    * {@inheritdoc}
    */
-  public function postSave(WebformSubmissionInterface $webformSubmission, $update = TRUE) {
+  public function postSave(WebformSubmissionInterface $webformSubmission, $update = TRUE): void {
     $data = $webformSubmission->getData();
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'in postSave() = $data = ' . print_r($data, TRUE);
-      \Drupal::messenger()->addStatus($msg);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- in postSave() = $data = ' . print_r($data, TRUE);
+      $this->messenger()->addStatus($msg);
 
-      // $data = Array ( [your_name] => a [email] => jasperjunk@gmail.com [access_id] => [comment] => )
+      // $data = Array ( [your_name] => a [email] => jasperjunk@gmail.com
+      // [access_id] => [comment] => )
     }
 
     $to = "0-Help@tickets.access-ci.org";
@@ -44,34 +106,40 @@ class AccountSupportHandler extends WebformHandlerBase {
     // Build up the email params.
     $params = [];
     $params['to'] = $to;
-    $body = (string) $this->getXMailMessageBody($data);
+    $body = (string) $this->getMailMessageBody($data);
     $params['body'] = $body;
     $params['title'] = 'account support request from ' . $data['your_name'];
 
-    $langcode = \Drupal::currentUser()->getPreferredLangcode();
+    $langcode = $this->currentUser->getPreferredLangcode();
     $send = TRUE;
     $module = 'ticketing';
     $key = "ticketing";
-    $mailManager = \Drupal::service('plugin.manager.mail');
 
-    $result = $mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
+    $result = $this->mailManager->mail($module, $key, $to, $langcode, $params, NULL, $send);
 
-    if ($result === FALSE || (array_key_exists('result', $result) && !$result['result'])) {
+    if (!$result['result']) {
       $msg = "There was a problem sending the email";
-      \Drupal::messenger()->addWarning($msg);
+      $this->messenger()->addWarning($msg);
     }
 
     if ($this->debug) {
-      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'mail $result = ' . print_r($result, TRUE);
-      \Drupal::messenger()->addStatus($msg);
+      $msg = basename(__FILE__) . ':' . __LINE__ . ' -- mail $result = ' . print_r($result, TRUE);
+      $this->messenger()->addStatus($msg);
     }
   }
 
-  public function getXMailMessageBody($data) {
-    $ticketing_module_path = \Drupal::service('extension.list.module')->getPath('ticketing');
-    /** @var \Twig\Environment $twig */
-    $twig = \Drupal::service('twig');
-    return (string) $twig->load($ticketing_module_path . '/templates/account-support-mail.html.twig')->render([
+  /**
+   * Builds the account support email body.
+   *
+   * @param array<string, mixed> $data
+   *   The webform submission data.
+   *
+   * @return string
+   *   The rendered email body.
+   */
+  public function getMailMessageBody(array $data): string {
+    $ticketing_module_path = $this->moduleExtensionList->getPath('ticketing');
+    return (string) $this->twig->load($ticketing_module_path . '/templates/account-support-mail.html.twig')->render([
       'name' => $data['your_name'],
       'email' => $data['email'],
       'access_id' => $data['access_id'],

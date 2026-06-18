@@ -4,19 +4,46 @@ namespace Drupal\ticketing\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Routing\TrustedRedirectResponse;
+use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\Url;
-use Drupal\user\Entity\User;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * Redirect to JSM.
  */
-class TicketingController extends ControllerBase {
+final class TicketingController extends ControllerBase {
+
+  /**
+   * The current user.
+   *
+   * @var \Drupal\Core\Session\AccountProxyInterface
+   */
+  protected $currentUser;
+
+  /**
+   * Constructs a TicketingController object.
+   *
+   * @param \Drupal\Core\Session\AccountProxyInterface $current_user
+   *   The current user.
+   */
+  public function __construct(AccountProxyInterface $current_user) {
+    $this->currentUser = $current_user;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public static function create(ContainerInterface $container) {
+    return new static(
+      $container->get('current_user')
+    );
+  }
 
   /**
    * Redirect to JSM, and prefill the .
    */
-  public function doRedirect($ticket_id = NULL) {
-    $account = User::load(\Drupal::currentUser()->id());
+  public function doRedirect(?string $ticket_id = NULL): TrustedRedirectResponse {
+    $account = $this->entityTypeManager()->getStorage('user')->load($this->currentUser->id());
     $account_name = $account->getAccountName();
     $display_name = $account->getDisplayName();
 
