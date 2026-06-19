@@ -6,14 +6,16 @@
  */
 
 use Drupal\Component\Utility\Html;
+use Drupal\search_api\Plugin\views\query\SearchApiQuery;
 use Drupal\user\Entity\User;
+use Drupal\user\UserInterface;
 use Drupal\views\ViewExecutable;
 use Drupal\views\Plugin\views\query\QueryPluginBase;
 
 /**
- *
+ * Implements hook_user_login().
  */
-function ondemand_user_login($account) {
+function ondemand_user_login(UserInterface $account): void {
   $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
 
   if ($current_domain_name == 'open-ondemand' || $current_domain_name == 'pa-science') {
@@ -56,16 +58,17 @@ function ondemand_user_login($account) {
 }
 
 /**
+ * Implements hook_views_query_alter().
+ *
  * Filters for People SearchAPI view.
- *
- * @param \Drupal\views\ViewExecutable $view
- * @param \Drupal\views\Plugin\views\query\QueryPluginBase $query
- *
- * @return void
  */
-function ondemand_views_query_alter(ViewExecutable $view, QueryPluginBase $query) {
+function ondemand_views_query_alter(ViewExecutable $view, QueryPluginBase $query): void {
 
   if ($view->id() === 'cyberteam_people_facets' && $view->current_display === 'page_1') {
+    // The People view is powered by Search API.
+    if (!$query instanceof SearchApiQuery) {
+      return;
+    }
     $token = \Drupal::token();
     $domain_name = Html::getClass($token->replace(t('[domain:name]')));
 
