@@ -2,12 +2,15 @@
 
 /**
  * @file
+ * Hooks and preprocess functions for the ACCESS Outages module.
  */
 
 /**
  * Implements hook_theme().
+ *
+ * @phpstan-return array<string, mixed>
  */
-function access_outages_theme() {
+function access_outages_theme(): array {
   return [
     'outages_block' => [
       'variables' => [
@@ -18,10 +21,14 @@ function access_outages_theme() {
 }
 
 /**
- * Help display affinity group outages by passing cider resource ids to
- * to the access_outages library
+ * Implements hook_preprocess_HOOK() for layout.
+ *
+ * Helps display affinity group outages by passing cider resource ids to the
+ * access_outages library.
+ *
+ * @phpstan-param array<string, mixed> $vars
  */
-function access_outages_preprocess_layout(&$vars) {
+function access_outages_preprocess_layout(array &$vars): void {
   $entity = $vars['content']['#entity'];
   if ($entity->bundle() == 'affinity_group') {
     $node_storage = \Drupal::entityTypeManager()->getStorage('node');
