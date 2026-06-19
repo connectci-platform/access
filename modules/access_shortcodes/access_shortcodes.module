@@ -2,12 +2,16 @@
 
 /**
  * @file
+ * Hooks and theme definitions for the ACCESS Shortcodes module.
  */
 
 /**
  * Define our variables (parameters) for each shortcode.
+ *
+ * @return array<string, mixed>
+ *   The theme definitions.
  */
-function access_shortcodes_theme() {
+function access_shortcodes_theme(): array {
   return [
     'shortcode_icon_block' => [
       'variables' => [
