@@ -17,11 +17,12 @@ class CronManager {
    * flags rows as 'review' with matched_uid. Sends digest email to
    * administrators if new matches are found.
    */
-  public static function checkPendingMatches() {
+  public static function checkPendingMatches(): void {
     $database = \Drupal::database();
     $entity_type_manager = \Drupal::entityTypeManager();
 
     // Load all pending rows.
+    /** @var \stdClass[] $pending_rows */
     $pending_rows = $database->select('access_badges_pending', 'p')
       ->fields('p')
       ->condition('p.status', 'pending')
@@ -65,7 +66,7 @@ class CronManager {
         // Check organization match.
         if (!empty($row->organization) && $user->hasField('field_access_organization') && !$user->get('field_access_organization')->isEmpty()) {
           $org_entity = $user->get('field_access_organization')->entity;
-          if ($org_entity && mb_strtolower($org_entity->label()) === mb_strtolower($row->organization)) {
+          if (mb_strtolower($org_entity->label()) === mb_strtolower($row->organization)) {
             $strength = 'Recommended';
           }
         }
@@ -114,10 +115,10 @@ class CronManager {
   /**
    * Sends a digest email to all administrators about new matches.
    *
-   * @param array $new_matches
+   * @param array<int, array<string, mixed>> $new_matches
    *   Array of match data.
    */
-  protected static function sendDigestEmail(array $new_matches) {
+  protected static function sendDigestEmail(array $new_matches): void {
     // Get all active administrator users.
     $query = \Drupal::entityTypeManager()->getStorage('user')->getQuery();
     $query->condition('roles', 'administrator');

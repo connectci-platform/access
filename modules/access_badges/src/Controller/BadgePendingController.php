@@ -3,16 +3,18 @@
 namespace Drupal\access_badges\Controller;
 
 use Drupal\access_badges\Plugin\BadgeTools;
+use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Url;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
-use Drupal\Core\Url;
+use Symfony\Component\HttpFoundation\RequestStack;
 
 /**
  * Controller for badge pending action routes.
  */
-class BadgePendingController extends ControllerBase {
+final class BadgePendingController extends ControllerBase {
 
   /**
    * The database connection.
@@ -29,34 +31,52 @@ class BadgePendingController extends ControllerBase {
   protected $badgeTools;
 
   /**
+   * The time service.
+   *
+   * @var \Drupal\Component\Datetime\TimeInterface
+   */
+  protected $time;
+
+  /**
+   * The request stack.
+   *
+   * @var \Symfony\Component\HttpFoundation\RequestStack
+   */
+  protected $requestStack;
+
+  /**
    * Constructs a BadgePendingController.
    */
-  public function __construct(Connection $database, BadgeTools $badge_tools) {
+  public function __construct(Connection $database, BadgeTools $badge_tools, TimeInterface $time, RequestStack $request_stack) {
     $this->database = $database;
     $this->badgeTools = $badge_tools;
+    $this->time = $time;
+    $this->requestStack = $request_stack;
   }
 
   /**
    * {@inheritdoc}
    */
-  public static function create(ContainerInterface $container) {
+  public static function create(ContainerInterface $container): static {
     return new static(
       $container->get('database'),
-      $container->get('access_badges.badgeTools')
+      $container->get('access_badges.badgeTools'),
+      $container->get('datetime.time'),
+      $container->get('request_stack')
     );
   }
 
   /**
    * Redirects the Badge Assignments landing page to the Pending sub-tab.
    */
-  public function badgeAssignments() {
+  public function badgeAssignments(): RedirectResponse {
     return new RedirectResponse(Url::fromRoute('access_badges.pending')->toString());
   }
 
   /**
    * Deletes a pending row.
    */
-  public function delete($id) {
+  public function delete(string $id): RedirectResponse {
     $this->database->delete('access_badges_pending')
       ->condition('id', $id)
       ->execute();
@@ -67,8 +87,8 @@ class BadgePendingController extends ControllerBase {
   /**
    * Assigns a badge from an inline possible match.
    */
-  public function assign($uid, $badge_tid, $vocabulary, $email) {
-    $assigned = $this->badgeTools->assignBadgeToUser($uid, $badge_tid, $vocabulary);
+  public function assign(string $uid, string $badge_tid, string $vocabulary, string $email): RedirectResponse {
+    $assigned = $this->badgeTools->assignBadgeToUser((int) $uid, (int) $badge_tid, $vocabulary);
     if ($assigned) {
       $this->messenger()->addStatus($this->t('Badge assigned successfully.'));
     }
@@ -88,11 +108,11 @@ class BadgePendingController extends ControllerBase {
   /**
    * Sends an inline possible match to the pending queue.
    */
-  public function sendToPending($email, $first_name, $last_name, $organization = '') {
+  public function sendToPending(string $email, string $first_name, string $last_name, string $organization = ''): RedirectResponse {
     // This route requires badge_tid and vocabulary from the query string.
-    $request = \Drupal::request();
-    $badge_tid = $request->query->get('badge_tid', 0);
-    $vocabulary = $request->query->get('vocabulary', 'badges');
+    $request = $this->requestStack->getCurrentRequest();
+    $badge_tid = $request ? $request->query->get('badge_tid', 0) : 0;
+    $vocabulary = $request ? $request->query->get('vocabulary', 'badges') : 'badges';
 
     if (!empty($email) && !empty($badge_tid)) {
       // Check for duplicate.
@@ -112,7 +132,7 @@ class BadgePendingController extends ControllerBase {
             'organization' => $organization,
             'badge_tid' => $badge_tid,
             'vocabulary' => $vocabulary,
-            'created' => \Drupal::time()->getRequestTime(),
+            'created' => $this->time->getRequestTime(),
             'status' => 'pending',
           ])
           ->execute();

@@ -3,6 +3,7 @@
 namespace Drupal\access_badges\Service;
 
 use Drupal\access_badges\Plugin\BadgeTools;
+use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 
@@ -33,12 +34,20 @@ class CsvProcessor {
   protected $badgeTools;
 
   /**
+   * The time service.
+   *
+   * @var \Drupal\Component\Datetime\TimeInterface
+   */
+  protected $time;
+
+  /**
    * Constructs a CsvProcessor object.
    */
-  public function __construct(Connection $database, EntityTypeManagerInterface $entity_type_manager, BadgeTools $badge_tools) {
+  public function __construct(Connection $database, EntityTypeManagerInterface $entity_type_manager, BadgeTools $badge_tools, TimeInterface $time) {
     $this->database = $database;
     $this->entityTypeManager = $entity_type_manager;
     $this->badgeTools = $badge_tools;
+    $this->time = $time;
   }
 
   /**
@@ -47,10 +56,10 @@ class CsvProcessor {
    * @param resource $handle
    *   An open file handle.
    *
-   * @return array|false
+   * @return array<string, int>|false
    *   An associative map of recognized column => index, or FALSE on failure.
    */
-  public function parseHeaders($handle) {
+  public function parseHeaders($handle): array|false {
     $row = fgetcsv($handle);
     if (!$row) {
       return FALSE;
@@ -92,8 +101,14 @@ class CsvProcessor {
    *
    * "Mary Jane Watson" -> first: "Mary Jane", last: "Watson".
    * Single token "Prince" -> first: "", last: "Prince".
+   *
+   * @param string $full_name
+   *   The full name to split.
+   *
+   * @return array{first_name: string, last_name: string}
+   *   The split first and last name.
    */
-  public function splitName($full_name) {
+  public function splitName($full_name): array {
     $name = $this->normalizeName($full_name);
     if ($name === '') {
       return ['first_name' => '', 'last_name' => ''];
@@ -110,23 +125,29 @@ class CsvProcessor {
 
   /**
    * Normalizes a name string (trim + collapse whitespace).
+   *
+   * @param string $name
+   *   The name to normalize.
+   *
+   * @return string
+   *   The normalized name.
    */
-  public function normalizeName($name) {
-    return preg_replace('/\s+/', ' ', trim($name));
+  public function normalizeName($name): string {
+    return preg_replace('/\s+/', ' ', trim($name)) ?? '';
   }
 
   /**
    * Extracts a row's data from a CSV line using the header map.
    *
-   * @param array $row
+   * @param array<int, string> $row
    *   A CSV row array.
-   * @param array $header_map
+   * @param array<string, int> $header_map
    *   The header map from parseHeaders().
    *
-   * @return array
+   * @return array<string, string>
    *   Associative array with email, first_name, last_name, organization.
    */
-  public function extractRowData(array $row, array $header_map) {
+  public function extractRowData(array $row, array $header_map): array {
     $email = isset($header_map['email']) ? trim($row[$header_map['email']] ?? '') : '';
     $first_name = '';
     $last_name = '';
@@ -158,18 +179,18 @@ class CsvProcessor {
   /**
    * Processes a single CSV row: match, possible-match, or pending.
    *
-   * @param array $data
+   * @param array<string, string> $data
    *   Row data from extractRowData().
    * @param int $badge_tid
    *   The badge term ID.
    * @param string $vocabulary
    *   The vocabulary machine name.
    *
-   * @return array
-   *   Result with 'type' key: 'assigned', 'already_assigned', 'duplicate_pending',
-   *   'possible_matches', or 'pending'.
+   * @return array<string, mixed>
+   *   Result with 'type' key: 'assigned', 'already_assigned',
+   *   'duplicate_pending', 'possible_matches', or 'pending'.
    */
-  public function processRow(array $data, $badge_tid, $vocabulary) {
+  public function processRow(array $data, $badge_tid, $vocabulary): array {
     $email = $data['email'];
     if (empty($email)) {
       return ['type' => 'pending', 'email' => ''];
@@ -331,7 +352,7 @@ class CsvProcessor {
       return '';
     }
     $org_entity = $user->get('field_access_organization')->entity;
-    return $org_entity ? $org_entity->label() : '';
+    return (string) $org_entity->label();
   }
 
   /**
@@ -358,7 +379,7 @@ class CsvProcessor {
   /**
    * Inserts a 'review' status row with a matched UID into the pending table.
    *
-   * @param array $data
+   * @param array<string, string> $data
    *   Row data with email, first_name, last_name, organization.
    * @param int $badge_tid
    *   The badge term ID.
@@ -367,7 +388,7 @@ class CsvProcessor {
    * @param int $matched_uid
    *   The UID of the best-matched user candidate.
    */
-  public function insertReviewRow(array $data, $badge_tid, $vocabulary, $matched_uid) {
+  public function insertReviewRow(array $data, $badge_tid, $vocabulary, $matched_uid): void {
     $this->database->insert('access_badges_pending')
       ->fields([
         'email' => $data['email'],
@@ -376,7 +397,7 @@ class CsvProcessor {
         'organization' => $data['organization'],
         'badge_tid' => $badge_tid,
         'vocabulary' => $vocabulary,
-        'created' => \Drupal::time()->getRequestTime(),
+        'created' => $this->time->getRequestTime(),
         'status' => 'review',
         'matched_uid' => $matched_uid,
       ])
@@ -386,14 +407,14 @@ class CsvProcessor {
   /**
    * Inserts a row into the pending table.
    *
-   * @param array $data
+   * @param array<string, string> $data
    *   Row data with email, first_name, last_name, organization.
    * @param int $badge_tid
    *   The badge term ID.
    * @param string $vocabulary
    *   The vocabulary machine name.
    */
-  public function insertPendingRow(array $data, $badge_tid, $vocabulary) {
+  public function insertPendingRow(array $data, $badge_tid, $vocabulary): void {
     $this->database->insert('access_badges_pending')
       ->fields([
         'email' => $data['email'],
@@ -402,7 +423,7 @@ class CsvProcessor {
         'organization' => $data['organization'],
         'badge_tid' => $badge_tid,
         'vocabulary' => $vocabulary,
-        'created' => \Drupal::time()->getRequestTime(),
+        'created' => $this->time->getRequestTime(),
         'status' => 'pending',
       ])
       ->execute();

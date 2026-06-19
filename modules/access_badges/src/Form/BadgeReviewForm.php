@@ -7,13 +7,12 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\user\Entity\User;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * Management form for badge assignments needing review.
  */
-class BadgeReviewForm extends FormBase {
+final class BadgeReviewForm extends FormBase {
 
   /**
    * The database connection.
@@ -48,7 +47,7 @@ class BadgeReviewForm extends FormBase {
   /**
    * {@inheritdoc}
    */
-  public static function create(ContainerInterface $container) {
+  public static function create(ContainerInterface $container): static {
     return new static(
       $container->get('database'),
       $container->get('entity_type.manager'),
@@ -65,8 +64,16 @@ class BadgeReviewForm extends FormBase {
 
   /**
    * {@inheritdoc}
+   *
+   * @param array<string, mixed> $form
+   *   The form structure.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The current state of the form.
+   *
+   * @return array<string, mixed>
+   *   The form structure.
    */
-  public function buildForm(array $form, FormStateInterface $form_state) {
+  public function buildForm(array $form, FormStateInterface $form_state): array {
     $rows = $this->getReviewRows();
 
     if (empty($rows)) {
@@ -152,8 +159,11 @@ class BadgeReviewForm extends FormBase {
 
   /**
    * Gets review rows with matched user details.
+   *
+   * @return array<int, array<string, mixed>>
+   *   The review rows.
    */
-  protected function getReviewRows() {
+  protected function getReviewRows(): array {
     $results = $this->database->select('access_badges_pending', 'p')
       ->fields('p')
       ->condition('p.status', 'review')
@@ -175,7 +185,7 @@ class BadgeReviewForm extends FormBase {
       $strength = 'Possible';
 
       if ($row->matched_uid) {
-        $matched_user = User::load($row->matched_uid);
+        $matched_user = $this->entityTypeManager->getStorage('user')->load($row->matched_uid);
         if ($matched_user) {
           $matched_name = $matched_user->getDisplayName();
           $matched_email = $matched_user->getEmail();
@@ -183,12 +193,10 @@ class BadgeReviewForm extends FormBase {
           // Get matched user's organization.
           if ($matched_user->hasField('field_access_organization') && !$matched_user->get('field_access_organization')->isEmpty()) {
             $org_entity = $matched_user->get('field_access_organization')->entity;
-            if ($org_entity) {
-              $matched_org = $org_entity->label();
-              // Determine strength.
-              if (!empty($row->organization) && mb_strtolower($matched_org) === mb_strtolower($row->organization)) {
-                $strength = 'Recommended';
-              }
+            $matched_org = $org_entity->label();
+            // Determine strength.
+            if (!empty($row->organization) && mb_strtolower($matched_org) === mb_strtolower($row->organization)) {
+              $strength = 'Recommended';
             }
           }
         }
@@ -216,6 +224,9 @@ class BadgeReviewForm extends FormBase {
 
   /**
    * Gets the row ID from the triggering element.
+   *
+   * @return int|string|null
+   *   The row ID, or NULL if not found.
    */
   protected function getRowIdFromTrigger(FormStateInterface $form_state) {
     $trigger = $form_state->getTriggeringElement();
@@ -224,6 +235,12 @@ class BadgeReviewForm extends FormBase {
 
   /**
    * Gets a pending row by ID.
+   *
+   * @param int|string $id
+   *   The pending row ID.
+   *
+   * @return object|false
+   *   The pending row, or FALSE if not found.
    */
   protected function getPendingRow($id) {
     return $this->database->select('access_badges_pending', 'p')
@@ -235,8 +252,13 @@ class BadgeReviewForm extends FormBase {
 
   /**
    * Assign submit handler.
+   *
+   * @param array<string, mixed> $form
+   *   The form structure.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The current state of the form.
    */
-  public function assignSubmit(array &$form, FormStateInterface $form_state) {
+  public function assignSubmit(array &$form, FormStateInterface $form_state): void {
     $id = $this->getRowIdFromTrigger($form_state);
     $row = $this->getPendingRow($id);
     if (!$row) {
@@ -261,8 +283,13 @@ class BadgeReviewForm extends FormBase {
 
   /**
    * Dismiss submit handler.
+   *
+   * @param array<string, mixed> $form
+   *   The form structure.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The current state of the form.
    */
-  public function dismissSubmit(array &$form, FormStateInterface $form_state) {
+  public function dismissSubmit(array &$form, FormStateInterface $form_state): void {
     $id = $this->getRowIdFromTrigger($form_state);
     $this->database->update('access_badges_pending')
       ->fields([
@@ -276,8 +303,13 @@ class BadgeReviewForm extends FormBase {
 
   /**
    * Delete submit handler.
+   *
+   * @param array<string, mixed> $form
+   *   The form structure.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The current state of the form.
    */
-  public function deleteSubmit(array &$form, FormStateInterface $form_state) {
+  public function deleteSubmit(array &$form, FormStateInterface $form_state): void {
     $id = $this->getRowIdFromTrigger($form_state);
     $this->database->delete('access_badges_pending')
       ->condition('id', $id)
@@ -287,8 +319,13 @@ class BadgeReviewForm extends FormBase {
 
   /**
    * {@inheritdoc}
+   *
+   * @param array<string, mixed> $form
+   *   The form structure.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The current state of the form.
    */
-  public function submitForm(array &$form, FormStateInterface $form_state) {
+  public function submitForm(array &$form, FormStateInterface $form_state): void {
     // Primary submit handled by sub-handlers.
   }
 
