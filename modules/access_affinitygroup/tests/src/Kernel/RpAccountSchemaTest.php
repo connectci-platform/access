@@ -20,9 +20,9 @@ class RpAccountSchemaTest extends KernelTestBase {
 
     foreach ([
       'uid', 'rp_nid', 'grant_number', 'project_id', 'resource_id',
-      'grant_title', 'rp_username', 'account_state', 'project_balance',
-      'project_end', 'project_state', 'is_expired', 'billable_unit',
-      'synced_at',
+      'grant_title', 'rp_username', 'account_state', 'sp_state',
+      'project_balance', 'project_end', 'project_state', 'is_expired',
+      'billable_unit', 'synced_at',
     ] as $column) {
       $this->assertTrue(
         $schema->fieldExists('access_user_rp_account', $column),
