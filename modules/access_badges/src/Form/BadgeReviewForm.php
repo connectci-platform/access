@@ -192,8 +192,10 @@ final class BadgeReviewForm extends FormBase {
 
           // Get matched user's organization.
           if ($matched_user->hasField('field_access_organization') && !$matched_user->get('field_access_organization')->isEmpty()) {
+            // The referenced entity may be NULL if it has been deleted.
+            /** @var \Drupal\Core\Entity\EntityInterface|null $org_entity */
             $org_entity = $matched_user->get('field_access_organization')->entity;
-            $matched_org = $org_entity->label();
+            $matched_org = $org_entity ? $org_entity->label() : '';
             // Determine strength.
             if (!empty($row->organization) && mb_strtolower($matched_org) === mb_strtolower($row->organization)) {
               $strength = 'Recommended';

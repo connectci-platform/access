@@ -351,8 +351,10 @@ class CsvProcessor {
     if (!$user->hasField('field_access_organization') || $user->get('field_access_organization')->isEmpty()) {
       return '';
     }
+    // The referenced entity may be NULL if it has been deleted.
+    /** @var \Drupal\Core\Entity\EntityInterface|null $org_entity */
     $org_entity = $user->get('field_access_organization')->entity;
-    return (string) $org_entity->label();
+    return $org_entity ? (string) $org_entity->label() : '';
   }
 
   /**

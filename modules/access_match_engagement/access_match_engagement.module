@@ -385,7 +385,10 @@ function access_match_engagement_form_validate(array &$form, FormStateInterface 
   }
 
   if (!empty($error)) {
-    $form_state->setError($form, t('@error', ['@error' => $error]));
+    // $error is already-rendered, safe markup assembled from t() calls (it
+    // contains an <a href> link). Wrap it in Markup::create() so the @error
+    // placeholder does not re-escape the HTML.
+    $form_state->setError($form, t('@error', ['@error' => Markup::create($error)]));
   }
 }
 
