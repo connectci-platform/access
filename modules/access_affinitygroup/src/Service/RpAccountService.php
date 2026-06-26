@@ -205,6 +205,7 @@ class RpAccountService {
       $acct = $this->xdusage->getAccountForUser($w['pid'], $w['rid'], $personId);
       $rpUsername = $acct['portal_username'] ?? NULL;
       $accountState = $acct['account_state'] ?? NULL;
+      $spState = $acct['sp_state'] ?? NULL;
 
       $this->db->merge(self::TABLE)
         ->keys([
@@ -216,6 +217,7 @@ class RpAccountService {
           'grant_title' => $w['title'] !== '' ? mb_substr($w['title'], 0, 255) : NULL,
           'rp_username' => $rpUsername,
           'account_state' => $accountState,
+          'sp_state' => $spState,
           'project_balance' => $w['tuple']['project_balance'] ?? NULL,
           'project_end' => $w['tuple']['project_end'] ?? NULL,
           'project_state' => $w['tuple']['project_state'] ?? NULL,

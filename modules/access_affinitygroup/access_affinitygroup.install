@@ -58,7 +58,13 @@ function access_affinitygroup_schema() {
         'type' => 'varchar',
         'length' => 32,
         'not null' => FALSE,
-        'description' => 'active / inactive (per-user account state).',
+        'description' => 'active / inactive (per-user account state, ACCESS view).',
+      ],
+      'sp_state' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => FALSE,
+        'description' => "Resource-provider's view of the account: active / inactive / pending-active / pending-inactive. A pending- value means the account is not yet provisioned on the RP side, even if account_state is active.",
       ],
       'project_balance' => [
         'type' => 'numeric',
@@ -816,4 +822,26 @@ function _access_affinitygroup_node_reference_tables(): array {
     }
   }
   return $tables;
+}
+
+/**
+ * Adds the sp_state column to access_user_rp_account.
+ *
+ * sp_state is the resource-provider's view of the account (active / inactive /
+ * pending-active / pending-inactive), separate from account_state (the ACCESS
+ * view). A pending- value means the account is not yet provisioned on the RP
+ * side even when account_state is active.
+ */
+function access_affinitygroup_update_10013(): string {
+  $schema = \Drupal::database()->schema();
+  if ($schema->fieldExists('access_user_rp_account', 'sp_state')) {
+    return 'Column sp_state already exists on access_user_rp_account; nothing to add.';
+  }
+  $schema->addField('access_user_rp_account', 'sp_state', [
+    'type' => 'varchar',
+    'length' => 32,
+    'not null' => FALSE,
+    'description' => "Resource-provider's view of the account: active / inactive / pending-active / pending-inactive. A pending- value means the account is not yet provisioned on the RP side, even if account_state is active.",
+  ]);
+  return 'Added sp_state column to access_user_rp_account.';
 }
