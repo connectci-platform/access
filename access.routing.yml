@@ -109,3 +109,37 @@ access.api_docs_announcements:
       openapi_generator:
         type: openapi_generator
 
+access.api_docs_content:
+  path: '/api-docs/content'
+  defaults:
+    _title: 'ACCESS Content API v1.0 Documentation'
+    _controller: '\Drupal\openapi\Controller\OpenApiUiController::generate'
+    openapi_ui: 'swagger'
+    openapi_generator: 'access_content'
+  requirements:
+    _permission: 'access content'
+  options:
+    _admin_route: FALSE
+    parameters:
+      openapi_ui:
+        type: openapi_ui
+      openapi_generator:
+        type: openapi_generator
+
+access.api_docs_sds:
+  path: '/api-docs/sds'
+  defaults:
+    _title: 'ACCESS SDS API Documentation'
+    _controller: '\Drupal\openapi\Controller\OpenApiUiController::generate'
+    openapi_ui: 'swagger'
+    openapi_generator: 'access_sds'
+  requirements:
+    _permission: 'access content'
+  options:
+    _admin_route: FALSE
+    parameters:
+      openapi_ui:
+        type: openapi_ui
+      openapi_generator:
+        type: openapi_generator
+

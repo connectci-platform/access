@@ -11,3 +11,9 @@ eligibility_banner:
   css:
     component:
       css/eligibility-banner.css: {}
+
+api_docs_swagger:
+  version: 1.x
+  css:
+    theme:
+      css/api-docs-swagger.css: {}
