@@ -16,7 +16,10 @@ use Drupal\views\ResultRow;
  * for JSON consumers and inflates the length past the documented limit. This
  * handler returns the value as plain text instead. Any markup is stripped
  * first, so wrapping the result as safe Markup cannot introduce an XSS vector
- * in the view's HTML displays. Registered against event_summary via
+ * in the view's HTML displays. The plain text is then capped at the documented
+ * 150-character summary limit; the eventseries form validates new summaries to
+ * the same length, but historical content can still exceed it, so the API path
+ * enforces the cap itself. Registered against event_summary via
  * access_events_views_data_alter().
  *
  * @ingroup views_field_handlers
@@ -34,6 +37,12 @@ class SearchApiPlainText extends SearchApiStandard {
         // Strip any tags, then decode entities to plain text. Stripping first
         // keeps the value safe to mark as Markup (no live HTML can survive).
         $plain = Html::decodeEntities(strip_tags($item['value']));
+        // Enforce the documented 150-character summary cap. Use mb_* so a
+        // multibyte character is never split. Matches the 147 + ellipsis the
+        // eventseries summary helper applies on input.
+        if (mb_strlen($plain) > 150) {
+          $plain = mb_substr($plain, 0, 147) . '...';
+        }
         $item['value'] = Markup::create($plain);
       }
     }
