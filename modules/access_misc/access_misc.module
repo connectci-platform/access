@@ -751,6 +751,12 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     $form['#title'] = t('Join or Login');
   }
 
+  // On the "ACCESS Active Resources from CID" node form, require the RP account
+  // setup URL whenever the "RP Account Required" boolean is checked.
+  if ($form_id == 'node_access_active_resources_from_cid_form' || $form_id == 'node_access_active_resources_from_cid_edit_form') {
+    $form['#validate'][] = 'access_misc_rp_account_setup_url_validate';
+  }
+
   if ($form_id == 'user_form') {
     $form['actions']['submit']['#submit'][] = 'access_misc_user_password_change';
 
@@ -758,6 +764,25 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     // so users can save profile changes without setting a new password.
     // Uses #after_build to ensure it runs after the form is fully built.
     $form['#after_build'][] = 'access_misc_user_form_after_build';
+  }
+}
+
+/**
+ * Validation handler for the ACCESS Active Resources from CID node form.
+ *
+ * Makes field_rp_account_setup_url required when the field_rp_account_required
+ * boolean is checked.
+ */
+function access_misc_rp_account_setup_url_validate(&$form, FormStateInterface $form_state) {
+  $account_required = (bool) $form_state->getValue(['field_rp_account_required', 'value']);
+  if (!$account_required) {
+    return;
+  }
+
+  $setup_url = $form_state->getValue(['field_rp_account_setup_url', 0, 'uri']);
+  if (empty($setup_url)) {
+    $label = $form['field_rp_account_setup_url']['widget']['#title'] ?? t('RP Account Setup URL');
+    $form_state->setError($form['field_rp_account_setup_url'], t('@label is required when RP Account Required is checked.', ['@label' => $label]));
   }
 }
 

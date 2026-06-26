@@ -1,0 +1,321 @@
+/**
+ * ACCESS-branded landing page styles for /api-docs.
+ *
+ * This library (access/api_docs_swagger) is attached on all routes starting
+ * access.api_docs, which includes the landing page and all Swagger detail
+ * pages. Landing-specific rules are scoped to .api-docs-index; Swagger rules
+ * are scoped to .swagger-ui.
+ *
+ * Brand palette:
+ *   md-teal:    #107180
+ *   dark-teal:  #1A5B6E
+ *   teal:       #48C0B9
+ *   light-teal: #ecf9f8
+ *   yellow:     #ffc42d
+ *   black:      #232323
+ *   dark-gray:  #707070
+ *   gray:       #d2d2d2
+ *   light-gray: #f2f2f2
+ */
+
+/* ── Getting Started panel ─────────────────────────────────────────────── */
+.api-docs-index .api-getting-started {
+  background: #ecf9f8;
+  border-left: 4px solid #107180;
+  padding: 20px;
+  border-radius: 5px;
+  margin: 20px 0;
+}
+
+.api-docs-index .api-getting-started h3 {
+  color: #107180;
+  margin-top: 0;
+}
+
+/* ── API cards ─────────────────────────────────────────────────────────── */
+.api-docs-index .api-docs__card {
+  border: 1px solid #d2d2d2;
+  padding: 20px;
+  margin-bottom: 20px;
+  border-radius: 5px;
+  background: #fff;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.api-docs-index .api-docs__card:hover {
+  box-shadow: 0 2px 8px rgba(16, 113, 128, 0.12);
+  border-color: #107180;
+}
+
+.api-docs-index .api-docs__card h3 {
+  color: #107180;
+  margin-top: 0;
+}
+
+/* ── Meta line (version/endpoint) ──────────────────────────────────────── */
+.api-docs-index .api-docs__meta {
+  font-size: 0.9em;
+  color: #707070;
+}
+
+.api-docs-index .api-docs__meta select {
+  padding: 4px 8px;
+  border: 1px solid #d2d2d2;
+  border-radius: 4px;
+}
+
+/* ── Button wrapper ────────────────────────────────────────────────────── */
+.api-docs-index .api-docs__card-action {
+  margin-top: 10px;
+}
+
+/* ── "View Interactive Documentation" button ───────────────────────────── */
+.api-docs-index .api-docs__button {
+  display: inline-block;
+  padding: 10px 20px;
+  background: #107180;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.api-docs-index .api-docs__button:hover,
+.api-docs-index .api-docs__button:focus {
+  background: #1A5B6E;
+  color: #fff;
+  text-decoration: none;
+}
+
+/* ── Available APIs heading ────────────────────────────────────────────── */
+.api-docs-index h3 {
+  color: #107180;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Overrides for the Swagger UI title badges on /api-docs/* detail pages.
+ *
+ * swagger-ui.css renders the version (e.g. "1.0.0") and the spec badge
+ * (e.g. "OAS3") as `.info .title small` pills:
+ *   .swagger-ui .info .title small {
+ *     border-radius:57px; padding:2px 4px; top:-5px; vertical-align:super;
+ *   }
+ * On the large 36px title that 57px radius on a tiny box plus super/-5px
+ * positioning produces clipped, overlapping pills crammed against the title.
+ *
+ * Our selector intentionally repeats `.title.title` to raise specificity above
+ * the stock rule, so the fix wins regardless of CSS aggregation/load order
+ * (equal-specificity overrides depend on order, which Drupal aggregation can
+ * reshuffle). The badge markup is:
+ *   <small><pre class="version">1.0.0</pre></small>
+ *   <small class="version-stamp"><pre class="version">OAS3</pre></small>
+ */
+.swagger-ui .info .title.title small {
+  border-radius: 4px;
+  padding: 3px 8px;
+  margin: 0 0 0 8px;
+  top: 0;
+  line-height: 1.5;
+  vertical-align: middle;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+/* The inner <pre> carries the badge text; keep it inline-flush so the pill
+   wraps it tightly instead of inheriting block/monospace pre metrics. */
+.swagger-ui .info .title.title small pre.version {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+  line-height: 1.5;
+  background: transparent;
+  color: #fff;
+}
+
+/* Space the second badge (OAS3) off the first. */
+.swagger-ui .info .title.title small + small {
+  margin-left: 6px;
+}
+
+/**
+ * Strip the literal backtick glyphs that asp-theme's Tailwind `prose`
+ * typography adds around inline code via `code::before { content: "\`" }`.
+ * Swagger renders the spec description's Markdown into real <code> elements,
+ * but the surrounding .prose region decorates them with backtick characters,
+ * so `items_per_page` shows as `items_per_page` with visible backticks. Scope
+ * the reset to the Swagger description so prose backticks elsewhere are intact.
+ */
+.swagger-ui .renderedMarkdown code::before,
+.swagger-ui .renderedMarkdown code::after,
+.swagger-ui .markdown code::before,
+.swagger-ui .markdown code::after,
+.api-docs-index code::before,
+.api-docs-index code::after {
+  content: none;
+}
+
+/*
+ * The landing page sits inside asp-theme's `.prose` region too, so its inline
+ * <code> (the Endpoint URL in the card meta line) loses the prose code styling
+ * once we strip the backticks. Give it a light branded code style so it still
+ * reads as code.
+ */
+.api-docs-index code {
+  background: #f2f2f2;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.95em;
+  color: #1A5B6E;
+}
+
+/**
+ * ACCESS accent theming for Swagger UI action buttons.
+ *
+ * The "Authorize" button and "Execute" buttons use Swagger's default
+ * green (#49cc90) and blue tones. Rebrand to md-teal (#107180) /
+ * dark-teal (#1A5B6E) to match the ACCESS palette.
+ *
+ * HTTP method badges (GET/POST/PUT/DELETE etc.) are intentionally left
+ * alone — color-coding by verb is a useful convention for API consumers.
+ */
+
+/*
+ * NOTE on specificity: our `api-docs-swagger.css` is aggregated BEFORE
+ * `swagger-ui/dist/swagger-ui.css`, so at equal specificity swagger's own
+ * rules (e.g. `.swagger-ui .btn.execute{background-color:#4990e2}`) would win
+ * on source order. We double the `.swagger-ui` class (`.swagger-ui.swagger-ui`)
+ * to raise specificity above the stock rules so the rebrand wins regardless of
+ * load order. Match swagger's `background-color` property (not the `background`
+ * shorthand) so we override exactly what it sets.
+ */
+
+/* Authorize button (lock icon, top-right of spec title area) */
+.swagger-ui.swagger-ui .btn.authorize {
+  border-color: #107180;
+  color: #107180;
+}
+
+.swagger-ui.swagger-ui .btn.authorize svg {
+  fill: #107180;
+}
+
+.swagger-ui.swagger-ui .btn.authorize:hover,
+.swagger-ui.swagger-ui .btn.authorize:focus {
+  border-color: #1A5B6E;
+  color: #1A5B6E;
+  background-color: #ecf9f8;
+}
+
+/* Execute button (sends the test request) */
+.swagger-ui.swagger-ui .btn.execute {
+  background-color: #107180;
+  border-color: #107180;
+  color: #fff;
+}
+
+.swagger-ui.swagger-ui .btn.execute:hover,
+.swagger-ui.swagger-ui .btn.execute:focus {
+  background-color: #1A5B6E;
+  border-color: #1A5B6E;
+}
+
+/* "Try it out" buttons — outline teal */
+.swagger-ui.swagger-ui .try-out__btn {
+  border-color: #107180;
+  color: #107180;
+}
+
+.swagger-ui.swagger-ui .try-out__btn:hover,
+.swagger-ui.swagger-ui .try-out__btn:focus {
+  background-color: #ecf9f8;
+  border-color: #1A5B6E;
+  color: #1A5B6E;
+}
+
+/* "Cancel" button next to Try it out */
+.swagger-ui.swagger-ui .try-out__btn.cancel {
+  border-color: #707070;
+  color: #707070;
+}
+
+.swagger-ui.swagger-ui .try-out__btn.cancel:hover {
+  background-color: #f2f2f2;
+  border-color: #232323;
+  color: #232323;
+}
+
+/* Title color — use brand black for readability */
+.swagger-ui.swagger-ui .info .title {
+  color: #232323;
+}
+
+/*
+ * Links — match the ACCESS link convention (asp-theme .prose a): black, bold,
+ * underlined, with dark-teal and no underline on hover. Swagger renders inside
+ * .swagger-ui (outside .prose) so it would otherwise show stock blue links.
+ */
+.swagger-ui.swagger-ui .info a,
+.swagger-ui.swagger-ui .markdown a,
+.swagger-ui.swagger-ui .renderedMarkdown a {
+  color: #232323;
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+.swagger-ui.swagger-ui .info a:hover,
+.swagger-ui.swagger-ui .info a:focus,
+.swagger-ui.swagger-ui .markdown a:hover,
+.swagger-ui.swagger-ui .markdown a:focus,
+.swagger-ui.swagger-ui .renderedMarkdown a:hover,
+.swagger-ui.swagger-ui .renderedMarkdown a:focus {
+  color: #1A5B6E;
+  text-decoration: none;
+}
+
+/* Version number pill: shift from default gray (#7d8492) to md-teal */
+.swagger-ui.swagger-ui .info .title.title small.version-stamp {
+  background-color: #107180;
+}
+
+/*
+ * Operation block chrome: Swagger tints each operation block and its summary
+ * border with the HTTP verb's color (POST green, GET blue, …). Retint that
+ * chrome to the ACCESS palette (light-teal fill, md-teal border) so the page
+ * reads on-brand. We deliberately DO NOT touch `.opblock-summary-method` — the
+ * verb pill keeps its conventional color so consumers still get the at-a-glance
+ * GET/POST/DELETE signal. Doubled `.swagger-ui` for specificity over the stock
+ * per-verb rules, which load after this file.
+ */
+.swagger-ui.swagger-ui .opblock.opblock-post,
+.swagger-ui.swagger-ui .opblock.opblock-get,
+.swagger-ui.swagger-ui .opblock.opblock-put,
+.swagger-ui.swagger-ui .opblock.opblock-delete,
+.swagger-ui.swagger-ui .opblock.opblock-patch {
+  background: rgba(16, 113, 128, 0.06);
+  border-color: #107180;
+}
+
+.swagger-ui.swagger-ui .opblock.opblock-post .opblock-summary,
+.swagger-ui.swagger-ui .opblock.opblock-get .opblock-summary,
+.swagger-ui.swagger-ui .opblock.opblock-put .opblock-summary,
+.swagger-ui.swagger-ui .opblock.opblock-delete .opblock-summary,
+.swagger-ui.swagger-ui .opblock.opblock-patch .opblock-summary {
+  border-color: #107180;
+}
+
+/* The active tab underline also picks up the verb color — retint to md-teal. */
+.swagger-ui.swagger-ui .opblock .tab-header .tab-item.active h4 span:after {
+  background: #107180;
+}
+
+/*
+ * Inline code in the rendered Markdown description (e.g. the curl examples and
+ * `items_per_page`) defaults to Swagger purple (#9012fe). Shift to ACCESS
+ * dark-teal to fit the palette. (The backtick glyphs around it are already
+ * stripped above.)
+ */
+.swagger-ui.swagger-ui .markdown code,
+.swagger-ui.swagger-ui .renderedMarkdown code {
+  color: #1A5B6E;
+}

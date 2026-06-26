@@ -3,10 +3,8 @@ info:
   title: ACCESS SDS (Software Discovery) API
   version: 1.0.0
   description: |
-    Software-on-resources discovery. **Hosted externally by the University of
-    Kentucky** at `sds-ara-api.access-ci.org` and **requires an API key**.
-    See https://sds-ara-api.access-ci.org/api_1_instructions for key requests
-    and full parameter docs.
+    Software-on-resources discovery. **Requires an API key.** Open a support
+    ticket at https://support.access-ci.org/help-ticket to request one.
 
     **Examples (curl):**
 
@@ -28,7 +26,7 @@ info:
     url: https://support.access-ci.org
 servers:
   - url: https://sds-ara-api.access-ci.org
-    description: University of Kentucky (external)
+    description: API server
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -80,11 +78,11 @@ paths:
       security:
         - ApiKeyAuth: []
       description: |
-        POST-only. Requires `X-API-Key` obtained from the UKy SDS team via
-        https://sds-ara-api.access-ci.org/api_1_instructions.
+        POST-only. Requires an API key (`X-API-Key` header). Open a support
+        ticket at https://support.access-ci.org/help-ticket to request one.
 
-        In-browser "Try it out" issues a cross-origin POST to the UKy host and
-        only works if UKy returns permissive CORS headers (unconfirmed).
+        In-browser "Try it out" issues a cross-origin POST to the API host and
+        only works if the server returns permissive CORS headers (unconfirmed).
       requestBody:
         required: true
         content:
@@ -116,4 +114,4 @@ paths:
           description: Missing or invalid API key.
 tags:
   - name: Software Discovery
-    description: SDS software-on-resources queries (external, UKy-hosted).
+    description: SDS software-on-resources queries.

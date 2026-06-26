@@ -58,7 +58,13 @@ function access_affinitygroup_schema() {
         'type' => 'varchar',
         'length' => 32,
         'not null' => FALSE,
-        'description' => 'active / inactive (per-user account state).',
+        'description' => 'active / inactive (per-user account state, ACCESS view).',
+      ],
+      'sp_state' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => FALSE,
+        'description' => "Resource-provider's view of the account: active / inactive / pending-active / pending-inactive. A pending- value means the account is not yet provisioned on the RP side, even if account_state is active.",
       ],
       'project_balance' => [
         'type' => 'numeric',
@@ -669,6 +675,26 @@ function access_affinitygroup_update_10011(array &$sandbox): string {
 }
 
 /**
+ * Re-run the duplicate CiDeR resource cleanup.
+ *
+ * update_10011 is a run-once hook: it ran on each environment and is marked
+ * complete, so it cannot re-process duplicates created afterward. A CiDeR feed
+ * import on 2026-06-10 (~22:44, after 10011 had run and before the unique-key
+ * feeds fix in D8-2730 landed) created a fresh batch of ~23 duplicate resource
+ * nodes. The bare clones win the allocation→node resolution map (highest nid),
+ * so the RP account panel renders blank on the canonical, content-bearing pages
+ * users actually visit (e.g. Delta CPU node 400 serves the page, but the
+ * allocation resolves to clone node 12104).
+ *
+ * 10011's logic re-derives the duplicate set at run time and is idempotent, so
+ * this hook simply re-invokes it to clean the post-import residue. The unique-
+ * key feeds fix now prevents recurrence; this clears what already exists.
+ */
+function access_affinitygroup_update_10012(array &$sandbox): string {
+  return access_affinitygroup_update_10011($sandbox);
+}
+
+/**
  * Picks the canonical (keep) node from a duplicate set.
  *
  * The canonical is the node with the MOST incoming entity references, so the
@@ -796,4 +822,26 @@ function _access_affinitygroup_node_reference_tables(): array {
     }
   }
   return $tables;
+}
+
+/**
+ * Adds the sp_state column to access_user_rp_account.
+ *
+ * sp_state is the resource-provider's view of the account (active / inactive /
+ * pending-active / pending-inactive), separate from account_state (the ACCESS
+ * view). A pending- value means the account is not yet provisioned on the RP
+ * side even when account_state is active.
+ */
+function access_affinitygroup_update_10013(): string {
+  $schema = \Drupal::database()->schema();
+  if ($schema->fieldExists('access_user_rp_account', 'sp_state')) {
+    return 'Column sp_state already exists on access_user_rp_account; nothing to add.';
+  }
+  $schema->addField('access_user_rp_account', 'sp_state', [
+    'type' => 'varchar',
+    'length' => 32,
+    'not null' => FALSE,
+    'description' => "Resource-provider's view of the account: active / inactive / pending-active / pending-inactive. A pending- value means the account is not yet provisioned on the RP side, even if account_state is active.",
+  ]);
+  return 'Added sp_state column to access_user_rp_account.';
 }

@@ -78,11 +78,26 @@ paths:
             type: string
       responses:
         '200':
-          description: Resource detail.
+          description: |
+            Resource detail. Response includes conditional-request headers:
+            - `ETag`: Revalidation token (not a content fingerprint). Pass this value as `If-None-Match` to receive a 304 response if the resource has not changed.
+            - `Last-Modified`: ISO 8601 timestamp of the resource's last modification.
+          headers:
+            ETag:
+              description: Revalidation token for conditional requests. Pass to If-None-Match for cache validation.
+              schema:
+                type: string
+            Last-Modified:
+              description: ISO 8601 timestamp of the resource's last modification.
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceDetail'
+        '304':
+          description: |
+            Not modified. Returned when the `If-None-Match` header matches the current `ETag`, indicating the resource has not changed since the client's last request.
         '404':
           description: Resource not found.
           content:
@@ -152,6 +167,10 @@ components:
           type: string
           format: uri
           description: Absolute URL of the resource documentation page.
+        last_modified:
+          type: string
+          format: date-time
+          description: ISO 8601 node changed time. Bumps on any save.
 
     ResourceDetail:
       type: object
@@ -182,6 +201,18 @@ components:
         url:
           type: string
           format: uri
+        last_modified:
+          type: string
+          format: date-time
+          description: ISO 8601 node changed time. Bumps on any save.
+        content_hash:
+          type: string
+          description: >-
+            Deterministic, host-independent SHA-256 fingerprint of the resource
+            payload, computed over the assembled content with last_modified and
+            absolute-URL fields excluded. Use this (not last_modified) to skip
+            re-embedding unchanged resources, since changed time bumps on no-op
+            saves. Present on the detail endpoint only.
         description:
           type: string
           nullable: true
@@ -308,9 +339,14 @@ components:
           type: string
         path:
           type: string
-        quota:
-          type: string
+        quota_size:
+          type: integer
           nullable: true
+          description: Quota capacity in GB.
+        quota_inode_amount:
+          type: integer
+          nullable: true
+          description: Quota file/inode count.
         purge:
           type: string
           nullable: true
@@ -320,6 +356,10 @@ components:
         notes:
           type: string
           nullable: true
+        summary:
+          type: string
+          nullable: true
+          description: Derived human-readable one-line summary (e.g. "25 GB, 1,000,000 files").
 
     QueueSpec:
       type: object
@@ -329,15 +369,34 @@ components:
         purpose:
           type: string
           nullable: true
-        cpus:
+        cpu_count:
+          type: integer
+          nullable: true
+          description: Number of CPU cores.
+        cpu_type:
           type: string
           nullable: true
-        gpus:
+          description: CPU model string (e.g. "AMD EPYC 7763").
+        gpu_count:
+          type: integer
+          nullable: true
+          description: Number of GPUs.
+        gpu_type:
           type: string
           nullable: true
+          description: GPU model string (e.g. "NVIDIA A100").
+        gpu_vram:
+          type: integer
+          nullable: true
+          description: GPU vRAM in GB.
         ram:
+          type: integer
+          nullable: true
+          description: Node RAM in GB.
+        summary:
           type: string
           nullable: true
+          description: Derived human-readable one-line summary (e.g. "4 NVIDIA A100 (80 GB vRAM), 64-core AMD EPYC 7763, 256 GB RAM").
 
     Dataset:
       type: object
