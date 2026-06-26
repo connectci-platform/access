@@ -10,12 +10,14 @@ use Drupal\Core\Block\BlockPluginInterface;
 use Drupal\Core\Cache\Cache;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityInterface;
-use Drupal\Core\Entity\EntityForm;
+use Drupal\Core\Entity\FieldableEntityInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Link;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
+use Drupal\node\NodeInterface;
 use Drupal\user\Entity\User;
+use Drupal\user\UserInterface;
 use Drupal\views\ViewExecutable;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Drupal\access_misc\Plugin\Util\SiteTools;
@@ -23,23 +25,25 @@ use Drupal\access_misc\Plugin\Util\SiteTools;
 /**
  * Implements hook_views_pre_render().
  */
-function access_match_engagement_views_pre_render(ViewExecutable $view) {
-  if (isset($view) && ($view->storage->id() == 'match_engagement_view')) {
+function access_match_engagement_views_pre_render(ViewExecutable $view): void {
+  if ($view->storage->id() == 'match_engagement_view') {
     $view->element['#attached']['library'][] = 'access_match_engagement/match_engagement_view';
   }
 }
 
 /**
- * Implements hook_preprocess_views_view_field for views-view-field.html.twig.
+ * Implements hook_preprocess_views_view_field().
+ *
+ * @phpstan-param array<string, mixed> $variables
  */
-function access_match_engagement_preprocess_views_view_field(&$variables) {
+function access_match_engagement_preprocess_views_view_field(array &$variables): void {
   $view = $variables['view'];
   $field = $variables['field'];
 
   // Overwrite MATCH Engagements submissions on /match-engagements-submissions.
-  // /admin/structure/views/view/match_engagements_submissions/edit/page_1
+  // /admin/structure/views/view/match_engagements_submissions/edit/page_1.
   if ($view->id() == 'match_engagements_submissions' && $view->current_display == 'page_1' && $field->options['id'] == 'nothing') {
-    $output =$variables['output'];
+    $output = $variables['output'];
 
     $matches = [];
     preg_match('/~\s*(\d+)\s*~/', $output, $matches);
@@ -59,8 +63,10 @@ function access_match_engagement_preprocess_views_view_field(&$variables) {
 
 /**
  * Implements hook_block_build_BASE_BLOCK_ID_alter().
+ *
+ * @phpstan-param array<string, mixed> $build
  */
-function access_match_engagement_block_build_views_block_alter(array &$build, BlockPluginInterface $block) {
+function access_match_engagement_block_build_views_block_alter(array &$build, BlockPluginInterface $block): void {
   // Using label because block numbers seem to change.
   if ($block->label() == 'match engagement view: Block - My Engagement') {
     $build['#create_placeholder'] = FALSE;
@@ -69,8 +75,10 @@ function access_match_engagement_block_build_views_block_alter(array &$build, Bl
 
 /**
  * Implements hook_form_alter().
+ *
+ * @phpstan-param array<string, mixed> $form
  */
-function access_match_engagement_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+function access_match_engagement_form_alter(array &$form, FormStateInterface $form_state, string $form_id): void {
   if ($form_id == 'node_match_engagement_edit_form' || $form_id == 'node_match_engagement_form') {
     // Only allow MATCH Engagement creation on the ACCESS domain.
     $siteTools = \Drupal::service('access_misc.sitetools');
@@ -109,8 +117,8 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
         'class' => [
           'bg-light-teal',
           'my-5',
-          'p-5'
-        ]
+          'p-5',
+        ],
       ],
     ];
 
@@ -121,10 +129,10 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
     $form['field_tags_replace']['field_suggest']['replace_button'] = [
       '#type' => 'button',
       '#value' => t('Suggest Tags'),
-      '#limit_validation_errors' => array(),
+      '#limit_validation_errors' => [],
       '#attributes' => [
         'class' => [
-          'ml-0'
+          'ml-0',
         ],
       ],
       '#ajax' => [
@@ -136,18 +144,19 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
       '#markup' => "",
     ];
 
-
     $add_tags = \Drupal::service('access_misc.addtags');
     $output = $add_tags->getView();
     $tag_label = t('Tags');
     $tag_description = t('Select up to 6 tags that relate to your engagement. Tags will help us find people with related expertise.');
     $tag_summary = t('Select Tags');
 
+    $node_add_tags_markup = "<div class='font-bold'>$tag_label</div>"
+      . "<div class='tag-description'>$tag_description</div>"
+      . "<div id='tag-suggestions'></div>"
+      . "<details class='tags m-0 mb-8'><summary class='font-bold'>$tag_summary</summary>$output</details>";
+
     $form['node_add_tags'] = [
-      '#markup' => "<div class='font-bold'>$tag_label</div>
-        <div class='tag-description'>$tag_description</div>
-        <div id='tag-suggestions'></div>
-        <details class='tags m-0 mb-8'><summary class='font-bold'>$tag_summary</summary>$output</details>",
+      '#markup' => $node_add_tags_markup,
       '#weight' => 15,
       '#allowed_tags' => [
         'ul',
@@ -183,7 +192,7 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
 
     // Form has been accepted, moderation-wise.
     // Fixup certain date-time fields to act as date-only.
-    $date_only_fields = ame_get_dateonly_fields();
+    $date_only_fields = access_match_engagement_ame_get_dateonly_fields();
     foreach ($date_only_fields as $fieldname) {
       $form[$fieldname]['widget'][0]['value']['#date_time_element'] = 'none';
       $form[$fieldname]['widget'][0]['value']['#date_time_format'] = '';
@@ -191,10 +200,6 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
 
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
-    $unaccepted_states = ['draft', 'in_review'];
-    $moderation_state = $form['moderation_state']['widget'][0]['state']['#default_value'];
-    $accepted = !in_array($moderation_state, $unaccepted_states);
-
     if (!in_array('administrator', $roles) && !in_array('match_sc', $roles)) {
       $form['field_email_user']['#access'] = FALSE;
       $form['field_notes_to_author']['#access'] = FALSE;
@@ -213,13 +218,13 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
     $form['#validate'][] = 'access_match_engagement_form_validate';
     $form['save_description'] = [
       '#markup' => '<div>' .
-                    t("Save as <span class=\"font-bold\">Submitted</span> when your request is ready, or <span class=\"font-bold\">Draft</span> if you need more time") .
-                    '</div>',
+      t('Save as <span class="font-bold">Submitted</span> when your request is ready, or <span class="font-bold">Draft</span> if you need more time') .
+      '</div>',
       '#weight' => 99,
       '#allowed_tags' => [
         'a',
         'div',
-        'span'
+        'span',
       ],
     ];
     $form['moderation_state']['widget'][0]['state']['#title'] = t('Save as');
@@ -239,8 +244,14 @@ function access_match_engagement_form_alter(&$form, FormStateInterface $form_sta
 
 /**
  * Ajax callback function to replace the section with '#markup'.
+ *
+ * @param array<string, mixed> $form
+ *   The form array.
+ *
+ * @return array<string, mixed>
+ *   The updated form element.
  */
-function access_match_engagement_replace_section_callback(array &$form, FormStateInterface $form_state) {
+function access_match_engagement_replace_section_callback(array &$form, FormStateInterface $form_state): array {
   $raw_data = $form_state->getUserInput();
   $body = $raw_data['body'][0]['value'];
   $body_filter = $body ? Xss::filter($body) : '';
@@ -282,17 +293,25 @@ function access_match_engagement_replace_section_callback(array &$form, FormStat
     ];
   }
 
-  $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
+  $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids;
 
   // Return the updated section.
   return $form['field_tags_replace'];
 }
 
 /**
+ * Marks a required date field as not required.
+ *
  * This callback is used on a date field, the first milestone goal, that is
  * required only after the state of the form has been changed to accepted.
+ *
+ * @param array<string, mixed> $element
+ *   The form element.
+ *
+ * @return array<string, mixed>
+ *   The modified form element.
  */
-function access_match_engagement_customize_required_date($element, $form_state) {
+function access_match_engagement_customize_required_date(array $element, FormStateInterface $form_state): array {
 
   $element['#required'] = FALSE;
   $element['value']['#required'] = FALSE;
@@ -300,13 +319,16 @@ function access_match_engagement_customize_required_date($element, $form_state) 
 }
 
 /**
- * Implements hook_ENTITY_TYPE_view_alter().
+ * Implements hook_ENTITY_TYPE_view().
+ *
  * For the display of a single match engagement (it's not a view)
  * replace the link to user profile with link to community-persona.
+ *
+ * @phpstan-param array<string, mixed> $build
  */
-function access_match_engagement_node_view(array &$build, EntityInterface $entity, EntityViewDisplayInterface $display, $view_mode) {
+function access_match_engagement_node_view(array &$build, EntityInterface $entity, EntityViewDisplayInterface $display, string $view_mode): void {
 
-  if ($display->getTargetBundle() == 'match_engagement') {
+  if ($display->getTargetBundle() == 'match_engagement' && $entity instanceof FieldableEntityInterface) {
     if (!empty($build['field_researcher'])) {
       foreach ($entity->get('field_researcher')->getValue() as $i => $researcher) {
         $uid = $researcher['target_id'];
@@ -319,35 +341,43 @@ function access_match_engagement_node_view(array &$build, EntityInterface $entit
 }
 
 /**
+ * Submit handler that displays a message based on the moderation state.
  *
+ * @param array<string, mixed> $form
+ *   The form array.
  */
-function access_match_engagement_submit_function(&$form, FormStateInterface $form_state) {
+function access_match_engagement_submit_function(array &$form, FormStateInterface $form_state): void {
   $moderation_state = $form_state->getValues()['moderation_state'][0]['value'];
-  update_drupal_message($moderation_state);
+  access_match_engagement_update_drupal_message($moderation_state);
 }
 
 /**
- * Validate form
- * Need at least one tag.
- * Check that names in the Match Team student(s), consultant(s) or mentors(s) fields have the correct role s
+ * Validate form, need at least one tag.
+ *
+ * Check that names in the Match Team student(s), consultant(s) or
+ * mentors(s) fields have the correct role s
  * (student-facilitator/consultant/mentor).
- * For mentor(s) or consultant(s) field, we will automatically add the role to the user iff they already
- * are in the cssn system (defined by have an item in their program list = "ACCESS CSSN").
+ * For mentor(s) or consultant(s) field, we will automatically add the
+ * role to the user iff they already are in the cssn system (defined by
+ * have an item in their program list = "ACCESS CSSN").
+ *
+ * @param array<string, mixed> $form
+ *   The form array.
  */
-function access_match_engagement_form_validate(&$form, FormStateInterface $form_state) {
+function access_match_engagement_form_validate(array &$form, FormStateInterface $form_state): void {
   $error = '';
   $values = $form_state->getValues();
   $tags = $values['field_tags'];
   if (!empty($values)) {
 
     $person_array = $values['field_students'];
-    $error .= match_check_role($person_array, 'student', FALSE);
+    $error .= access_match_engagement_match_check_role($person_array, 'student', FALSE);
 
     $person_array = $values['field_mentor'];
-    $error .= match_check_role($person_array, 'mentor', TRUE);
+    $error .= access_match_engagement_match_check_role($person_array, 'mentor', TRUE);
 
     $person_array = $values['field_consultant'];
-    $error .= match_check_role($person_array, 'consultant', TRUE);
+    $error .= access_match_engagement_match_check_role($person_array, 'consultant', TRUE);
   }
 
   if (count($tags) > 6) {
@@ -355,58 +385,69 @@ function access_match_engagement_form_validate(&$form, FormStateInterface $form_
   }
 
   if (!empty($error)) {
-    $form_state->setError($form, t($error));
+    // $error is already-rendered, safe markup assembled from t() calls (it
+    // contains an <a href> link). Wrap it in Markup::create() so the @error
+    // placeholder does not re-escape the HTML.
+    $form_state->setError($form, t('@error', ['@error' => Markup::create($error)]));
   }
 }
 
 /**
- * Assemble a list of messages for the user that tell if any
- * of the users in person_array do not have the proper roles as
- * described in the _validate function above. If do_add_Role is
+ * Assemble a list of messages for the user.
+ *
+ * Tells if any of the users in person_array do not have the proper
+ * roles as described in the _validate function above. If do_add_role is
  * true, add the role to the user if the are already in the
- * ACCESS_CSSN program
+ * ACCESS_CSSN program.
+ *
+ * @param array<int, mixed> $person_array
+ *   The list of person field values to check.
  */
-function match_check_role($person_array, $role_name, $do_add_role) {
+function access_match_engagement_match_check_role(array $person_array, string $role_name, bool $do_add_role): string {
 
   $error_msg = '';
 
-  // While checking each of these fields, the is_array skips the 'add another item' translatable markup item.
+  // While checking each of these fields, the is_array skips the 'add
+  // another item' translatable markup item.
   foreach ($person_array as $person) {
     if (is_array($person) && !empty($person['target_id'])) {
       $user = User::load($person['target_id']);
-      $has_role = validate_user_has_role($user, $role_name);
+      $has_role = access_match_engagement_validate_user_has_role($user, $role_name);
       if (!$has_role) {
-        if ($do_add_role && user_in_program($user, 'ACCESS CSSN')) {
+        if ($do_add_role && access_match_engagement_user_in_program($user, 'ACCESS CSSN')) {
           $user->addRole($role_name);
           $user->save();
         }
         else {
-          $error_msg .= t($user->getDisplayName() . ' is not a CSSN ' . $role_name . '. Please ask them to complete the <a href=":url">form to join the CSSN</a>.<br>', [':url' => 'https://support.access-ci.org/form/join-the-cssn-network']);
+          $error_msg .= t('@name is not a CSSN @role. Please ask them to complete the <a href=":url">form to join the CSSN</a>.<br>', [
+            '@name' => $user->getDisplayName(),
+            '@role' => $role_name,
+            ':url' => 'https://support.access-ci.org/form/join-the-cssn-network',
+          ]);
         }
       }
     }
   }
-  return ($error_msg);
+  return $error_msg;
 }
 
 /**
  * Return boolean - whether a program is included in list of user's programs.
  */
-function user_in_program($user, $program_name) {
+function access_match_engagement_user_in_program(UserInterface $user, string $program_name): bool {
   $regions = $user->get('field_region')->getValue();
   $terms = [];
   foreach ($regions as $region) {
     $region_tid = $region['target_id'];
     $terms[$region_tid] = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($region_tid)->getName();
   }
-  $program = implode(', ', $terms);
-  return (in_array($program_name, $terms));
+  return in_array($program_name, $terms);
 }
 
 /**
- *
+ * Checks whether the given user account has the given role.
  */
-function validate_user_has_role($user, $role_name) {
+function access_match_engagement_validate_user_has_role(UserInterface $user, string $role_name): bool {
 
   $roles_array = $user->getRoles();
   foreach ($roles_array as $role) {
@@ -418,10 +459,12 @@ function validate_user_has_role($user, $role_name) {
 }
 
 /**
- * Return a list of datetime field names where we
- * want to hide the time portion.
+ * Return a list of datetime field names where we want to hide the time portion.
+ *
+ * @return array<int, string>
+ *   The list of field names.
  */
-function ame_get_dateonly_fields() {
+function access_match_engagement_ame_get_dateonly_fields(): array {
   return [
     "field_milestone_actual_date",
     "field_actual_completion_date_1",
@@ -440,8 +483,11 @@ function ame_get_dateonly_fields() {
 
 /**
  * Implements hook_mail().
+ *
+ * @phpstan-param array<string, mixed> $message
+ * @phpstan-param array<string, mixed> $params
  */
-function access_match_engagement_mail($key, &$message, $params) {
+function access_match_engagement_mail(string $key, array &$message, array $params): void {
   switch ($key) {
     case 'ame-email-notes':
     case 'interested-update':
@@ -453,10 +499,9 @@ function access_match_engagement_mail($key, &$message, $params) {
 }
 
 /**
- *
+ * Sets a status message for the user based on the moderation state.
  */
-function update_drupal_message($moderation_state) {
-  $message = '';
+function access_match_engagement_update_drupal_message(string $moderation_state): void {
   if ($moderation_state == 'draft') {
     $message = t('Your project has been saved. Please send for review when you’re ready and we’ll get back to you as soon as possible.');
   }
@@ -467,18 +512,16 @@ function update_drupal_message($moderation_state) {
     $moderation_state = str_replace('_', ' ', $moderation_state);
     $message = t('Your project has been saved. The current status is: @status.', ['@status' => $moderation_state]);
   }
-  // If $message is not empty, add it to the drupal message queue.
-  if ($message) {
-    \Drupal::messenger()->addMessage($message);
-  }
+  // Add the message to the drupal message queue.
+  \Drupal::messenger()->addMessage($message);
 }
 
 /**
  * Implements hook_entity_presave().
  */
-function access_match_engagement_entity_presave(EntityInterface $entity) {
+function access_match_engagement_entity_presave(EntityInterface $entity): void {
   $type = $entity->bundle();
-  if ($type == 'match_engagement') {
+  if ($type == 'match_engagement' && $entity instanceof NodeInterface) {
     $get_fields = $entity->getFields();
     // Set field_status to moderation_state.
     $moderation_state = $get_fields['moderation_state']->getValue();
@@ -486,7 +529,7 @@ function access_match_engagement_entity_presave(EntityInterface $entity) {
       $moderation_state = $moderation_state[0]['value'];
       $entity->set('field_status', $moderation_state);
       Cache::invalidateTags($entity->getCacheTagsToInvalidate());
-      update_drupal_message($moderation_state);
+      access_match_engagement_update_drupal_message($moderation_state);
     }
     // Set field_researcher to current user if field_researcher is empty.
     $researcher = $get_fields['field_researcher']->getValue();
@@ -536,17 +579,21 @@ function access_match_engagement_entity_presave(EntityInterface $entity) {
 
 /**
  * Build access_match_engagement interested Email.
+ *
+ * @param array<int, int|string> $to_uids
+ *   The user IDs to notify.
  */
-function access_match_engagement_interested_email($to_uids) {
+function access_match_engagement_interested_email(array $to_uids): void {
   $body['string'] = [
     '#type' => 'inline_template',
     '#template' => '<p>{{ intro }} {{ link | raw }}.<p>',
     '#context' => [
-      'intro' => t('New interested user alert! Please check website for '),
-      'link' => "<a href='https://support.access-ci.org/match-interested-users'>details</a>",
+      'intro' => t('New interested user alert! Please check website for'),
+      'link' => " <a href='https://support.access-ci.org/match-interested-users'>details</a>",
     ],
   ];
-  // Lookup each user by to_uids and add their email to the $to_email string comma separated.
+  // Lookup each user by to_uids and add their email to the $to_email
+  // string comma separated.
   $to_email = '';
   foreach ($to_uids as $uid) {
     $user = User::load($uid);
@@ -560,14 +607,21 @@ function access_match_engagement_interested_email($to_uids) {
   $params['body'] = $render_service->renderRoot($body);
   $params['title'] = "New Interested User Alert";
   // Add logger message of sending interested email.
-  \Drupal::logger('access_match_engagement')->notice('Sending interested email to: ' . $to_email);
-  ame_send('interested-update', $params);
+  \Drupal::logger('access_match_engagement')->notice('Sending interested email to: @email', ['@email' => $to_email]);
+  access_match_engagement_ame_send('interested-update', $params);
 }
 
 /**
  * Build access_match_engagement notes Email.
+ *
+ * @param int|string $ame_nid
+ *   The node ID of the engagement.
+ * @param string $ame_notes
+ *   The notes to include in the email.
+ * @param int|string $author
+ *   The user ID of the engagement author.
  */
-function access_match_engagement_email($ame_nid, $ame_title, $ame_notes, $author, $ame_type) {
+function access_match_engagement_email($ame_nid, string $ame_title, string $ame_notes, $author, string $ame_type): void {
   $options = ['absolute' => TRUE];
   $here = Url::fromRoute('entity.node.canonical', ['node' => $ame_nid], $options);
   $body['string'] = [
@@ -593,13 +647,19 @@ function access_match_engagement_email($ame_nid, $ame_title, $ame_notes, $author
   $params['to'] = $to_email;
   $params['body'] = $render_service->render($body);
   $params['title'] = "MATCH$ame_type Engagement: $ame_title";
-  ame_send('ame-email-notes', $params);
+  access_match_engagement_ame_send('ame-email-notes', $params);
 }
 
 /**
  * Send email.
+ *
+ * @param array<string, mixed> $params
+ *   Parameters used to build the message.
+ *
+ * @return array<string, mixed>
+ *   The result of the mail manager's mail() call.
  */
-function ame_send($key, $params) {
+function access_match_engagement_ame_send(string $key, array $params): array {
   $to = $params['to'];
   $langcode = \Drupal::currentUser()->getPreferredLangcode();
   $send = TRUE;
@@ -612,7 +672,7 @@ function ame_send($key, $params) {
 /**
  * Hook_cron.
  */
-function access_match_engagement_cron() {
+function access_match_engagement_cron(): void {
   $env = getenv('PANTHEON_ENVIRONMENT');
   if ($env == 'live') {
     $config = \Drupal::configFactory()->getEditable('access_match_engagement.settings');

@@ -3,9 +3,8 @@ description: ACCESS Outages module
 package: Custom
 type: module
 core_version_requirement: ^10 || ^11
-version: 1.0
 dependencies:
-  - access
+  - access:access
 
 libraries:
   - access_outages/outages_library

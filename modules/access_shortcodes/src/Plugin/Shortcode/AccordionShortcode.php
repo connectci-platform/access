@@ -18,6 +18,13 @@ class AccordionShortcode extends ShortcodeBase {
 
   /**
    * {@inheritdoc}
+   *
+   * @param array<string, string> $attributes
+   *   The shortcode attributes.
+   * @param string $text
+   *   The text between the shortcode tags.
+   * @param string $langcode
+   *   The language code.
    */
   public function process(array $attributes, $text, $langcode = Language::LANGCODE_NOT_SPECIFIED) {
     $attributes = $this->getAttributes([

@@ -17,7 +17,7 @@ class BadgeSorter {
   ) {}
 
   /**
-   * Sort field_user_badges on a user entity to match taxonomy weight/name order.
+   * Sort field_user_badges on a user to match taxonomy weight/name order.
    */
   public function sortUserBadges(UserInterface $user): void {
     $badges = $user->get('field_user_badges')->getValue();
