@@ -1,0 +1,119 @@
+openapi: 3.0.3
+info:
+  title: ACCESS SDS (Software Discovery) API
+  version: 1.0.0
+  description: |
+    Software-on-resources discovery. **Hosted externally by the University of
+    Kentucky** at `sds-ara-api.access-ci.org` and **requires an API key**.
+    See https://sds-ara-api.access-ci.org/api_1_instructions for key requests
+    and full parameter docs.
+
+    **Examples (curl):**
+
+    ```bash
+    # Query software by name
+    curl -X POST https://sds-ara-api.access-ci.org/api/v1 \
+      -H "X-API-Key: YOUR_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"software": ["7z"]}'
+
+    # Fuzzy multi-resource query
+    curl -X POST https://sds-ara-api.access-ci.org/api/v1 \
+      -H "X-API-Key: YOUR_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"rps": ["anvil", "bridges"], "software": ["blas"], "fuzz_rp": true, "fuzz_software": true}'
+    ```
+  contact:
+    name: ACCESS Support
+    url: https://support.access-ci.org
+servers:
+  - url: https://sds-ara-api.access-ci.org
+    description: University of Kentucky (external)
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    SdsQuery:
+      type: object
+      properties:
+        rps:
+          type: array
+          items:
+            type: string
+          description: "RP names/IDs (case-insensitive)."
+        software:
+          type: array
+          items:
+            type: string
+          description: "Software names (case-insensitive)."
+        columns:
+          type: array
+          items:
+            type: string
+          description: "Fields to return; rp_software and software_name always included."
+        exclude:
+          type: boolean
+          default: false
+          description: "Treat columns as an exclude list."
+        fuzz_software:
+          type: boolean
+          default: false
+          description: "Use fuzzy matching for software names."
+        fuzz_rp:
+          type: boolean
+          default: false
+          description: "Use fuzzy matching for RP names."
+        collapse_resource_groups:
+          type: boolean
+          default: true
+          description: "Collapse resource groups into a single row."
+paths:
+  /api/v1:
+    post:
+      summary: Query software availability across resource providers
+      operationId: querySds
+      tags:
+        - Software Discovery
+      security:
+        - ApiKeyAuth: []
+      description: |
+        POST-only. Requires `X-API-Key` obtained from the UKy SDS team via
+        https://sds-ara-api.access-ci.org/api_1_instructions.
+
+        In-browser "Try it out" issues a cross-origin POST to the UKy host and
+        only works if UKy returns permissive CORS headers (unconfirmed).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SdsQuery'
+            examples:
+              singleSoftware:
+                summary: Query a single software package
+                value:
+                  software:
+                    - "7z"
+              fuzzyMulti:
+                summary: Fuzzy multi-resource query
+                value:
+                  rps:
+                    - "anvil"
+                    - "bridges"
+                  software:
+                    - "blas"
+                  fuzz_rp: true
+                  fuzz_software: true
+      responses:
+        '200':
+          description: Results, sorted alphabetically by software name.
+          content:
+            application/json: {}
+        '401':
+          description: Missing or invalid API key.
+tags:
+  - name: Software Discovery
+    description: SDS software-on-resources queries (external, UKy-hosted).
