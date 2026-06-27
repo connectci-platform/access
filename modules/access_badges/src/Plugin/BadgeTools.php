@@ -160,6 +160,12 @@ class BadgeTools {
   public function loadUserBadges($user_id, $vocabulary = 'badges'): void {
     $this->currentUser = User::load($user_id);
     $this->currentVocabulary = $vocabulary;
+    // User::load() returns NULL for a deleted/missing uid; bail with empty
+    // badges rather than fataling on ->get() against null.
+    if (!$this->currentUser) {
+      $this->userBadges = [];
+      return;
+    }
     $field_name = $this->getBadgeFieldName($vocabulary);
     $this->userBadges = $this->currentUser->get($field_name)->getValue();
   }
@@ -186,6 +192,11 @@ class BadgeTools {
    *   The vocabulary machine name, or NULL to use the current context.
    */
   public function saveUserBadges($vocabulary = NULL): void {
+    // currentUser is NULL when loadUserBadges() got a deleted/missing uid;
+    // nothing to save in that case.
+    if (!$this->currentUser) {
+      return;
+    }
     $vocab = $vocabulary ?? $this->currentVocabulary;
     $field_name = $this->getBadgeFieldName($vocab);
     $this->currentUser->set($field_name, $this->userBadges);
@@ -354,6 +365,10 @@ class BadgeTools {
     foreach ($field_users as $field_user) {
       $uid = $field_user->{$field . '_target_id'};
       $user = User::load($uid);
+      // Skip stale references to deleted users rather than fatal on ->get().
+      if (!$user) {
+        continue;
+      }
       $badgetid_new = $this->getBadgeTid($badge);
       $badgetid = $user->get('field_user_badges')->getValue();
       $badge_check = $this->checkBadges($badgetid_new, $uid);
