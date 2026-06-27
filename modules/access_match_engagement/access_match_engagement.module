@@ -367,16 +367,20 @@ function access_match_engagement_submit_function(array &$form, FormStateInterfac
 function access_match_engagement_form_validate(array &$form, FormStateInterface $form_state): void {
   $error = '';
   $values = $form_state->getValues();
-  $tags = $values['field_tags'];
+  // The person/tag fields are absent on some engagement variants (e.g. the
+  // "plus" office-hours form has no student/mentor/consultant fields), so the
+  // values can be unset. Default to empty arrays: match_check_role() and
+  // count() both require array arguments and would fatal on null.
+  $tags = $values['field_tags'] ?? [];
   if (!empty($values)) {
 
-    $person_array = $values['field_students'];
+    $person_array = $values['field_students'] ?? [];
     $error .= access_match_engagement_match_check_role($person_array, 'student', FALSE);
 
-    $person_array = $values['field_mentor'];
+    $person_array = $values['field_mentor'] ?? [];
     $error .= access_match_engagement_match_check_role($person_array, 'mentor', TRUE);
 
-    $person_array = $values['field_consultant'];
+    $person_array = $values['field_consultant'] ?? [];
     $error .= access_match_engagement_match_check_role($person_array, 'consultant', TRUE);
   }
 
@@ -412,6 +416,11 @@ function access_match_engagement_match_check_role(array $person_array, string $r
   foreach ($person_array as $person) {
     if (is_array($person) && !empty($person['target_id'])) {
       $user = User::load($person['target_id']);
+      // The referenced user may have been deleted; skip it rather than pass
+      // null to the UserInterface-typed helpers below (which would fatal).
+      if (!$user) {
+        continue;
+      }
       $has_role = access_match_engagement_validate_user_has_role($user, $role_name);
       if (!$has_role) {
         if ($do_add_role && access_match_engagement_user_in_program($user, 'ACCESS CSSN')) {
