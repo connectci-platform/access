@@ -6,6 +6,10 @@ people_directory:
   version: 1.x
   js:
     js/people-directory.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
+    - core/once
 collapsiblock_mobile:
   version: 1.x
   css:
@@ -15,6 +19,9 @@ people_menu:
   version: 1.x
   js:
     js/people_menu.js: {}
+  dependencies:
+    - core/drupal
+    - core/drupalSettings
 copyclip:
   version: 1.x
   js:
@@ -32,6 +39,7 @@ custom_tags:
   js:
     js/custom_tags.js: {}
   dependencies:
+    - core/drupal
     - core/once
 node_add_tags:
   css:
@@ -39,6 +47,10 @@ node_add_tags:
       css/node_add_tags.css: {}
   js:
     js/node_add_tags.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
+    - core/once
 nonadmin:
   version: 1.x
   css:
@@ -51,11 +63,21 @@ global:
       css/global.css: {}
   js:
     js/global.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
+    - core/once
 webform_help_a11y:
   version: 1.x
   js:
     js/webform_help_a11y.js: {}
+  dependencies:
+    - core/drupal
 facets_checkbox_a11y:
   version: 1.x
   js:
     js/facets_checkbox_a11y.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
+    - core/once
