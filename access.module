@@ -113,6 +113,12 @@ function access_page_attachments(array &$attachments) {
     // Pass environment for analytics differentiation.
     $attachments['#attached']['drupalSettings']['access']['environment'] = getenv('PANTHEON_ENVIRONMENT') ?: 'local';
 
+    // Provide the QA bot API key from the Key module ('qabot').
+    $qa_key = \Drupal::service('key.repository')->getKey('qabot');
+    if ($qa_key) {
+      $attachments['#attached']['drupalSettings']['access']['qaApiKey'] = $qa_key->getKeyValue();
+    }
+
     // Allow overriding the QA bot endpoint via environment variable (for local dev).
     $qa_endpoint = getenv('ACCESS_QA_ENDPOINT');
     if ($qa_endpoint) {
