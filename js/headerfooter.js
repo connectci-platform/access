@@ -112,7 +112,7 @@ async function setMenu(menu, currentUri) {
   });
 
   const { email = '', name = '', accessId = '' } = drupalSettings.access.user || {};
-  const apiKey = "4nn5l4T4TnkMdzsK0AwAtnGRcheBDnjawuAT42LaOLc";
+  const apiKey = drupalSettings.access.qaApiKey || '';
 
   // GTM dataLayer event handler for QA bot analytics
   const chatbotEnv = drupalSettings.access.environment || 'unknown';
