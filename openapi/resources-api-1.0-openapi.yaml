@@ -369,10 +369,14 @@ components:
         purpose:
           type: string
           nullable: true
+        node_count:
+          type: integer
+          nullable: true
+          description: Number of nodes in this partition.
         cpu_count:
           type: integer
           nullable: true
-          description: Number of CPU cores.
+          description: Number of CPU cores per node.
         cpu_type:
           type: string
           nullable: true
@@ -396,7 +400,7 @@ components:
         summary:
           type: string
           nullable: true
-          description: Derived human-readable one-line summary (e.g. "4 NVIDIA A100 (80 GB vRAM), 64-core AMD EPYC 7763, 256 GB RAM").
+          description: Derived human-readable one-line summary (e.g. "4 NVIDIA A100 (80 GB vRAM), 2 nodes, 64-core AMD EPYC 7763, 256 GB RAM").
 
     Dataset:
       type: object
