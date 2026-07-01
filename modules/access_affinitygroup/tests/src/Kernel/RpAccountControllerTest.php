@@ -19,7 +19,7 @@ class RpAccountControllerTest extends KernelTestBase {
 
   use ProphecyTrait;
 
-  protected static $modules = ['access_affinitygroup', 'node', 'field', 'user', 'system', 'text', 'filter', 'key'];
+  protected static $modules = ['access_affinitygroup', 'node', 'field', 'user', 'system', 'text', 'filter', 'key', 'link'];
 
   protected function setUp(): void {
     parent::setUp();
@@ -295,6 +295,58 @@ class RpAccountControllerTest extends KernelTestBase {
     $this->assertSame('no_person_id', $body['grants'][0]['live_unavailable_reason']);
     // Pre-existing balance preserved (no overwrite from foreign API row).
     $this->assertSame('100.0', $body['grants'][0]['project_balance']);
+  }
+
+  public function testResponseIncludesAccountSetupUrl(): void {
+    // Add the link field to the RP bundle for this test.
+    \Drupal\field\Entity\FieldStorageConfig::create([
+      'field_name' => 'field_rp_account_setup_url',
+      'entity_type' => 'node', 'type' => 'link',
+    ])->save();
+    \Drupal\field\Entity\FieldConfig::create([
+      'field_name' => 'field_rp_account_setup_url',
+      'entity_type' => 'node', 'bundle' => 'access_active_resources_from_cid',
+    ])->save();
+
+    $rp = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Delta CPU',
+      'field_access_global_resource_id' => 'delta-cpu.ncsa.access-ci.org',
+      'field_rp_account_setup_url' => [
+        'uri' => 'https://docs.ncsa.illinois.edu/systems/delta/en/latest/user_guide/accounts.html',
+        'title' => 'Delta account setup',
+      ],
+    ]);
+    $rp->save();
+
+    $svc = $this->prophesize(RpAccountService::class);
+    $svc->getAccountsForUserAndRp(0, (int) $rp->id())
+      ->willReturn(['rows' => [], 'state' => 'no_rows_fresh']);
+
+    $request = Request::create('/api/1.0/rp-account/' . $rp->id());
+    $response = $this->makeController($svc->reveal())->get((int) $rp->id(), $request);
+    $body = json_decode($response->getContent(), TRUE);
+
+    $this->assertSame(FALSE, $body['has_account']);
+    $this->assertIsArray($body['account_setup']);
+    $this->assertSame(
+      'https://docs.ncsa.illinois.edu/systems/delta/en/latest/user_guide/accounts.html',
+      $body['account_setup']['uri']
+    );
+    $this->assertSame('Delta account setup', $body['account_setup']['title']);
+  }
+
+  public function testResponseAccountSetupNullWhenUnset(): void {
+    $rp = $this->makeRpNode();
+    $svc = $this->prophesize(RpAccountService::class);
+    $svc->getAccountsForUserAndRp(0, (int) $rp->id())
+      ->willReturn(['rows' => [], 'state' => 'no_rows_fresh']);
+
+    $request = Request::create('/api/1.0/rp-account/' . $rp->id());
+    $response = $this->makeController($svc->reveal())->get((int) $rp->id(), $request);
+    $body = json_decode($response->getContent(), TRUE);
+
+    $this->assertNull($body['account_setup']);
   }
 
   public function testNonExistentRpReturns404(): void {

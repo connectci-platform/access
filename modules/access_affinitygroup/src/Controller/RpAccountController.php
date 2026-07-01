@@ -45,6 +45,7 @@ class RpAccountController extends ControllerBase {
       'rp_display_name' => $node->getTitle(),
       'state' => $state,
       'manage_url' => 'https://allocations.access-ci.org/',
+      'account_setup' => $this->accountSetup($node),
       'synced_at' => $rows ? max(array_column($rows, 'synced_at')) : NULL,
     ];
 
@@ -105,6 +106,35 @@ class RpAccountController extends ControllerBase {
     }
     $pid = (int) ($user->get('field_xdusage_person_id')->value ?? 0);
     return $pid ?: NULL;
+  }
+
+  /**
+   * Returns the account-setup link for the resource, with inheritance applied.
+   *
+   * Applies Resource Group inheritance in memory (guarded: the service may be
+   * absent, e.g. in kernel tests). Returns NULL if neither the resource nor
+   * its group defines the field.
+   *
+   * @return array|null
+   *   An array with 'uri' and 'title' keys, or NULL.
+   */
+  private function accountSetup(NodeInterface $node): ?array {
+    // Apply group inheritance in memory, mirroring the theme preprocess.
+    // Guard the service: it may be absent (e.g. in kernel tests).
+    if (\Drupal::hasService('operations_cider.resource_group_inheritance')) {
+      $node = clone $node;
+      \Drupal::service('operations_cider.resource_group_inheritance')
+        ->applyInheritance($node);
+    }
+    if (!$node->hasField('field_rp_account_setup_url')
+        || $node->get('field_rp_account_setup_url')->isEmpty()) {
+      return NULL;
+    }
+    $item = $node->get('field_rp_account_setup_url')->first();
+    return [
+      'uri' => str_replace('internal:', '', (string) $item->uri),
+      'title' => $item->title !== '' ? $item->title : NULL,
+    ];
   }
 
   private function overlayLiveBalance(array $formattedGrants, array $rows, ?int $person_id): array {
