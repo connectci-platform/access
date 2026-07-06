@@ -286,6 +286,47 @@ components:
           description: Most-used software on this resource, from XDMoD job data.
           items:
             type: object
+            properties:
+              name:
+                type: string
+              job_count:
+                type: integer
+                nullable: true
+              description:
+                type: string
+                nullable: true
+              research_field:
+                type: string
+                nullable: true
+              web_page:
+                type: string
+                format: uri
+                nullable: true
+        ood_software:
+          type: array
+          description: >-
+            Software available on this resource via ACCESS OnDemand. Entries are
+            manually curated and enriched from the SDS catalog (description,
+            research_field, web_page). Sorted by job_count desc when usage data
+            is present; unmatched entries retain human-input order.
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              job_count:
+                type: integer
+                nullable: true
+              description:
+                type: string
+                nullable: true
+              research_field:
+                type: string
+                nullable: true
+              web_page:
+                type: string
+                format: uri
+                nullable: true
 
     SshLogin:
       type: object
@@ -397,6 +438,14 @@ components:
           type: integer
           nullable: true
           description: Node RAM in GB.
+        max_wall_time_hours:
+          type: integer
+          nullable: true
+          description: Maximum wall time a single job may run on this queue, in whole hours. Null means no limit.
+        max_wall_time_display:
+          type: string
+          nullable: true
+          description: Friendly rendering of max_wall_time_hours in hours (e.g. "48 hours", "1 hour"). Null means no limit.
         summary:
           type: string
           nullable: true
