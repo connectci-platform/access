@@ -274,6 +274,18 @@ class RpAccountService {
     );
   }
 
+  /**
+   * Resolve an ACCESS Global Resource ID to its RP node id.
+   *
+   * @return int|null
+   *   The rp_nid, or NULL if the id maps to no published
+   *   access_active_resources_from_cid node.
+   */
+  public function resolveGlobalResourceIdToNid(string $global_resource_id): ?int {
+    $map = $this->buildInfoResourceIdToRpNidMap();
+    return $map[$global_resource_id] ?? NULL;
+  }
+
   private function loadActiveRows(int $uid, int $rp_nid): array {
     return $this->db->select(self::TABLE, 'a')
       ->fields('a')

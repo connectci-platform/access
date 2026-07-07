@@ -26,3 +26,13 @@ access_affinitygroup.rp_account:
   options:
     no_cache: TRUE
 
+access_affinitygroup.rp_account_by_resource:
+  path: '/api/1.0/rp-account/by-resource/{global_resource_id}'
+  defaults:
+    _controller: '\Drupal\access_affinitygroup\Controller\RpAccountController::getByResourceId'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.rp_account_access:check'
+  options:
+    no_cache: TRUE
+

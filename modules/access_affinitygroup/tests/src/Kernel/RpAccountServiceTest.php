@@ -475,6 +475,52 @@ class RpAccountServiceTest extends KernelTestBase {
     $this->assertFalse(\Drupal::cache()->get('rp_account:user_synced:' . $user->id()));
   }
 
+  public function testResolveGlobalResourceIdToNidReturnsNidForPublishedResource(): void {
+    $node = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Delta',
+      'field_access_global_resource_id' => 'delta.ncsa.access-ci.org',
+    ]);
+    $node->save();
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $xd = $this->prophesize(XdusageClient::class);
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $this->assertSame(
+      (int) $node->id(),
+      $svc->resolveGlobalResourceIdToNid('delta.ncsa.access-ci.org')
+    );
+  }
+
+  public function testResolveGlobalResourceIdToNidReturnsNullForUnknownId(): void {
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $xd = $this->prophesize(XdusageClient::class);
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $this->assertNull(
+      $svc->resolveGlobalResourceIdToNid('nonexistent.example.access-ci.org')
+    );
+  }
+
+  public function testResolveGlobalResourceIdToNidReturnsNullForUnpublishedResource(): void {
+    $node = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Delta',
+      'field_access_global_resource_id' => 'delta.ncsa.access-ci.org',
+      'status' => 0,
+    ]);
+    $node->save();
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $xd = $this->prophesize(XdusageClient::class);
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $this->assertNull(
+      $svc->resolveGlobalResourceIdToNid('delta.ncsa.access-ci.org')
+    );
+  }
+
   public function testGetLiveBalanceForRowDelegatesToXdusageClientWithPersonId(): void {
     $row = ['project_id' => 66897, 'resource_id' => 3031];
 

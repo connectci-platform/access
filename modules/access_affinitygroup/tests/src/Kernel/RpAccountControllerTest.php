@@ -11,6 +11,7 @@ use Drupal\node\Entity\NodeType;
 use Drupal\user\Entity\User;
 use Prophecy\PhpUnit\ProphecyTrait;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
  * @group access_affinitygroup
@@ -347,6 +348,60 @@ class RpAccountControllerTest extends KernelTestBase {
     $body = json_decode($response->getContent(), TRUE);
 
     $this->assertNull($body['account_setup']);
+  }
+
+  public function testGetByResourceIdResolvesAndReturnsSamePayloadAsNid(): void {
+    $rp = $this->makeRpNode();
+    $user = $this->makeUser();
+
+    $svc = $this->prophesize(RpAccountService::class);
+    $svc->resolveGlobalResourceIdToNid('delta-cpu.ncsa.access-ci.org')
+      ->willReturn((int) $rp->id());
+    $svc->getAccountsForUserAndRp((int) $user->id(), (int) $rp->id())
+      ->willReturn(['rows' => [], 'state' => 'no_rows_fresh']);
+    $controller = $this->makeController($svc->reveal());
+
+    $request = Request::create('/api/1.0/rp-account/by-resource/delta-cpu.ncsa.access-ci.org');
+    $request->attributes->set('rp_account_effective_uid', (int) $user->id());
+
+    $byResource = $controller->getByResourceId('delta-cpu.ncsa.access-ci.org', $request);
+    $byNid = $controller->get((int) $rp->id(), $request);
+
+    $this->assertSame($byNid->getStatusCode(), $byResource->getStatusCode());
+    $byResourceBody = json_decode($byResource->getContent(), TRUE);
+    $byNidBody = json_decode($byNid->getContent(), TRUE);
+    $this->assertSame($byNidBody['rp_display_name'], $byResourceBody['rp_display_name']);
+    $this->assertSame((int) $rp->id(), $byResourceBody['rp_nid']);
+  }
+
+  public function testGetByResourceIdReturns404ForUnknownResourceId(): void {
+    $svc = $this->prophesize(RpAccountService::class);
+    $svc->resolveGlobalResourceIdToNid('nonexistent.example.access-ci.org')
+      ->willReturn(NULL);
+
+    $request = Request::create('/api/1.0/rp-account/by-resource/nonexistent.example.access-ci.org');
+    $request->attributes->set('rp_account_effective_uid', 1);
+
+    $this->expectException(NotFoundHttpException::class);
+    $this->makeController($svc->reveal())->getByResourceId('nonexistent.example.access-ci.org', $request);
+  }
+
+  public function testExistingNidRouteStillWorks(): void {
+    $rp = $this->makeRpNode();
+    $user = $this->makeUser();
+
+    $svc = $this->prophesize(RpAccountService::class);
+    $svc->getAccountsForUserAndRp((int) $user->id(), (int) $rp->id())
+      ->willReturn(['rows' => [], 'state' => 'no_rows_fresh']);
+
+    $request = Request::create('/api/1.0/rp-account/' . $rp->id());
+    $request->attributes->set('rp_account_effective_uid', (int) $user->id());
+
+    $response = $this->makeController($svc->reveal())->get((int) $rp->id(), $request);
+    $body = json_decode($response->getContent(), TRUE);
+
+    $this->assertSame(200, $response->getStatusCode());
+    $this->assertSame($rp->getTitle(), $body['rp_display_name']);
   }
 
   public function testNonExistentRpReturns404(): void {

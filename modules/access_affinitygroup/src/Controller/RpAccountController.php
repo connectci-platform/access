@@ -88,6 +88,19 @@ class RpAccountController extends ControllerBase {
       ->setMaxAge(0);
   }
 
+  /**
+   * GET /api/1.0/rp-account/by-resource/{global_resource_id}.
+   *
+   * Resolves the global resource id to an RP nid, then delegates to get().
+   */
+  public function getByResourceId(string $global_resource_id, Request $request): JsonResponse {
+    $rpNid = $this->service->resolveGlobalResourceIdToNid($global_resource_id);
+    if ($rpNid === NULL) {
+      throw new NotFoundHttpException();
+    }
+    return $this->get($rpNid, $request);
+  }
+
   private function formatGrant(array $row): array {
     return [
       'grant_number' => $row['grant_number'],
