@@ -36,3 +36,13 @@ access_affinitygroup.rp_account_by_resource:
   options:
     no_cache: TRUE
 
+access_affinitygroup.rp_accounts_list:
+  path: '/api/1.0/rp-accounts'
+  defaults:
+    _controller: '\Drupal\access_affinitygroup\Controller\RpAccountController::listAccounts'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.rp_account_access:check'
+  options:
+    no_cache: TRUE
+

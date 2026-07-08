@@ -101,6 +101,57 @@ class RpAccountController extends ControllerBase {
     return $this->get($rpNid, $request);
   }
 
+  /**
+   * GET /api/1.0/rp-accounts — the acting user's RP accounts, grouped by RP.
+   */
+  public function listAccounts(Request $request): JsonResponse {
+    $uid = (int) $request->attributes->get('rp_account_effective_uid');
+    $result = $this->service->getAccountsForUser($uid);
+    $rows = $result['rows'];
+
+    $rpNids = array_values(array_unique(array_map(fn($r) => (int) $r['rp_nid'], $rows)));
+    $info = $this->service->resolveRpNidsToResourceInfo($rpNids);
+
+    $byRp = [];
+    foreach ($rows as $row) {
+      $byRp[(int) $row['rp_nid']][] = $row;
+    }
+
+    $syncedAt = $rows ? max(array_column($rows, 'synced_at')) : NULL;
+
+    $accounts = [];
+    foreach ($byRp as $rpNid => $rpRows) {
+      if (!isset($info[$rpNid])) {
+        continue;
+      }
+      $usernames = array_unique(array_filter(array_column($rpRows, 'rp_username')));
+      $accounts[] = [
+        'resource_id' => $info[$rpNid]['resource_id'],
+        'rp_display_name' => $info[$rpNid]['rp_display_name'],
+        'rp_username' => count($usernames) === 1 ? reset($usernames) : NULL,
+        // All rows are account_state=active (getAccountsForUser filters to active),
+        // so row[0] is representative for the RP-level state.
+        'account_state' => $rpRows[0]['account_state'],
+        'grants' => array_map(fn($r) => $this->formatGrant($r), $rpRows),
+      ];
+    }
+
+    return (new JsonResponse([
+      'accounts' => $accounts,
+      'state' => $this->translateState($result['state']),
+      'synced_at' => $syncedAt ? gmdate('c', (int) $syncedAt) : NULL,
+    ]))->setPrivate()->setMaxAge(0);
+  }
+
+  /**
+   * Maps service state → API state.
+   *
+   * no_rows_unknown (cold) → syncing; others pass through.
+   */
+  private function translateState(string $serviceState): string {
+    return $serviceState === 'no_rows_unknown' ? 'syncing' : $serviceState;
+  }
+
   private function formatGrant(array $row): array {
     return [
       'grant_number' => $row['grant_number'],
@@ -109,6 +160,7 @@ class RpAccountController extends ControllerBase {
       'project_balance' => $row['project_balance'],
       'billable_unit' => $row['billable_unit'],
       'account_state' => $row['account_state'],
+      'sp_state' => $row['sp_state'] ?? NULL,
     ];
   }
 

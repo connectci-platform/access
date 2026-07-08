@@ -413,6 +413,121 @@ class RpAccountControllerTest extends KernelTestBase {
     $this->makeController($svc->reveal())->get(999999, $request);
   }
 
+  public function testListAccountsGroupsByRpWithResourceIds(): void {
+    $svc = $this->prophesize(RpAccountService::class);
+    $svc->getAccountsForUser(42)->willReturn(['state' => 'rows_fresh', 'rows' => [
+      ['rp_nid' => 10, 'grant_number' => 'PHY1', 'grant_title' => 'A', 'project_balance' => 500,
+       'billable_unit' => 'SUs', 'project_end' => '2026-09-30', 'account_state' => 'active',
+       'sp_state' => 'active', 'rp_username' => 'alice', 'synced_at' => 1750000000],
+      ['rp_nid' => 10, 'grant_number' => 'PHY2', 'grant_title' => 'B', 'project_balance' => 200,
+       'billable_unit' => 'SUs', 'project_end' => '2026-10-31', 'account_state' => 'active',
+       'sp_state' => 'active', 'rp_username' => 'alice', 'synced_at' => 1750000000],
+    ]]);
+    $svc->resolveRpNidsToResourceInfo([10])->willReturn([
+      10 => ['resource_id' => 'delta.ncsa.access-ci.org', 'rp_display_name' => 'NCSA Delta'],
+    ]);
+
+    $request = Request::create('/api/1.0/rp-accounts');
+    $request->attributes->set('rp_account_effective_uid', 42);
+    $response = $this->makeController($svc->reveal())->listAccounts($request);
+
+    $body = json_decode($response->getContent(), TRUE);
+    $this->assertSame('rows_fresh', $body['state']);
+    $this->assertCount(1, $body['accounts']);
+    $this->assertSame('delta.ncsa.access-ci.org', $body['accounts'][0]['resource_id']);
+    $this->assertSame('NCSA Delta', $body['accounts'][0]['rp_display_name']);
+    $this->assertSame('alice', $body['accounts'][0]['rp_username']);
+    $this->assertCount(2, $body['accounts'][0]['grants']);
+  }
+
+  public function testListAccountsMapsColdStateToSyncing(): void {
+    $svc = $this->prophesize(RpAccountService::class);
+    $svc->getAccountsForUser(42)->willReturn(['state' => 'no_rows_unknown', 'rows' => []]);
+    $svc->resolveRpNidsToResourceInfo([])->willReturn([]);
+
+    $request = Request::create('/api/1.0/rp-accounts');
+    $request->attributes->set('rp_account_effective_uid', 42);
+    $body = json_decode($this->makeController($svc->reveal())->listAccounts($request)->getContent(), TRUE);
+
+    $this->assertSame('syncing', $body['state']);
+    $this->assertSame([], $body['accounts']);
+  }
+
+  public function testListAccountsMapsGenuinelyEmptyToNoRowsFresh(): void {
+    $svc = $this->prophesize(RpAccountService::class);
+    $svc->getAccountsForUser(42)->willReturn(['state' => 'no_rows_fresh', 'rows' => []]);
+    $svc->resolveRpNidsToResourceInfo([])->willReturn([]);
+
+    $request = Request::create('/api/1.0/rp-accounts');
+    $request->attributes->set('rp_account_effective_uid', 42);
+    $body = json_decode($this->makeController($svc->reveal())->listAccounts($request)->getContent(), TRUE);
+
+    $this->assertSame('no_rows_fresh', $body['state']);
+    $this->assertSame([], $body['accounts']);
+  }
+
+  public function testListAccountsNullsRpUsernameWhenGrantsDisagree(): void {
+    $svc = $this->prophesize(RpAccountService::class);
+    $svc->getAccountsForUser(42)->willReturn(['state' => 'rows_fresh', 'rows' => [
+      ['rp_nid' => 10, 'grant_number' => 'G1', 'grant_title' => 'A', 'project_balance' => 1,
+       'billable_unit' => 'SUs', 'project_end' => '2026-01-01', 'account_state' => 'active',
+       'sp_state' => 'active', 'rp_username' => 'alice', 'synced_at' => 1750000000],
+      ['rp_nid' => 10, 'grant_number' => 'G2', 'grant_title' => 'B', 'project_balance' => 2,
+       'billable_unit' => 'SUs', 'project_end' => '2026-01-01', 'account_state' => 'active',
+       'sp_state' => 'active', 'rp_username' => 'bob', 'synced_at' => 1750000000],
+    ]]);
+    $svc->resolveRpNidsToResourceInfo([10])->willReturn([10 => ['resource_id' => 'x.access-ci.org', 'rp_display_name' => 'X']]);
+
+    $request = Request::create('/api/1.0/rp-accounts');
+    $request->attributes->set('rp_account_effective_uid', 42);
+    $body = json_decode($this->makeController($svc->reveal())->listAccounts($request)->getContent(), TRUE);
+    $this->assertNull($body['accounts'][0]['rp_username']);
+  }
+
+  public function testListAccountsSeparatesMultipleRps(): void {
+    $svc = $this->prophesize(RpAccountService::class);
+    $svc->getAccountsForUser(42)->willReturn(['state' => 'rows_fresh', 'rows' => [
+      ['rp_nid' => 10, 'grant_number' => 'G1', 'grant_title' => 'A', 'project_balance' => 1,
+       'billable_unit' => 'SUs', 'project_end' => '2026-01-01', 'account_state' => 'active',
+       'sp_state' => 'active', 'rp_username' => 'alice', 'synced_at' => 1750000000],
+      ['rp_nid' => 20, 'grant_number' => 'G2', 'grant_title' => 'B', 'project_balance' => 2,
+       'billable_unit' => 'SUs', 'project_end' => '2026-01-01', 'account_state' => 'active',
+       'sp_state' => 'active', 'rp_username' => 'alice', 'synced_at' => 1750000000],
+    ]]);
+    $svc->resolveRpNidsToResourceInfo([10, 20])->willReturn([
+      10 => ['resource_id' => 'delta.ncsa.access-ci.org', 'rp_display_name' => 'Delta'],
+      20 => ['resource_id' => 'bridges2.psc.access-ci.org', 'rp_display_name' => 'Bridges-2'],
+    ]);
+
+    $request = Request::create('/api/1.0/rp-accounts');
+    $request->attributes->set('rp_account_effective_uid', 42);
+    $body = json_decode($this->makeController($svc->reveal())->listAccounts($request)->getContent(), TRUE);
+    $this->assertCount(2, $body['accounts']);
+    $ids = array_column($body['accounts'], 'resource_id');
+    $this->assertContains('delta.ncsa.access-ci.org', $ids);
+    $this->assertContains('bridges2.psc.access-ci.org', $ids);
+  }
+
+  public function testListAccountsSkipsUnresolvableRpAndFormatsSyncedAt(): void {
+    $svc = $this->prophesize(RpAccountService::class);
+    $svc->getAccountsForUser(42)->willReturn(['state' => 'rows_fresh', 'rows' => [
+      ['rp_nid' => 10, 'grant_number' => 'G1', 'grant_title' => 'A', 'project_balance' => 1,
+       'billable_unit' => 'SUs', 'project_end' => '2026-01-01', 'account_state' => 'active',
+       'sp_state' => 'active', 'rp_username' => 'alice', 'synced_at' => 1750000000],
+      ['rp_nid' => 99, 'grant_number' => 'G9', 'grant_title' => 'Z', 'project_balance' => 9,
+       'billable_unit' => 'SUs', 'project_end' => '2026-01-01', 'account_state' => 'active',
+       'sp_state' => 'active', 'rp_username' => 'alice', 'synced_at' => 1750000000],
+    ]]);
+    // Only nid 10 resolves; 99 has no node info → skipped.
+    $svc->resolveRpNidsToResourceInfo([10, 99])->willReturn([10 => ['resource_id' => 'delta.ncsa.access-ci.org', 'rp_display_name' => 'Delta']]);
+
+    $request = Request::create('/api/1.0/rp-accounts');
+    $request->attributes->set('rp_account_effective_uid', 42);
+    $body = json_decode($this->makeController($svc->reveal())->listAccounts($request)->getContent(), TRUE);
+    $this->assertCount(1, $body['accounts']); // nid 99 dropped
+    $this->assertSame(gmdate('c', 1750000000), $body['synced_at']);
+  }
+
   public function testWrongBundleReturns404(): void {
     NodeType::create(['type' => 'page', 'name' => 'Page'])->save();
     $node = Node::create(['type' => 'page', 'title' => 'Not an RP']);
