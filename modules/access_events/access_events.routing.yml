@@ -1,3 +1,29 @@
+access_events.registrations_list:
+  path: '/api/1.0/registrations'
+  defaults:
+    _controller: '\Drupal\access_events\Controller\RegistrationApiController::list'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+  options:
+    no_cache: 'TRUE'
+
+access_events.registrations_cancel:
+  path: '/api/1.0/registrations/{registrant_id}'
+  defaults:
+    _controller: '\Drupal\access_events\Controller\RegistrationApiController::cancel'
+  methods: [DELETE]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+    # State-changing route: require a valid X-CSRF-Token header (from
+    # /session/token). Custom routes do not get REST's automatic CSRF check,
+    # so without this a plain cookie-authenticated DELETE is CSRF-able.
+    _csrf_request_header_token: 'TRUE'
+  options:
+    no_cache: 'TRUE'
+
 event.eventApprove:
   path: '/events/{event_id}/waitlist/approve'
   defaults:
