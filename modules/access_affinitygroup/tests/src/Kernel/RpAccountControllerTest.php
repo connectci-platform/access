@@ -164,6 +164,15 @@ class RpAccountControllerTest extends KernelTestBase {
     $this->assertSame('PHY250173', $body['grants'][0]['grant_number']);
     $this->assertSame('Halo finding', $body['grants'][0]['title']);
     $this->assertSame('https://allocations.access-ci.org/', $body['manage_url']);
+    // account_charges is present (null) on snapshot grants for a stable schema —
+    // the live flag populates it but never changes the field set.
+    $this->assertArrayHasKey('account_charges', $body['grants'][0]);
+    $this->assertNull($body['grants'][0]['account_charges']);
+    // synced_at must be ISO 8601, matching the list endpoint (not a raw epoch).
+    $this->assertMatchesRegularExpression(
+      '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/',
+      $body['synced_at']
+    );
   }
 
   public function testRpUsernameNullWhenMultipleDistinctRpUsernames(): void {
@@ -229,8 +238,10 @@ class RpAccountControllerTest extends KernelTestBase {
     $response = $this->makeController($svc->reveal(), $xd->reveal())->get((int) $rp->id(), $request);
     $body = json_decode($response->getContent(), TRUE);
 
-    $this->assertSame('999.99', $body['grants'][0]['project_balance']);
-    $this->assertSame('5.0', $body['grants'][0]['account_charges']);
+    // Live balances are normalized to 4dp, matching the stored snapshot scale,
+    // so the live flag changes freshness only — not precision.
+    $this->assertSame('999.9900', $body['grants'][0]['project_balance']);
+    $this->assertSame('5.0000', $body['grants'][0]['account_charges']);
   }
 
   public function testLiveBalanceErrorMarkedWhenBatchOmitsTuple(): void {
