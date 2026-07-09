@@ -80,44 +80,6 @@ class XdusageClientTest extends UnitTestCase {
     $this->assertNull($client->getPersonByPortalUsername('nope'));
   }
 
-  public function testLookupPersonFoundOnSuccessWithResult(): void {
-    $http = $this->prophesize(ClientInterface::class);
-    $http->request('GET', Argument::any(), Argument::any())
-      ->willReturn(new Response(200, [], json_encode([
-        'result' => [['person_id' => 297776, 'portal_username' => 'aaadhavan']],
-      ])));
-    $client = $this->makeClient($http->reveal());
-    $r = $client->lookupPerson('aaadhavan');
-    $this->assertSame('found', $r['status']);
-    $this->assertSame(297776, $r['person']['person_id']);
-  }
-
-  public function testLookupPersonAbsentOnSuccessWithEmptyResult(): void {
-    // The live API returns 200 with an empty result for an unknown username.
-    $http = $this->prophesize(ClientInterface::class);
-    $http->request('GET', Argument::any(), Argument::any())
-      ->willReturn(new Response(200, [], json_encode(['result' => []])));
-    $client = $this->makeClient($http->reveal());
-    $r = $client->lookupPerson('notanaccessuser');
-    $this->assertSame('absent', $r['status']);
-    $this->assertNull($r['person']);
-  }
-
-  public function testLookupPersonErrorOnTransportFailure(): void {
-    // A connection failure (endpoint down) must be reported as 'error', NOT
-    // 'absent' — the caller must not negative-cache an outage.
-    $http = $this->prophesize(ClientInterface::class);
-    $http->request('GET', Argument::any(), Argument::any())
-      ->willThrow(new \GuzzleHttp\Exception\ConnectException(
-        'Connection refused',
-        new \GuzzleHttp\Psr7\Request('GET', 'x')
-      ));
-    $client = $this->makeClient($http->reveal());
-    $r = $client->lookupPerson('apasquale');
-    $this->assertSame('error', $r['status']);
-    $this->assertNull($r['person']);
-  }
-
   public function testGetProjectsMapBuildsIndexFromFlatList(): void {
     $apiResponse = json_encode([
       'message' => NULL,

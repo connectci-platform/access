@@ -88,7 +88,7 @@ class RpAccountServiceTest extends KernelTestBase {
     ]);
 
     $xd = $this->prophesize(XdusageClient::class);
-    $xd->lookupPerson('aaadhavan')->willReturn(['status' => 'found', 'person' => ['person_id' => 297776]]);
+    $xd->getPersonByPortalUsername('aaadhavan')->willReturn(['person_id' => 297776]);
     $xd->getProjectsMap()->willReturn([
       'PHY250173' => [
         'delta-cpu.ncsa.access-ci.org' => [
@@ -130,143 +130,19 @@ class RpAccountServiceTest extends KernelTestBase {
     $this->assertNotFalse($marker);
   }
 
-  /**
-   * A bare (non-@access-ci.org) account name is used as the ACCESS username
-   * as-is. The gate is the person lookup: a name that is not a real ACCESS user
-   * (e.g. "localadmin") resolves to no person, so no grants are fetched and no
-   * rows are written. (The negative-cache marker behavior is covered separately
-   * by testRefreshNegativeCachesConfirmedAbsentPerson.)
-   */
-  public function testRefreshSkipsBareNameWithNoAccessPerson(): void {
+  public function testRefreshSkipsUsersWithoutAccessCiSuffix(): void {
     $user = User::create(['name' => 'localadmin', 'mail' => 'a@example.com']);
     $user->save();
 
     $alloc = $this->prophesize(AllocationsClient::class);
-    // Grants are only fetched after a person resolves, so never for this name.
     $alloc->getProjectsForUser(\Prophecy\Argument::any())->shouldNotBeCalled();
     $xd = $this->prophesize(XdusageClient::class);
-    // The bare name IS passed to the person lookup — it just returns nothing.
-    $xd->lookupPerson('localadmin')->willReturn(['status' => 'absent', 'person' => NULL]);
+    $xd->getPersonByPortalUsername(\Prophecy\Argument::any())->shouldNotBeCalled();
 
     $svc = $this->makeService($alloc->reveal(), $xd->reveal());
     $svc->refreshUserRpAccounts((int) $user->id());
 
-    $rows = \Drupal::database()->select('access_user_rp_account', 'a')
-      ->condition('uid', (int) $user->id())
-      ->countQuery()->execute()->fetchField();
-    $this->assertEquals(0, $rows, 'A non-ACCESS name must write no rows.');
-  }
-
-  /**
-   * When the person lookup AUTHORITATIVELY reports no such ACCESS person
-   * (a successful call that returns an empty result, not a transport error),
-   * the user is marked synced so we don't re-query the ACCESS API for them
-   * every refresh window. Negative-cache to protect the upstream endpoint.
-   */
-  public function testRefreshNegativeCachesConfirmedAbsentPerson(): void {
-    $user = User::create(['name' => 'notanaccessuser', 'mail' => 'a@example.com']);
-    $user->save();
-
-    $alloc = $this->prophesize(AllocationsClient::class);
-    $alloc->getProjectsForUser(\Prophecy\Argument::any())->shouldNotBeCalled();
-    $xd = $this->prophesize(XdusageClient::class);
-    // AUTHORITATIVE absent: the lookup succeeded and returned no person.
-    $xd->lookupPerson('notanaccessuser')->willReturn(['status' => 'absent', 'person' => NULL]);
-
-    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
-    $svc->refreshUserRpAccounts((int) $user->id());
-
-    // Marker set → a subsequent refresh window will NOT re-query the API.
-    $this->assertNotFalse(
-      \Drupal::cache()->get(RpAccountService::SYNC_MARKER_PREFIX . $user->id()),
-      'A confirmed-absent person must be negative-cached (marker set).'
-    );
-  }
-
-  /**
-   * When the person lookup FAILS (endpoint down / timeout / 5xx — a transport
-   * error, NOT an authoritative empty result), the user must NOT be marked
-   * synced, so the refresh retries next window. An outage must never brand a
-   * (possibly real) ACCESS user as non-ACCESS.
-   */
-  public function testRefreshDoesNotNegativeCacheOnLookupFailure(): void {
-    $user = User::create(['name' => 'apasquale', 'mail' => 'a@example.com']);
-    $user->save();
-
-    $alloc = $this->prophesize(AllocationsClient::class);
-    $alloc->getProjectsForUser(\Prophecy\Argument::any())->shouldNotBeCalled();
-    $xd = $this->prophesize(XdusageClient::class);
-    // TRANSPORT FAILURE: indistinguishable-from-outside, but reported as 'error'.
-    $xd->lookupPerson('apasquale')->willReturn(['status' => 'error', 'person' => NULL]);
-
-    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
-    $svc->refreshUserRpAccounts((int) $user->id());
-
-    // NO marker → next window retries. Outage must not suppress a real user.
-    $this->assertFalse(
-      \Drupal::cache()->get(RpAccountService::SYNC_MARKER_PREFIX . $user->id()),
-      'A lookup failure must NOT be negative-cached.'
-    );
-  }
-
-  /**
-   * A bare account name that IS a valid ACCESS username (e.g. "apasquale",
-   * with no @access-ci.org suffix) must sync just like a suffixed name.
-   * Regression test for the suffix guard that starved ~1,652 bare-named users.
-   */
-  public function testRefreshSyncsBareAccessUsername(): void {
-    $rp = Node::create([
-      'type' => 'access_active_resources_from_cid',
-      'title' => 'Delta CPU',
-      'field_access_global_resource_id' => 'delta-cpu.ncsa.access-ci.org',
-    ]);
-    $rp->save();
-
-    $user = User::create(['name' => 'apasquale', 'mail' => 'a@example.com']);
-    $user->save();
-
-    $alloc = $this->prophesize(AllocationsClient::class);
-    $alloc->getProjectsForUser('apasquale')->willReturn([
-      ['grant_number' => 'PHY250173', 'title' => 'Halo finding', 'allocation_type' => 'Accelerate', 'grant_type' => 'Diss.'],
-    ]);
-    $alloc->getResourcesForUser('apasquale')->willReturn([
-      ['cider_resource_id' => 'delta-cpu.ncsa.access-ci.org', 'billable_unit_type' => 'Core-hours'],
-    ]);
-
-    $xd = $this->prophesize(XdusageClient::class);
-    $xd->lookupPerson('apasquale')->willReturn(['status' => 'found', 'person' => ['person_id' => 110387]]);
-    $xd->getProjectsMap()->willReturn([
-      'PHY250173' => [
-        'delta-cpu.ncsa.access-ci.org' => [
-          'project_id' => 66897,
-          'resource_id' => 3031,
-          'project_balance' => '100.0',
-          'project_end' => '2026-07-09',
-          'project_state' => 'active',
-          'is_expired' => FALSE,
-          'billable_unit' => 'Core-hours',
-        ],
-      ],
-    ]);
-    $xd->getAccountForUser(66897, 3031, 110387)->willReturn([
-      'portal_username' => 'apasquale',
-      'account_state' => 'active',
-    ]);
-
-    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
-    $svc->refreshUserRpAccounts((int) $user->id());
-
-    $row = \Drupal::database()->select('access_user_rp_account', 'a')
-      ->fields('a')
-      ->condition('uid', (int) $user->id())
-      ->execute()
-      ->fetchAssoc();
-    $this->assertNotEmpty($row, 'A bare ACCESS username must sync rows.');
-    $this->assertSame('apasquale', $row['rp_username']);
-    $this->assertSame('PHY250173', $row['grant_number']);
-
-    $reloaded = User::load($user->id());
-    $this->assertEquals(110387, $reloaded->get('field_xdusage_person_id')->value);
+    $this->assertFalse(\Drupal::cache()->get('rp_account:user_synced:' . $user->id()));
   }
 
   public function testGetAccountsForUserAndRpReturnsRowsFreshState(): void {
@@ -346,7 +222,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $alloc->getResourcesForUser(\Prophecy\Argument::any())->willReturn([]);
 
     $xd = $this->prophesize(XdusageClient::class);
-    $xd->lookupPerson(\Prophecy\Argument::any())->shouldNotBeCalled(); // person_id already on user
+    $xd->getPersonByPortalUsername(\Prophecy\Argument::any())->shouldNotBeCalled(); // person_id already on user
     $xd->getProjectsMap()->willReturn([
       'PHY250173' => [
         'delta-cpu.ncsa.access-ci.org' => [
@@ -412,7 +288,7 @@ class RpAccountServiceTest extends KernelTestBase {
     ]);
     $alloc->getResourcesForUser(\Prophecy\Argument::any())->willReturn([]);
     $xd = $this->prophesize(XdusageClient::class);
-    $xd->lookupPerson(\Prophecy\Argument::any())->shouldNotBeCalled();
+    $xd->getPersonByPortalUsername(\Prophecy\Argument::any())->shouldNotBeCalled();
     $xd->getProjectsMap()->willReturn([]); // empty map
     $xd->getAccountForUser(\Prophecy\Argument::cetera())->shouldNotBeCalled();
 
@@ -668,7 +544,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $alloc->getProjectsForUser('guarded')->willReturn([])->shouldBeCalled();
     $alloc->getResourcesForUser('guarded')->willReturn([]);
     $xd = $this->prophesize(XdusageClient::class);
-    $xd->lookupPerson('guarded')->willReturn(['status' => 'found', 'person' => ['person_id' => 111]]);
+    $xd->getPersonByPortalUsername('guarded')->willReturn(['person_id' => 111]);
     $xd->getProjectsMap()->willReturn([]);
     $service = $this->makeService($alloc->reveal(), $xd->reveal());
 
@@ -687,7 +563,7 @@ class RpAccountServiceTest extends KernelTestBase {
     // Make the refresh throw partway through.
     $alloc->getProjectsForUser('thrower')->willThrow(new \RuntimeException('boom'));
     $xd = $this->prophesize(XdusageClient::class);
-    $xd->lookupPerson('thrower')->willReturn(['status' => 'found', 'person' => ['person_id' => 222]]);
+    $xd->getPersonByPortalUsername('thrower')->willReturn(['person_id' => 222]);
     $service = $this->makeService($alloc->reveal(), $xd->reveal());
 
     try {
