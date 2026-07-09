@@ -2320,3 +2320,39 @@ function access_misc_update_10037(&$sandbox) {
   }
   return t('Re-pointed @count resource-doc nodes to the resource_docs text format.', ['@count' => $changed]);
 }
+
+/**
+ * Remove webform sub-modules dropped/deprecated in webform 6.3.0.
+ *
+ * webform_location_places + webform_shortcuts were removed from disk in 6.3.0 and
+ * remain enabled in existing databases, which blocks config import. Their code is
+ * gone, so uninstall hooks can't run — purge them directly. webform_bootstrap
+ * (Bootstrap 3.x) is deprecated and unused (site theme is Bootstrap 4) but still
+ * on disk, so uninstall it via the module installer so its own uninstall logic runs.
+ */
+function access_misc_update_10038() {
+  // 1. Purge the two removed-from-disk modules first, so the module installer's
+  //    container rebuild (below) doesn't choke on modules missing from core.extension.
+  $missing = [
+    'webform_location_places',
+    'webform_shortcuts',
+  ];
+
+  $extension = \Drupal::configFactory()->getEditable('core.extension');
+  $modules = $extension->get('module') ?? [];
+  foreach ($missing as $name) {
+    unset($modules[$name]);
+  }
+  $extension->set('module', $modules)->save();
+
+  \Drupal::keyValue('system.schema')->deleteMultiple($missing);
+
+  // 2. Uninstall the still-on-disk, deprecated bootstrap module the proper way so
+  //    its own uninstall hooks / schema cleanup run. Guarded for idempotency.
+  if (\Drupal::moduleHandler()->moduleExists('webform_bootstrap')) {
+    \Drupal::service('module_installer')->uninstall(['webform_bootstrap']);
+  }
+
+  // 3. Cheap insurance after the hand-edited core.extension above.
+  drupal_flush_all_caches();
+}
