@@ -29,13 +29,37 @@ class XdusageClient {
   ) {}
 
   public function getPersonByPortalUsername(string $username): ?array {
+    return $this->lookupPerson($username)['person'];
+  }
+
+  /**
+   * Look up an ACCESS person by portal username, discriminating the outcome.
+   *
+   * getPersonByPortalUsername() collapses "no such person" and "the lookup
+   * failed" into a single NULL. Callers that must tell them apart — e.g. to
+   * negative-cache a confirmed-absent user without poisoning the cache during
+   * an ACCESS API outage — use this instead.
+   *
+   * @return array{status: 'found'|'absent'|'error', person: ?array}
+   *   - 'found':  a person record was returned (in 'person').
+   *   - 'absent': the API responded successfully but with no matching person
+   *               (authoritative "not an ACCESS user" — safe to negative-cache).
+   *   - 'error':  the request failed (connection/timeout/>=400 or missing key);
+   *               the true membership is UNKNOWN and must NOT be cached.
+   */
+  public function lookupPerson(string $username): array {
     $url = self::BASE . '/acdb/xdusage/v2/people/by_portal_username/' . rawurlencode($username);
     $data = $this->callJson('GET', $url);
+    // callJson returns NULL only on a transport/HTTP failure; a successful call
+    // with no matches decodes to an array with an empty 'result'.
     if ($data === NULL) {
-      return NULL;
+      return ['status' => 'error', 'person' => NULL];
     }
     $result = $data['result'] ?? [];
-    return $result ? reset($result) : NULL;
+    if (!$result) {
+      return ['status' => 'absent', 'person' => NULL];
+    }
+    return ['status' => 'found', 'person' => reset($result)];
   }
 
   public function getProjectsMap(): array {
