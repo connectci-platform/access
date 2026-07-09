@@ -46,7 +46,7 @@ class RpAccountController extends ControllerBase {
       'state' => $state,
       'manage_url' => 'https://allocations.access-ci.org/',
       'account_setup' => $this->accountSetup($node),
-      'synced_at' => $rows ? max(array_column($rows, 'synced_at')) : NULL,
+      'synced_at' => $rows ? gmdate('c', (int) max(array_column($rows, 'synced_at'))) : NULL,
     ];
 
     if (!$rows) {
@@ -158,6 +158,9 @@ class RpAccountController extends ControllerBase {
       'title' => $row['grant_title'] ?? NULL,
       'project_end' => $row['project_end'],
       'project_balance' => $row['project_balance'],
+      // Present in every grant for a stable schema; only the live overlay
+      // populates it (snapshot rows don't carry account_charges).
+      'account_charges' => NULL,
       'billable_unit' => $row['billable_unit'],
       'account_state' => $row['account_state'],
       'sp_state' => $row['sp_state'] ?? NULL,
@@ -209,10 +212,12 @@ class RpAccountController extends ControllerBase {
       $r = $live[$key] ?? NULL;
       if ($r) {
         if (isset($r['project_balance'])) {
-          $formattedGrants[$i]['project_balance'] = $r['project_balance'];
+          // Round to the same scale (4) the stored snapshot uses, so live vs
+          // snapshot differ in freshness only — not precision.
+          $formattedGrants[$i]['project_balance'] = number_format((float) $r['project_balance'], 4, '.', '');
         }
         if ($person_id && isset($r['account_charges'])) {
-          $formattedGrants[$i]['account_charges'] = $r['account_charges'];
+          $formattedGrants[$i]['account_charges'] = number_format((float) $r['account_charges'], 4, '.', '');
         }
       }
       else {
