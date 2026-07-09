@@ -97,8 +97,11 @@ class RpAccountService {
   /**
    * Refresh all rows for a single user. Walks identity API + xdusage.
    *
-   * Idempotent. Safe to retry on partial-failure: the cache "synced" marker
-   * is set ONLY at the end, after the full pipeline succeeds.
+   * Idempotent. Safe to retry on partial-failure: the "synced" marker is set
+   * only after a definitive outcome — either the full pipeline succeeds, or
+   * the person lookup authoritatively reports the user is not an ACCESS person
+   * (the negative-cache case below). A transient failure (outage/timeout) never
+   * sets the marker, so the next window retries.
    *
    * Pruning is keyed on identity-API grants, NOT on the projects-map work
    * list. A grant transiently missing from the projects map should NOT
@@ -106,27 +109,47 @@ class RpAccountService {
    * pruned. If the identity API itself fails (returns null), the entire
    * refresh is aborted with no DB writes and no marker change.
    *
-   * Skips users whose Drupal account name does not end in @access-ci.org.
+   * The ACCESS username is derived from the account name (the @access-ci.org
+   * suffix is stripped when present; bare names are used as-is). Non-ACCESS
+   * accounts are skipped naturally: their username resolves to no xdusage
+   * person and the refresh returns before writing any rows.
    */
   public function refreshUserRpAccounts(int $uid): void {
     $user = $this->etm->getStorage('user')->load($uid);
     if (!$user instanceof UserInterface) {
       return;
     }
+    // Derive the ACCESS portal username. Account names usually carry the
+    // "@access-ci.org" suffix (strip it), but many valid accounts store the
+    // bare username (e.g. "apasquale"). Do NOT gate on the suffix: the bare
+    // form is exactly what the identity/xdusage APIs expect, and gating here
+    // silently starved every non-suffixed user of their allocations. The real
+    // gate is the person lookup below — a non-ACCESS local account (e.g.
+    // "localadmin") simply resolves to no person and is skipped without rows.
     $accountName = $user->getAccountName();
-    if (!str_ends_with($accountName, self::ACCESS_SUFFIX)) {
-      return;
-    }
-    $username = substr($accountName, 0, -strlen(self::ACCESS_SUFFIX));
+    $username = str_ends_with($accountName, self::ACCESS_SUFFIX)
+      ? substr($accountName, 0, -strlen(self::ACCESS_SUFFIX))
+      : $accountName;
 
     // 1. Ensure person_id is on the user.
     $personId = (int) ($user->get('field_xdusage_person_id')->value ?? 0);
     if (!$personId) {
-      $person = $this->xdusage->getPersonByPortalUsername($username);
-      if (!$person) {
+      $lookup = $this->xdusage->lookupPerson($username);
+      if ($lookup['status'] === 'error') {
+        // Lookup FAILED (outage/timeout/5xx). Membership is unknown — do NOT
+        // mark synced, so the next window retries. Never brand a possibly-real
+        // ACCESS user as absent on a transient failure.
         return;
       }
-      $personId = (int) $person['person_id'];
+      if ($lookup['status'] === 'absent') {
+        // AUTHORITATIVELY not an ACCESS person. Negative-cache by marking the
+        // user synced so we don't re-query the ACCESS API for them every
+        // refresh window. Safe: only a confirmed (successful, empty) result
+        // reaches here — outages returned above.
+        $this->markUserSynced($uid);
+        return;
+      }
+      $personId = (int) $lookup['person']['person_id'];
       $user->set('field_xdusage_person_id', $personId);
       $user->set('field_xdusage_person_synced', $this->time->getRequestTime());
       $user->save();
@@ -248,6 +271,17 @@ class RpAccountService {
     }
 
     // 8. Mark user as synced (only after the full pipeline above succeeds).
+    $this->markUserSynced($uid);
+  }
+
+  /**
+   * Record that the user's RP-account data is current as of now, so read-side
+   * freshness checks pass and background refreshes are skipped until the TTL
+   * expires. Used both after a successful sync and to negative-cache a
+   * confirmed non-ACCESS user (a successful lookup that found no person).
+   */
+  private function markUserSynced(int $uid): void {
+    $now = $this->time->getRequestTime();
     $this->cache->set(
       self::SYNC_MARKER_PREFIX . $uid,
       $now,
