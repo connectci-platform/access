@@ -97,30 +97,34 @@ class UserMerger {
   }
 
   /**
-   * Merge the from-user into the to-user, then delete the from-user.
+   * Merge the from-user into the to-user, then block the from-user.
    *
    * The entire operation runs in a single transaction so a mid-merge
-   * failure cannot leave a half-merged, then-deleted account.
+   * failure cannot leave a half-merged account in a bad state.
+   *
+   * The source account is BLOCKED (disabled), not deleted: the user can no
+   * longer log into or use the duplicate, but the record is retained so a
+   * merge that missed something remains fully recoverable. This also avoids
+   * data loss from delete side effects (e.g. registrants that stay on the
+   * from-user would be orphaned by a delete) and from any non-transactional
+   * user_delete hooks.
    *
    * @return array
    *   Summary of merged item counts.
    *
    * @throws \Drupal\user_profiles\Exception\UserMergeException
    */
-  public function mergeAndDelete(int $from_user_id, int $to_user_id): array {
-    // Note: startTransaction() covers the default DB only. Drupal's user
-    // delete handler is DB-only, so this is sufficient today. If future
-    // user_delete hooks perform side effects (API calls, non-default DB
-    // writes, emails), they would survive a rollback and this boundary
-    // would need to be reconsidered.
+  public function mergeAndBlock(int $from_user_id, int $to_user_id): array {
     $transaction = $this->database->startTransaction();
     try {
       $summary = $this->mergeUser($from_user_id, $to_user_id);
       $from_user = $this->entityTypeManager->getStorage('user')->load($from_user_id);
       if ($from_user instanceof User) {
-        $from_user->delete();
+        // Block (disable) rather than delete, so the merge stays reversible.
+        $from_user->block();
+        $from_user->save();
       }
-      $this->logger->notice('Merged and deleted user @from into @to: @summary', [
+      $this->logger->notice('Merged and blocked user @from into @to: @summary', [
         '@from' => $from_user_id,
         '@to' => $to_user_id,
         '@summary' => json_encode($summary),
@@ -454,7 +458,10 @@ class UserMerger {
           ->execute();
 
         if (!empty($existing)) {
-          // Pre-existing: skipped registrants stay on the from-user and are orphaned on delete. Out of scope.
+          // To-user is already registered for this instance, so leave this
+          // registrant on the from-user rather than creating a duplicate.
+          // Because the from-user is blocked (not deleted), these skipped
+          // registrants are retained, not orphaned.
           $this->logger->info("    To-user already registered for event instance $event_instance_id, skipping");
           continue;
         }

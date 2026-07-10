@@ -415,14 +415,16 @@ function user_profiles_user_login(UserInterface $account): void {
     return;
   }
 
-  // Merge the duplicate's content into this account and delete it. Fail-soft:
-  // a merge failure must not white-screen login. The merge is transactional,
-  // so a failure leaves both accounts intact and is logged for follow-up.
+  // Merge the duplicate's content into this account and block it (the
+  // duplicate is disabled, not deleted, so the merge stays recoverable).
+  // Fail-soft: a merge failure must not white-screen login. The merge is
+  // transactional, so a failure leaves both accounts intact and is logged
+  // for follow-up.
   // Only show the "merged" notice AFTER a successful merge, so the user is
   // never told their accounts merged when they did not.
   try {
     \Drupal::service('user_profiles.user_merger')
-      ->mergeAndDelete((int) $dup_uid[0], $account_uid);
+      ->mergeAndBlock((int) $dup_uid[0], $account_uid);
 
     $url = Url::fromUri('internal:/community-persona');
     \Drupal::messenger()->addMessage(t('Another account was found with the

@@ -10,7 +10,7 @@ use Drupal\user_profiles\UserMerger;
 use Psr\Log\NullLogger;
 
 /**
- * Kernel tests for UserMerger merge-and-delete behavior.
+ * Kernel tests for UserMerger merge-and-block behavior.
  *
  * @group user_profiles
  */
@@ -39,17 +39,17 @@ class UserMergerTest extends KernelTestBase {
   }
 
   /**
-   * MergeAndDelete commits transaction, returns summary, and deletes source.
+   * MergeAndBlock commits transaction, returns summary, and blocks source.
    *
    * Uses an anonymous subclass to override mergeUser() so the test does not
    * depend on the ~20 site-specific custom user fields that the real
    * mergeUser() reads unconditionally. The override performs a small, real,
    * committable action (adding a role to the to-user) proving transaction
-   * commit, not rollback. This proves mergeAndDelete returns the summary
+   * commit, not rollback. This proves mergeAndBlock returns the summary
    * unchanged, commits the work done by mergeUser (role persists), and
-   * deletes the source user.
+   * blocks (but retains) the source user.
    */
-  public function testMergeAndDeleteCommitsWorkAndDeletesSource(): void {
+  public function testMergeAndBlockCommitsWorkAndBlocksSource(): void {
     Role::create(['id' => 'editor', 'label' => 'Editor'])->save();
 
     $from = User::create(['name' => 'olduser', 'mail' => 'dup@example.com', 'status' => 1]);
@@ -103,20 +103,26 @@ class UserMergerTest extends KernelTestBase {
 
     };
 
-    $summary = $merger->mergeAndDelete($from_id, $to_id);
+    $summary = $merger->mergeAndBlock($from_id, $to_id);
 
-    // mergeAndDelete must return exactly what mergeUser returned.
+    // mergeAndBlock must return exactly what mergeUser returned.
     $this->assertSame($expected_summary, $summary);
-    // Source user must be deleted (transaction committed, not rolled back).
-    $this->assertNull(
-      User::load($from_id),
-      'Source user must be deleted after a successful merge.'
+    // Source user must be BLOCKED but retained (transaction committed, not
+    // rolled back). It must still exist so the merge stays recoverable.
+    $reloaded_from = User::load($from_id);
+    $this->assertNotNull(
+      $reloaded_from,
+      'Source user must be retained (not deleted) after a successful merge.'
+    );
+    $this->assertFalse(
+      $reloaded_from->isActive(),
+      'Source user must be blocked after a successful merge.'
     );
     // Role added inside mergeUser must have persisted (proves commit).
     $reloaded_to = User::load($to_id);
     $this->assertTrue(
       $reloaded_to->hasRole('editor'),
-      'Role added during merge must persist after successful mergeAndDelete.'
+      'Role added during merge must persist after successful mergeAndBlock.'
     );
   }
 
@@ -161,7 +167,7 @@ class UserMergerTest extends KernelTestBase {
 
     $this->expectException(UserMergeException::class);
     try {
-      $failing->mergeAndDelete($from_id, $to_id);
+      $failing->mergeAndBlock($from_id, $to_id);
     }
     finally {
       // Source NOT deleted.
