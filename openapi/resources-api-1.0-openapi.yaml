@@ -439,13 +439,13 @@ components:
           nullable: true
           description: Node RAM in GB.
         max_wall_time_hours:
-          type: integer
+          type: number
           nullable: true
-          description: Maximum wall time a single job may run on this queue, in whole hours. Null means no limit.
+          description: Maximum wall time a single job may run on this queue, in hours. May be fractional for sub-hour limits (e.g. 0.5 for a 30-minute debug queue). Null means no limit.
         max_wall_time_display:
           type: string
           nullable: true
-          description: Friendly rendering of max_wall_time_hours in hours (e.g. "48 hours", "1 hour"). Null means no limit.
+          description: Friendly rendering of the wall-time limit (e.g. "30 minutes", "48 hours", "1 hour 30 minutes"). Null means no limit.
         summary:
           type: string
           nullable: true
