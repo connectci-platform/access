@@ -1007,6 +1007,9 @@ function access_affinitygroup_user_login(UserInterface $account) {
   $user_id = $current_user->id();
   $user_detail = User::load($user_id);
 
+  $firstName = $user_detail->get('field_user_first_name')->getString();
+  $lastName = $user_detail->get('field_user_last_name')->getString();
+
   $cca_user_id = NULL;
   $field_val = $user_detail->get('field_constant_contact_id')->getValue();
   if (!empty($field_val)) {
@@ -1023,10 +1026,6 @@ function access_affinitygroup_user_login(UserInterface $account) {
 
     $constantcontactapi = new ConstantContactApi();
     $env = $constantcontactapi->getEnvironment();
-
-    $firstName = $user_detail->get('field_user_first_name')->getString();
-    $lastName = $user_detail->get('field_user_last_name')->getString();
-
 
     $user_cc_id[$env] = addUserToConstantContact($current_user->getEmail(), $firstName, $lastName);
 
