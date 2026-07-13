@@ -1,6 +1,6 @@
 services:
   user_profile.commands:
     class: \Drupal\user_profiles\Commands\UserProfilesCommands
-    arguments: ['@entity_type.manager', '@module_handler', '@database', '@flag']
+    arguments: ['@user_profiles.user_merger']
     tags:
       - { name: drush.command }
