@@ -18,21 +18,6 @@ class AccessRegistrantAccessControlHandler extends RegistrantAccessControlHandle
    * {@inheritdoc}
    */
   protected function checkAccess(EntityInterface $entity, $operation, AccountInterface $account) {
-    // Get current uri.
-    $current_uri = \Drupal::service('path.current')->getPath();
-    $url_bits = explode('/', $current_uri);
-    $event_id = is_numeric($url_bits[2]) ? $url_bits[2] : 0;
-
-    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_id);
-
-    if (!$eventinstance) {
-      return AccessResult::neutral();
-    }
-
-    $eventseries = $eventinstance->getEventSeries();
-    // Get author of event series.
-    $author = $eventseries->getOwner();
-
     /** @var \Drupal\recurring_events_registration\Entity\RegistrantInterface $entity */
     switch ($operation) {
       case 'view':
@@ -48,13 +33,27 @@ class AccessRegistrantAccessControlHandler extends RegistrantAccessControlHandle
         ], 'OR');
 
       case 'delete':
-        // Allow access
-      if ($author->id() == $account->id()) {
-        return AccessResult::allowed();
-      }
-      if ($account->hasPermission('administer registrant entity')) {
-        return AccessResult::allowed();
-      }
+        // Resolve the event series from the registrant entity itself, not
+        // from the request path — this handler must also work on routes
+        // that don't follow the /events/{id}/... URL shape (e.g. the JSON
+        // API registrations endpoints).
+        $eventseries = $entity->getEventSeries() ?? $entity->getEventInstance()?->getEventSeries();
+        $author = $eventseries?->getOwner();
+
+        // The event organizer may delete any registration for their event.
+        if ($author && $author->id() == $account->id()) {
+          return AccessResult::allowed();
+        }
+        if ($account->hasPermission('administer any registrant')) {
+          return AccessResult::allowed();
+        }
+        if ($account->id() !== $entity->getOwnerId()) {
+          return AccessResult::allowedIfHasPermission($account, 'delete registrant entities');
+        }
+        return AccessResult::allowedIfHasPermissions($account, [
+          'delete registrant entities',
+          'delete own registrant entities',
+        ], 'OR');
 
       case 'resend':
         return AccessResult::allowedIfHasPermission($account, 'resend registrant emails');
