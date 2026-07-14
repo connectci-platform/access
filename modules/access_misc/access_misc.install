@@ -2375,3 +2375,38 @@ EOT;
 EOT;
   update_block_body(225, $body_225, 'full_no_editor');
 }
+
+/**
+ * Assign documentation pages to the ACCESS Support domain.
+ */
+function access_misc_update_10040() {
+  // Find all nodes aliased under /documentation.
+  $alias_query = \Drupal::database()->select('path_alias', 'pa');
+  $alias_query->fields('pa', ['path']);
+  $alias_query->condition('pa.alias', '/documentation%', 'LIKE');
+  $paths = $alias_query->execute()->fetchCol();
+
+  $nids = [];
+  foreach ($paths as $path) {
+    if (preg_match('#^/node/(\d+)$#', $path, $matches)) {
+      $nids[] = (int) $matches[1];
+    }
+  }
+  if (!$nids) {
+    return t('No documentation nodes found.');
+  }
+
+  $updated = 0;
+  foreach (Node::loadMultiple($nids) as $node) {
+    // Only touch nodes missing the ACCESS Support domain.
+    $domains = array_column($node->get('field_domain_access')->getValue(), 'target_id');
+    if (in_array(SiteTools::DOMAIN_ACCESS_SUPPORT, $domains, TRUE)) {
+      continue;
+    }
+    $node->set('field_domain_access', [SiteTools::DOMAIN_ACCESS_SUPPORT]);
+    $node->save();
+    $updated++;
+  }
+
+  return t('@count documentation nodes assigned to the ACCESS Support domain.', ['@count' => $updated]);
+}
