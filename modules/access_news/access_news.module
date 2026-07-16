@@ -5,6 +5,7 @@
  */
 
 use Drupal\access_affinitygroup\Plugin\EmailWrapper;
+use Drupal\Component\Utility\UrlHelper;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Entity\EntityInterface;
@@ -1140,22 +1141,31 @@ function accessNewsCronShouldRun() {
  *   The full URL with domain.
  */
 function _access_news_build_url_for_domain($entity, $domain_id) {
+  $path = $entity->toUrl()->toString();
+
+  // Under Domain Source, toString() may already be an absolute URL (rewritten
+  // to the entity's source domain). Return it unchanged so the host is not
+  // prepended twice (e.g. https://ccmnet.orghttps://ccmnet.org/...).
+  if (UrlHelper::isExternal($path)) {
+    return $path;
+  }
+
   try {
     $domain = \Drupal::entityTypeManager()
       ->getStorage('domain')
       ->load($domain_id);
 
     if ($domain) {
-      return $domain->buildUrl($entity->toUrl()->toString());
+      return $domain->buildUrl($path);
     }
 
     // Fallback to ACCESS Support URL if domain load fails.
-    return ACCESS_SUPPORT_URL . $entity->toUrl()->toString();
+    return ACCESS_SUPPORT_URL . $path;
   }
   catch (\Exception $e) {
     \Drupal::logger('access_news')
       ->error('Error building URL for domain: ' . $e->getMessage());
-    return ACCESS_SUPPORT_URL . $entity->toUrl()->toString();
+    return ACCESS_SUPPORT_URL . $path;
   }
 }
 
