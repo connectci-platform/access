@@ -225,8 +225,10 @@ class EventDetailApiController extends ControllerBase {
    *    (EventTags search_api processor emits term names).
    */
   protected function detail(EventInstance $instance, int $uid): array {
-    // Safe only for string/text fields (title, description, location,
-    // event_type, skill_level, speakers).
+    // Safe only for plain string/text fields (title, description, location,
+    // speakers). NOT for the list_string option fields event_type/skill_level —
+    // those store an internal KEY that differs from the human LABEL (e.g. the
+    // event_type key 'zz_other' → label 'Other'); use $getOptionLabel below.
     $getString = static function ($entity, string $field): ?string {
       if (!$entity->hasField($field) || $entity->get($field)->isEmpty()) {
         return NULL;
@@ -234,6 +236,50 @@ class EventDetailApiController extends ControllerBase {
       $item = $entity->get($field)->first();
       $value = $item->value ?? $item->getString();
       return ($value === '' || $value === NULL) ? NULL : (string) $value;
+    };
+
+    // For a list_string (option) field, map the stored KEY to its human LABEL
+    // via the field's allowed_values, matching what the other event tools
+    // (get_my_registrations, search_events) emit. Falls back to the raw key if
+    // it isn't in the map (defensive — a stale value after an option was
+    // removed), and degrades to null when the field is empty/absent (same as
+    // the other detail fields). allowed_values normally lives on the inherited
+    // computed field's definition (field_inheritance copies the source field's
+    // settings); if it's missing there, read it from the source series field.
+    $getOptionLabel = static function ($entity, string $field): ?string {
+      if (!$entity->hasField($field) || $entity->get($field)->isEmpty()) {
+        return NULL;
+      }
+      $item = $entity->get($field)->first();
+      $key = $item->value ?? $item->getString();
+      if ($key === '' || $key === NULL) {
+        return NULL;
+      }
+      $allowed = $entity->get($field)->getFieldDefinition()->getSetting('allowed_values');
+      // Defensive: if the computed field lacks the setting, read it from the
+      // source eventseries field definition instead.
+      if (empty($allowed) && $entity->hasField('eventseries_id') && !$entity->get('eventseries_id')->isEmpty()) {
+        $series = $entity->get('eventseries_id')->entity;
+        if ($series && $series->hasField('field_' . $field)) {
+          $allowed = $series->get('field_' . $field)->getFieldDefinition()->getSetting('allowed_values');
+        }
+      }
+      // allowed_values may be the simplified {key: label} map or the structured
+      // list of {value, label} dicts — normalize the structured form.
+      if (is_array($allowed) && $allowed && !array_key_exists($key, $allowed)) {
+        $first = reset($allowed);
+        if (is_array($first) && isset($first['value'])) {
+          $map = [];
+          foreach ($allowed as $entry) {
+            if (isset($entry['value'])) {
+              $map[$entry['value']] = $entry['label'] ?? $entry['value'];
+            }
+          }
+          $allowed = $map;
+        }
+      }
+      $label = (is_array($allowed) && isset($allowed[$key])) ? $allowed[$key] : $key;
+      return (string) $label;
     };
 
     // registration_url: the inherited `registration` computed field is a LINK
@@ -265,8 +311,8 @@ class EventDetailApiController extends ControllerBase {
       'start_date' => $isoZ($date?->value),
       'end_date' => $isoZ($date?->end_value),
       'location' => $getString($instance, 'location'),
-      'event_type' => $getString($instance, 'event_type'),
-      'skill_level' => $getString($instance, 'skill_level'),
+      'event_type' => $getOptionLabel($instance, 'event_type'),
+      'skill_level' => $getOptionLabel($instance, 'skill_level'),
       'speakers' => $getString($instance, 'speakers'),
       'tags' => $tags,
       'registration_url' => $registrationUrl,

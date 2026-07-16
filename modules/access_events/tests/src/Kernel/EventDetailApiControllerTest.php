@@ -135,6 +135,39 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
   }
 
   /**
+   * event_type / skill_level are emitted as the LABEL, not the stored KEY.
+   *
+   * Regression guard: event_type and skill_level are list_string (option)
+   * fields whose stored KEY differs from the human LABEL. event_type maps the
+   * internal sort-hack key `zz_other` to `Other`. The pre-fix generic string
+   * reader returned the raw ->value, leaking `zz_other` into the API; the other
+   * event tools (get_my_registrations, search_events) emit the label, so
+   * get_event was inconsistent. The controller must map the key through the
+   * field's allowed_values and emit the label. skill_level goes through the same
+   * mapping for consistency (its keys equal labels today).
+   */
+  public function testOptionFieldsEmitLabelNotKey(): void {
+    $instance = $this->createInstanceWithOptionFields(
+      eventTypeKey: 'zz_other',
+      skillLevelKey: 'Beginner',
+    );
+
+    $request = Request::create('/api/1.0/events/' . $instance->id());
+    $request->attributes->set('rp_account_effective_uid', (int) $this->owner->id());
+    \Drupal::requestStack()->push($request);
+
+    $data = json_decode(
+      EventDetailApiController::create(\Drupal::getContainer())->get($instance)->getContent(),
+      TRUE,
+    );
+
+    // The LABEL, NOT the leaked internal 'zz_other' key.
+    $this->assertSame('Other', $data['event_type']);
+    // skill_level maps through the same allowed_values path.
+    $this->assertSame('Beginner', $data['skill_level']);
+  }
+
+  /**
    * A confirmed register on a seated event creates a seated registrant.
    */
   public function testRegisterCommitCreatesSeatedRegistrant(): void {

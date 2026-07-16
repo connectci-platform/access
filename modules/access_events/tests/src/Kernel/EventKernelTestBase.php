@@ -347,6 +347,129 @@ abstract class EventKernelTestBase extends KernelTestBase {
   }
 
   /**
+   * Creates an instance whose series carries list_string event_type/skill_level.
+   *
+   * Seeds the eventseries `field_event_type` and `field_skill_level` as
+   * `list_string` (option) fields whose allowed_values map a stored KEY to a
+   * human LABEL — mirroring the site config where event_type maps the internal
+   * sort-hack key `zz_other` to the label `Other`. Wires the matching
+   * `eventinstance_default_event_type` / `eventinstance_default_skill_level`
+   * field-inheritance config entities (site-level, not shipped by the contrib
+   * module) so the controller-read INSTANCE computed fields inherit them. The
+   * seeded values are the KEYS; the controller must emit the LABELS.
+   *
+   * @param string $eventTypeKey
+   *   The stored event_type option key (e.g. 'zz_other').
+   * @param string $skillLevelKey
+   *   The stored skill_level option key (e.g. 'Beginner').
+   */
+  protected function createInstanceWithOptionFields(string $eventTypeKey, string $skillLevelKey): EventInstance {
+    // Source list_string fields on eventseries with a KEY→LABEL allowed_values
+    // map. event_type deliberately maps the internal 'zz_other' key to 'Other'.
+    if (!FieldStorageConfig::loadByName('eventseries', 'field_event_type')) {
+      FieldStorageConfig::create([
+        'entity_type' => 'eventseries',
+        'field_name' => 'field_event_type',
+        'type' => 'list_string',
+        'settings' => [
+          'allowed_values' => [
+            'Conference' => 'Conference',
+            'Training' => 'Training',
+            'Office Hours' => 'Office Hours',
+            'zz_other' => 'Other',
+          ],
+        ],
+      ])->save();
+      FieldConfig::create([
+        'entity_type' => 'eventseries',
+        'field_name' => 'field_event_type',
+        'bundle' => 'default',
+        'label' => 'Event Type',
+      ])->save();
+    }
+    if (!FieldStorageConfig::loadByName('eventseries', 'field_skill_level')) {
+      FieldStorageConfig::create([
+        'entity_type' => 'eventseries',
+        'field_name' => 'field_skill_level',
+        'type' => 'list_string',
+        'settings' => [
+          'allowed_values' => [
+            'Beginner' => 'Beginner',
+            'Intermediate' => 'Intermediate',
+            'Advanced' => 'Advanced',
+          ],
+        ],
+      ])->save();
+      FieldConfig::create([
+        'entity_type' => 'eventseries',
+        'field_name' => 'field_skill_level',
+        'bundle' => 'default',
+        'label' => 'Skill Level',
+      ])->save();
+    }
+
+    // Inheritance config: event_type + skill_level. Destination computed fields
+    // are `event_type` and `skill_level` (id minus the eventinstance_default_
+    // prefix). `inherit` needs no destination field on the eventinstance.
+    if (!FieldInheritance::load('eventinstance_default_event_type')) {
+      FieldInheritance::create([
+        'id' => 'eventinstance_default_event_type',
+        'label' => 'Event Type',
+        'type' => 'inherit',
+        'sourceEntityType' => 'eventseries',
+        'sourceEntityBundle' => 'default',
+        'sourceField' => 'field_event_type',
+        'destinationEntityType' => 'eventinstance',
+        'destinationEntityBundle' => 'default',
+        'destinationField' => '',
+        'plugin' => 'default_inheritance',
+      ])->save();
+    }
+    if (!FieldInheritance::load('eventinstance_default_skill_level')) {
+      FieldInheritance::create([
+        'id' => 'eventinstance_default_skill_level',
+        'label' => 'Skill Level',
+        'type' => 'inherit',
+        'sourceEntityType' => 'eventseries',
+        'sourceEntityBundle' => 'default',
+        'sourceField' => 'field_skill_level',
+        'destinationEntityType' => 'eventinstance',
+        'destinationEntityBundle' => 'default',
+        'destinationField' => '',
+        'plugin' => 'default_inheritance',
+      ])->save();
+    }
+
+    // Rediscover the newly-attached computed fields (event_type, skill_level).
+    \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
+
+    $series = EventSeries::create([
+      'title' => 'Option-Field Event',
+      'body' => 'An event carrying list_string option fields.',
+      'recur_type' => 'custom',
+      'type' => 'default',
+      'field_event_type' => $eventTypeKey,
+      'field_skill_level' => $skillLevelKey,
+    ]);
+    $series->save();
+
+    $instance = EventInstance::create([
+      'eventseries_id' => $series->id(),
+      'type' => 'default',
+      'date' => [
+        'value' => '2999-01-01T10:00:00',
+        'end_value' => '2999-01-01T12:00:00',
+      ],
+    ]);
+    $instance->save();
+
+    \Drupal::service('recurring_events.event_creation_service')
+      ->configureDefaultInheritances($instance, (int) $series->id());
+
+    return $instance;
+  }
+
+  /**
    * Registers a user for an instance and returns the saved registrant.
    */
   protected function registerUser(User $user, EventInstance $instance, bool $waitlist = FALSE): Registrant {
