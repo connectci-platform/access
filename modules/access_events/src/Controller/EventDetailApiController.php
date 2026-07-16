@@ -7,8 +7,10 @@ namespace Drupal\access_events\Controller;
 use Drupal\access_events\RegistrationState;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\recurring_events\Entity\EventInstance;
+use Drupal\recurring_events_registration\Entity\Registrant;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 
 /**
@@ -45,6 +47,162 @@ class EventDetailApiController extends ControllerBase {
     return (new JsonResponse($this->detail($eventinstance, $uid)))
       ->setPrivate()
       ->setMaxAge(0);
+  }
+
+  /**
+   * POST /api/1.0/events/{eventinstance_id}/register.
+   *
+   * Runs the full registration guard chain. Without a truthy `confirmed` in the
+   * JSON body this is a PREVIEW (guards 1-7 run read-only, nothing is written).
+   * With `confirmed:true`, on passing every guard, a registrant is saved.
+   *
+   * The acting uid comes ONLY from the rp_account_effective_uid request
+   * attribute set by the RpAccountAccess gate; the email is read from that
+   * loaded user entity and eventseries_id from the loaded instance. The
+   * request body identity is never trusted. The final save() invokes no access
+   * handler by design — this guard chain IS the security boundary.
+   *
+   * @param \Drupal\recurring_events\Entity\EventInstance $eventinstance
+   *   The event instance, resolved by the entity param converter.
+   * @param \Symfony\Component\HttpFoundation\Request $request
+   *   The incoming request (carries the JSON body and acting-uid attribute).
+   *
+   * @return \Symfony\Component\HttpFoundation\JsonResponse
+   *   A preview, a success body, or a 409 state refusal.
+   */
+  public function register(EventInstance $eventinstance, Request $request): JsonResponse {
+    $uid = (int) $request->attributes->get('rp_account_effective_uid', 0);
+
+    // Defense-in-depth: the RpAccountAccess gate guarantees uid >= 1 in prod,
+    // so this is unreachable there. But if that invariant ever broke, uid = 0
+    // would slip past hasUserRegisteredById(0) (0 is falsy → the user filter is
+    // dropped → FALSE on an empty event) and save() a registrant with
+    // user_id = 0 / email = NULL. uid < 1 means no real acting user resolved —
+    // an identity failure (the gate-403 category), so this is a genuine 403,
+    // not a state refusal.
+    if ($uid < 1) {
+      return $this->refuse('unauthenticated', 'No authenticated acting user for this registration.', 403);
+    }
+
+    $confirmed = (json_decode($request->getContent() ?: '{}', TRUE)['confirmed'] ?? NULL) === TRUE;
+
+    /** @var \Drupal\recurring_events_registration\RegistrationCreationService $svc */
+    $svc = \Drupal::service('recurring_events_registration.creation_service');
+    $svc->setEventInstance($eventinstance);
+
+    // Guard 1 (uid) + Guard 2 (instance) are already resolved (the attribute +
+    // param converter). Guards 3-7 below; each hard-gates with a refusal.
+    // Guard 3: native registration must be enabled.
+    if (!$svc->hasRegistration()) {
+      return $this->refuse('not_registrable', 'Native ACCESS registration is not enabled for this event.', 409);
+    }
+    // Guard 4: the registration window must be open.
+    if (!$svc->registrationIsOpen()) {
+      return $this->refuse('registration_closed', 'Registration for this event is not currently open.', 409);
+    }
+    // Guard 5: role restriction (empty/unset permitted set = open to all). This
+    // is a 409, not a 403: the user IS identified and authorized (they passed
+    // the RpAccountAccess gate), so a role-restriction refusal is a
+    // registration-STATE refusal, not an identity/auth failure. 403 is reserved
+    // for the gate itself, which runs before this controller.
+    if (!$this->rolesPermitted($svc, $uid)) {
+      return $this->refuse('not_permitted', 'Your account is not permitted to register for this event.', 409);
+    }
+    // Guard 6: per-user dedup (counts waitlisted registrants too).
+    if ($svc->hasUserRegisteredById($uid)) {
+      return $this->refuse('already_registered', 'You are already registered for this event.', 409);
+    }
+    // Guard 7: availability → seat, else waitlist, else full.
+    $waitlisted = FALSE;
+    if (!$svc->hasAvailability()) {
+      if (!$svc->hasWaitlist()) {
+        return $this->refuse('event_full', 'This event is full and has no waitlist.', 409);
+      }
+      $waitlisted = TRUE;
+    }
+
+    // Preview path: report the outcome without writing anything.
+    if (!$confirmed) {
+      $availability = $svc->retrieveAvailability();
+      $preview = [
+        'preview' => TRUE,
+        'outcome_if_confirmed' => $waitlisted ? 'waitlist' : 'seat',
+        'seats_remaining' => $availability < 0 ? NULL : $availability,
+        'registration_open' => TRUE,
+        'already_registered' => FALSE,
+        'message' => $waitlisted
+          ? 'This event is full; you would join the waitlist. Call again with confirmed:true.'
+          : 'A seat is available. Call again with confirmed:true to register.',
+      ];
+      if ($waitlisted) {
+        $preview['waitlisted_count'] = (int) $svc->retrieveRegisteredPartiesCount(FALSE, TRUE);
+      }
+      return (new JsonResponse($preview))->setPrivate()->setMaxAge(0);
+    }
+
+    // Commit path — bare save(), no access handler; the guard chain above is
+    // the boundary. Identity is bound from $uid / the loaded user / the
+    // instance, NEVER from the request body.
+    $user = $this->entityTypeManager()->getStorage('user')->load($uid);
+    $registrant = Registrant::create([
+      // 'bundle' is the registrant entity bundle (entity_reference to
+      // registrant_type); the instance's bundle (e.g. 'default').
+      'bundle' => $eventinstance->getType(),
+      // 'type' is the separate 'series' | 'instance' discriminator string from
+      // the series via the service — NOT the bundle and NOT 'default'.
+      'type' => $svc->getRegistrationType(),
+      'user_id' => $uid,
+      'email' => $user?->getEmail(),
+      'eventinstance_id' => $eventinstance->id(),
+      'eventseries_id' => $eventinstance->get('eventseries_id')->target_id,
+      'waitlist' => $waitlisted ? 1 : 0,
+    ]);
+    $registrant->save();
+
+    return (new JsonResponse([
+      'success' => TRUE,
+      'status' => $waitlisted ? 'waitlisted' : 'registered',
+      'registrant_id' => $registrant->uuid(),
+      'eventinstance_id' => (string) $eventinstance->id(),
+      'message' => $waitlisted
+        ? 'You have been added to the waitlist.'
+        : 'You are registered.',
+    ]))->setPrivate()->setMaxAge(0);
+  }
+
+  /**
+   * Builds a refusal JsonResponse with the canonical {error, message} body.
+   */
+  protected function refuse(string $code, string $message, int $status): JsonResponse {
+    return (new JsonResponse(['error' => $code, 'message' => $message], $status))
+      ->setPrivate()
+      ->setMaxAge(0);
+  }
+
+  /**
+   * Whether the acting user's roles satisfy the series' permitted-roles gate.
+   *
+   * An empty or unset permitted set means registration is open to all. Guarded
+   * with method_exists so a contrib without the method degrades to "open".
+   *
+   * @param \Drupal\recurring_events_registration\RegistrationCreationService $svc
+   *   The creation service, already bound to the instance.
+   * @param int $uid
+   *   The acting user's uid.
+   *
+   * @return bool
+   *   TRUE if permitted (or unrestricted); FALSE if restricted and no overlap.
+   */
+  protected function rolesPermitted($svc, int $uid): bool {
+    if (!method_exists($svc, 'registrationPermittedRoles')) {
+      return TRUE;
+    }
+    $permitted = array_filter((array) $svc->registrationPermittedRoles());
+    if (!$permitted) {
+      return TRUE;
+    }
+    $user = $this->entityTypeManager()->getStorage('user')->load($uid);
+    return (bool) array_intersect($permitted, $user ? $user->getRoles() : []);
   }
 
   /**

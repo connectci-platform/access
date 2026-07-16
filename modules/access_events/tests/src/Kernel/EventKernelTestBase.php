@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\access_events\Kernel;
 
+use Drupal\access_events\Controller\EventDetailApiController;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\field_inheritance\Entity\FieldInheritance;
@@ -14,7 +15,10 @@ use Drupal\recurring_events_registration\Entity\Registrant;
 use Drupal\recurring_events_registration\Entity\RegistrantType;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\taxonomy\Entity\Vocabulary;
+use Drupal\Tests\user\Traits\UserCreationTrait;
 use Drupal\user\Entity\User;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 
 /**
  * Shared kernel-test scaffolding for the access_events registration routes.
@@ -24,6 +28,8 @@ use Drupal\user\Entity\User;
  * RegistrationStateTest (A1) and EventDetailApiControllerTest (A2) rely on.
  */
 abstract class EventKernelTestBase extends KernelTestBase {
+
+  use UserCreationTrait;
 
   /**
    * {@inheritdoc}
@@ -127,24 +133,43 @@ abstract class EventKernelTestBase extends KernelTestBase {
    * The series title/body base fields are seeded, and per-instance field
    * inheritance state is configured, so the inherited detail fields (title,
    * description) resolve non-empty for the A2 detail assertions.
+   *
+   * @param int $capacity
+   *   Seat capacity.
+   * @param bool $waitlist
+   *   Whether the waitlist is enabled.
+   * @param bool $pastDate
+   *   When TRUE, the instance date is in the past; with registration_dates =
+   *   'open' the window is now → instance start, so a past instance is closed
+   *   and registrationIsOpen() returns FALSE (A3 registration_closed case).
+   * @param string[] $permittedRoles
+   *   Role machine names permitted to register. Empty = open to all. The
+   *   contrib stores this as the comma-delimited event_registration
+   *   ->permitted_roles string and registrationPermittedRoles() splits it back
+   *   into an array (A3 not_permitted / permitted cases).
    */
-  protected function createRegistrableInstance(int $capacity = 60, bool $waitlist = FALSE, bool $pastDate = FALSE): EventInstance {
+  protected function createRegistrableInstance(int $capacity = 60, bool $waitlist = FALSE, bool $pastDate = FALSE, array $permittedRoles = []): EventInstance {
     $date = $pastDate
       ? ['value' => '2000-01-01T10:00:00', 'end_value' => '2000-01-01T12:00:00']
       : ['value' => '2999-01-01T10:00:00', 'end_value' => '2999-01-01T12:00:00'];
+
+    $registration = [
+      'registration' => 1,
+      'registration_type' => 'instance',
+      'registration_dates' => 'open',
+      'capacity' => $capacity,
+      'waitlist' => $waitlist ? 1 : 0,
+    ];
+    if ($permittedRoles) {
+      $registration['permitted_roles'] = implode(',', $permittedRoles);
+    }
 
     $series = EventSeries::create([
       'title' => 'Registrable Event',
       'body' => 'The full event description.',
       'recur_type' => 'custom',
       'type' => 'default',
-      'event_registration' => [
-        'registration' => 1,
-        'registration_type' => 'instance',
-        'registration_dates' => 'open',
-        'capacity' => $capacity,
-        'waitlist' => $waitlist ? 1 : 0,
-      ],
+      'event_registration' => $registration,
     ]);
     $series->save();
 
@@ -335,6 +360,59 @@ abstract class EventKernelTestBase extends KernelTestBase {
     ]);
     $registrant->save();
     return $registrant;
+  }
+
+  /**
+   * Counts registrants attached to an instance.
+   *
+   * @param \Drupal\recurring_events\Entity\EventInstance $instance
+   *   The event instance.
+   *
+   * @return int
+   *   The number of registrant entities referencing the instance.
+   */
+  protected function countRegistrants(EventInstance $instance): int {
+    $ids = \Drupal::entityTypeManager()->getStorage('registrant')
+      ->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('eventinstance_id', $instance->id())
+      ->execute();
+    return count($ids);
+  }
+
+  /**
+   * Invokes EventDetailApiController::register() as an acting user.
+   *
+   * Builds a POST Request carrying the JSON body and the
+   * rp_account_effective_uid attribute the RpAccountAccess gate would set, then
+   * calls the controller method directly (the gate is covered separately in
+   * A4). This mirrors A2's direct-controller invocation.
+   *
+   * @param \Drupal\recurring_events\Entity\EventInstance $instance
+   *   The event instance to register for.
+   * @param \Drupal\user\Entity\User $actingUser
+   *   The acting user whose uid is bound to rp_account_effective_uid.
+   * @param array $body
+   *   The decoded JSON body (e.g. ['confirmed' => TRUE]); [] = preview.
+   *
+   * @return \Symfony\Component\HttpFoundation\JsonResponse
+   *   The controller's response.
+   */
+  protected function doRegister(EventInstance $instance, User $actingUser, array $body): JsonResponse {
+    $request = Request::create(
+      '/api/1.0/events/' . $instance->id() . '/register',
+      'POST',
+      [],
+      [],
+      [],
+      [],
+      json_encode($body),
+    );
+    $request->attributes->set('rp_account_effective_uid', (int) $actingUser->id());
+    \Drupal::requestStack()->push($request);
+
+    return EventDetailApiController::create(\Drupal::getContainer())
+      ->register($instance, $request);
   }
 
 }

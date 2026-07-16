@@ -134,4 +134,216 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
     $this->assertSame('HPC, Machine Learning', $data['tags']);
   }
 
+  /**
+   * A confirmed register on a seated event creates a seated registrant.
+   */
+  public function testRegisterCommitCreatesSeatedRegistrant(): void {
+    $instance = $this->createRegistrableInstance(capacity: 60, waitlist: FALSE);
+    $before = $this->countRegistrants($instance);
+
+    $response = $this->doRegister($instance, $this->owner, ['confirmed' => TRUE]);
+    $this->assertSame(200, $response->getStatusCode());
+
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertTrue($data['success']);
+    $this->assertSame('registered', $data['status']);
+    $this->assertNotEmpty($data['registrant_id']);
+    // registrant_id is the registrant uuid, not the integer id.
+    $this->assertMatchesRegularExpression(
+      '/^[0-9a-f-]{36}$/',
+      $data['registrant_id'],
+    );
+    $this->assertSame((string) $instance->id(), (string) $data['eventinstance_id']);
+    $this->assertSame($before + 1, $this->countRegistrants($instance));
+  }
+
+  /**
+   * A preview (no confirmed) writes nothing and reports the seat outcome.
+   */
+  public function testPreviewCreatesNoRegistrant(): void {
+    $instance = $this->createRegistrableInstance(capacity: 60, waitlist: FALSE);
+    $before = $this->countRegistrants($instance);
+
+    $data = json_decode(
+      $this->doRegister($instance, $this->owner, [])->getContent(),
+      TRUE,
+    );
+
+    $this->assertTrue($data['preview']);
+    $this->assertSame('seat', $data['outcome_if_confirmed']);
+    $this->assertSame(60, $data['seats_remaining']);
+    $this->assertTrue($data['registration_open']);
+    $this->assertFalse($data['already_registered']);
+    // No waitlist outcome, so no waitlisted_count key.
+    $this->assertArrayNotHasKey('waitlisted_count', $data);
+    // No write.
+    $this->assertSame($before, $this->countRegistrants($instance));
+  }
+
+  /**
+   * A non-bool `confirmed` stays in preview and never writes.
+   *
+   * Locks in the strict `=== TRUE` fail-safe: a truthy-but-not-bool value like
+   * the integer 1 (and equally "true", {}, or malformed JSON) must NOT commit a
+   * registration — it degrades to a no-write preview. Guards a future refactor
+   * from loosening the parse into an accidental write.
+   */
+  public function testNonBoolConfirmedStaysPreviewNoWrite(): void {
+    $instance = $this->createRegistrableInstance(capacity: 60, waitlist: FALSE);
+    $before = $this->countRegistrants($instance);
+
+    // Integer 1 is truthy but not the boolean TRUE the guard requires.
+    $response = $this->doRegister($instance, $this->owner, ['confirmed' => 1]);
+    $data = json_decode($response->getContent(), TRUE);
+
+    $this->assertTrue($data['preview']);
+    $this->assertArrayNotHasKey('success', $data);
+    $this->assertSame($before, $this->countRegistrants($instance));
+  }
+
+  /**
+   * A second confirmed register by the same user is refused (409), no write.
+   */
+  public function testAlreadyRegisteredReturns409AndNoSecondRegistrant(): void {
+    $instance = $this->createRegistrableInstance(capacity: 60, waitlist: FALSE);
+    $this->doRegister($instance, $this->owner, ['confirmed' => TRUE]);
+    $before = $this->countRegistrants($instance);
+
+    $response = $this->doRegister($instance, $this->owner, ['confirmed' => TRUE]);
+    $this->assertSame(409, $response->getStatusCode());
+    $this->assertSame(
+      'already_registered',
+      json_decode($response->getContent(), TRUE)['error'],
+    );
+    $this->assertSame($before, $this->countRegistrants($instance));
+  }
+
+  /**
+   * A full event with no waitlist refuses with 409 event_full.
+   */
+  public function testFullNoWaitlistReturns409EventFull(): void {
+    $instance = $this->createRegistrableInstance(capacity: 1, waitlist: FALSE);
+    // Fill the one seat with a different user.
+    $this->registerUser($this->stranger, $instance);
+
+    $response = $this->doRegister($instance, $this->owner, ['confirmed' => TRUE]);
+    $this->assertSame(409, $response->getStatusCode());
+    $this->assertSame(
+      'event_full',
+      json_decode($response->getContent(), TRUE)['error'],
+    );
+  }
+
+  /**
+   * A full event WITH a waitlist waitlists the acting user.
+   */
+  public function testFullWithWaitlistWaitlists(): void {
+    $instance = $this->createRegistrableInstance(capacity: 1, waitlist: TRUE);
+    $this->registerUser($this->stranger, $instance);
+
+    $response = $this->doRegister($instance, $this->owner, ['confirmed' => TRUE]);
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertTrue($data['success']);
+    $this->assertSame('waitlisted', $data['status']);
+  }
+
+  /**
+   * A non-registrable instance refuses with 409 not_registrable.
+   */
+  public function testNotRegistrableReturns409(): void {
+    $instance = $this->createNonRegistrableInstance();
+
+    $response = $this->doRegister($instance, $this->owner, ['confirmed' => TRUE]);
+    $this->assertSame(409, $response->getStatusCode());
+    $this->assertSame(
+      'not_registrable',
+      json_decode($response->getContent(), TRUE)['error'],
+    );
+  }
+
+  /**
+   * A full-with-waitlist preview reports the waitlist outcome + count.
+   */
+  public function testFullWithWaitlistPreviewReportsWaitlistedCount(): void {
+    $instance = $this->createRegistrableInstance(capacity: 1, waitlist: TRUE);
+    // One seated party ahead fills the only seat.
+    $this->registerUser($this->stranger, $instance);
+
+    $data = json_decode(
+      $this->doRegister($instance, $this->owner, [])->getContent(),
+      TRUE,
+    );
+
+    $this->assertTrue($data['preview']);
+    $this->assertSame('waitlist', $data['outcome_if_confirmed']);
+    $this->assertArrayHasKey('waitlisted_count', $data);
+    $this->assertIsInt($data['waitlisted_count']);
+  }
+
+  /**
+   * A past-dated (window-closed) instance refuses with 409 registration_closed.
+   *
+   * With registration_dates = 'open' the window is now → instance start, so a
+   * past instance start makes registrationIsOpen() FALSE.
+   */
+  public function testRegistrationClosedReturns409(): void {
+    $instance = $this->createRegistrableInstance(capacity: 60, waitlist: FALSE, pastDate: TRUE);
+
+    // Sanity: the service agrees the window is closed for this instance.
+    $svc = \Drupal::service('recurring_events_registration.creation_service');
+    $svc->setEventInstance($instance);
+    $this->assertFalse($svc->registrationIsOpen());
+
+    $response = $this->doRegister($instance, $this->owner, ['confirmed' => TRUE]);
+    $this->assertSame(409, $response->getStatusCode());
+    $this->assertSame(
+      'registration_closed',
+      json_decode($response->getContent(), TRUE)['error'],
+    );
+  }
+
+  /**
+   * A role-restricted series refuses a user lacking the role with 409.
+   *
+   * The not_permitted refusal is a 409 (registration-STATE refusal), not a 403:
+   * the acting user is already identified and authorized by the RpAccountAccess
+   * gate, so re-authenticating cannot help. 403 is reserved for the gate's own
+   * identity/auth failure, which runs before this controller.
+   */
+  public function testNotPermittedRoleReturns409(): void {
+    // The role need not exist as a Role entity for the guard to deny: the
+    // acting user simply does not carry 'restricted_registrants'.
+    $instance = $this->createRegistrableInstance(
+      capacity: 60,
+      waitlist: FALSE,
+      permittedRoles: ['restricted_registrants'],
+    );
+
+    $response = $this->doRegister($instance, $this->owner, ['confirmed' => TRUE]);
+    $this->assertSame(409, $response->getStatusCode());
+    $this->assertSame(
+      'not_permitted',
+      json_decode($response->getContent(), TRUE)['error'],
+    );
+  }
+
+  /**
+   * A user WITH the permitted role registers successfully.
+   */
+  public function testPermittedRoleRegisters(): void {
+    $role = $this->createRole([], 'restricted_registrants');
+    $this->owner->addRole($role)->save();
+
+    $instance = $this->createRegistrableInstance(
+      capacity: 60,
+      waitlist: FALSE,
+      permittedRoles: [$role],
+    );
+
+    $response = $this->doRegister($instance, $this->owner, ['confirmed' => TRUE]);
+    $this->assertSame(200, $response->getStatusCode());
+    $this->assertTrue(json_decode($response->getContent(), TRUE)['success']);
+  }
+
 }
