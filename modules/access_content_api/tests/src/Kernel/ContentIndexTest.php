@@ -261,4 +261,58 @@ class ContentIndexTest extends ContentApiKernelTestBase {
     $this->assertCount($beforeCount + 1, $after['pages']);
   }
 
+  /**
+   * Index entries carry content_hash, and it equals the per-doc endpoint hash.
+   */
+  public function testIndexEntriesIncludeMatchingContentHash(): void {
+    $node = $this->createPage(['title' => 'Indexed Hash Page', 'body' => [
+      'value' => '<p>Body that gets hashed.</p>', 'format' => 'basic_html',
+    ]]);
+
+    $index = \Drupal::classResolver()->getInstanceFromDefinition(ContentIndexController::class);
+    $data = json_decode($index->index()->getContent(), TRUE);
+
+    // Match on content_url (embeds the unique nid) rather than title, so the
+    // lookup can't grab the wrong row if titles ever collide.
+    $entry = NULL;
+    foreach ($data['pages'] as $page) {
+      if (str_ends_with($page['content_url'], '/api/1.0/content/' . $node->id())) {
+        $entry = $page;
+        break;
+      }
+    }
+    $this->assertNotNull($entry);
+    $this->assertArrayHasKey('content_hash', $entry);
+    $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $entry['content_hash']);
+
+    $endpoint = \Drupal::classResolver()->getInstanceFromDefinition(
+      \Drupal\access_content_api\Controller\ContentController::class
+    );
+    $request = \Symfony\Component\HttpFoundation\Request::create('/api/1.0/content/' . $node->id());
+    $detail = json_decode($endpoint->byId($request, (int) $node->id())->getContent(), TRUE);
+    $this->assertSame($detail['content_hash'], $entry['content_hash']);
+  }
+
+  /**
+   * The shared RenderHash helper must produce the same hash the per-doc
+   * endpoint emits, so the index and detail never disagree.
+   */
+  public function testRenderHashMatchesEndpointHash(): void {
+    $node = $this->createPage(['title' => 'Hash Parity Page', 'body' => [
+      'value' => '<p>Stable body text for hashing.</p>', 'format' => 'basic_html',
+    ]]);
+
+    $endpointController = \Drupal::classResolver()->getInstanceFromDefinition(
+      \Drupal\access_content_api\Controller\ContentController::class
+    );
+    $request = \Symfony\Component\HttpFoundation\Request::create('/api/1.0/content/' . $node->id());
+    $endpointData = json_decode($endpointController->byId($request, (int) $node->id())->getContent(), TRUE);
+
+    /** @var \Drupal\access_content_api\RenderHash $renderHash */
+    $renderHash = \Drupal::service('access_content_api.render_hash');
+    $helperHash = $renderHash->contentHash($node, new \Drupal\Core\Cache\CacheableMetadata());
+
+    $this->assertSame($endpointData['content_hash'], $helperHash);
+  }
+
 }

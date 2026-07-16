@@ -6,6 +6,7 @@ use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\Lock\LockBackendInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\user\UserInterface;
 
@@ -30,6 +31,7 @@ class RpAccountService {
     private readonly CacheBackendInterface $cache,
     private readonly LoggerChannelFactoryInterface $loggerFactory,
     private readonly TimeInterface $time,
+    private readonly LockBackendInterface $lock,
   ) {}
 
   /**
@@ -205,6 +207,7 @@ class RpAccountService {
       $acct = $this->xdusage->getAccountForUser($w['pid'], $w['rid'], $personId);
       $rpUsername = $acct['portal_username'] ?? NULL;
       $accountState = $acct['account_state'] ?? NULL;
+      $spState = $acct['sp_state'] ?? NULL;
 
       $this->db->merge(self::TABLE)
         ->keys([
@@ -216,6 +219,7 @@ class RpAccountService {
           'grant_title' => $w['title'] !== '' ? mb_substr($w['title'], 0, 255) : NULL,
           'rp_username' => $rpUsername,
           'account_state' => $accountState,
+          'sp_state' => $spState,
           'project_balance' => $w['tuple']['project_balance'] ?? NULL,
           'project_end' => $w['tuple']['project_end'] ?? NULL,
           'project_state' => $w['tuple']['project_state'] ?? NULL,
@@ -272,6 +276,18 @@ class RpAccountService {
     );
   }
 
+  /**
+   * Resolve an ACCESS Global Resource ID to its RP node id.
+   *
+   * @return int|null
+   *   The rp_nid, or NULL if the id maps to no published
+   *   access_active_resources_from_cid node.
+   */
+  public function resolveGlobalResourceIdToNid(string $global_resource_id): ?int {
+    $map = $this->buildInfoResourceIdToRpNidMap();
+    return $map[$global_resource_id] ?? NULL;
+  }
+
   private function loadActiveRows(int $uid, int $rp_nid): array {
     return $this->db->select(self::TABLE, 'a')
       ->fields('a')
@@ -309,7 +325,7 @@ class RpAccountService {
 
     register_shutdown_function(function () use ($uid) {
       try {
-        $this->refreshUserRpAccounts($uid);
+        $this->runGuardedRefresh($uid);
       }
       catch (\Throwable $e) {
         $this->loggerFactory->get('access_affinitygroup')
@@ -318,6 +334,27 @@ class RpAccountService {
           ]);
       }
     });
+  }
+
+  /**
+   * Run refreshUserRpAccounts under a per-uid lock. If the lock is already
+   * held (a refresh is in flight for this uid), skip — no double refresh.
+   *
+   * Public so it is directly testable; the lock lifecycle lives here, inside
+   * the shutdown-fn scope, because Drupal locks are request-scoped and would
+   * auto-release if acquired in the request body before the shutdown refresh.
+   */
+  public function runGuardedRefresh(int $uid): void {
+    $lockId = 'rp_account_refresh:' . $uid;
+    if (!$this->lock->acquire($lockId)) {
+      return;
+    }
+    try {
+      $this->refreshUserRpAccounts($uid);
+    }
+    finally {
+      $this->lock->release($lockId);
+    }
   }
 
   /**
@@ -332,6 +369,34 @@ class RpAccountService {
    * suffix-swap fallback here. Symptom: user has allocation but panel
    * never appears for an expected RP.
    */
+  /**
+   * For a set of rp_nids, return [nid => ['resource_id' => <dotted id>, 'rp_display_name' => <title>]].
+   * Any access_active_resources_from_cid node (published or not, matching get()'s behavior) with a
+   * global resource id is included; unknown nids are simply absent from the result.
+   *
+   * @param int[] $rpNids
+   * @return array<int, array{resource_id: string, rp_display_name: string}>
+   */
+  public function resolveRpNidsToResourceInfo(array $rpNids): array {
+    if (!$rpNids) {
+      return [];
+    }
+    $query = $this->db->select('node__field_access_global_resource_id', 'f');
+    $query->innerJoin('node_field_data', 'n', 'n.nid = f.entity_id');
+    $query->fields('f', ['entity_id', 'field_access_global_resource_id_value'])
+      ->fields('n', ['title'])
+      ->condition('n.type', 'access_active_resources_from_cid')
+      ->condition('f.entity_id', $rpNids, 'IN');
+    $out = [];
+    foreach ($query->execute()->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+      $out[(int) $r['entity_id']] = [
+        'resource_id' => $r['field_access_global_resource_id_value'],
+        'rp_display_name' => $r['title'],
+      ];
+    }
+    return $out;
+  }
+
   private function buildInfoResourceIdToRpNidMap(): array {
     $query = $this->db->select('node__field_access_global_resource_id', 'f');
     $query->innerJoin('node_field_data', 'n', 'n.nid = f.entity_id');

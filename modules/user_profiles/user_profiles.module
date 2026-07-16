@@ -11,6 +11,7 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
 use Drupal\user\Entity\User;
 use Drupal\user\UserInterface;
+use Drupal\user_profiles\Exception\UserMergeException;
 use GuzzleHttp\Client;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
@@ -389,33 +390,59 @@ function user_profiles_get_account_data_from_api(string $username): array|false 
  * Implements hook_user_login().
  */
 function user_profiles_user_login(UserInterface $account): void {
-  // Get user email.
-  $account_uid = $account->id();
+  $account_uid = (int) $account->id();
   $account_email = $account->getEmail();
-  // Mysql query to check for duplicate email.
+
+  // Find any other account sharing this email.
   $query = \Drupal::database()->select('users_field_data', 'ufd');
   $query->fields('ufd', ['uid']);
   $query->condition('ufd.mail', $account_email);
-  $query->condition('ufd.uid', $account->id(), '<>');
+  $query->condition('ufd.uid', $account_uid, '<>');
   $dup_uid = $query->execute()->fetchCol();
-  if (!empty($dup_uid)) {
-    // User load.
-    $dup_user = User::load($dup_uid[0]);
-    $name = $dup_user->getAccountName();
-    // Check if $name contains '@access-ci.org'.
-    $name_check = strpos($name, '@access-ci.org');
-    if ($name_check == FALSE) {
-      $url = Url::fromUri('internal:/community-persona');
-      \Drupal::messenger()->addMessage(t('Another account was found with the
-        same email address and automatically merged with this account.
-        <a href="@url">Click here</a> to verify your information is correct.
-        Please contact us or open a ticket if any information is not correct
-        or if you have questions.', ['@url' => $url->toString()]));
-      // Merge user.
-      $user_profile_commands = \Drupal::service('user_profile.commands');
-      $user_profile_commands->mergeUser($dup_uid[0], $account_uid);
-      // Delete duplicate user.
-      $dup_user->delete();
-    }
+
+  if (empty($dup_uid)) {
+    return;
+  }
+
+  $dup_user = User::load($dup_uid[0]);
+  if (!$dup_user instanceof UserInterface) {
+    return;
+  }
+
+  // Only auto-merge non-CILogon duplicates; the @access-ci.org account is
+  // the one we keep.
+  if (str_contains($dup_user->getAccountName(), '@access-ci.org')) {
+    return;
+  }
+
+  // Merge the duplicate's content into this account and block it (the
+  // duplicate is disabled, not deleted, so the merge stays recoverable).
+  // Fail-soft: a merge failure must not white-screen login. The merge is
+  // transactional, so a failure leaves both accounts intact and is logged
+  // for follow-up.
+  // Only show the "merged" notice AFTER a successful merge, so the user is
+  // never told their accounts merged when they did not.
+  try {
+    \Drupal::service('user_profiles.user_merger')
+      ->mergeAndBlock((int) $dup_uid[0], $account_uid);
+
+    $url = Url::fromUri('internal:/community-persona');
+    \Drupal::messenger()->addMessage(t('Another account was found with the
+      same email address and automatically merged with this account.
+      <a href="@url">Click here</a> to verify your information is correct.
+      Please contact us or open a ticket if any information is not correct
+      or if you have questions.', ['@url' => $url->toString()]));
+  }
+  catch (UserMergeException $e) {
+    \Drupal::logger('user_profiles')->error('Login-time merge deferred for @email: @message', [
+      '@email' => $account_email,
+      '@message' => $e->getMessage(),
+    ]);
+  }
+  catch (\Throwable $e) {
+    \Drupal::logger('user_profiles')->error('Login-time merge error for @email: @message', [
+      '@email' => $account_email,
+      '@message' => $e->getMessage(),
+    ]);
   }
 }

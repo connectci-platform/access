@@ -7,3 +7,7 @@ cilink_view:
 kb_select_ag:
   js:
     js/kb_select_ag.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
+    - webform/webform.element.select2

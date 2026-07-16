@@ -3,8 +3,7 @@
 namespace Drupal\access_content_api\Controller;
 
 use Drupal\access_content_api\ContentEligibility;
-use Drupal\access_content_api\TextExtractor;
-use Drupal\access_content_api\LayoutWalker;
+use Drupal\access_content_api\RenderHash;
 use Drupal\Core\Cache\CacheableJsonResponse;
 use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Cache\CacheableResponse;
@@ -26,9 +25,8 @@ final class ContentController extends ControllerBase {
 
   public function __construct(
     protected AliasManagerInterface $aliasManager,
-    protected TextExtractor $textExtractor,
-    protected LayoutWalker $layoutWalker,
     protected ContentEligibility $eligibility,
+    protected RenderHash $renderHash,
   ) {}
 
   /**
@@ -37,9 +35,8 @@ final class ContentController extends ControllerBase {
   public static function create(ContainerInterface $container): static {
     return new static(
       $container->get('path_alias.manager'),
-      $container->get('access_content_api.text_extractor'),
-      $container->get('access_content_api.layout_walker'),
       $container->get('access_content_api.eligibility'),
+      $container->get('access_content_api.render_hash'),
     );
   }
 
@@ -129,8 +126,8 @@ final class ContentController extends ControllerBase {
     $alias = $this->aliasManager->getAliasByPath('/node/' . $nid);
     $url = $this->eligibility->supportDomainUrl($alias);
 
-    $html = $this->layoutWalker->render($node, $cacheMetadata);
-    $text = $this->textExtractor->extract($html);
+    // Single source of truth for text + hash (see RenderHash).
+    $text = $this->renderHash->extractedText($node, $cacheMetadata);
 
     $data = [
       'version' => 1,
@@ -141,7 +138,7 @@ final class ContentController extends ControllerBase {
       'last_modified' => date('c', $changed),
       // Hash of the extracted text so consumers can skip re-embedding pages
       // whose content is unchanged even when last_modified shifts.
-      'content_hash' => hash('sha256', $text),
+      'content_hash' => $this->renderHash->hashText($text),
       'text' => $text,
     ];
 

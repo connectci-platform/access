@@ -10,7 +10,7 @@ import {
   qaBot,
   siteMenus,
   universalMenus,
-} from "https://unpkg.com/@access-ci/ui@0.20.6/dist/access-ci-ui.js";
+} from "https://unpkg.com/@access-ci/ui@0.20.10/dist/access-ci-ui.js";
 
 (function (Drupal, drupalSettings) {
 
@@ -112,7 +112,7 @@ async function setMenu(menu, currentUri) {
   });
 
   const { email = '', name = '', accessId = '' } = drupalSettings.access.user || {};
-  const apiKey = "4nn5l4T4TnkMdzsK0AwAtnGRcheBDnjawuAT42LaOLc";
+  const apiKey = drupalSettings.access.qaApiKey || '';
 
   // GTM dataLayer event handler for QA bot analytics
   const chatbotEnv = drupalSettings.access.environment || 'unknown';

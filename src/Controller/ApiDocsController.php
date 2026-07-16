@@ -55,7 +55,7 @@ class ApiDocsController extends ControllerBase {
     
     // Getting Started section at the top
     $build['getting_started'] = [
-      '#markup' => '<div class="api-getting-started" style="background: #f5f5f5; padding: 20px; border-radius: 5px; margin: 20px 0;">
+      '#markup' => '<div class="api-getting-started">
         <h3>Getting Started</h3>
         <p>Each API provides interactive Swagger documentation where you can:</p>
         <ul>
@@ -105,6 +105,19 @@ class ApiDocsController extends ControllerBase {
     }
 
     if (!empty($api_groups)) {
+      // Order the cards alphabetically by their display label (the latest
+      // version's label within each group), so the listing reads A–Z rather
+      // than in plugin-discovery order. The latest version is the highest ID
+      // after a reverse key sort — the same one the render loop displays.
+      $latest_label = function (array $versions): string {
+        krsort($versions);
+        $latest = reset($versions);
+        return (string) ($latest['label'] ?? '');
+      };
+      uasort($api_groups, function ($a, $b) use ($latest_label) {
+        return strcasecmp($latest_label($a), $latest_label($b));
+      });
+
       $html = '';
 
       foreach ($api_groups as $base_name => $versions) {
@@ -141,20 +154,20 @@ class ApiDocsController extends ControllerBase {
               catch (\Exception $e) {}
             }
             $endpoint = !empty($spec['servers'][0]['url']) ? htmlspecialchars($spec['servers'][0]['url']) : '';
-            $version_html = '<p style="font-size: 0.9em; color: #666;"><strong>Endpoint:</strong> <code>' . $endpoint . '</code> | <strong>Version:</strong> <select onchange="if(this.value)window.location=this.value" style="padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px;">' . $options . '</select></p>';
+            $version_html = '<p class="api-docs__meta"><strong>Endpoint:</strong> <code>' . $endpoint . '</code> | <strong>Version:</strong> <select onchange="if(this.value)window.location=this.value">' . $options . '</select></p>';
           }
           else {
             $ver = $spec['info']['version'] ?? '';
             $endpoint = !empty($spec['servers'][0]['url']) ? htmlspecialchars($spec['servers'][0]['url']) : '';
-            $version_html = '<p style="font-size: 0.9em; color: #666;"><strong>Version:</strong> ' . $ver . ' | <strong>Endpoint:</strong> <code>' . $endpoint . '</code></p>';
+            $version_html = '<p class="api-docs__meta"><strong>Version:</strong> ' . $ver . ' | <strong>Endpoint:</strong> <code>' . $endpoint . '</code></p>';
           }
 
           // Link to latest docs
           $latest_route = 'access.api_docs_' . str_replace('access_', '', $latest_id);
           $latest_url = Url::fromRoute($latest_route)->toString();
-          $link_html = '<div style="margin-top: 10px;"><a href="' . $latest_url . '" style="display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 4px;">View Interactive Documentation →</a></div>';
+          $link_html = '<div class="api-docs__card-action"><a href="' . $latest_url . '" class="api-docs__button">View Interactive Documentation →</a></div>';
 
-          $html .= '<div style="border: 1px solid #ddd; padding: 20px; margin-bottom: 20px; border-radius: 5px;">'
+          $html .= '<div class="api-docs__card">'
             . '<h3>' . $title . '</h3>'
             . $description
             . $version_html
@@ -162,7 +175,7 @@ class ApiDocsController extends ControllerBase {
             . '</div>';
         }
         catch (\Exception $e) {
-          $html .= '<div style="border: 1px solid #ddd; padding: 20px; margin-bottom: 20px; border-radius: 5px;"><h3>' . htmlspecialchars($latest_def['label']) . '</h3></div>';
+          $html .= '<div class="api-docs__card"><h3>' . htmlspecialchars($latest_def['label']) . '</h3></div>';
         }
       }
 

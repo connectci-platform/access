@@ -3,4 +3,5 @@ organization-toggle:
     js/organization-toggle.js: {}
   dependencies:
     - core/jquery
+    - core/drupal
     - core/once

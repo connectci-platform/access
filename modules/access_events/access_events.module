@@ -601,6 +601,21 @@ function access_events_eventseries_validate($form, FormStateInterface $form_stat
     }
   }
 
+  // Enforce the 150-character summary limit server-side. The custom textarea
+  // carries an HTML #maxlength, but that is only a client-side hint and is
+  // bypassed by paste and the AI-suggestion path, so a hand-entered or
+  // suggested summary can still exceed the documented limit. Read it from the
+  // raw input the same way access_events_save_summary() does, since this
+  // replacement element is not a real entity field value. Measure as plain
+  // text with mb_strlen so multibyte characters are counted correctly.
+  $raw_input = $form_state->getUserInput();
+  $summary_text = $raw_input['summary_text'] ?? '';
+  if (is_string($summary_text) && mb_strlen(trim($summary_text)) > 150) {
+    $form_state->setErrorByName('summary_text', t('The summary must be 150 characters or fewer (currently @count).', [
+      '@count' => mb_strlen(trim($summary_text)),
+    ]));
+  }
+
 }
 
 /**

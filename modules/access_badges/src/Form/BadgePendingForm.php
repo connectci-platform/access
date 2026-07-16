@@ -3,6 +3,7 @@
 namespace Drupal\access_badges\Form;
 
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Datetime\DateFormatterInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
@@ -12,7 +13,7 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 /**
  * Management form for pending badge assignments.
  */
-class BadgePendingForm extends FormBase {
+final class BadgePendingForm extends FormBase {
 
   /**
    * The database connection.
@@ -29,20 +30,29 @@ class BadgePendingForm extends FormBase {
   protected $entityTypeManager;
 
   /**
+   * The date formatter.
+   *
+   * @var \Drupal\Core\Datetime\DateFormatterInterface
+   */
+  protected $dateFormatter;
+
+  /**
    * Constructs a BadgePendingForm.
    */
-  public function __construct(Connection $database, EntityTypeManagerInterface $entity_type_manager) {
+  public function __construct(Connection $database, EntityTypeManagerInterface $entity_type_manager, DateFormatterInterface $date_formatter) {
     $this->database = $database;
     $this->entityTypeManager = $entity_type_manager;
+    $this->dateFormatter = $date_formatter;
   }
 
   /**
    * {@inheritdoc}
    */
-  public static function create(ContainerInterface $container) {
+  public static function create(ContainerInterface $container): static {
     return new static(
       $container->get('database'),
-      $container->get('entity_type.manager')
+      $container->get('entity_type.manager'),
+      $container->get('date.formatter')
     );
   }
 
@@ -55,8 +65,16 @@ class BadgePendingForm extends FormBase {
 
   /**
    * {@inheritdoc}
+   *
+   * @param array<string, mixed> $form
+   *   The form structure.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   *
+   * @return array<string, mixed>
+   *   The form structure.
    */
-  public function buildForm(array $form, FormStateInterface $form_state) {
+  public function buildForm(array $form, FormStateInterface $form_state): array {
     // Filter by badge.
     $badge_options = $this->getPendingBadgeOptions('pending');
     if (!empty($badge_options)) {
@@ -108,8 +126,11 @@ class BadgePendingForm extends FormBase {
 
   /**
    * Gets pending rows from the database.
+   *
+   * @return array<int|string, mixed>
+   *   The table rows keyed by row ID.
    */
-  protected function getPendingRows($status, $badge_filter = '') {
+  protected function getPendingRows(string $status, string $badge_filter = ''): array {
     $query = $this->database->select('access_badges_pending', 'p')
       ->fields('p')
       ->condition('p.status', $status)
@@ -130,7 +151,7 @@ class BadgePendingForm extends FormBase {
         'last_name' => $row->last_name,
         'organization' => $row->organization,
         'badge' => $badge_name,
-        'created' => \Drupal::service('date.formatter')->format($row->created, 'short'),
+        'created' => $this->dateFormatter->format($row->created, 'short'),
         'operations' => [
           'data' => [
             '#type' => 'link',
@@ -147,8 +168,11 @@ class BadgePendingForm extends FormBase {
 
   /**
    * Gets badge term options that exist in pending rows.
+   *
+   * @return array<int|string, mixed>
+   *   The badge options keyed by term ID.
    */
-  protected function getPendingBadgeOptions($status) {
+  protected function getPendingBadgeOptions(string $status): array {
     $tids = $this->database->select('access_badges_pending', 'p')
       ->fields('p', ['badge_tid'])
       ->condition('p.status', $status)
@@ -166,6 +190,12 @@ class BadgePendingForm extends FormBase {
 
   /**
    * Gets a badge term name by ID.
+   *
+   * @param int|string $tid
+   *   The taxonomy term ID.
+   *
+   * @return string|\Drupal\Core\StringTranslation\TranslatableMarkup
+   *   The badge term label, or a placeholder if the term does not exist.
    */
   protected function getBadgeName($tid) {
     $term = $this->entityTypeManager->getStorage('taxonomy_term')->load($tid);
@@ -174,15 +204,25 @@ class BadgePendingForm extends FormBase {
 
   /**
    * Filter submit handler.
+   *
+   * @param array<string, mixed> $form
+   *   The form structure.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
    */
-  public function filterSubmit(array &$form, FormStateInterface $form_state) {
+  public function filterSubmit(array &$form, FormStateInterface $form_state): void {
     $form_state->setRebuild();
   }
 
   /**
    * Bulk delete submit handler.
+   *
+   * @param array<string, mixed> $form
+   *   The form structure.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
    */
-  public function bulkDeleteSubmit(array &$form, FormStateInterface $form_state) {
+  public function bulkDeleteSubmit(array &$form, FormStateInterface $form_state): void {
     $selected = array_filter($form_state->getValue('table', []));
     if (empty($selected)) {
       $this->messenger()->addWarning($this->t('No rows selected.'));
@@ -200,8 +240,13 @@ class BadgePendingForm extends FormBase {
 
   /**
    * {@inheritdoc}
+   *
+   * @param array<string, mixed> $form
+   *   The form structure.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
    */
-  public function submitForm(array &$form, FormStateInterface $form_state) {
+  public function submitForm(array &$form, FormStateInterface $form_state): void {
     // Primary submit handled by sub-handlers.
   }
 

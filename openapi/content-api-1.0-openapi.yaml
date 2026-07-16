@@ -1,0 +1,267 @@
+openapi: 3.0.3
+info:
+  title: ACCESS Content API
+  description: |
+    Public JSON endpoints exposing ACCESS Support page content and a discovery
+    index for RAG ingestion and Elastic syndication.
+
+    ## What's in it
+    - **Content by ID** — fetch a single support page as plain text by Drupal node ID.
+    - **Content by path** — fetch a single support page by its URL alias.
+    - **Content index** — a discovery feed listing every eligible support page with
+      metadata for crawlers and ingestion pipelines.
+
+    ## Conditional requests
+    The per-document endpoints (`/content/{id}` and `/content?path=`) support
+    HTTP conditional requests via `ETag` and `Last-Modified`. Send
+    `If-None-Match` with the `ETag` value from a prior response to receive a
+    `304 Not Modified` when the content has not changed.
+
+    ## Authentication
+    No authentication required — this is a public API.
+
+  version: 1.0.0
+  contact:
+    name: ACCESS Support
+    url: https://support.access-ci.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://support.access-ci.org/api/1.0
+    description: Production server
+
+paths:
+  /content/{id}:
+    get:
+      summary: Get content by node ID
+      description: |
+        Returns the full text and metadata for a single published support page
+        identified by its Drupal node ID.
+
+        Supports conditional requests: if `If-None-Match` matches the current
+        `ETag`, the server returns `304 Not Modified` with no body.
+      operationId: getContentById
+      tags:
+        - Content
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Drupal node ID of the support page.
+          schema:
+            type: integer
+        - name: If-None-Match
+          in: header
+          required: false
+          description: |
+            ETag value from a prior response. When the content is unchanged,
+            the server returns `304 Not Modified`.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Content document.
+          headers:
+            ETag:
+              description: Opaque identifier for this version of the content (format `"<nid>-<changed_timestamp>"`).
+              schema:
+                type: string
+            Last-Modified:
+              description: HTTP-date of the last content change.
+              schema:
+                type: string
+                format: http-date
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentDocument'
+        '304':
+          description: Not Modified — content is unchanged since the ETag provided in `If-None-Match`.
+          headers:
+            ETag:
+              schema:
+                type: string
+        '404':
+          description: Node not found, not published, not eligible, or not on the support domain.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /content:
+    get:
+      summary: Get content by path alias
+      description: |
+        Returns the full text and metadata for a single published support page
+        looked up by its URL alias (e.g. `/user-guide/allocations`).
+
+        Supports conditional requests via `If-None-Match` / `ETag` identically
+        to the by-ID endpoint.
+      operationId: getContentByPath
+      tags:
+        - Content
+      parameters:
+        - name: path
+          in: query
+          required: true
+          description: URL alias of the support page (e.g. `/user-guide/allocations`).
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          required: false
+          description: |
+            ETag value from a prior response. When the content is unchanged,
+            the server returns `304 Not Modified`.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Content document.
+          headers:
+            ETag:
+              description: Opaque identifier for this version of the content.
+              schema:
+                type: string
+            Last-Modified:
+              description: HTTP-date of the last content change.
+              schema:
+                type: string
+                format: http-date
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentDocument'
+        '304':
+          description: Not Modified — content is unchanged since the ETag provided in `If-None-Match`.
+          headers:
+            ETag:
+              schema:
+                type: string
+        '400':
+          description: Missing required `path` query parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Path not found, not published, not eligible, or not on the support domain.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /.well-known/content-index.json:
+    get:
+      summary: Content discovery index
+      description: |
+        Returns a full listing of every eligible published support page with
+        title, URL, content URL, content hash, and last-modified timestamp.
+        Intended for crawlers, RAG ingestion pipelines, and Elastic syndication.
+
+        This endpoint is served at the site root (outside the `/api/1.0` base
+        path) per the Well-Known URI convention (RFC 8615).
+      operationId: getContentIndex
+      servers:
+        - url: https://support.access-ci.org
+          description: Production server (site root — this endpoint is served outside /api/1.0)
+      tags:
+        - Content
+      responses:
+        '200':
+          description: Content discovery index.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentIndex'
+
+components:
+  schemas:
+    ContentDocument:
+      type: object
+      properties:
+        version:
+          type: integer
+          description: Response schema version (currently `1`).
+          example: 1
+        id:
+          type: integer
+          description: Drupal node ID.
+        title:
+          type: string
+          description: Page title.
+        path:
+          type: string
+          format: uri
+          description: Absolute URL of the support page.
+        content_type:
+          type: string
+          description: Drupal bundle/content type (e.g. `page`).
+        last_modified:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of the last content change.
+        content_hash:
+          type: string
+          description: |
+            SHA-256 hash of the extracted plain text. Consumers can compare this
+            against a cached value to skip re-embedding pages whose content has
+            not changed even when `last_modified` shifts (e.g. due to a
+            metadata-only save).
+        text:
+          type: string
+          description: Full extracted plain text of the page, stripped of HTML markup.
+
+    ContentIndexEntry:
+      type: object
+      properties:
+        title:
+          type: string
+          description: Page title.
+        path:
+          type: string
+          format: uri
+          description: Absolute URL of the support page.
+        content_url:
+          type: string
+          format: uri
+          description: Absolute URL of the `/api/1.0/content/{id}` endpoint for this page.
+        last_modified:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of the last content change.
+        content_hash:
+          type: string
+          description: |
+            SHA-256 hash of the extracted plain text. Use to detect changed pages
+            without fetching full content.
+        content_type:
+          type: string
+          description: Drupal bundle/content type (e.g. `page`).
+
+    ContentIndex:
+      type: object
+      properties:
+        version:
+          type: integer
+          description: Response schema version (currently `1`).
+          example: 1
+        generated_at:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp when this index was generated.
+        pages:
+          type: array
+          description: All eligible published support pages, sorted by path alias.
+          items:
+            $ref: '#/components/schemas/ContentIndexEntry'
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
+          example: Not Found

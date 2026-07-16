@@ -1,6 +1,6 @@
 {
-    "name": "amp/access",
-    "description": "A collection of modules for access match.",
+    "name": "connectci/access",
+    "description": "The access module suite: community subsystem modules for the Connect.CI portal.",
     "type": "drupal-custom-module",
     "license": "GPL-2.0+",
     "authors": [
@@ -15,7 +15,7 @@
     "firebase/php-jwt": "^6.0 || ^7.0"
   },
     "support": {
-        "issues": "https://github.com/necyberteam/access/issues",
-        "source": "https://github.com/necyberteam/access"
+        "issues": "https://github.com/connectci-platform/access/issues",
+        "source": "https://github.com/connectci-platform/access"
     }
 }

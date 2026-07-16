@@ -3,10 +3,12 @@
 namespace Drupal\access_content_api\Controller;
 
 use Drupal\access_content_api\ContentEligibility;
+use Drupal\access_content_api\RenderHash;
 use Drupal\Core\Cache\CacheableJsonResponse;
 use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\path_alias\AliasManagerInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -16,9 +18,17 @@ final class ContentIndexController extends ControllerBase {
 
   const CACHE_MAX_AGE = 900;
 
+  /**
+   * Warn above this render duration (ms); promote to a container parameter if
+   * per-environment tuning is ever needed. Trigger for the hash-on-save work.
+   */
+  const RENDER_WARN_MS = 3000;
+
   public function __construct(
     protected AliasManagerInterface $aliasManager,
     protected ContentEligibility $eligibility,
+    protected RenderHash $renderHash,
+    protected LoggerInterface $logger,
   ) {}
 
   /**
@@ -28,6 +38,8 @@ final class ContentIndexController extends ControllerBase {
     return new static(
       $container->get('path_alias.manager'),
       $container->get('access_content_api.eligibility'),
+      $container->get('access_content_api.render_hash'),
+      $container->get('logger.channel.access_content_api'),
     );
   }
 
@@ -53,20 +65,35 @@ final class ContentIndexController extends ControllerBase {
 
     $nids = $query->execute();
 
+    $cacheMetadata = new CacheableMetadata();
+    $cacheMetadata->addCacheTags(['node_list:page']);
+    $cacheMetadata->setCacheMaxAge(self::CACHE_MAX_AGE);
+    $cacheMetadata->setCacheContexts(['user.roles:anonymous']);
+
     $pages = [];
+    $start = hrtime(TRUE);
     foreach ($nodeStorage->loadMultiple($nids) as $node) {
       if (!$this->eligibility->hasTextViewMode($node->bundle())) {
         continue;
       }
       $nid = $node->id();
       $alias = $this->aliasManager->getAliasByPath('/node/' . $nid);
+      $nodeCacheMetadata = new CacheableMetadata();
       $pages[] = [
         'title' => $node->label(),
         'path' => $this->eligibility->supportDomainUrl($alias),
         'content_url' => $this->eligibility->supportDomainUrl('/api/1.0/content/' . $nid),
         'last_modified' => date('c', $node->getChangedTime()),
+        'content_hash' => $this->renderHash->contentHash($node, $nodeCacheMetadata),
         'content_type' => $node->bundle(),
       ];
+      $cacheMetadata->addCacheableDependency($nodeCacheMetadata);
+    }
+    $elapsedMs = (hrtime(TRUE) - $start) / 1e6;
+    if ($elapsedMs > self::RENDER_WARN_MS) {
+      $this->logger->warning('Content index render took @ms ms for @count pages; consider hash-on-save (see plan B1 trigger).', [
+        '@ms' => round($elapsedMs), '@count' => count($pages),
+      ]);
     }
 
     // Stable sort by path alias ASC.
@@ -77,11 +104,6 @@ final class ContentIndexController extends ControllerBase {
       'generated_at' => date('c'),
       'pages' => $pages,
     ];
-
-    $cacheMetadata = new CacheableMetadata();
-    $cacheMetadata->addCacheTags(['node_list:page']);
-    $cacheMetadata->setCacheMaxAge(self::CACHE_MAX_AGE);
-    $cacheMetadata->setCacheContexts(['user.roles:anonymous']);
 
     $response = new CacheableJsonResponse($data);
     $response->addCacheableDependency($cacheMetadata);

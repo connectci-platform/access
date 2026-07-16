@@ -61,6 +61,7 @@ class RpAccountServiceTest extends KernelTestBase {
       \Drupal::cache(),
       \Drupal::service('logger.factory'),
       \Drupal::service('datetime.time'),
+      \Drupal::service('lock'),
     );
   }
 
@@ -473,6 +474,147 @@ class RpAccountServiceTest extends KernelTestBase {
 
     // No sync marker.
     $this->assertFalse(\Drupal::cache()->get('rp_account:user_synced:' . $user->id()));
+  }
+
+  public function testResolveGlobalResourceIdToNidReturnsNidForPublishedResource(): void {
+    $node = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Delta',
+      'field_access_global_resource_id' => 'delta.ncsa.access-ci.org',
+    ]);
+    $node->save();
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $xd = $this->prophesize(XdusageClient::class);
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $this->assertSame(
+      (int) $node->id(),
+      $svc->resolveGlobalResourceIdToNid('delta.ncsa.access-ci.org')
+    );
+  }
+
+  public function testResolveGlobalResourceIdToNidReturnsNullForUnknownId(): void {
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $xd = $this->prophesize(XdusageClient::class);
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $this->assertNull(
+      $svc->resolveGlobalResourceIdToNid('nonexistent.example.access-ci.org')
+    );
+  }
+
+  public function testResolveGlobalResourceIdToNidReturnsNullForUnpublishedResource(): void {
+    $node = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Delta',
+      'field_access_global_resource_id' => 'delta.ncsa.access-ci.org',
+      'status' => 0,
+    ]);
+    $node->save();
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $xd = $this->prophesize(XdusageClient::class);
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $this->assertNull(
+      $svc->resolveGlobalResourceIdToNid('delta.ncsa.access-ci.org')
+    );
+  }
+
+  public function testGuardedRefreshSkipsWhenLockHeld(): void {
+    $lock = \Drupal::service('lock');
+    $this->assertTrue($lock->acquire('rp_account_refresh:42'));
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    // If the guarded refresh ran, it would call getProjectsForUser. It must NOT.
+    $alloc->getProjectsForUser(\Prophecy\Argument::any())->shouldNotBeCalled();
+    $xd = $this->prophesize(XdusageClient::class);
+    $service = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $service->runGuardedRefresh(42);
+
+    $lock->release('rp_account_refresh:42');
+  }
+
+  public function testGuardedRefreshRunsWhenLockFree(): void {
+    $user = User::create(['name' => 'guarded@access-ci.org', 'mail' => 'g@example.com', 'status' => 1]);
+    $user->save();
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $alloc->getProjectsForUser('guarded')->willReturn([])->shouldBeCalled();
+    $alloc->getResourcesForUser('guarded')->willReturn([]);
+    $xd = $this->prophesize(XdusageClient::class);
+    $xd->getPersonByPortalUsername('guarded')->willReturn(['person_id' => 111]);
+    $xd->getProjectsMap()->willReturn([]);
+    $service = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $service->runGuardedRefresh((int) $user->id());
+
+    // The lock must be released after a successful refresh — re-acquiring it succeeds.
+    $lock = \Drupal::service('lock');
+    $this->assertTrue($lock->acquire('rp_account_refresh:' . (int) $user->id()));
+    $lock->release('rp_account_refresh:' . (int) $user->id());
+  }
+
+  public function testGuardedRefreshReleasesLockOnThrow(): void {
+    $user = User::create(['name' => 'thrower@access-ci.org', 'mail' => 't@example.com', 'status' => 1]);
+    $user->save();
+    $alloc = $this->prophesize(AllocationsClient::class);
+    // Make the refresh throw partway through.
+    $alloc->getProjectsForUser('thrower')->willThrow(new \RuntimeException('boom'));
+    $xd = $this->prophesize(XdusageClient::class);
+    $xd->getPersonByPortalUsername('thrower')->willReturn(['person_id' => 222]);
+    $service = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    try {
+      $service->runGuardedRefresh((int) $user->id());
+      $this->fail('Expected the refresh to throw');
+    }
+    catch (\RuntimeException $e) {
+      $this->assertSame('boom', $e->getMessage());
+    }
+
+    // Despite the throw, the finally must have released the lock.
+    $lock = \Drupal::service('lock');
+    $this->assertTrue($lock->acquire('rp_account_refresh:' . (int) $user->id()));
+    $lock->release('rp_account_refresh:' . (int) $user->id());
+  }
+
+  public function testResolveRpNidsToResourceInfo(): void {
+    $n1 = Node::create(['type' => 'access_active_resources_from_cid', 'title' => 'NCSA Delta',
+      'field_access_global_resource_id' => 'delta.ncsa.access-ci.org', 'status' => 1]);
+    $n1->save();
+    $n2 = Node::create(['type' => 'access_active_resources_from_cid', 'title' => 'PSC Bridges-2',
+      'field_access_global_resource_id' => 'bridges2.psc.access-ci.org', 'status' => 1]);
+    $n2->save();
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $xd = $this->prophesize(XdusageClient::class);
+    $service = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $info = $service->resolveRpNidsToResourceInfo([(int) $n1->id(), (int) $n2->id(), 999999]);
+    $this->assertSame('delta.ncsa.access-ci.org', $info[(int) $n1->id()]['resource_id']);
+    $this->assertSame('NCSA Delta', $info[(int) $n1->id()]['rp_display_name']);
+    $this->assertSame('bridges2.psc.access-ci.org', $info[(int) $n2->id()]['resource_id']);
+    $this->assertArrayNotHasKey(999999, $info); // unknown nid absent
+  }
+
+  public function testResolveRpNidsToResourceInfoIncludesUnpublished(): void {
+    $n = Node::create(['type' => 'access_active_resources_from_cid', 'title' => 'Retired RP',
+      'field_access_global_resource_id' => 'retired.ncsa.access-ci.org', 'status' => 0]);
+    $n->save();
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $xd = $this->prophesize(XdusageClient::class);
+    $service = $this->makeService($alloc->reveal(), $xd->reveal());
+    $info = $service->resolveRpNidsToResourceInfo([(int) $n->id()]);
+    $this->assertSame('retired.ncsa.access-ci.org', $info[(int) $n->id()]['resource_id']);
+  }
+
+  public function testResolveRpNidsToResourceInfoEmptyInput(): void {
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $xd = $this->prophesize(XdusageClient::class);
+    $service = $this->makeService($alloc->reveal(), $xd->reveal());
+    $this->assertSame([], $service->resolveRpNidsToResourceInfo([]));
   }
 
   public function testGetLiveBalanceForRowDelegatesToXdusageClientWithPersonId(): void {

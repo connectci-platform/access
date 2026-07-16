@@ -11,6 +11,13 @@ use Drupal\Core\Menu\MenuTreeParameters;
  * Implements hook_page_attachments().
  */
 function access_page_attachments(array &$attachments) {
+  // On the /api-docs Swagger pages, load the badge-styling overrides that fix
+  // the clipped/overlapping version + spec pills in the stock swagger-ui CSS.
+  $route_name = \Drupal::routeMatch()->getRouteName();
+  if ($route_name && strpos($route_name, 'access.api_docs') === 0) {
+    $attachments['#attached']['library'][] = 'access/api_docs_swagger';
+  }
+
   $token = \Drupal::token();
   $domain_name = Html::getClass($token->replace(t('[domain:name]')));
 
@@ -105,6 +112,12 @@ function access_page_attachments(array &$attachments) {
 
     // Pass environment for analytics differentiation.
     $attachments['#attached']['drupalSettings']['access']['environment'] = getenv('PANTHEON_ENVIRONMENT') ?: 'local';
+
+    // Provide the QA bot API key from the Key module ('qabot').
+    $qa_key = \Drupal::service('key.repository')->getKey('qabot');
+    if ($qa_key) {
+      $attachments['#attached']['drupalSettings']['access']['qaApiKey'] = $qa_key->getKeyValue();
+    }
 
     // Allow overriding the QA bot endpoint via environment variable (for local dev).
     $qa_endpoint = getenv('ACCESS_QA_ENDPOINT');
