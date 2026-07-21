@@ -543,3 +543,60 @@ function access_misc_deploy_10007() {
   $node->save();
 }
 
+/**
+ * Add native-registration fields to the events index and the api/2.3 export.
+ */
+function access_misc_deploy_event_registration_fields(&$sandbox) {
+  $index = \Drupal\search_api\Entity\Index::load('events');
+  // Enable the processor if not already present. (Index has no isValidProcessor;
+  // check the processor list by id, then addProcessor with a created instance.)
+  if (!array_key_exists('custom_event_registration', $index->getProcessors())) {
+    $processor = \Drupal::service('plugin.manager.search_api.processor')
+      ->createInstance('custom_event_registration', []);
+    $index->addProcessor($processor);
+  }
+  // Add the three index fields (mirrors event_type wiring).
+  $fields = [
+    'registration_enabled' => ['label' => 'Registration Enabled', 'property_path' => 'search_api_registration_enabled', 'type' => 'boolean'],
+    'registration_capacity' => ['label' => 'Registration Capacity', 'property_path' => 'search_api_registration_capacity', 'type' => 'integer'],
+    'registration_has_waitlist' => ['label' => 'Registration Has Waitlist', 'property_path' => 'search_api_registration_has_waitlist', 'type' => 'boolean'],
+  ];
+  // CRITICAL: processor-added fields have NO datasource_id — they live on the
+  // general (NULL) datasource. The processor's filterForPropertyPath(fields,
+  // NULL, path) only matches fields whose datasource is NULL, so adding
+  // datasource_id here would make the processor never find the field and index
+  // it EMPTY for every event. Mirror custom_event_type exactly: {label,
+  // property_path, type} only — no datasource_id.
+  $fs = $index->get('field_settings');
+  foreach ($fields as $id => $def) {
+    $fs[$id] = [
+      'label' => $def['label'],
+      'property_path' => $def['property_path'],
+      'type' => $def['type'],
+    ];
+  }
+  $index->set('field_settings', $fs);
+  $index->save();
+
+  // Add the three fields to the data_export_4 display (path api/2.3/events).
+  $view = \Drupal\views\Entity\View::load('events_facet');
+  $display = &$view->getDisplay('data_export_4');
+  foreach (array_keys($fields) as $id) {
+    $display['display_options']['fields'][$id] = [
+      'id' => $id,
+      'table' => 'search_api_index_events',
+      'field' => $id,
+      'relationship' => 'none',
+      'group_type' => 'group',
+      'plugin_id' => 'search_api_field',
+      'label' => $id,
+      'exclude' => FALSE,
+    ];
+  }
+  $view->save();
+
+  // Reindex so the new fields populate.
+  $index->reindex();
+  return 'Added registration_enabled/capacity/has_waitlist to events index and api/2.3 export.';
+}
+
