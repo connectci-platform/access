@@ -7,9 +7,7 @@
 
 use Drupal\Component\Serialization\Json;
 use Drupal\Component\Utility\Html;
-use Drupal\Core\Entity\EntityFormInterface;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\Core\Link;
 use Drupal\Core\Url;
 use Drupal\user\Entity\User;
 use Drupal\user\UserInterface;
@@ -115,34 +113,6 @@ function user_profiles_form_alter(array &$form, FormStateInterface $form_state, 
 
         // Add JS library for organization field behavior.
         $form['#attached']['library'][] = 'user_profiles/organization-toggle';
-      }
-
-      // Once the organization has been set, only administrators may change it.
-      // Everyone else gets a read-only widget with a link to request a change.
-      if (isset($form['field_access_organization']['widget'][0]['target_id'])) {
-        $element = &$form['field_access_organization']['widget'][0]['target_id'];
-        $is_admin = in_array('administrator', \Drupal::currentUser()->getRoles());
-        $has_value = FALSE;
-        $form_object = $form_state->getFormObject();
-        if ($form_object instanceof EntityFormInterface) {
-          $account = $form_object->getEntity();
-          $has_value = $account instanceof UserInterface
-            && !$account->get('field_access_organization')->isEmpty();
-        }
-
-        if ($has_value && !$is_admin) {
-          $element['#attributes']['readonly'] = 'readonly';
-          // #disabled makes the form API ignore any submitted value and keep
-          // the stored one, so the readonly attribute cannot be bypassed.
-          $element['#disabled'] = TRUE;
-          // Prevent the autocomplete from offering replacement values.
-          $element['#autocomplete_route_name'] = NULL;
-        }
-
-        $element['#suffix'] = ($element['#suffix'] ?? '') . '<div class="description mb-3">'
-          . Link::fromTextAndUrl(t('Update Letter of Collaboration'), Url::fromUri('internal:/form/join-campus-champions'))->toString()
-          . '</div>';
-        unset($element);
       }
       break;
   }
