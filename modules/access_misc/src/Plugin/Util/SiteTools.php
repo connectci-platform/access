@@ -4,6 +4,7 @@ namespace Drupal\access_misc\Plugin\Util;
 
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Component\Utility\Html;
+use Drupal\Component\Utility\UrlHelper;
 use Drupal\Core\Utility\Token;
 
 /**
@@ -147,6 +148,8 @@ class SiteTools {
    *
    * @param string $relative_path
    *   The relative path (e.g., '/events/9018', '/announcements/my-title').
+   *   May also be an absolute URL (Domain Source rewrites canonical URLs of
+   *   cross-domain entities); absolute URLs are returned unchanged.
    * @param \Drupal\Core\Entity\EntityInterface|null $entity
    *   The entity to get the domain from, or NULL to use current domain.
    *
@@ -154,6 +157,12 @@ class SiteTools {
    *   The absolute URL.
    */
   public function buildDomainAwareUrl($relative_path, $entity = NULL) {
+    // Under Domain Source, a canonical URL passed in may already be an
+    // absolute URL. Return it unchanged so the domain host is not prepended
+    // a second time (e.g. https://ccmnet.orghttps://ccmnet.org/...).
+    if (UrlHelper::isExternal($relative_path)) {
+      return $relative_path;
+    }
     try {
       // Try to get domain from entity's domain_access field.
       if ($entity && $entity->hasField('domain_access')) {

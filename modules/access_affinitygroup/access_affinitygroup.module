@@ -35,6 +35,7 @@ use Drupal\access_affinitygroup\Plugin\ConstantContactApi;
 use Drupal\access_affinitygroup\Plugin\SimpleListsApi;
 use Drupal\access_affinitygroup\Plugin\EmailWrapper;
 use Drupal\block\Entity\Block;
+use Drupal\Component\Utility\UrlHelper;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
@@ -1202,9 +1203,17 @@ function access_affinitygroup_cron() {
       foreach ($new_nids as $nid) {
         $node = \Drupal::entityTypeManager()->getStorage('node')->load($nid);
         $node_title = $node->getTitle();
-        $options = ['absolute' => FALSE];
-        $link_build = Url::fromRoute('entity.node.canonical', ['node' => $nid], $options);
-        $url = 'https://ccmnet.org' . $link_build->tostring(TRUE)->getGeneratedUrl();
+        // Under Domain Source, the canonical URL of a node sourced to another
+        // domain is already rewritten to an absolute URL. Only prepend the
+        // CCMNet host when the generated URL is still root-relative, otherwise
+        // the base host gets prepended twice.
+        $generated = Url::fromRoute('entity.node.canonical', ['node' => $nid])
+          ->toString(TRUE)
+          ->getGeneratedUrl();
+        $url = $generated;
+        if (!UrlHelper::isExternal($generated)) {
+          $url = 'https://ccmnet.org' . $generated;
+        }
         $link_item = '<li><a href="' . $url . '">' . $node_title . '</a></li>';
 
         // Check what they're looking for
