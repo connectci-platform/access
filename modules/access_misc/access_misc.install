@@ -2390,7 +2390,7 @@ EOT;
  * field_domain_all_affiliates checked publishes them site-wide to every
  * affiliate. Assign the support domain and uncheck "send to all affiliates".
  */
-function access_misc_update_10039(&$sandbox) {
+function access_misc_update_10040(&$sandbox) {
   $node_storage = \Drupal::entityTypeManager()->getStorage('node');
 
   // Collect the node ids referenced by links in the access-documentation menu.
