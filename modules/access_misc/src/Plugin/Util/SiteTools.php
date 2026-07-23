@@ -148,6 +148,8 @@ class SiteTools {
    *
    * @param string $relative_path
    *   The relative path (e.g., '/events/9018', '/announcements/my-title').
+   *   May also be an absolute URL (Domain Source rewrites canonical URLs of
+   *   cross-domain entities); absolute URLs are returned unchanged.
    * @param \Drupal\Core\Entity\EntityInterface|null $entity
    *   The entity to get the domain from, or NULL to use current domain.
    *
