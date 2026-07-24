@@ -8,7 +8,10 @@ use Drupal\access_events\Plugin\Util\EventDateConvert;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Entity\FieldableEntityInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\domain_access\DomainAccessManager;
+use Drupal\domain_access\DomainAccessManagerInterface;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Drupal\taxonomy\Entity\Term;
@@ -2097,5 +2100,52 @@ function _access_misc_build_json_ld($entity) {
   return !empty($json_ld['@type']) ? $json_ld : NULL;
 }
 
+/**
+ * Implements hook_entity_prepare_form().
+ *
+ * Restores the Domain 2.x default for the required "Domain Access" field.
+ *
+ * Domain 3.x rewrote DomainAccessManager::getDefaultValue() to only return the
+ * field's configured default_value literal (empty on our content types), so it
+ * no longer pre-selects the active domain the way 2.x did. Because
+ * field_domain_access is required, new-content forms then render with nothing
+ * selected and fail validation on submit — content can no longer be created.
+ *
+ * When a new entity's Domain Access field is empty, pre-select the active
+ * domain, filtered by the current user's access so we never default to a domain
+ * the user may not publish to.
+ */
+function access_misc_entity_prepare_form(EntityInterface $entity, $operation, FormStateInterface $form_state) {
+  $field = DomainAccessManagerInterface::DOMAIN_ACCESS_FIELD;
 
+  // Only act on new, fieldable entities whose Domain Access field is empty.
+  if (!$entity instanceof FieldableEntityInterface
+    || !$entity->isNew()
+    || !$entity->hasField($field)
+    || !$entity->get($field)->isEmpty()) {
+    return;
+  }
 
+  $active = \Drupal::service('domain.negotiator')->getActiveDomain();
+  if (!$active) {
+    return;
+  }
+
+  $account = \Drupal::currentUser();
+  // Users who may publish anywhere get the active domain directly. Otherwise
+  // only pre-select it when the user actually has access to that domain.
+  if (!$account->hasPermission('publish to any domain')) {
+    $user = User::load($account->id());
+    if (!$user instanceof UserInterface) {
+      return;
+    }
+    if (!DomainAccessManager::getAllValue($user)) {
+      $allowed = DomainAccessManager::getAccessValues($user);
+      if (!isset($allowed[$active->id()])) {
+        return;
+      }
+    }
+  }
+
+  $entity->set($field, ['target_id' => $active->id()]);
+}
