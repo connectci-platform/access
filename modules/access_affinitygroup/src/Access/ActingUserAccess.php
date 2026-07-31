@@ -15,8 +15,8 @@ use Symfony\Component\HttpFoundation\Request;
  * acting user and stashes their uid as the `acting_user_uid` request attribute.
  * With no acting header, falls back to the authenticated user's own uid.
  *
- * Generic (no rp-account logic). Mirrors RpAccountAccess but sets a
- * tool-agnostic attribute name so any MCP endpoint can reuse it.
+ * Generic (no rp-account logic): a tool-agnostic attribute name so any MCP
+ * endpoint can reuse it.
  */
 class ActingUserAccess {
 

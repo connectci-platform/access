@@ -80,7 +80,7 @@ class RpAccountControllerTest extends KernelTestBase {
       ->willReturn(['rows' => [], 'state' => 'no_rows_fresh']);
 
     $request = Request::create('/api/1.0/rp-account/' . $rp->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $user->id());
+    $request->attributes->set('acting_user_uid', (int) $user->id());
 
     $response = $this->makeController($svc->reveal())->get((int) $rp->id(), $request);
     $body = json_decode($response->getContent(), TRUE);
@@ -101,7 +101,7 @@ class RpAccountControllerTest extends KernelTestBase {
       ->willReturn(['rows' => [], 'state' => 'error']);
 
     $request = Request::create('/api/1.0/rp-account/' . $rp->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $user->id());
+    $request->attributes->set('acting_user_uid', (int) $user->id());
 
     $response = $this->makeController($svc->reveal())->get((int) $rp->id(), $request);
     $body = json_decode($response->getContent(), TRUE);
@@ -121,7 +121,7 @@ class RpAccountControllerTest extends KernelTestBase {
       ->willReturn(['rows' => [], 'state' => 'no_rows_unknown']);
 
     $request = Request::create('/api/1.0/rp-account/' . $rp->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $user->id());
+    $request->attributes->set('acting_user_uid', (int) $user->id());
 
     $response = $this->makeController($svc->reveal())->get((int) $rp->id(), $request);
     $body = json_decode($response->getContent(), TRUE);
@@ -150,7 +150,7 @@ class RpAccountControllerTest extends KernelTestBase {
       ->willReturn(['rows' => [$row], 'state' => 'rows_fresh']);
 
     $request = Request::create('/api/1.0/rp-account/' . $rp->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $user->id());
+    $request->attributes->set('acting_user_uid', (int) $user->id());
 
     $response = $this->makeController($svc->reveal())->get((int) $rp->id(), $request);
     $this->assertTrue($response->headers->hasCacheControlDirective('private'));
@@ -194,7 +194,7 @@ class RpAccountControllerTest extends KernelTestBase {
       ->willReturn(['rows' => $rows, 'state' => 'rows_fresh']);
 
     $request = Request::create('/api/1.0/rp-account/' . $rp->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $user->id());
+    $request->attributes->set('acting_user_uid', (int) $user->id());
 
     $response = $this->makeController($svc->reveal())->get((int) $rp->id(), $request);
     $body = json_decode($response->getContent(), TRUE);
@@ -233,7 +233,7 @@ class RpAccountControllerTest extends KernelTestBase {
       ]]);
 
     $request = Request::create('/api/1.0/rp-account/' . $rp->id() . '?live=1');
-    $request->attributes->set('rp_account_effective_uid', (int) $user->id());
+    $request->attributes->set('acting_user_uid', (int) $user->id());
 
     $response = $this->makeController($svc->reveal(), $xd->reveal())->get((int) $rp->id(), $request);
     $body = json_decode($response->getContent(), TRUE);
@@ -265,7 +265,7 @@ class RpAccountControllerTest extends KernelTestBase {
     $xd->getLiveBalanceBatch(\Prophecy\Argument::cetera())->willReturn([]);
 
     $request = Request::create('/api/1.0/rp-account/' . $rp->id() . '?live=1');
-    $request->attributes->set('rp_account_effective_uid', (int) $user->id());
+    $request->attributes->set('acting_user_uid', (int) $user->id());
 
     $response = $this->makeController($svc->reveal(), $xd->reveal())->get((int) $rp->id(), $request);
     $body = json_decode($response->getContent(), TRUE);
@@ -298,7 +298,7 @@ class RpAccountControllerTest extends KernelTestBase {
     $xd->getLiveBalanceBatch(\Prophecy\Argument::cetera())->shouldNotBeCalled();
 
     $request = Request::create('/api/1.0/rp-account/' . $rp->id() . '?live=1');
-    $request->attributes->set('rp_account_effective_uid', (int) $user->id());
+    $request->attributes->set('acting_user_uid', (int) $user->id());
 
     $response = $this->makeController($svc->reveal(), $xd->reveal())->get((int) $rp->id(), $request);
     $body = json_decode($response->getContent(), TRUE);
@@ -373,7 +373,7 @@ class RpAccountControllerTest extends KernelTestBase {
     $controller = $this->makeController($svc->reveal());
 
     $request = Request::create('/api/1.0/rp-account/by-resource/delta-cpu.ncsa.access-ci.org');
-    $request->attributes->set('rp_account_effective_uid', (int) $user->id());
+    $request->attributes->set('acting_user_uid', (int) $user->id());
 
     $byResource = $controller->getByResourceId('delta-cpu.ncsa.access-ci.org', $request);
     $byNid = $controller->get((int) $rp->id(), $request);
@@ -391,7 +391,7 @@ class RpAccountControllerTest extends KernelTestBase {
       ->willReturn(NULL);
 
     $request = Request::create('/api/1.0/rp-account/by-resource/nonexistent.example.access-ci.org');
-    $request->attributes->set('rp_account_effective_uid', 1);
+    $request->attributes->set('acting_user_uid', 1);
 
     $this->expectException(NotFoundHttpException::class);
     $this->makeController($svc->reveal())->getByResourceId('nonexistent.example.access-ci.org', $request);
@@ -406,7 +406,7 @@ class RpAccountControllerTest extends KernelTestBase {
       ->willReturn(['rows' => [], 'state' => 'no_rows_fresh']);
 
     $request = Request::create('/api/1.0/rp-account/' . $rp->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $user->id());
+    $request->attributes->set('acting_user_uid', (int) $user->id());
 
     $response = $this->makeController($svc->reveal())->get((int) $rp->id(), $request);
     $body = json_decode($response->getContent(), TRUE);
@@ -418,7 +418,7 @@ class RpAccountControllerTest extends KernelTestBase {
   public function testNonExistentRpReturns404(): void {
     $svc = $this->prophesize(RpAccountService::class);
     $request = Request::create('/api/1.0/rp-account/999999');
-    $request->attributes->set('rp_account_effective_uid', 1);
+    $request->attributes->set('acting_user_uid', 1);
 
     $this->expectException(\Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class);
     $this->makeController($svc->reveal())->get(999999, $request);
@@ -439,7 +439,7 @@ class RpAccountControllerTest extends KernelTestBase {
     ]);
 
     $request = Request::create('/api/1.0/rp-accounts');
-    $request->attributes->set('rp_account_effective_uid', 42);
+    $request->attributes->set('acting_user_uid', 42);
     $response = $this->makeController($svc->reveal())->listAccounts($request);
 
     $body = json_decode($response->getContent(), TRUE);
@@ -457,7 +457,7 @@ class RpAccountControllerTest extends KernelTestBase {
     $svc->resolveRpNidsToResourceInfo([])->willReturn([]);
 
     $request = Request::create('/api/1.0/rp-accounts');
-    $request->attributes->set('rp_account_effective_uid', 42);
+    $request->attributes->set('acting_user_uid', 42);
     $body = json_decode($this->makeController($svc->reveal())->listAccounts($request)->getContent(), TRUE);
 
     $this->assertSame('syncing', $body['state']);
@@ -470,7 +470,7 @@ class RpAccountControllerTest extends KernelTestBase {
     $svc->resolveRpNidsToResourceInfo([])->willReturn([]);
 
     $request = Request::create('/api/1.0/rp-accounts');
-    $request->attributes->set('rp_account_effective_uid', 42);
+    $request->attributes->set('acting_user_uid', 42);
     $body = json_decode($this->makeController($svc->reveal())->listAccounts($request)->getContent(), TRUE);
 
     $this->assertSame('no_rows_fresh', $body['state']);
@@ -490,7 +490,7 @@ class RpAccountControllerTest extends KernelTestBase {
     $svc->resolveRpNidsToResourceInfo([10])->willReturn([10 => ['resource_id' => 'x.access-ci.org', 'rp_display_name' => 'X']]);
 
     $request = Request::create('/api/1.0/rp-accounts');
-    $request->attributes->set('rp_account_effective_uid', 42);
+    $request->attributes->set('acting_user_uid', 42);
     $body = json_decode($this->makeController($svc->reveal())->listAccounts($request)->getContent(), TRUE);
     $this->assertNull($body['accounts'][0]['rp_username']);
   }
@@ -511,7 +511,7 @@ class RpAccountControllerTest extends KernelTestBase {
     ]);
 
     $request = Request::create('/api/1.0/rp-accounts');
-    $request->attributes->set('rp_account_effective_uid', 42);
+    $request->attributes->set('acting_user_uid', 42);
     $body = json_decode($this->makeController($svc->reveal())->listAccounts($request)->getContent(), TRUE);
     $this->assertCount(2, $body['accounts']);
     $ids = array_column($body['accounts'], 'resource_id');
@@ -533,7 +533,7 @@ class RpAccountControllerTest extends KernelTestBase {
     $svc->resolveRpNidsToResourceInfo([10, 99])->willReturn([10 => ['resource_id' => 'delta.ncsa.access-ci.org', 'rp_display_name' => 'Delta']]);
 
     $request = Request::create('/api/1.0/rp-accounts');
-    $request->attributes->set('rp_account_effective_uid', 42);
+    $request->attributes->set('acting_user_uid', 42);
     $body = json_decode($this->makeController($svc->reveal())->listAccounts($request)->getContent(), TRUE);
     $this->assertCount(1, $body['accounts']); // nid 99 dropped
     $this->assertSame(gmdate('c', 1750000000), $body['synced_at']);
@@ -546,7 +546,7 @@ class RpAccountControllerTest extends KernelTestBase {
 
     $svc = $this->prophesize(RpAccountService::class);
     $request = Request::create('/api/1.0/rp-account/' . $node->id());
-    $request->attributes->set('rp_account_effective_uid', 1);
+    $request->attributes->set('acting_user_uid', 1);
 
     $this->expectException(\Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class);
     $this->makeController($svc->reveal())->get((int) $node->id(), $request);

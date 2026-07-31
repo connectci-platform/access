@@ -16,7 +16,9 @@ use Drupal\recurring_events_registration\Entity\RegistrantType;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\taxonomy\Entity\Vocabulary;
 use Drupal\Tests\user\Traits\UserCreationTrait;
+use Drupal\user\Entity\Role;
 use Drupal\user\Entity\User;
+use Drupal\user\RoleInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -118,6 +120,30 @@ abstract class EventKernelTestBase extends KernelTestBase {
       'status' => 1,
     ]);
     $this->stranger->save();
+
+    // Fixture users implicitly have the authenticated role; install its config
+    // + grant the prod permissions so ->access()/createAccess() evaluate as in
+    // production (otherwise every positive owner path is DENIED). Runs after the
+    // user entity schema install above so the authenticated role config resolves.
+    $this->installConfig(['user']);
+    $this->grantPermissions(
+      Role::load(RoleInterface::AUTHENTICATED_ID),
+      ['add registrant entities', 'delete own registrant entities'],
+    );
+  }
+
+  /**
+   * Runs $callable with the account switched to $user (mirrors the subscriber).
+   */
+  protected function asActingUser($user, callable $callable) {
+    $switcher = \Drupal::service('account_switcher');
+    $switcher->switchTo($user);
+    try {
+      return $callable();
+    }
+    finally {
+      $switcher->switchBack();
+    }
   }
 
   /**
@@ -507,14 +533,14 @@ abstract class EventKernelTestBase extends KernelTestBase {
    * Invokes EventDetailApiController::register() as an acting user.
    *
    * Builds a POST Request carrying the JSON body and the
-   * rp_account_effective_uid attribute the RpAccountAccess gate would set, then
+   * acting_user_uid attribute the ActingUserAccess gate would set, then
    * calls the controller method directly (the gate is covered separately in
    * A4). This mirrors A2's direct-controller invocation.
    *
    * @param \Drupal\recurring_events\Entity\EventInstance $instance
    *   The event instance to register for.
    * @param \Drupal\user\Entity\User $actingUser
-   *   The acting user whose uid is bound to rp_account_effective_uid.
+   *   The acting user whose uid is bound to acting_user_uid.
    * @param array $body
    *   The decoded JSON body (e.g. ['confirmed' => TRUE]); [] = preview.
    *
@@ -531,7 +557,12 @@ abstract class EventKernelTestBase extends KernelTestBase {
       [],
       json_encode($body),
     );
-    $request->attributes->set('rp_account_effective_uid', (int) $actingUser->id());
+    $request->attributes->set('acting_user_uid', (int) $actingUser->id());
+    // The contrib RegistrantAccessControlHandler::checkCreateAccess reads the
+    // `eventinstance` request attribute (the route's param converter sets it in
+    // prod; a direct controller call must set it here) to resolve the instance
+    // and confirm registration is enabled.
+    $request->attributes->set('eventinstance', $instance);
     \Drupal::requestStack()->push($request);
 
     return EventDetailApiController::create(\Drupal::getContainer())

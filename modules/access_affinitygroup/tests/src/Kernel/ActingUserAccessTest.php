@@ -2,7 +2,7 @@
 
 namespace Drupal\Tests\access_affinitygroup\Kernel;
 
-use Drupal\access_affinitygroup\Access\RpAccountAccess;
+use Drupal\access_affinitygroup\Access\ActingUserAccess;
 use Drupal\Core\Access\AccessResultAllowed;
 use Drupal\Core\Access\AccessResultForbidden;
 use Drupal\KernelTests\KernelTestBase;
@@ -13,7 +13,7 @@ use Symfony\Component\HttpFoundation\Request;
 /**
  * @group access_affinitygroup
  */
-class RpAccountAccessTest extends KernelTestBase {
+class ActingUserAccessTest extends KernelTestBase {
 
   protected static $modules = ['access_affinitygroup', 'user', 'system', 'field', 'text', 'filter', 'key'];
 
@@ -26,8 +26,8 @@ class RpAccountAccessTest extends KernelTestBase {
     Role::create(['id' => 'mcp_service', 'label' => 'MCP Service'])->save();
   }
 
-  protected function makeAccess(): RpAccountAccess {
-    return new RpAccountAccess(\Drupal::entityTypeManager());
+  protected function makeAccess(): ActingUserAccess {
+    return new ActingUserAccess(\Drupal::entityTypeManager());
   }
 
   public function testAnonymousIsForbidden(): void {
@@ -37,7 +37,7 @@ class RpAccountAccessTest extends KernelTestBase {
     $result = $this->makeAccess()->check($anon, $request);
 
     $this->assertInstanceOf(AccessResultForbidden::class, $result);
-    $this->assertNull($request->attributes->get('rp_account_effective_uid'));
+    $this->assertNull($request->attributes->get('acting_user_uid'));
   }
 
   public function testNoActingHeaderFallsBackToSessionUid(): void {
@@ -49,7 +49,7 @@ class RpAccountAccessTest extends KernelTestBase {
     $result = $this->makeAccess()->check($user, $request);
 
     $this->assertInstanceOf(AccessResultAllowed::class, $result);
-    $this->assertSame((int) $user->id(), $request->attributes->get('rp_account_effective_uid'));
+    $this->assertSame((int) $user->id(), $request->attributes->get('acting_user_uid'));
   }
 
   public function testActingHeaderWithoutMcpServiceRoleIsForbidden(): void {
@@ -63,7 +63,7 @@ class RpAccountAccessTest extends KernelTestBase {
 
     $this->assertInstanceOf(AccessResultForbidden::class, $result);
     // Critically, no fall-through to session uid happened.
-    $this->assertNull($request->attributes->get('rp_account_effective_uid'));
+    $this->assertNull($request->attributes->get('acting_user_uid'));
   }
 
   public function testActingHeaderResolvesToActiveUserSetsAttribute(): void {
@@ -80,9 +80,9 @@ class RpAccountAccessTest extends KernelTestBase {
     $result = $this->makeAccess()->check($service, $request);
 
     $this->assertInstanceOf(AccessResultAllowed::class, $result);
-    $this->assertSame((int) $target->id(), $request->attributes->get('rp_account_effective_uid'));
+    $this->assertSame((int) $target->id(), $request->attributes->get('acting_user_uid'));
     // Did NOT fall back to the service uid.
-    $this->assertNotSame((int) $service->id(), $request->attributes->get('rp_account_effective_uid'));
+    $this->assertNotSame((int) $service->id(), $request->attributes->get('acting_user_uid'));
   }
 
   public function testActingHeaderResolvesToInactiveUserIsForbidden(): void {
@@ -120,6 +120,6 @@ class RpAccountAccessTest extends KernelTestBase {
     $result = $this->makeAccess()->check($service, $request);
 
     $this->assertInstanceOf(AccessResultAllowed::class, $result);
-    $this->assertSame((int) $email_user->id(), $request->attributes->get('rp_account_effective_uid'));
+    $this->assertSame((int) $email_user->id(), $request->attributes->get('acting_user_uid'));
   }
 }

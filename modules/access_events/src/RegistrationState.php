@@ -22,7 +22,7 @@ final class RegistrationState {
    * @param \Drupal\recurring_events\Entity\EventInstance $instance
    *   The event instance.
    * @param int $actingUid
-   *   The acting user's uid (from the rp_account_effective_uid attribute).
+   *   The acting user's uid (from the acting_user_uid attribute).
    *
    * @return array
    *   ['enabled' => FALSE] when native registration is off, otherwise the full
@@ -64,7 +64,7 @@ final class RegistrationState {
       ? (clone $dt)->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z')
       : NULL;
 
-    return [
+    $state = [
       'enabled' => TRUE,
       'capacity' => $capacity,
       'registered_count' => (int) $registered,
@@ -75,12 +75,21 @@ final class RegistrationState {
         'opens' => $iso($window['reg_open'] ?? NULL),
         'closes' => $iso($window['reg_close'] ?? NULL),
       ],
-      // hasUserRegisteredById() counts waitlisted registrants too (unlike
-      // registered_count above, which is non-waitlisted only). Intentional: a
-      // waitlisted user must not be able to re-register, so dedup is stricter
-      // than the seat count.
-      'already_registered' => $svc->hasUserRegisteredById($actingUid),
     ];
+
+    // Omit the per-user field entirely when there is no valid acting user
+    // (uid < 1): hasUserRegisteredById(0) drops the user filter and would
+    // read TRUE whenever ANYONE is registered — a false personal claim.
+    //
+    // hasUserRegisteredById() counts waitlisted registrants too (unlike
+    // registered_count above, which is non-waitlisted only). Intentional: a
+    // waitlisted user must not be able to re-register, so dedup is stricter
+    // than the seat count.
+    if ($actingUid >= 1) {
+      $state['already_registered'] = $svc->hasUserRegisteredById($actingUid);
+    }
+
+    return $state;
   }
 
 }

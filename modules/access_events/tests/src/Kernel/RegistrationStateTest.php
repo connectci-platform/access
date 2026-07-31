@@ -81,6 +81,22 @@ class RegistrationStateTest extends EventKernelTestBase {
   }
 
   /**
+   * With no acting user (uid 0), already_registered is OMITTED entirely.
+   *
+   * hasUserRegisteredById(0) drops the user filter in the underlying service, so
+   * it would read TRUE whenever ANYONE is registered — a false personal claim and
+   * an info leak. With uid < 1 the key must be absent, not TRUE or FALSE, per the
+   * "omit the per-user field when there's no acting user" convention.
+   */
+  public function testNoActingUserOmitsAlreadyRegistered(): void {
+    $instance = $this->createRegistrableInstance(capacity: 60, waitlist: FALSE);
+    // A DIFFERENT user is registered, so hasUserRegisteredById(0) would be TRUE.
+    $this->registerUser($this->stranger, $instance);
+    $state = RegistrationState::forInstance($instance, 0);
+    $this->assertArrayNotHasKey('already_registered', $state);
+  }
+
+  /**
    * Zero (unlimited) capacity reports null capacity and null seats_remaining.
    */
   public function testUnlimitedCapacityReportsNulls(): void {

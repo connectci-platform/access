@@ -32,7 +32,7 @@ access_events.event_detail:
   requirements:
     eventinstance: '\d+'
     _user_is_logged_in: 'TRUE'
-    _custom_access: 'access_affinitygroup.rp_account_access:check'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
   options:
     parameters:
       eventinstance:
@@ -47,7 +47,7 @@ access_events.event_register:
   requirements:
     eventinstance: '\d+'
     _user_is_logged_in: 'TRUE'
-    _custom_access: 'access_affinitygroup.rp_account_access:check'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
   options:
     parameters:
       eventinstance:

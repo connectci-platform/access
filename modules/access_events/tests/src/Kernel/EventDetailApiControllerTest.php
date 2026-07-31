@@ -22,7 +22,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
     $instance = $this->createRegistrableInstance(capacity: 60, waitlist: TRUE);
 
     $request = Request::create('/api/1.0/events/' . $instance->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $this->owner->id());
+    $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
     $controller = EventDetailApiController::create(\Drupal::getContainer());
@@ -64,7 +64,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
     $instance = $this->createNonRegistrableInstance();
 
     $request = Request::create('/api/1.0/events/' . $instance->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $this->owner->id());
+    $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
     $data = json_decode(
@@ -85,7 +85,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
     $instance = $this->createRegistrableInstance();
 
     $request = Request::create('/api/1.0/events/' . $instance->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $this->owner->id());
+    $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
     $data = json_decode(
@@ -119,7 +119,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
     );
 
     $request = Request::create('/api/1.0/events/' . $instance->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $this->owner->id());
+    $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
     $data = json_decode(
@@ -153,7 +153,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
     );
 
     $request = Request::create('/api/1.0/events/' . $instance->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $this->owner->id());
+    $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
     $data = json_decode(
@@ -187,6 +187,30 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
       $data['registrant_id'],
     );
     $this->assertSame((string) $instance->id(), (string) $data['eventinstance_id']);
+    $this->assertSame($before + 1, $this->countRegistrants($instance));
+  }
+
+  /**
+   * The owner registers successfully with the account switched to them.
+   *
+   * Proves the new explicit createAccess assertion PASSES for a legitimate
+   * registrant when the request runs AS the acting user (mirroring the switch
+   * subscriber in prod): the authenticated role holds 'add registrant entities'
+   * and the instance has registration enabled, so the handler allows the create.
+   */
+  public function testOwnerRegisterUnderSwitchSucceeds(): void {
+    $instance = $this->createRegistrableInstance(capacity: 60, waitlist: FALSE);
+    $before = $this->countRegistrants($instance);
+
+    $response = $this->asActingUser(
+      $this->owner,
+      fn () => $this->doRegister($instance, $this->owner, ['confirmed' => TRUE]),
+    );
+
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertTrue($data['success']);
+    $this->assertSame('registered', $data['status']);
     $this->assertSame($before + 1, $this->countRegistrants($instance));
   }
 
@@ -340,7 +364,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
    * A role-restricted series refuses a user lacking the role with 409.
    *
    * The not_permitted refusal is a 409 (registration-STATE refusal), not a 403:
-   * the acting user is already identified and authorized by the RpAccountAccess
+   * the acting user is already identified and authorized by the ActingUserAccess
    * gate, so re-authenticating cannot help. 403 is reserved for the gate's own
    * identity/auth failure, which runs before this controller.
    */

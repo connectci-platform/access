@@ -16,8 +16,8 @@ use Symfony\Component\HttpFoundation\RequestStack;
 /**
  * Serves the ACCESS event detail API: GET /api/1.0/events/{eventinstance_id}.
  *
- * Read-only. The route is gated by the RpAccountAccess acting-user gate, which
- * resolves X-Acting-User and sets the rp_account_effective_uid request
+ * Read-only. The route is gated by the ActingUserAccess acting-user gate, which
+ * resolves X-Acting-User and sets the acting_user_uid request
  * attribute; the controller reads that attribute for per-user registration
  * state and never trusts request-body identity.
  */
@@ -43,7 +43,22 @@ class EventDetailApiController extends ControllerBase {
    */
   public function get(EventInstance $eventinstance): JsonResponse {
     $uid = (int) $this->requestStack->getCurrentRequest()
-      ->attributes->get('rp_account_effective_uid', 0);
+      ->attributes->get('acting_user_uid', 0);
+
+    // In-controller entity-access gate. This MUST live here, not as a route-level
+    // _entity_access requirement: route access runs BEFORE the acting-user switch
+    // subscriber, so it would evaluate against the service account, not the
+    // resolved acting user. Published instances are viewable by anyone; an
+    // unpublished instance is viewable only to accounts whose access allows it
+    // (the owner, granted by access_events_entity_access()). A null $user
+    // (anonymous / unresolved) correctly cannot view an unpublished instance.
+    $user = $uid > 0
+      ? $this->entityTypeManager()->getStorage('user')->load($uid)
+      : NULL;
+    if (!$eventinstance->access('view', $user, TRUE)->isAllowed()) {
+      return $this->refuse('not_found', 'Event not found.', 404);
+    }
+
     return (new JsonResponse($this->detail($eventinstance, $uid)))
       ->setPrivate()
       ->setMaxAge(0);
@@ -56,11 +71,13 @@ class EventDetailApiController extends ControllerBase {
    * JSON body this is a PREVIEW (guards 1-7 run read-only, nothing is written).
    * With `confirmed:true`, on passing every guard, a registrant is saved.
    *
-   * The acting uid comes ONLY from the rp_account_effective_uid request
-   * attribute set by the RpAccountAccess gate; the email is read from that
+   * The acting uid comes ONLY from the acting_user_uid request
+   * attribute set by the ActingUserAccess gate; the email is read from that
    * loaded user entity and eventseries_id from the loaded instance. The
-   * request body identity is never trusted. The final save() invokes no access
-   * handler by design — this guard chain IS the security boundary.
+   * request body identity is never trusted. The state guard chain gates the
+   * registration semantics; the write itself is authorized by an explicit
+   * registrant createAccess assertion under the switched acting user (save()
+   * invokes no access handler on its own).
    *
    * @param \Drupal\recurring_events\Entity\EventInstance $eventinstance
    *   The event instance, resolved by the entity param converter.
@@ -71,9 +88,9 @@ class EventDetailApiController extends ControllerBase {
    *   A preview, a success body, or a 409 state refusal.
    */
   public function register(EventInstance $eventinstance, Request $request): JsonResponse {
-    $uid = (int) $request->attributes->get('rp_account_effective_uid', 0);
+    $uid = (int) $request->attributes->get('acting_user_uid', 0);
 
-    // Defense-in-depth: the RpAccountAccess gate guarantees uid >= 1 in prod,
+    // Defense-in-depth: the ActingUserAccess gate guarantees uid >= 1 in prod,
     // so this is unreachable there. But if that invariant ever broke, uid = 0
     // would slip past hasUserRegisteredById(0) (0 is falsy → the user filter is
     // dropped → FALSE on an empty event) and save() a registrant with
@@ -102,7 +119,7 @@ class EventDetailApiController extends ControllerBase {
     }
     // Guard 5: role restriction (empty/unset permitted set = open to all). This
     // is a 409, not a 403: the user IS identified and authorized (they passed
-    // the RpAccountAccess gate), so a role-restriction refusal is a
+    // the ActingUserAccess gate), so a role-restriction refusal is a
     // registration-STATE refusal, not an identity/auth failure. 403 is reserved
     // for the gate itself, which runs before this controller.
     if (!$this->rolesPermitted($svc, $uid)) {
@@ -140,10 +157,21 @@ class EventDetailApiController extends ControllerBase {
       return (new JsonResponse($preview))->setPrivate()->setMaxAge(0);
     }
 
-    // Commit path — bare save(), no access handler; the guard chain above is
-    // the boundary. Identity is bound from $uid / the loaded user / the
-    // instance, NEVER from the request body.
+    // Commit path. Identity is bound from $uid / the loaded user / the instance,
+    // NEVER from the request body. EntityBase::save() invokes no access handler,
+    // so the explicit createAccess assertion below is the write boundary: it
+    // runs the registrant access handler for the acting user (the request has
+    // been switched to them by ActingUserSwitchSubscriber), which allows the
+    // create when they hold 'add registrant entities' and registration is
+    // enabled on the instance. The state guard chain above still gates the
+    // registration semantics (window/dedup/capacity/role).
     $user = $this->entityTypeManager()->getStorage('user')->load($uid);
+    $access = $this->entityTypeManager()
+      ->getAccessControlHandler('registrant')
+      ->createAccess($eventinstance->getType(), $user, [], TRUE);
+    if (!$access->isAllowed()) {
+      return $this->refuse('not_permitted', 'You are not permitted to register for this event.', 409);
+    }
     $registrant = Registrant::create([
       // 'bundle' is the registrant entity bundle (entity_reference to
       // registrant_type); the instance's bundle (e.g. 'default').

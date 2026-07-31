@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\access_events\Kernel;
 
-use Drupal\access_affinitygroup\Access\RpAccountAccess;
+use Drupal\access_affinitygroup\Access\ActingUserAccess;
 use Drupal\Core\Access\AccessResultAllowed;
 use Drupal\Core\Access\AccessResultForbidden;
 use Drupal\user\Entity\Role;
@@ -12,17 +12,17 @@ use Drupal\user\Entity\User;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
- * Tests the RpAccountAccess gate that guards both event routes.
+ * Tests the ActingUserAccess gate that guards both event routes.
  *
  * The A2/A3 controller tests call the controller methods directly with
- * `rp_account_effective_uid` pre-set on the request, so they never exercise the
- * actual `_custom_access: 'access_affinitygroup.rp_account_access:check'` gate
+ * `acting_user_uid` pre-set on the request, so they never exercise the
+ * actual `_custom_access: 'access_affinitygroup.acting_user_access:check'` gate
  * declared on `access_events.event_detail` and `access_events.event_register`.
  * This task covers that gate.
  *
  * It mirrors the authoritative precedent
- * `Drupal\Tests\access_affinitygroup\Kernel\RpAccountAccessTest`: a kernel test
- * that instantiates the gate directly (`new RpAccountAccess(entityTypeManager)`)
+ * `Drupal\Tests\access_affinitygroup\Kernel\ActingUserAccessTest`: a kernel test
+ * that instantiates the gate directly (`new ActingUserAccess(entityTypeManager)`)
  * and calls `check($account, $request)` against synthetic `Request` objects
  * carrying the `X-Acting-User` header. There are ZERO Functional/BrowserTestBase
  * tests under `web/modules/custom/access`, and the gate has no HTTP header
@@ -30,7 +30,7 @@ use Symfony\Component\HttpFoundation\Request;
  * event routes reference — testing the gate once covers both routes.
  *
  * Because both event routes reference the SAME `_custom_access` gate, the gate's
- * allow/deny behavior and the `rp_account_effective_uid` attribute it sets (the
+ * allow/deny behavior and the `acting_user_uid` attribute it sets (the
  * attribute `EventDetailApiController::get()`/`register()` read) are proven here
  * for both routes at once.
  *
@@ -42,7 +42,7 @@ use Symfony\Component\HttpFoundation\Request;
  * assert it. It is verified live against prod in Task A5 (curl an unknown id →
  * 404).
  *
- * @covers \Drupal\access_affinitygroup\Access\RpAccountAccess
+ * @covers \Drupal\access_affinitygroup\Access\ActingUserAccess
  * @group access_events
  */
 class EventRouteAccessTest extends EventKernelTestBase {
@@ -71,16 +71,16 @@ class EventRouteAccessTest extends EventKernelTestBase {
   /**
    * Builds the gate the way its service definition wires it.
    *
-   * Mirrors RpAccountAccessTest::makeAccess() — the gate takes only
+   * Mirrors ActingUserAccessTest::makeAccess() — the gate takes only
    * `@entity_type.manager`.
    */
-  private function makeAccess(): RpAccountAccess {
-    return new RpAccountAccess(\Drupal::entityTypeManager());
+  private function makeAccess(): ActingUserAccess {
+    return new ActingUserAccess(\Drupal::entityTypeManager());
   }
 
   /**
    * An mcp_service account + a resolvable X-Acting-User is allowed, and the
-   * gate sets rp_account_effective_uid to the RESOLVED acting user's uid.
+   * gate sets acting_user_uid to the RESOLVED acting user's uid.
    *
    * This is the attribute EventDetailApiController reads as the acting uid, so
    * asserting it here is what proves the gate feeds the event controllers the
@@ -104,12 +104,12 @@ class EventRouteAccessTest extends EventKernelTestBase {
     $this->assertInstanceOf(AccessResultAllowed::class, $result);
     $this->assertSame(
       (int) $this->owner->id(),
-      $request->attributes->get('rp_account_effective_uid'),
+      $request->attributes->get('acting_user_uid'),
     );
     // The effective uid is the ACTING user, not the service account.
     $this->assertNotSame(
       (int) $service->id(),
-      $request->attributes->get('rp_account_effective_uid'),
+      $request->attributes->get('acting_user_uid'),
     );
   }
 
@@ -131,7 +131,7 @@ class EventRouteAccessTest extends EventKernelTestBase {
     $result = $this->makeAccess()->check($plain, $request);
 
     $this->assertInstanceOf(AccessResultForbidden::class, $result);
-    $this->assertNull($request->attributes->get('rp_account_effective_uid'));
+    $this->assertNull($request->attributes->get('acting_user_uid'));
   }
 
   /**
@@ -154,7 +154,7 @@ class EventRouteAccessTest extends EventKernelTestBase {
     $result = $this->makeAccess()->check($service, $request);
 
     $this->assertInstanceOf(AccessResultForbidden::class, $result);
-    $this->assertNull($request->attributes->get('rp_account_effective_uid'));
+    $this->assertNull($request->attributes->get('acting_user_uid'));
   }
 
   /**
@@ -167,7 +167,7 @@ class EventRouteAccessTest extends EventKernelTestBase {
     $result = $this->makeAccess()->check(User::getAnonymousUser(), $request);
 
     $this->assertInstanceOf(AccessResultForbidden::class, $result);
-    $this->assertNull($request->attributes->get('rp_account_effective_uid'));
+    $this->assertNull($request->attributes->get('acting_user_uid'));
   }
 
 }
