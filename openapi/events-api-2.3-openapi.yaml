@@ -1,8 +1,12 @@
 openapi: 3.0.3
 info:
-  title: ACCESS Events API
+  title: ACCESS Events READ API (public, v2.3)
   description: |
-    The ACCESS Events API provides access to upcoming and past events, trainings, webinars, and office hours.
+    The public **read** API for ACCESS events, trainings, webinars, and office hours. It provides
+    the events **listing** (`GET /events`) and a single event's **detail** (`GET /events/{eventinstance}`).
+
+    This is the read side of events. The separate, authenticated **Event Registration API** (v1.0)
+    owns the act side — registering, listing your own registrations, and cancelling.
 
     ## What's New in v2.3
     - **Future events by default**: Returns only upcoming events unless date filters specify otherwise
@@ -19,7 +23,12 @@ info:
     - **Timezone Support**: UTC (default), America/New_York, America/Los_Angeles, Europe/London
 
     ## Authentication
-    No authentication required - this is a public API.
+    The listing is public — no authentication required. The event **detail** endpoint is also
+    readable anonymously, but its `registration` block is **partitioned by caller**: an anonymous
+    caller sees only the event-level registration configuration (`enabled`, `capacity`,
+    `registered_count`, `seats_remaining`, `waitlist_enabled`), whereas an authenticated acting-user
+    caller (passing `X-Acting-User`) additionally sees `registration_open`, `registration_window`,
+    and `already_registered`. See the detail endpoint for the full partition.
 
   version: 2.3.0
   termsOfService: https://access-ci.org/terms
@@ -261,6 +270,9 @@ paths:
                       event_type: "other"
                       location: "Zoom"
                       registration: "https://utah.zoom.us/meeting/register/..."
+                      registration_enabled: true
+                      registration_capacity: 100
+                      registration_has_waitlist: false
                       skill_level: ""
                       tags: "open-ondemand"
                       video: ""
@@ -288,6 +300,128 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
+  /events/{eventinstance}:
+    get:
+      summary: Get event detail with registration state
+      description: |
+        Retrieve a single event instance plus its registration state.
+
+        ## Anonymous vs authenticated (registration partition)
+        The `registration` block is **partitioned by caller**:
+
+        - **Anonymous callers** see only the event-level registration *configuration*:
+          `{ enabled, capacity, registered_count, seats_remaining, waitlist_enabled }`. The
+          per-user fields `registration_open`, `registration_window`, and `already_registered` are
+          **omitted** entirely.
+        - **Authenticated acting-user callers** (passing `X-Acting-User`, via the service account)
+          additionally receive `registration_open`, `registration_window`, and `already_registered`.
+
+        When native ACCESS registration is not enabled for the event, the block is
+        `{ "enabled": false }` for both anonymous and authenticated callers.
+
+        A published instance is viewable by anyone; an unpublished instance is viewable only to
+        accounts whose access allows it (for example, the owner). An instance the caller may not
+        view is reported as `404`.
+      operationId: getEventDetail
+      tags:
+        - Event Detail
+      parameters:
+        - name: eventinstance
+          in: path
+          required: true
+          description: The event instance ID.
+          schema:
+            type: integer
+          example: 4567
+      responses:
+        '200':
+          description: |
+            Event detail plus its registration state. The `registration` block reflects the caller
+            partition described above: anonymous callers omit `registration_open`,
+            `registration_window`, and `already_registered`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventDetail'
+              examples:
+                registrable_anonymous:
+                  summary: Anonymous caller — event-level config only (per-user fields omitted)
+                  value:
+                    id: "4567"
+                    title: "Introduction to Anvil"
+                    description: "<p>A hands-on introduction to the Anvil system.</p>"
+                    start_date: "2026-09-10T15:00:00Z"
+                    end_date: "2026-09-10T17:00:00Z"
+                    location: "Online"
+                    event_type: "Workshop"
+                    skill_level: "Beginner"
+                    speakers: "Jane Researcher"
+                    tags: "hpc, training"
+                    registration_url: null
+                    series_id: "1234"
+                    registration:
+                      enabled: true
+                      capacity: 100
+                      registered_count: 42
+                      seats_remaining: 58
+                      waitlist_enabled: true
+                registrable_authenticated:
+                  summary: Authenticated (X-Acting-User) caller — per-user fields present
+                  value:
+                    id: "4567"
+                    title: "Introduction to Anvil"
+                    description: "<p>A hands-on introduction to the Anvil system.</p>"
+                    start_date: "2026-09-10T15:00:00Z"
+                    end_date: "2026-09-10T17:00:00Z"
+                    location: "Online"
+                    event_type: "Workshop"
+                    skill_level: "Beginner"
+                    speakers: "Jane Researcher"
+                    tags: "hpc, training"
+                    registration_url: null
+                    series_id: "1234"
+                    registration:
+                      enabled: true
+                      capacity: 100
+                      registered_count: 42
+                      seats_remaining: 58
+                      waitlist_enabled: true
+                      registration_open: true
+                      registration_window:
+                        opens: "2026-08-01T00:00:00Z"
+                        closes: "2026-09-09T23:59:59Z"
+                      already_registered: false
+                native_off:
+                  summary: Event with native registration disabled
+                  value:
+                    id: "4568"
+                    title: "ACCESS Community Call"
+                    description: "<p>Monthly community call.</p>"
+                    start_date: "2026-09-15T16:00:00Z"
+                    end_date: "2026-09-15T17:00:00Z"
+                    location: "Online"
+                    event_type: "Community"
+                    skill_level: null
+                    speakers: null
+                    tags: null
+                    registration_url: "https://example.org/register"
+                    series_id: "1235"
+                    registration:
+                      enabled: false
+        '404':
+          description: |
+            The event instance does not exist, or the caller is not permitted to view it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_found:
+                  summary: Event not found or not viewable
+                  value:
+                    error: "not_found"
+                    message: "Event not found."
 
 components:
   schemas:
@@ -352,6 +486,31 @@ components:
           format: uri
           description: Registration URL
           example: "https://utah.zoom.us/meeting/register/..."
+        registration_enabled:
+          type: boolean
+          description: |
+            Whether native ACCESS registration is enabled for the event. This describes the
+            event's native-ACCESS-registration configuration and is distinct from the external
+            `registration` URL above.
+
+            Documented as a boolean (the logical type; the search index field is typed boolean).
+            Note that the underlying data export emits Drupal `'Yes'`/`'No'` strings rather than
+            JSON booleans, so consumers reading the raw export should parse those string values.
+          example: true
+        registration_capacity:
+          type: integer
+          description: |
+            Maximum native-ACCESS registration capacity for the event. May be `0` or absent when
+            no capacity is set. Describes the event's native-ACCESS-registration configuration,
+            distinct from the external `registration` URL.
+          example: 100
+        registration_has_waitlist:
+          type: boolean
+          description: |
+            Whether the event has a native-ACCESS registration waitlist. Describes the event's
+            native-ACCESS-registration configuration, distinct from the external `registration`
+            URL.
+          example: false
         skill_level:
           type: string
           description: Required skill level
@@ -386,6 +545,158 @@ components:
           description: Canonical URL to the event page on support.access-ci.org
           example: "https://support.access-ci.org/events/open-ondemand-tips-and-tricks-call"
 
+    RegistrationState:
+      description: |
+        The registration state for an event instance, returned on the event **detail** endpoint.
+
+        This block is **partitioned by caller**. The event-level configuration
+        (`enabled`, `capacity`, `registered_count`, `seats_remaining`, `waitlist_enabled`) is
+        returned to everyone. The per-user fields `registration_open`, `registration_window`, and
+        `already_registered` are present **only** for authenticated acting-user callers
+        (`X-Acting-User`); anonymous callers omit them entirely.
+
+        When native ACCESS registration is not enabled for the event, the block is
+        `{ "enabled": false }`.
+      oneOf:
+        - type: object
+          description: Native registration is not enabled for the event.
+          properties:
+            enabled:
+              type: boolean
+              enum: [false]
+              description: Always `false` in this variant.
+              example: false
+          required:
+            - enabled
+        - type: object
+          description: |
+            The registration state. `enabled`, `capacity`, `registered_count`, `seats_remaining`,
+            and `waitlist_enabled` are returned to anonymous and authenticated callers alike.
+            `registration_open`, `registration_window`, and `already_registered` are added **only**
+            for authenticated (X-Acting-User) callers and are absent from anonymous responses.
+          properties:
+            enabled:
+              type: boolean
+              enum: [true]
+              example: true
+            capacity:
+              type: integer
+              nullable: true
+              description: Total capacity, or null when the event has unlimited capacity.
+              example: 100
+            registered_count:
+              type: integer
+              description: Number of non-waitlisted registrants.
+              example: 42
+            seats_remaining:
+              type: integer
+              nullable: true
+              description: Seats remaining, or null when capacity is unlimited.
+              example: 58
+            waitlist_enabled:
+              type: boolean
+              description: Whether a waitlist is enabled for the event.
+              example: true
+            registration_open:
+              type: boolean
+              description: |
+                Whether the registration window is currently open. **Authenticated callers only** —
+                omitted from anonymous responses.
+              example: true
+            registration_window:
+              type: object
+              description: |
+                The registration window, with Z-suffixed ISO-8601 dates. **Authenticated callers
+                only** — omitted from anonymous responses.
+              properties:
+                opens:
+                  type: string
+                  format: date-time
+                  nullable: true
+                  description: When registration opens, or null if unset.
+                  example: "2026-08-01T00:00:00Z"
+                closes:
+                  type: string
+                  format: date-time
+                  nullable: true
+                  description: When registration closes, or null if unset.
+                  example: "2026-09-09T23:59:59Z"
+            already_registered:
+              type: boolean
+              description: |
+                Whether the acting user is already registered (counts waitlisted too).
+                **Authenticated callers only** — omitted from anonymous responses.
+              example: false
+          required:
+            - enabled
+
+    EventDetail:
+      type: object
+      description: |
+        A single event instance plus its registration state. Inherited fields degrade to null when
+        absent or empty.
+      properties:
+        id:
+          type: string
+          description: The event instance ID (as a string).
+          example: "4567"
+        title:
+          type: string
+          nullable: true
+          example: "Introduction to Anvil"
+        description:
+          type: string
+          nullable: true
+          description: HTML description.
+          example: "<p>A hands-on introduction to the Anvil system.</p>"
+        start_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: Start date-time, ISO-8601 with a trailing Z.
+          example: "2026-09-10T15:00:00Z"
+        end_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: End date-time, ISO-8601 with a trailing Z.
+          example: "2026-09-10T17:00:00Z"
+        location:
+          type: string
+          nullable: true
+          example: "Online"
+        event_type:
+          type: string
+          nullable: true
+          description: Human-readable event type label.
+          example: "Workshop"
+        skill_level:
+          type: string
+          nullable: true
+          description: Human-readable skill-level label.
+          example: "Beginner"
+        speakers:
+          type: string
+          nullable: true
+          example: "Jane Researcher"
+        tags:
+          type: string
+          nullable: true
+          description: Comma-separated list of tag (taxonomy term) names.
+          example: "hpc, training"
+        registration_url:
+          type: string
+          format: uri
+          nullable: true
+          description: External registration URL, if the event links out rather than using native registration.
+          example: "https://example.org/register"
+        series_id:
+          type: string
+          description: The parent event series ID (as a string).
+          example: "1234"
+        registration:
+          $ref: '#/components/schemas/RegistrationState'
+
     Error:
       type: object
       properties:
@@ -402,6 +713,8 @@ components:
 tags:
   - name: Events
     description: ACCESS events, trainings, and webinars
+  - name: Event Detail
+    description: A single event's detail with its registration state (partitioned by caller)
 
 externalDocs:
   description: Find out more about ACCESS

@@ -242,8 +242,8 @@ class AnnouncementApiControllerTest extends KernelTestBase {
         'view own unpublished content',
         // Content-moderation gates node create/save on the initial transition;
         // without these a non-root user (uid > 1) fails ->access('create').
-        // Task 8's tests never hit this because their coordinator was uid 1
-        // (which bypasses access); Task 9's multi-user tests do.
+        // The write-endpoint tests never hit this because their coordinator
+        // was uid 1 (which bypasses access); the multi-user read tests do.
         'use editorial transition create_new_draft',
         'use editorial transition publish',
       ],
@@ -267,7 +267,7 @@ class AnnouncementApiControllerTest extends KernelTestBase {
   /**
    * Creates an UNSAVED affinity_group node coordinated by the given user ids.
    *
-   * Used by the pure-helper tests (Task 7): the helper reads field_coordinator
+   * Used by the coordinator-helper tests: the helper reads field_coordinator
    * off an already-loaded node and never saves it, so we skip ->save() to avoid
    * the affinity_group entity_presave fixture demand.
    *
@@ -314,7 +314,7 @@ class AnnouncementApiControllerTest extends KernelTestBase {
    * Builds a Request carrying the acting-user attribute + a JSON body.
    */
   protected function jsonRequest(int $actingUid, array $body): Request {
-    $request = Request::create('/api/1.0/announcements', 'POST', [], [], [], [], json_encode($body));
+    $request = Request::create('/api/2.3/announcements', 'POST', [], [], [], [], json_encode($body));
     $request->attributes->set('acting_user_uid', $actingUid);
     return $request;
   }
@@ -327,7 +327,7 @@ class AnnouncementApiControllerTest extends KernelTestBase {
   }
 
   // ---------------------------------------------------------------------------
-  // Task 7: the coordinator-authorization helper (kept green).
+  // The coordinator-authorization helper.
   // ---------------------------------------------------------------------------
 
   public function testCoordinatorMayPostToOwnGroup(): void {
@@ -381,7 +381,7 @@ class AnnouncementApiControllerTest extends KernelTestBase {
   }
 
   // ---------------------------------------------------------------------------
-  // Task 8: write endpoints — create / update / delete.
+  // Write endpoints — create / update / delete.
   // ---------------------------------------------------------------------------
 
   /**
@@ -516,7 +516,7 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     $groupA = $this->makeSavedGroup([(int) $coordinator->id()], 'Group A');
     $uuid = $this->createDraft($coordinator, $groupA, 'Original title');
 
-    $request = Request::create('/api/1.0/announcements/' . $uuid, 'PATCH', [], [], [], [], json_encode([
+    $request = Request::create('/api/2.3/announcements/' . $uuid, 'PATCH', [], [], [], [], json_encode([
       'title' => 'Edited title',
       'body' => ['value' => 'Edited body.'],
     ]));
@@ -542,14 +542,14 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     $groupA = $this->makeSavedGroup([(int) $coordinator->id()], 'Group A');
     $uuid = $this->createDraft($coordinator, $groupA, 'Title');
     // Give it a real body value first.
-    $seed = Request::create('/api/1.0/announcements/' . $uuid, 'PATCH', [], [], [], [], json_encode([
+    $seed = Request::create('/api/2.3/announcements/' . $uuid, 'PATCH', [], [], [], [], json_encode([
       'body' => ['value' => 'The full body text.', 'summary' => 'Old summary.'],
     ]));
     $seed->attributes->set('acting_user_uid', (int) $coordinator->id());
     $this->asActingUser($coordinator, fn () => $this->controller()->update($uuid, $seed));
 
     // Now change ONLY the summary.
-    $request = Request::create('/api/1.0/announcements/' . $uuid, 'PATCH', [], [], [], [], json_encode([
+    $request = Request::create('/api/2.3/announcements/' . $uuid, 'PATCH', [], [], [], [], json_encode([
       'body' => ['summary' => 'New summary.'],
     ]));
     $request->attributes->set('acting_user_uid', (int) $coordinator->id());
@@ -592,7 +592,7 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     $groupA = $this->makeSavedGroup([(int) $coordinator->id()], 'Group A');
     $uuid = $this->createDraft($coordinator, $groupA, 'Owned by coordinator');
 
-    $request = Request::create('/api/1.0/announcements/' . $uuid, 'PATCH', [], [], [], [], json_encode([
+    $request = Request::create('/api/2.3/announcements/' . $uuid, 'PATCH', [], [], [], [], json_encode([
       'title' => 'Hijacked',
     ]));
     $request->attributes->set('acting_user_uid', (int) $other->id());
@@ -616,7 +616,7 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     $uuid = $this->createDraft($coordinator, $groupA, 'To delete');
     $nid = (int) $this->loadByUuid($uuid)->id();
 
-    $request = Request::create('/api/1.0/announcements/' . $uuid, 'DELETE');
+    $request = Request::create('/api/2.3/announcements/' . $uuid, 'DELETE');
     $request->attributes->set('acting_user_uid', (int) $coordinator->id());
 
     $response = $this->asActingUser(
@@ -639,7 +639,7 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     $uuid = $this->createDraft($coordinator, $groupA, 'Owned by coordinator');
     $nid = (int) $this->loadByUuid($uuid)->id();
 
-    $request = Request::create('/api/1.0/announcements/' . $uuid, 'DELETE');
+    $request = Request::create('/api/2.3/announcements/' . $uuid, 'DELETE');
     $request->attributes->set('acting_user_uid', (int) $other->id());
 
     $response = $this->asActingUser(
@@ -652,7 +652,7 @@ class AnnouncementApiControllerTest extends KernelTestBase {
   }
 
   // ---------------------------------------------------------------------------
-  // Task 9: read endpoint — GET /api/1.0/announcements/mine.
+  // Read endpoint — GET /api/2.3/announcements/mine.
   // ---------------------------------------------------------------------------
 
   /**
@@ -787,11 +787,11 @@ class AnnouncementApiControllerTest extends KernelTestBase {
   }
 
   /**
-   * Builds a GET /api/1.0/announcements/mine request carrying the acting user.
+   * Builds a GET /api/2.3/announcements/mine request carrying the acting user.
    */
   protected function mineRequest(int $actingUid, ?int $limit = NULL): Request {
     $query = $limit === NULL ? [] : ['limit' => $limit];
-    $request = Request::create('/api/1.0/announcements/mine', 'GET', $query);
+    $request = Request::create('/api/2.3/announcements/mine', 'GET', $query);
     $request->attributes->set('acting_user_uid', $actingUid);
     return $request;
   }

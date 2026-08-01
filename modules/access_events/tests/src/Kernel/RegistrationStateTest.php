@@ -97,6 +97,41 @@ class RegistrationStateTest extends EventKernelTestBase {
   }
 
   /**
+   * The anonymous (uid 0) block omits per-user AND time-derived fields.
+   *
+   * registration_open (registrationIsOpen()) and registration_window.opens
+   * (reg_open=now for the 'open' dates-type) are wall-clock-derived — no cache
+   * tag can invalidate a clock comparison — so they must not appear in the
+   * cacheable anonymous payload. already_registered is per-user. Only the
+   * entity-derived fields survive for uid < 1.
+   */
+  public function testAnonymousBlockOmitsPerUserAndTimeDerivedFields(): void {
+    $instance = $this->createRegistrableInstance(capacity: 60, waitlist: FALSE);
+    $state = RegistrationState::forInstance($instance, 0);
+    // Entity-derived — present (cacheable):
+    $this->assertArrayHasKey('enabled', $state);
+    $this->assertArrayHasKey('capacity', $state);
+    $this->assertArrayHasKey('registered_count', $state);
+    $this->assertArrayHasKey('seats_remaining', $state);
+    $this->assertArrayHasKey('waitlist_enabled', $state);
+    // Omitted for anonymous:
+    $this->assertArrayNotHasKey('already_registered', $state);
+    $this->assertArrayNotHasKey('registration_open', $state);
+    $this->assertArrayNotHasKey('registration_window', $state);
+  }
+
+  /**
+   * The acting-user (uid >= 1) block keeps all fields, including time-derived.
+   */
+  public function testActingUserBlockKeepsAllFields(): void {
+    $instance = $this->createRegistrableInstance(capacity: 60, waitlist: FALSE);
+    $state = RegistrationState::forInstance($instance, (int) $this->owner->id());
+    $this->assertArrayHasKey('registration_open', $state);
+    $this->assertArrayHasKey('registration_window', $state);
+    $this->assertArrayHasKey('already_registered', $state);
+  }
+
+  /**
    * Zero (unlimited) capacity reports null capacity and null seats_remaining.
    */
   public function testUnlimitedCapacityReportsNulls(): void {

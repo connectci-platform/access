@@ -12,7 +12,7 @@ use Drupal\user\RoleInterface;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
- * Tests the published/access gate on GET /api/1.0/events/{eventinstance_id}.
+ * Tests the published/access gate on GET /api/2.3/events/{eventinstance_id}.
  *
  * The detail read applies an IN-CONTROLLER entity-access gate
  * ($eventinstance->access('view', $user, TRUE)) so an unpublished instance is
@@ -24,8 +24,9 @@ use Symfony\Component\HttpFoundation\Request;
  * This is a SEPARATE class from EventDetailApiControllerTest deliberately: the
  * hook only fires when access_events (+ its key/content_moderation/access_misc
  * service deps) is enabled, and access_misc overrides the registrant access
- * handler — which would perturb Task 5's register/cancel tests. Scoping the
- * extra modules here keeps those tests on the untouched base module list.
+ * handler — which would perturb the register/cancel tests on the base class.
+ * Scoping the extra modules here keeps those tests on the untouched base
+ * module list.
  *
  * @covers \Drupal\access_events\Controller\EventDetailApiController::get
  * @group access_events
@@ -77,9 +78,16 @@ class EventDetailPublishedGateTest extends EventKernelTestBase {
     // The contrib EventInstanceAccessControlHandler grants view of a PUBLISHED
     // instance only to accounts holding 'view eventinstance entity'. The base
     // class grants only the registrant permissions, so grant this too or the
-    // published-visible-to-stranger assertion would (wrongly) fail closed.
+    // published-visible-to-stranger assertion would (wrongly) fail closed. Grant
+    // it to ANONYMOUS as well: a published event is a public read (the anonymous
+    // cacheable-response path evaluates access with a null $user, i.e. as the
+    // anonymous role), matching production where published events are public.
     $this->grantPermissions(
       Role::load(RoleInterface::AUTHENTICATED_ID),
+      ['view eventinstance entity'],
+    );
+    $this->grantPermissions(
+      Role::load(RoleInterface::ANONYMOUS_ID),
       ['view eventinstance entity'],
     );
   }
@@ -125,7 +133,7 @@ class EventDetailPublishedGateTest extends EventKernelTestBase {
    * Builds a GET request carrying the acting-user attribute and returns get().
    */
   private function getDetail($instance, int $actingUid) {
-    $request = Request::create('/api/1.0/events/' . $instance->id());
+    $request = Request::create('/api/2.3/events/' . $instance->id());
     $request->attributes->set('acting_user_uid', $actingUid);
     \Drupal::requestStack()->push($request);
 
@@ -175,6 +183,63 @@ class EventDetailPublishedGateTest extends EventKernelTestBase {
     $this->assertSame((string) $instance->id(), (string) $data['id']);
     $this->assertSame('Registrable Event', $data['title']);
     $this->assertArrayHasKey('registration', $data);
+  }
+
+  /**
+   * The anonymous response is a cacheable JsonResponse carrying the
+   * eventinstance cache tag + the anonymous-roles context, and omits the
+   * per-user registration overlay.
+   */
+  public function testAnonymousResponseIsCacheableWithEventinstanceTag(): void {
+    $instance = $this->createRegistrableInstance();
+    $instance->set('uid', $this->owner->id())->save();
+    // Anonymous: no acting_user_uid attribute.
+    $request = Request::create('/api/2.3/events/' . $instance->id());
+    \Drupal::requestStack()->push($request);
+    $response = EventDetailApiController::create(\Drupal::getContainer())->get($instance);
+    $this->assertInstanceOf(\Drupal\Core\Cache\CacheableResponseInterface::class, $response);
+    $tags = $response->getCacheableMetadata()->getCacheTags();
+    $this->assertContains('eventinstance:' . $instance->id(), $tags);
+    $contexts = $response->getCacheableMetadata()->getCacheContexts();
+    $this->assertContains('user.roles:anonymous', $contexts);
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertArrayNotHasKey('already_registered', $data['registration']);
+  }
+
+  /**
+   * The acting-user response is NOT shared-cacheable: not a
+   * CacheableJsonResponse and max-age 0 (private per-user overlay).
+   */
+  public function testActingUserResponseIsPrivateNotShareable(): void {
+    $instance = $this->createRegistrableInstance();
+    $response = $this->asActingUser($this->owner, function () use ($instance) {
+      $request = Request::create('/api/2.3/events/' . $instance->id());
+      $request->attributes->set('acting_user_uid', (int) $this->owner->id());
+      \Drupal::requestStack()->push($request);
+      return EventDetailApiController::create(\Drupal::getContainer())->get($instance);
+    });
+    $this->assertNotInstanceOf(\Drupal\Core\Cache\CacheableResponseInterface::class, $response);
+    $this->assertSame(0, $response->getMaxAge());
+  }
+
+  /**
+   * A registrant's cache-tag set includes the eventinstance tag, so registering
+   * or cancelling invalidates the cached anonymous seat-count response.
+   */
+  public function testRegistrationInvalidatesEventinstanceTag(): void {
+    $instance = $this->createRegistrableInstance();
+    // An UNSAVED Registrant resolves getEventInstance() from its eventinstance_id
+    // field, so getCacheTagsToInvalidate() returns the eventinstance tag without a
+    // save (avoids the disabled notification/mail side effects a real save fires).
+    $registrant = \Drupal\recurring_events_registration\Entity\Registrant::create([
+      'bundle' => $instance->getType(),
+      'type' => $instance->getType(),
+      'user_id' => (int) $this->owner->id(),
+      'eventinstance_id' => $instance->id(),
+      'eventseries_id' => $instance->get('eventseries_id')->target_id,
+      'waitlist' => 0,
+    ]);
+    $this->assertContains('eventinstance:' . $instance->id(), $registrant->getCacheTagsToInvalidate());
   }
 
   /**

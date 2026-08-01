@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Drupal\access_events\Controller;
 
 use Drupal\access_events\RegistrationState;
+use Drupal\Core\Cache\CacheableJsonResponse;
+use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events_registration\Entity\Registrant;
@@ -14,7 +16,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 
 /**
- * Serves the ACCESS event detail API: GET /api/1.0/events/{eventinstance_id}.
+ * Serves the ACCESS event detail API: GET /api/2.3/events/{eventinstance_id}.
  *
  * Read-only. The route is gated by the ActingUserAccess acting-user gate, which
  * resolves X-Acting-User and sets the acting_user_uid request
@@ -33,7 +35,7 @@ class EventDetailApiController extends ControllerBase {
   }
 
   /**
-   * GET /api/1.0/events/{eventinstance_id}.
+   * GET /api/2.3/events/{eventinstance_id}.
    *
    * @param \Drupal\recurring_events\Entity\EventInstance $eventinstance
    *   The event instance, resolved by the entity param converter.
@@ -56,12 +58,29 @@ class EventDetailApiController extends ControllerBase {
       ? $this->entityTypeManager()->getStorage('user')->load($uid)
       : NULL;
     if (!$eventinstance->access('view', $user, TRUE)->isAllowed()) {
+      // 404 refusal stays UNCACHED (a cached 404 would stick after publish).
       return $this->refuse('not_found', 'Event not found.', 404);
     }
 
-    return (new JsonResponse($this->detail($eventinstance, $uid)))
-      ->setPrivate()
-      ->setMaxAge(0);
+    $data = $this->detail($eventinstance, $uid);
+
+    if ($uid < 1) {
+      // Anonymous public read — cacheable. The eventinstance cache tag covers
+      // BOTH event edits/unpublish AND registration-count changes (the
+      // Registrant entity invalidates eventinstance:{id} on register/cancel).
+      // access('view') above is used as a boolean gate ONLY — its AccessResult's
+      // ['user'] context is deliberately NOT bubbled (it would fragment the
+      // anonymous cache per-user and defeat caching).
+      $cache = new CacheableMetadata();
+      $cache->addCacheableDependency($eventinstance);
+      $cache->addCacheContexts(['user.roles:anonymous']);
+      $response = new CacheableJsonResponse($data);
+      $response->addCacheableDependency($cache);
+      return $response;
+    }
+
+    // Acting-user branch — carries the per-user overlay, never shared-cached.
+    return (new JsonResponse($data))->setPrivate()->setMaxAge(0);
   }
 
   /**

@@ -41,7 +41,7 @@ class AnnouncementApiController extends ControllerBase {
   ];
 
   /**
-   * POST /api/1.0/announcements — create a draft announcement.
+   * POST /api/2.3/announcements — create a draft announcement.
    *
    * Named createAnnouncement (not create) because ControllerBase::create() is
    * the static service factory and cannot be overridden by an instance method.
@@ -63,8 +63,8 @@ class AnnouncementApiController extends ControllerBase {
     $values = [
       'type' => 'access_news',
       // Author = acting user. The switch already makes the acting user the
-      // owner on save; set it explicitly for clarity (load-bearing: Task 9's
-      // get_my_announcements relies on 'view own unpublished').
+      // owner on save; set it explicitly for clarity (load-bearing: the
+      // get_my_announcements draft read relies on 'view own unpublished').
       'uid' => $uid,
       // Draft-only, hardcoded. Any caller moderation_state/status is ignored.
       'moderation_state' => 'draft',
@@ -72,7 +72,7 @@ class AnnouncementApiController extends ControllerBase {
       'field_affinity_group_node' => array_map(fn (NodeInterface $n) => $n->id(), $groupNodes),
       'field_tags' => $this->resolveTagTerms($body['field_tags'] ?? []),
     ];
-    $this->applyContentFields($values, $body, TRUE);
+    $this->applyContentFields($values, $body);
 
     $node = Node::create($values);
 
@@ -91,7 +91,7 @@ class AnnouncementApiController extends ControllerBase {
   }
 
   /**
-   * GET /api/1.0/announcements/mine — the acting user's own announcements.
+   * GET /api/2.3/announcements/mine — the acting user's own announcements.
    *
    * Returns the acting user's own published announcements plus their own drafts,
    * newest first. Running switched as the acting user with accessCheck(TRUE)
@@ -143,7 +143,7 @@ class AnnouncementApiController extends ControllerBase {
   }
 
   /**
-   * PATCH /api/1.0/announcements/{uuid} — update an announcement's content.
+   * PATCH /api/2.3/announcements/{uuid} — update an announcement's content.
    */
   public function update(string $uuid, Request $request): JsonResponse {
     $node = $this->loadAnnouncement($uuid);
@@ -177,7 +177,7 @@ class AnnouncementApiController extends ControllerBase {
     // Content fields only — NEVER moderation_state. Pass the node so a partial
     // body update (value OR summary alone) preserves the untouched half.
     $values = [];
-    $this->applyContentFields($values, $body, FALSE, $node);
+    $this->applyContentFields($values, $body, $node);
     foreach ($values as $field => $value) {
       $node->set($field, $value);
     }
@@ -193,7 +193,7 @@ class AnnouncementApiController extends ControllerBase {
   }
 
   /**
-   * DELETE /api/1.0/announcements/{uuid} — delete an announcement.
+   * DELETE /api/2.3/announcements/{uuid} — delete an announcement.
    */
   public function delete(string $uuid, Request $request): JsonResponse {
     $node = $this->loadAnnouncement($uuid);
@@ -296,7 +296,9 @@ class AnnouncementApiController extends ControllerBase {
       if (!is_string($uuid) || $uuid === '') {
         continue;
       }
-      $matches = $storage->loadByProperties(['uuid' => $uuid]);
+      // Scope to the tags vocabulary so an out-of-vocabulary UUID is dropped
+      // here (fail-closed), symmetric with resolveGroupNodes.
+      $matches = $storage->loadByProperties(['uuid' => $uuid, 'vid' => 'tags']);
       if ($matches) {
         $ids[] = (int) reset($matches)->id();
       }
@@ -330,11 +332,14 @@ class AnnouncementApiController extends ControllerBase {
    *   The values array being built (by reference).
    * @param array $body
    *   The decoded request body.
-   * @param bool $isCreate
-   *   TRUE for create (only set present keys), TRUE/FALSE both only set keys the
-   *   caller supplied so update leaves omitted fields untouched.
+   * @param \Drupal\node\NodeInterface|null $existing
+   *   The node being updated, or NULL on create. When set, a partial body
+   *   update (value OR summary alone) preserves the untouched half.
+   *
+   * Only keys the caller supplied are set, so an update leaves omitted fields
+   * untouched.
    */
-  private function applyContentFields(array &$values, array $body, bool $isCreate, ?NodeInterface $existing = NULL): void {
+  private function applyContentFields(array &$values, array $body, ?NodeInterface $existing = NULL): void {
     foreach (self::CONTENT_ATTRIBUTES as $field) {
       if (array_key_exists($field, $body)) {
         $values[$field] = $body[$field];

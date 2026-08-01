@@ -122,4 +122,39 @@ class ActingUserAccessTest extends KernelTestBase {
     $this->assertInstanceOf(AccessResultAllowed::class, $result);
     $this->assertSame((int) $email_user->id(), $request->attributes->get('acting_user_uid'));
   }
+
+  public function testResolveAllowsAnonymousWithNoHeader(): void {
+    $gate = new ActingUserAccess(\Drupal::entityTypeManager());
+    $anon = new \Drupal\Core\Session\AnonymousUserSession();
+    $request = \Symfony\Component\HttpFoundation\Request::create('/api/2.3/events/1');
+    $result = $gate->resolve($anon, $request);
+    $this->assertTrue($result->isAllowed());
+    $this->assertLessThan(1, (int) $request->attributes->get('acting_user_uid', 0));
+  }
+
+  public function testResolveForbidsHeaderFromNonServiceCaller(): void {
+    // Confused-deputy: an anonymous/non-service caller sending X-Acting-User must be FORBIDDEN.
+    $gate = new ActingUserAccess(\Drupal::entityTypeManager());
+    $target = \Drupal\user\Entity\User::create(['name' => 'cd-target@access-ci.org', 'mail' => 'cd@example.com', 'status' => 1]);
+    $target->save();
+    $nonService = new \Drupal\Core\Session\AnonymousUserSession();
+    $request = \Symfony\Component\HttpFoundation\Request::create('/api/2.3/events/1');
+    $request->headers->set('X-Acting-User', $target->getAccountName());
+    $result = $gate->resolve($nonService, $request);
+    $this->assertTrue($result->isForbidden());
+  }
+
+  public function testResolveWithServiceCallerAndHeaderSetsActingUid(): void {
+    $service = \Drupal\user\Entity\User::create(['name' => 'resolve-svc', 'mail' => 'rsvc@example.com', 'status' => 1]);
+    $service->addRole('mcp_service'); // role already exists from setUp
+    $service->save();
+    $target = \Drupal\user\Entity\User::create(['name' => 'resolve-target@access-ci.org', 'mail' => 'rt@example.com', 'status' => 1]);
+    $target->save();
+    $gate = new ActingUserAccess(\Drupal::entityTypeManager());
+    $request = \Symfony\Component\HttpFoundation\Request::create('/api/2.3/events/1');
+    $request->headers->set('X-Acting-User', $target->getAccountName());
+    $result = $gate->resolve($service, $request);
+    $this->assertTrue($result->isAllowed());
+    $this->assertSame((int) $target->id(), (int) $request->attributes->get('acting_user_uid'));
+  }
 }

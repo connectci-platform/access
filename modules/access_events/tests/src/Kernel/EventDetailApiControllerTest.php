@@ -8,7 +8,7 @@ use Drupal\access_events\Controller\EventDetailApiController;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
- * Tests the GET /api/1.0/events/{eventinstance_id} detail route.
+ * Tests the GET /api/2.3/events/{eventinstance_id} detail route.
  *
  * @covers \Drupal\access_events\Controller\EventDetailApiController
  * @group access_events
@@ -21,7 +21,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
   public function testGetReturnsDetailAndRegistration(): void {
     $instance = $this->createRegistrableInstance(capacity: 60, waitlist: TRUE);
 
-    $request = Request::create('/api/1.0/events/' . $instance->id());
+    $request = Request::create('/api/2.3/events/' . $instance->id());
     $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
@@ -63,7 +63,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
   public function testGetNonRegistrableInstanceHasBareRegistrationFalse(): void {
     $instance = $this->createNonRegistrableInstance();
 
-    $request = Request::create('/api/1.0/events/' . $instance->id());
+    $request = Request::create('/api/2.3/events/' . $instance->id());
     $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
@@ -84,7 +84,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
   public function testAbsentInheritedFieldsAreNull(): void {
     $instance = $this->createRegistrableInstance();
 
-    $request = Request::create('/api/1.0/events/' . $instance->id());
+    $request = Request::create('/api/2.3/events/' . $instance->id());
     $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
@@ -118,7 +118,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
       tagNames: ['HPC', 'Machine Learning'],
     );
 
-    $request = Request::create('/api/1.0/events/' . $instance->id());
+    $request = Request::create('/api/2.3/events/' . $instance->id());
     $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
@@ -152,7 +152,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
       skillLevelKey: 'Beginner',
     );
 
-    $request = Request::create('/api/1.0/events/' . $instance->id());
+    $request = Request::create('/api/2.3/events/' . $instance->id());
     $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
