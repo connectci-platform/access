@@ -9,10 +9,13 @@ use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\field_inheritance\Entity\FieldInheritance;
 use Drupal\KernelTests\KernelTestBase;
+use Drupal\Tests\user\Traits\UserCreationTrait;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events\Entity\EventSeries;
 use Drupal\recurring_events_registration\Entity\Registrant;
+use Drupal\user\Entity\Role;
 use Drupal\user\Entity\User;
+use Drupal\user\RoleInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -24,6 +27,8 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * @group access_events
  */
 class RegistrationApiTest extends KernelTestBase {
+
+  use UserCreationTrait;
 
   /**
    * {@inheritdoc}
@@ -130,6 +135,18 @@ class RegistrationApiTest extends KernelTestBase {
       'status' => 1,
     ]);
     $this->otherUser->save();
+
+    // Fixture users implicitly have the authenticated role; install its config
+    // + grant 'delete own registrant entities' so the owner-cancel path passes
+    // the explicit $registrant->access('delete', $owner) assertion exactly as in
+    // production. A non-owner (who lacks 'delete registrant entities') is still
+    // denied by that same entity-access handler — the security property under
+    // test after the manual owner-compare was removed from the controller.
+    $this->installConfig(['user']);
+    $this->grantPermissions(
+      Role::load(RoleInterface::AUTHENTICATED_ID),
+      ['delete own registrant entities'],
+    );
   }
 
   /**
@@ -364,6 +381,13 @@ class RegistrationApiTest extends KernelTestBase {
 
   /**
    * Cancelling another user's registration is denied AND the row survives.
+   *
+   * The acting user is a REAL, existing non-owner ($this->otherUser) who holds
+   * only 'delete own registrant entities' — so the refusal comes from the
+   * registrant access handler's delete branch (a non-owner needs the broader
+   * 'delete registrant entities', which they lack), NOT from a null-user
+   * short-circuit. This is the security property the removed manual owner-compare
+   * used to provide: it must now hold via entity access.
    */
   public function testCancelAnotherUsersRegistrationForbidden(): void {
     $instance = $this->createInstance('Future Event', '2999-01-01T10:00:00', '2999-01-01T12:00:00');
@@ -375,7 +399,7 @@ class RegistrationApiTest extends KernelTestBase {
     $denied = FALSE;
     try {
       RegistrationApiController::create($this->container)
-        ->cancel($uuid, $this->cancelRequest($uuid, 999999));
+        ->cancel($uuid, $this->cancelRequest($uuid, (int) $this->otherUser->id()));
     }
     catch (AccessDeniedHttpException $e) {
       $denied = TRUE;

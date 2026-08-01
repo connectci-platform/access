@@ -1,0 +1,618 @@
+openapi: 3.0.3
+info:
+  title: ACCESS Announcements API
+  description: |
+    The ACCESS Announcements API v2.3 provides authenticated, acting-user endpoints for authoring
+    and managing news announcements in the ACCESS community.
+
+    Unlike the public read-only v2.2 announcements listing (JSON:API based), these are
+    custom-controller endpoints that accept and return plain JSON bodies. They let an
+    authenticated acting user create, update, delete, and list their own announcements.
+
+    ## What's New in v2.3
+    - **Authoring endpoints**: Create, update, and delete announcements on behalf of an acting user
+    - **List your own**: Retrieve the acting user's own announcements (published + drafts)
+    - **Plain JSON**: Requests and responses use flat JSON bodies, not JSON:API envelopes
+
+    ## Draft-only authoring
+    New announcements are **always created as drafts** (the moderation state is hardcoded
+    server-side). The API does not accept a `moderation_state` field, and update operations
+    never change the moderation state or publish an announcement. Publishing is handled through
+    the editorial workflow in the site, not this API.
+
+    ## Coordinator authorization
+    When an announcement targets one or more affinity groups (`field_affinity_group_node`), the
+    acting user must coordinate **every** group listed, unless they hold the `administrator` or
+    `news_pm` role. Requests that reference a group the acting user does not coordinate are
+    rejected with a `409 not_coordinator` response.
+
+    ## Tags
+    On the wire, `field_tags` are taxonomy-term UUIDs. Higher-level tools (such as the MCP
+    announcements tool) accept human-readable tag **names** and resolve them to UUIDs before
+    calling this API. The `GET /announcements/mine` listing returns tags as English names for
+    readability.
+
+    ## Authentication
+    These endpoints require acting-user authentication. Requests are made by a service account
+    (authenticated as `mcp_service`) that passes an `X-Acting-User` header identifying the ACCESS
+    user on whose behalf the operation is performed. All create, update, delete, and list
+    operations are authorized against that acting user's permissions and coordination. Requests
+    with no valid acting user are rejected with `403`.
+
+  version: 2.3.0
+  termsOfService: https://access-ci.org/terms
+  contact:
+    name: ACCESS Support
+    url: https://support.access-ci.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://support.access-ci.org/api/2.3
+    description: Production server
+
+paths:
+  /announcements:
+    post:
+      summary: Create a draft announcement
+      description: |
+        Create a new announcement on behalf of the acting user.
+
+        Announcements are **always created as drafts** — the moderation state is hardcoded
+        server-side and a `moderation_state` field is not accepted. If `field_published_date`
+        is omitted it defaults to today (server-side).
+
+        If `field_affinity_group_node` lists one or more affinity groups, the acting user must
+        coordinate every group listed, unless they hold the `administrator` or `news_pm` role.
+      operationId: createAnnouncement
+      tags:
+        - Announcements
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnnouncementWriteRequired'
+            examples:
+              minimal:
+                summary: Minimal draft announcement
+                value:
+                  title: "New Funding Opportunity for AI Research"
+                  body:
+                    value: "<p>The NSF has announced a new funding opportunity...</p>"
+                    summary: "The NSF has announced a new funding opportunity for AI research."
+              full:
+                summary: Draft announcement with tags and affinity groups
+                value:
+                  title: "Anvil Maintenance Window"
+                  body:
+                    value: "<p>Anvil will be unavailable during the scheduled maintenance window.</p>"
+                    summary: "Scheduled maintenance for Anvil."
+                  field_published_date: "2026-08-15"
+                  field_affiliation: "ACCESS Collaboration"
+                  field_tags:
+                    - "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
+                  field_affinity_group_node:
+                    - "550e8400-e29b-41d4-a716-446655440000"
+                  field_news_external_link:
+                    uri: "https://www.rcac.purdue.edu/knowledge/anvil"
+                    title: "Anvil documentation"
+                  field_choose_where_to_share_this:
+                    - on_the_announcements_page
+                    - in_the_access_support_bi_weekly_digest
+      responses:
+        '200':
+          description: Announcement created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateResponse'
+              examples:
+                created:
+                  summary: Successful creation
+                  value:
+                    success: true
+                    uuid: "550e8400-e29b-41d4-a716-446655440000"
+                    nid: 12345
+                    title: "New Funding Opportunity for AI Research"
+                    edit_url: "https://support.access-ci.org/node/12345/edit"
+        '403':
+          description: |
+            Not authenticated or not permitted — no valid acting user, or the acting user is not
+            allowed to create announcements.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                no_acting_user:
+                  summary: No acting user supplied
+                  value:
+                    error: "forbidden"
+                    message: "No acting user; announcement creation is not permitted."
+        '409':
+          description: |
+            The acting user does not coordinate one or more of the selected affinity groups.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_coordinator:
+                  summary: Acting user does not coordinate a selected group
+                  value:
+                    error: "not_coordinator"
+                    message: "The acting user does not coordinate all selected affinity groups."
+
+  /announcements/{uuid}:
+    patch:
+      summary: Update an announcement
+      description: |
+        Update an existing announcement on behalf of the acting user. Only the fields present
+        in the request body are changed; omitted fields are left untouched. A partial body such
+        as `{"body": {"summary": "..."}}` updates only the summary and preserves the untouched
+        HTML value.
+
+        This operation **never** changes the moderation state or publishes the announcement.
+        If `field_affinity_group_node` is included, the coordinator check is re-run against the
+        new set of groups.
+      operationId: updateAnnouncement
+      tags:
+        - Announcements
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          description: The UUID of the announcement to update.
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnnouncementWrite'
+            examples:
+              partial_summary:
+                summary: Update only the summary (preserves the HTML body value)
+                value:
+                  body:
+                    summary: "Updated summary text."
+              retag:
+                summary: Change tags and affinity groups (re-runs the coordinator check)
+                value:
+                  field_tags:
+                    - "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
+                  field_affinity_group_node:
+                    - "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Announcement updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateResponse'
+              examples:
+                updated:
+                  summary: Successful update
+                  value:
+                    success: true
+                    uuid: "550e8400-e29b-41d4-a716-446655440000"
+                    title: "New Funding Opportunity for AI Research"
+                    edit_url: "https://support.access-ci.org/node/12345/edit"
+        '403':
+          description: |
+            Forbidden — no valid acting user, the acting user is not the owner, or update access
+            is otherwise denied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  summary: Acting user is not permitted to update this announcement
+                  value:
+                    error: "forbidden"
+                    message: "The acting user is not permitted to update this announcement."
+        '404':
+          description: No announcement exists with the given UUID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_found:
+                  summary: Announcement not found
+                  value:
+                    error: "not_found"
+                    message: "No announcement found for the given UUID."
+        '409':
+          description: |
+            The acting user does not coordinate one or more of the selected affinity groups.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_coordinator:
+                  summary: Acting user does not coordinate a selected group
+                  value:
+                    error: "not_coordinator"
+                    message: "The acting user does not coordinate all selected affinity groups."
+
+    delete:
+      summary: Delete an announcement
+      description: |
+        Delete an announcement on behalf of the acting user. The acting user must be permitted
+        to delete the announcement (for example, as its owner).
+      operationId: deleteAnnouncement
+      tags:
+        - Announcements
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          description: The UUID of the announcement to delete.
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Announcement deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
+              examples:
+                deleted:
+                  summary: Successful deletion
+                  value:
+                    success: true
+                    uuid: "550e8400-e29b-41d4-a716-446655440000"
+        '403':
+          description: |
+            Forbidden — no valid acting user, or the acting user is not permitted to delete this
+            announcement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  summary: Acting user is not permitted to delete this announcement
+                  value:
+                    error: "forbidden"
+                    message: "The acting user is not permitted to delete this announcement."
+        '404':
+          description: No announcement exists with the given UUID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_found:
+                  summary: Announcement not found
+                  value:
+                    error: "not_found"
+                    message: "No announcement found for the given UUID."
+
+  /announcements/mine:
+    get:
+      summary: List the acting user's own announcements
+      description: |
+        Retrieve announcements authored by the acting user, including both their own published
+        announcements and their own drafts.
+
+        To support client-side pagination, the endpoint returns at most `limit + 1` items so the
+        client can determine whether more items are available (`has_more`).
+      operationId: getMyAnnouncements
+      tags:
+        - Announcements
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: |
+            Maximum number of announcements to return. The endpoint returns at most `limit + 1`
+            items so the client can compute `has_more`.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+          example: 20
+      responses:
+        '200':
+          description: The acting user's own announcements
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyAnnouncementsResponse'
+              examples:
+                mine:
+                  summary: Example listing of the acting user's announcements
+                  value:
+                    items:
+                      - uuid: "550e8400-e29b-41d4-a716-446655440000"
+                        nid: 12345
+                        title: "New Funding Opportunity for AI Research"
+                        status: "published"
+                        created: 1723680000
+                        published_date: "2026-08-15"
+                        summary: "The NSF has announced a new funding opportunity for AI research."
+                        tags:
+                          - "funding"
+                          - "ai"
+                        edit_url: "https://support.access-ci.org/node/12345/edit"
+                      - uuid: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+                        nid: 12346
+                        title: "Draft: Upcoming Anvil Maintenance"
+                        status: "draft"
+                        created: 1723766400
+                        published_date: null
+                        summary: "Scheduled maintenance for Anvil."
+                        tags: []
+                        edit_url: "https://support.access-ci.org/node/12346/edit"
+        '403':
+          description: No valid acting user was supplied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                no_acting_user:
+                  summary: No acting user supplied
+                  value:
+                    error: "forbidden"
+                    message: "No acting user; cannot list announcements."
+
+components:
+  schemas:
+    Body:
+      description: |
+        The announcement body. May be an object with an HTML `value` and an optional plain-text
+        `summary`, or a plain string (treated as the HTML value).
+      oneOf:
+        - type: object
+          properties:
+            value:
+              type: string
+              description: The HTML body of the announcement.
+              example: "<p>The NSF has announced a new funding opportunity...</p>"
+            summary:
+              type: string
+              description: Optional plain-text summary/excerpt.
+              example: "The NSF has announced a new funding opportunity for AI research."
+          description: >-
+            On create, `value` is required (the create request requires a body).
+            On update, either `value` or `summary` may be sent alone; the
+            controller preserves the half not supplied.
+        - type: string
+          description: The HTML body of the announcement.
+          example: "<p>The NSF has announced a new funding opportunity...</p>"
+
+    ExternalLink:
+      type: object
+      description: An external link associated with the announcement.
+      properties:
+        uri:
+          type: string
+          format: uri
+          description: The external URL.
+          example: "https://www.rcac.purdue.edu/knowledge/anvil"
+        title:
+          type: string
+          description: Optional link title.
+          example: "Anvil documentation"
+      required:
+        - uri
+
+    AnnouncementWrite:
+      type: object
+      description: |
+        Writable announcement fields. Used for updates, where every field is optional and only
+        the fields present in the request body are changed. `moderation_state` is not accepted —
+        announcements are draft-only and this API never publishes.
+      properties:
+        title:
+          type: string
+          description: Announcement title.
+          example: "New Funding Opportunity for AI Research"
+        body:
+          $ref: '#/components/schemas/Body'
+        field_published_date:
+          type: string
+          format: date
+          description: Publication date (YYYY-MM-DD). Defaults to today (server-side) when omitted on create.
+          example: "2026-08-15"
+        field_affiliation:
+          type: string
+          description: Organizational affiliation.
+          example: "ACCESS Collaboration"
+        field_tags:
+          type: array
+          description: |
+            Taxonomy-term UUIDs for tags. On the wire these are UUIDs; higher-level tools accept
+            tag names and resolve them to UUIDs before calling this API.
+          items:
+            type: string
+            format: uuid
+          example:
+            - "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
+        field_affinity_group_node:
+          type: array
+          description: |
+            Affinity-group node UUIDs the announcement targets. The acting user must coordinate
+            every group listed, unless they hold the `administrator` or `news_pm` role.
+          items:
+            type: string
+            format: uuid
+          example:
+            - "550e8400-e29b-41d4-a716-446655440000"
+        field_news_external_link:
+          $ref: '#/components/schemas/ExternalLink'
+        field_choose_where_to_share_this:
+          type: array
+          description: >-
+            Where to share the announcement. Machine values only (the
+            underlying field is a fixed list).
+          items:
+            type: string
+            enum:
+              - on_the_announcements_page
+              - in_the_access_support_bi_weekly_digest
+              - on_your_affinity_group_page
+              - email_to_your_affinity_group
+          example:
+            - on_the_announcements_page
+            - in_the_access_support_bi_weekly_digest
+
+    AnnouncementWriteRequired:
+      description: |
+        Writable announcement fields for creation. `title` and `body` are required; all other
+        fields are optional. `moderation_state` is not accepted — new announcements are always
+        created as drafts.
+      allOf:
+        - $ref: '#/components/schemas/AnnouncementWrite'
+        - type: object
+          required:
+            - title
+            - body
+
+    CreateResponse:
+      type: object
+      description: Response returned after successfully creating an announcement.
+      properties:
+        success:
+          type: boolean
+          example: true
+        uuid:
+          type: string
+          format: uuid
+          description: UUID of the created announcement.
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        nid:
+          type: integer
+          description: Numeric node ID of the created announcement.
+          example: 12345
+        title:
+          type: string
+          example: "New Funding Opportunity for AI Research"
+        edit_url:
+          type: string
+          format: uri
+          description: URL to edit the announcement in the site.
+          example: "https://support.access-ci.org/node/12345/edit"
+
+    UpdateResponse:
+      type: object
+      description: Response returned after successfully updating an announcement.
+      properties:
+        success:
+          type: boolean
+          example: true
+        uuid:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        title:
+          type: string
+          example: "New Funding Opportunity for AI Research"
+        edit_url:
+          type: string
+          format: uri
+          example: "https://support.access-ci.org/node/12345/edit"
+
+    DeleteResponse:
+      type: object
+      description: Response returned after successfully deleting an announcement.
+      properties:
+        success:
+          type: boolean
+          example: true
+        uuid:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+    MyAnnouncement:
+      type: object
+      description: A single announcement in the acting user's own listing.
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        nid:
+          type: integer
+          description: Numeric node ID.
+          example: 12345
+        title:
+          type: string
+          example: "New Funding Opportunity for AI Research"
+        status:
+          type: string
+          description: Moderation status of the announcement.
+          enum: [published, draft]
+          example: "published"
+        created:
+          type: integer
+          description: Creation time as a Unix timestamp.
+          example: 1723680000
+        published_date:
+          type: string
+          format: date
+          nullable: true
+          description: Publication date (YYYY-MM-DD), or null if not set.
+          example: "2026-08-15"
+        summary:
+          type: string
+          description: Plain-text summary/excerpt.
+          example: "The NSF has announced a new funding opportunity for AI research."
+        tags:
+          type: array
+          description: Tag names (English), not UUIDs.
+          items:
+            type: string
+          example:
+            - "funding"
+            - "ai"
+        edit_url:
+          type: string
+          format: uri
+          example: "https://support.access-ci.org/node/12345/edit"
+
+    MyAnnouncementsResponse:
+      type: object
+      description: |
+        Listing of the acting user's own announcements. Returns at most `limit + 1` items so the
+        client can compute `has_more`.
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyAnnouncement'
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error type (e.g. `forbidden`, `not_found`, `not_coordinator`).
+        message:
+          type: string
+          description: Human-readable error message.
+        code:
+          type: integer
+          description: HTTP status code.
+
+tags:
+  - name: Announcements
+    description: ACCESS community announcements and news (acting-user authoring endpoints)
+
+externalDocs:
+  description: Find out more about ACCESS
+  url: https://access-ci.org

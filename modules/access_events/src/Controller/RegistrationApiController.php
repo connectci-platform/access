@@ -52,9 +52,11 @@ class RegistrationApiController extends ControllerBase {
     }
     $now = gmdate('Y-m-d\TH:i:s');
     $storage = $this->etm->getStorage('registrant');
-    // Access is gated by the route's _custom_access (acting-user check) and the
-    // query is hard-scoped to this user's uid. Entity access would evaluate
-    // against the SERVICE account, not the acting user — so bypass it here.
+    // accessCheck(FALSE) stays load-bearing: this query is hard-scoped to the
+    // acting user's own uid, but no role grants 'view registrant entities', so a
+    // list-view entity-access pass would filter every row out even for the
+    // owner. Access is instead gated by the route's _custom_access (acting-user
+    // check) plus the explicit user_id scope.
     $query = $storage->getQuery()->condition('user_id', $uid)->accessCheck(FALSE);
     if ($when === 'upcoming') {
       $query->condition('eventinstance_id.entity.date.end_value', $now, '>=')
@@ -113,15 +115,18 @@ class RegistrationApiController extends ControllerBase {
     if (!$registrant) {
       throw new NotFoundHttpException('Registration not found.');
     }
-    // Ownership check in the controller (NOT via entity access — the site's
-    // registrant access handler is overridden by access_misc and denies even
-    // the owner). A user may cancel ONLY their own registration.
-    if ((int) $registrant->getOwnerId() !== $uid) {
+    // Authorization is enforced by explicit entity access under the switched
+    // acting user (the ActingUserSwitchSubscriber has switched the request to
+    // this uid). EntityBase::delete() itself invokes no access handler, so the
+    // assertion below IS the boundary: the registrant delete handler (contrib
+    // RegistrantAccessControlHandler, overridden by access_misc) ALLOWS the
+    // owner via 'delete own registrant entities' and denies a non-owner who
+    // lacks the broader 'delete registrant entities'. A user may cancel ONLY
+    // their own registration.
+    $user = $this->etm->getStorage('user')->load($uid);
+    if (!$user || !$registrant->access('delete', $user, TRUE)->isAllowed()) {
       throw new AccessDeniedHttpException('You may only cancel your own registration.');
     }
-    // $entity->delete() bypasses access checks (EntityBase::delete goes straight
-    // to storage), so this succeeds with the service account holding no
-    // registrant permissions. Do NOT grant mcp_service registrant permissions.
     $registrant->delete();
     return new JsonResponse(['status' => 'cancelled', 'registrant_id' => $registrant_id]);
   }

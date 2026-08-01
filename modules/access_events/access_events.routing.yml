@@ -25,19 +25,17 @@ access_events.registrations_cancel:
     no_cache: 'TRUE'
 
 access_events.event_detail:
-  path: '/api/1.0/events/{eventinstance}'
+  path: '/api/2.3/events/{eventinstance}'
   defaults:
     _controller: '\Drupal\access_events\Controller\EventDetailApiController::get'
   methods: [GET]
   requirements:
     eventinstance: '\d+'
-    _user_is_logged_in: 'TRUE'
-    _custom_access: 'access_affinitygroup.rp_account_access:check'
+    _custom_access: 'access_affinitygroup.acting_user_access:resolve'
   options:
     parameters:
       eventinstance:
         type: 'entity:eventinstance'
-    no_cache: 'TRUE'
 
 access_events.event_register:
   path: '/api/1.0/events/{eventinstance}/register'
@@ -47,7 +45,7 @@ access_events.event_register:
   requirements:
     eventinstance: '\d+'
     _user_is_logged_in: 'TRUE'
-    _custom_access: 'access_affinitygroup.rp_account_access:check'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
   options:
     parameters:
       eventinstance:
