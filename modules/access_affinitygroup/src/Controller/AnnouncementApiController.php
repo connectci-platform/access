@@ -70,6 +70,7 @@ class AnnouncementApiController extends ControllerBase {
       'moderation_state' => 'draft',
       'title' => $body['title'] ?? '',
       'field_affinity_group_node' => array_map(fn (NodeInterface $n) => $n->id(), $groupNodes),
+      'field_tags' => $this->resolveTagTerms($body['field_tags'] ?? []),
     ];
     $this->applyContentFields($values, $body, TRUE);
 
@@ -132,6 +133,8 @@ class AnnouncementApiController extends ControllerBase {
           ? $node->get('field_published_date')->value
           : NULL,
         'summary' => $this->buildSummary($node),
+        // Tags as english NAMES, never term ids — this is what the user sees.
+        'tags' => $this->tagNames($node),
         'edit_url' => $this->editUrl($node),
       ];
     }
@@ -165,9 +168,16 @@ class AnnouncementApiController extends ControllerBase {
       $node->set('field_affinity_group_node', array_map(fn (NodeInterface $n) => $n->id(), $groupNodes));
     }
 
-    // Content fields only — NEVER moderation_state.
+    // Tags replace the full set when provided (mirrors the current tool, which
+    // sends the complete tag list on update).
+    if (array_key_exists('field_tags', $body)) {
+      $node->set('field_tags', $this->resolveTagTerms($body['field_tags']));
+    }
+
+    // Content fields only — NEVER moderation_state. Pass the node so a partial
+    // body update (value OR summary alone) preserves the untouched half.
     $values = [];
-    $this->applyContentFields($values, $body, FALSE);
+    $this->applyContentFields($values, $body, FALSE, $node);
     foreach ($values as $field => $value) {
       $node->set($field, $value);
     }
@@ -271,6 +281,46 @@ class AnnouncementApiController extends ControllerBase {
   }
 
   /**
+   * Resolves an array of taxonomy_term UUIDs to term ids for field_tags.
+   *
+   * The MCP client resolves tag names to UUIDs and sends the UUIDs; unknown
+   * UUIDs are dropped (fail-closed — a bogus tag simply isn't attached).
+   */
+  private function resolveTagTerms($uuids): array {
+    if (!is_array($uuids)) {
+      $uuids = $uuids === NULL || $uuids === '' ? [] : [$uuids];
+    }
+    $storage = $this->entityTypeManager()->getStorage('taxonomy_term');
+    $ids = [];
+    foreach ($uuids as $uuid) {
+      if (!is_string($uuid) || $uuid === '') {
+        continue;
+      }
+      $matches = $storage->loadByProperties(['uuid' => $uuid]);
+      if ($matches) {
+        $ids[] = (int) reset($matches)->id();
+      }
+    }
+    return $ids;
+  }
+
+  /**
+   * The node's tag NAMES (english words) — never term ids.
+   *
+   * The user sees these; ids/uuids stay internal to the write path.
+   */
+  private function tagNames(NodeInterface $node): array {
+    if (!$node->hasField('field_tags')) {
+      return [];
+    }
+    $names = [];
+    foreach ($node->get('field_tags')->referencedEntities() as $term) {
+      $names[] = $term->label();
+    }
+    return $names;
+  }
+
+  /**
    * Copies the accepted content fields from the request body into $values.
    *
    * body is handled specially so the text format is pinned to basic_html and an
@@ -284,7 +334,7 @@ class AnnouncementApiController extends ControllerBase {
    *   TRUE for create (only set present keys), TRUE/FALSE both only set keys the
    *   caller supplied so update leaves omitted fields untouched.
    */
-  private function applyContentFields(array &$values, array $body, bool $isCreate): void {
+  private function applyContentFields(array &$values, array $body, bool $isCreate, ?NodeInterface $existing = NULL): void {
     foreach (self::CONTENT_ATTRIBUTES as $field) {
       if (array_key_exists($field, $body)) {
         $values[$field] = $body[$field];
@@ -293,10 +343,19 @@ class AnnouncementApiController extends ControllerBase {
     if (array_key_exists('body', $body)) {
       $bodyIn = $body['body'];
       // Accept either a string or a {value, summary} shape.
-      $value = is_array($bodyIn) ? ($bodyIn['value'] ?? '') : (string) $bodyIn;
+      $current = $existing && $existing->hasField('body') && !$existing->get('body')->isEmpty()
+        ? $existing->get('body')->first()->getValue()
+        : [];
+      // On a partial update, preserve the half the caller did not send.
+      $value = is_array($bodyIn)
+        ? ($bodyIn['value'] ?? ($current['value'] ?? ''))
+        : (string) $bodyIn;
       $item = ['value' => $value, 'format' => 'basic_html'];
-      if (is_array($bodyIn) && isset($bodyIn['summary'])) {
+      if (is_array($bodyIn) && array_key_exists('summary', $bodyIn)) {
         $item['summary'] = $bodyIn['summary'];
+      }
+      elseif (isset($current['summary'])) {
+        $item['summary'] = $current['summary'];
       }
       $values['body'] = $item;
     }

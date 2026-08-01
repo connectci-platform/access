@@ -146,6 +146,23 @@ class AnnouncementApiControllerTest extends KernelTestBase {
       'settings' => ['handler_settings' => ['target_bundles' => ['affinity_group' => 'affinity_group']]],
     ])->save();
 
+    // field_tags (on access_news, ref taxonomy_term) — the endpoint resolves
+    // the caller's tag UUIDs to term ids and sets them.
+    Vocabulary::create(['vid' => 'tags', 'name' => 'Tags'])->save();
+    FieldStorageConfig::create([
+      'field_name' => 'field_tags',
+      'entity_type' => 'node',
+      'type' => 'entity_reference',
+      'cardinality' => -1,
+      'settings' => ['target_type' => 'taxonomy_term'],
+    ])->save();
+    FieldConfig::create([
+      'field_name' => 'field_tags',
+      'entity_type' => 'node',
+      'bundle' => 'access_news',
+      'settings' => ['handler_settings' => ['target_bundles' => ['tags' => 'tags']]],
+    ])->save();
+
     // field_choose_where_to_share_this (on access_news) — a list_string read by
     // affinityGroupBroadcast() in access_news_entity_update when a node is
     // (re)saved published. Left empty in tests so the broadcast returns early.
@@ -402,6 +419,36 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     $this->assertSame((int) $coordinator->id(), (int) $node->getOwnerId());
   }
 
+  public function testCreateSetsTagsFromUuids(): void {
+    $coordinator = $this->createUser();
+    $groupA = $this->makeSavedGroup([(int) $coordinator->id()], 'Group A');
+    $tag1 = Term::create(['vid' => 'tags', 'name' => 'gpu']);
+    $tag1->save();
+    $tag2 = Term::create(['vid' => 'tags', 'name' => 'hpc']);
+    $tag2->save();
+
+    $request = $this->jsonRequest((int) $coordinator->id(), [
+      'title' => 'Tagged',
+      'body' => ['value' => 'Body.'],
+      'field_affinity_group_node' => [$groupA->uuid()],
+      'field_tags' => [$tag1->uuid(), $tag2->uuid()],
+    ]);
+
+    $response = $this->asActingUser(
+      $coordinator,
+      fn () => $this->controller()->createAnnouncement($request),
+    );
+
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $node = Node::load($data['nid']);
+    $tagIds = array_map(
+      fn (array $ref) => (int) $ref['target_id'],
+      $node->get('field_tags')->getValue(),
+    );
+    $this->assertSame([(int) $tag1->id(), (int) $tag2->id()], $tagIds);
+  }
+
   /**
    * create-coordinator-denied: a stranger (not coordinator/admin/news_pm) is
    * refused and NO node is created.
@@ -488,6 +535,51 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     $this->assertSame('Edited title', $node->getTitle());
     $this->assertSame('Edited body.', $node->get('body')->value);
     $this->assertSame('draft', $node->get('moderation_state')->value);
+  }
+
+  public function testUpdateSummaryOnlyPreservesBodyValue(): void {
+    $coordinator = $this->createUser();
+    $groupA = $this->makeSavedGroup([(int) $coordinator->id()], 'Group A');
+    $uuid = $this->createDraft($coordinator, $groupA, 'Title');
+    // Give it a real body value first.
+    $seed = Request::create('/api/1.0/announcements/' . $uuid, 'PATCH', [], [], [], [], json_encode([
+      'body' => ['value' => 'The full body text.', 'summary' => 'Old summary.'],
+    ]));
+    $seed->attributes->set('acting_user_uid', (int) $coordinator->id());
+    $this->asActingUser($coordinator, fn () => $this->controller()->update($uuid, $seed));
+
+    // Now change ONLY the summary.
+    $request = Request::create('/api/1.0/announcements/' . $uuid, 'PATCH', [], [], [], [], json_encode([
+      'body' => ['summary' => 'New summary.'],
+    ]));
+    $request->attributes->set('acting_user_uid', (int) $coordinator->id());
+    $this->asActingUser($coordinator, fn () => $this->controller()->update($uuid, $request));
+
+    $node = $this->loadByUuid($uuid);
+    $this->assertSame('The full body text.', $node->get('body')->value, 'Body value preserved on summary-only update.');
+    $this->assertSame('New summary.', $node->get('body')->summary);
+  }
+
+  public function testMineReturnsTagNamesNotIds(): void {
+    $coordinator = $this->createUser();
+    $groupA = $this->makeSavedGroup([(int) $coordinator->id()], 'Group A');
+    $tag = Term::create(['vid' => 'tags', 'name' => 'gpu']);
+    $tag->save();
+
+    $create = $this->jsonRequest((int) $coordinator->id(), [
+      'title' => 'Tagged draft',
+      'body' => ['value' => 'Body.'],
+      'field_affinity_group_node' => [$groupA->uuid()],
+      'field_tags' => [$tag->uuid()],
+    ]);
+    $this->asActingUser($coordinator, fn () => $this->controller()->createAnnouncement($create));
+
+    $request = $this->mineRequest((int) $coordinator->id());
+    $response = $this->asActingUser($coordinator, fn () => $this->controller()->mine($request));
+    $data = json_decode($response->getContent(), TRUE);
+
+    $item = $data['items'][0];
+    $this->assertSame(['gpu'], $item['tags'], 'mine returns tag NAMES, not ids/uuids.');
   }
 
   /**
