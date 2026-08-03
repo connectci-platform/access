@@ -263,7 +263,10 @@ class RegistrationApiTest extends KernelTestBase {
     $this->assertCount(1, $body['registrations']);
     $r = $body['registrations'][0];
     $this->assertSame($registrant->uuid(), $r['registrant_id']);
-    $this->assertSame((int) $instance->id(), $r['eventinstance_id']);
+    // eventinstance_id must be a string, symmetric with the register/detail
+    // endpoints, so get_my_registrations -> get_event chaining round-trips.
+    $this->assertIsString($r['eventinstance_id']);
+    $this->assertSame((string) $instance->id(), $r['eventinstance_id']);
     $this->assertArrayHasKey('event_title', $r);
     $this->assertArrayHasKey('start_date', $r);
     $this->assertFalse($r['waitlist']);
@@ -293,7 +296,7 @@ class RegistrationApiTest extends KernelTestBase {
 
     $this->assertCount(1, $body['registrations']);
     $this->assertSame($pastRegistrant->uuid(), $body['registrations'][0]['registrant_id']);
-    $this->assertSame((int) $past->id(), $body['registrations'][0]['eventinstance_id']);
+    $this->assertSame((string) $past->id(), $body['registrations'][0]['eventinstance_id']);
   }
 
   /**
@@ -323,8 +326,8 @@ class RegistrationApiTest extends KernelTestBase {
 
     $this->assertCount(2, $body['registrations']);
     // Sorted by start date ascending: the past event comes first.
-    $this->assertSame((int) $past->id(), $body['registrations'][0]['eventinstance_id']);
-    $this->assertSame((int) $future->id(), $body['registrations'][1]['eventinstance_id']);
+    $this->assertSame((string) $past->id(), $body['registrations'][0]['eventinstance_id']);
+    $this->assertSame((string) $future->id(), $body['registrations'][1]['eventinstance_id']);
   }
 
   /**
