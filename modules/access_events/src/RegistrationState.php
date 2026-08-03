@@ -27,8 +27,9 @@ final class RegistrationState {
    * @return array
    *   ['enabled' => FALSE] when native registration is off, otherwise a
    *   three-way partition keyed on whether an acting user resolved:
-   *   - Entity-derived, ALWAYS present: enabled (TRUE), capacity (?int),
-   *     registered_count (int), seats_remaining (?int), waitlist_enabled (bool).
+   *   - Entity-derived, ALWAYS present: enabled (TRUE), capacity_type
+   *     ('unlimited'|'limited'), capacity (?int), registered_count (int),
+   *     seats_remaining (?int), waitlist_enabled (bool).
    *   - Per-user + time-derived, present ONLY when $actingUid >= 1:
    *     already_registered (bool) is per-user; registration_open (bool) and
    *     registration_window (['opens' => ?string, 'closes' => ?string], with
