@@ -41,6 +41,27 @@ class RegistrationStateTest extends EventKernelTestBase {
   }
 
   /**
+   * For an open-immediately event, opens is NULL and stable across calls.
+   *
+   * The 'open' registration-dates type means the window opens the moment the
+   * event is registrable; the contrib service derives reg_open as a fresh
+   * `now` on every call, so surfacing it as a value made `opens` track the
+   * wall clock (read 19:21 → 19:26 → 19:26 across three calls in the field).
+   * The state carries "open now" via registration_open; opens must be NULL and
+   * identical between calls.
+   */
+  public function testOpensIsNullForOpenImmediately(): void {
+    $instance = $this->createRegistrableInstance();
+    $uid = (int) $this->owner->id();
+    $a = RegistrationState::forInstance($instance, $uid);
+    $b = RegistrationState::forInstance($instance, $uid);
+    $this->assertNull($a['registration_window']['opens']);
+    // Stable across calls (not a moving `now` timestamp).
+    $this->assertSame($a['registration_window']['opens'], $b['registration_window']['opens']);
+    $this->assertTrue($a['registration_open']);
+  }
+
+  /**
    * A registration-disabled instance reports only ['enabled' => FALSE].
    */
   public function testDisabledInstanceReportsBareFalse(): void {
