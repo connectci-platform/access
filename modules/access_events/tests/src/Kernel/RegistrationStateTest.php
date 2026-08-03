@@ -163,6 +163,28 @@ class RegistrationStateTest extends EventKernelTestBase {
   }
 
   /**
+   * Unlimited (capacity 0) reports capacity_type 'unlimited' with null seats.
+   */
+  public function testCapacityTypeUnlimited(): void {
+    $instance = $this->createRegistrableInstance(capacity: 0);
+    $state = RegistrationState::forInstance($instance, 0);
+    $this->assertSame('unlimited', $state['capacity_type']);
+    $this->assertNull($state['capacity']);
+    $this->assertNull($state['seats_remaining']);
+  }
+
+  /**
+   * A positive capacity reports capacity_type 'limited' with an int seat count.
+   */
+  public function testCapacityTypeLimited(): void {
+    $instance = $this->createRegistrableInstance(capacity: 60);
+    $state = RegistrationState::forInstance($instance, 0);
+    $this->assertSame('limited', $state['capacity_type']);
+    $this->assertSame(60, $state['capacity']);
+    $this->assertIsInt($state['seats_remaining']);
+  }
+
+  /**
    * A fully-booked instance clamps seats_remaining at 0, never negative.
    */
   public function testExhaustedCapacityClampsSeatsToZero(): void {

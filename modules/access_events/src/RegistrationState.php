@@ -70,9 +70,15 @@ final class RegistrationState {
       ? (clone $dt)->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z')
       : NULL;
 
+    // capacity_type is a two-state discriminant (unlimited|limited) so a caller
+    // can tell "unlimited" (retrieveAvailability() === -1, the contrib sentinel
+    // for empty capacity) from a limited event — both otherwise carry NULL
+    // capacity/seats. Derived from $availability, NOT $capRaw: empty capacity
+    // casts to 0, never -1, so a $capRaw === -1 check would be dead code.
     $state = [
       'enabled' => TRUE,
-      'capacity' => $capacity,
+      'capacity_type' => $availability === -1 ? 'unlimited' : 'limited',
+      'capacity' => $availability === -1 ? NULL : $capacity,
       'registered_count' => (int) $registered,
       'seats_remaining' => $seatsRemaining,
       'waitlist_enabled' => (bool) $svc->hasWaitlist(),
