@@ -238,6 +238,24 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
   }
 
   /**
+   * GUARD: a preview POST (empty body) creates NO registrant row.
+   *
+   * Pins the invariant Phase 2's preview-by-default path relies on: a register
+   * POST with `confirmed` omitted (empty JSON body `[]`) must write nothing and
+   * return the preview shape (`outcome_if_confirmed`), never a commit.
+   */
+  public function testPreviewPostCreatesNoRegistrantRow(): void {
+    $instance = $this->createRegistrableInstance();
+    $before = $this->countRegistrants($instance);
+    // [] = preview (no confirmed); a bool third arg would be a TypeError.
+    $response = $this->doRegister($instance, $this->owner, []);
+    $after = $this->countRegistrants($instance);
+    $this->assertSame($before, $after, 'A preview POST must not create a registrant row.');
+    $body = json_decode($response->getContent(), TRUE);
+    $this->assertArrayHasKey('outcome_if_confirmed', $body);
+  }
+
+  /**
    * A non-bool `confirmed` stays in preview and never writes.
    *
    * Locks in the strict `=== TRUE` fail-safe: a truthy-but-not-bool value like
