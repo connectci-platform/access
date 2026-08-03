@@ -214,7 +214,7 @@ paths:
                   value:
                     registrations:
                       - registrant_id: "550e8400-e29b-41d4-a716-446655440000"
-                        eventinstance_id: 4567
+                        eventinstance_id: "4567"
                         event_title: "Introduction to Anvil"
                         start_date: "2026-09-10T15:00:00Z"
                         end_date: "2026-09-10T17:00:00Z"
@@ -383,9 +383,9 @@ components:
           description: The UUID of the registrant record.
           example: "550e8400-e29b-41d4-a716-446655440000"
         eventinstance_id:
-          type: integer
-          description: The event instance ID.
-          example: 4567
+          type: string
+          description: The event instance ID (as a string).
+          example: "4567"
         event_title:
           type: string
           nullable: true

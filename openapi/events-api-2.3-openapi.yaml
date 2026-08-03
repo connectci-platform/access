@@ -362,6 +362,7 @@ paths:
                     series_id: "1234"
                     registration:
                       enabled: true
+                      capacity_type: limited
                       capacity: 100
                       registered_count: 42
                       seats_remaining: 58
@@ -383,6 +384,7 @@ paths:
                     series_id: "1234"
                     registration:
                       enabled: true
+                      capacity_type: limited
                       capacity: 100
                       registered_count: 42
                       seats_remaining: 58
@@ -579,6 +581,14 @@ components:
               type: boolean
               enum: [true]
               example: true
+            capacity_type:
+              type: string
+              enum: [unlimited, limited]
+              description: |
+                Whether the event has a capacity limit, derived from the event entity. When
+                `unlimited`, `capacity` and `seats_remaining` are null; when `limited`, both are
+                numeric.
+              example: limited
             capacity:
               type: integer
               nullable: true
@@ -613,7 +623,10 @@ components:
                   type: string
                   format: date-time
                   nullable: true
-                  description: When registration opens, or null if unset.
+                  description: |
+                    When registration opens, or null. Null for open-immediately events (the
+                    open-now state is carried by `registration_open`) and when unset; a genuinely
+                    scheduled window keeps its configured open timestamp.
                   example: "2026-08-01T00:00:00Z"
                 closes:
                   type: string
