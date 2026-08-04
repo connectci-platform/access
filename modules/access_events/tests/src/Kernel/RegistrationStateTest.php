@@ -41,6 +41,27 @@ class RegistrationStateTest extends EventKernelTestBase {
   }
 
   /**
+   * For an open-immediately event, opens is NULL and stable across calls.
+   *
+   * The 'open' registration-dates type means the window opens the moment the
+   * event is registrable; the contrib service derives reg_open as a fresh
+   * `now` on every call, so surfacing it as a value made `opens` track the
+   * wall clock (read 19:21 → 19:26 → 19:26 across three calls in the field).
+   * The state carries "open now" via registration_open; opens must be NULL and
+   * identical between calls.
+   */
+  public function testOpensIsNullForOpenImmediately(): void {
+    $instance = $this->createRegistrableInstance();
+    $uid = (int) $this->owner->id();
+    $a = RegistrationState::forInstance($instance, $uid);
+    $b = RegistrationState::forInstance($instance, $uid);
+    $this->assertNull($a['registration_window']['opens']);
+    // Stable across calls (not a moving `now` timestamp).
+    $this->assertSame($a['registration_window']['opens'], $b['registration_window']['opens']);
+    $this->assertTrue($a['registration_open']);
+  }
+
+  /**
    * A registration-disabled instance reports only ['enabled' => FALSE].
    */
   public function testDisabledInstanceReportsBareFalse(): void {
@@ -142,13 +163,42 @@ class RegistrationStateTest extends EventKernelTestBase {
   }
 
   /**
+   * Unlimited (capacity 0) reports capacity_type 'unlimited' with null seats.
+   */
+  public function testCapacityTypeUnlimited(): void {
+    $instance = $this->createRegistrableInstance(capacity: 0);
+    $state = RegistrationState::forInstance($instance, 0);
+    $this->assertSame('unlimited', $state['capacity_type']);
+    $this->assertNull($state['capacity']);
+    $this->assertNull($state['seats_remaining']);
+  }
+
+  /**
+   * A positive capacity reports capacity_type 'limited' with an int seat count.
+   */
+  public function testCapacityTypeLimited(): void {
+    $instance = $this->createRegistrableInstance(capacity: 60);
+    $state = RegistrationState::forInstance($instance, 0);
+    $this->assertSame('limited', $state['capacity_type']);
+    $this->assertSame(60, $state['capacity']);
+    $this->assertIsInt($state['seats_remaining']);
+  }
+
+  /**
    * A fully-booked instance clamps seats_remaining at 0, never negative.
+   *
+   * A full LIMITED event (availability 0) must stay capacity_type 'limited'
+   * with its raw capacity — only a genuinely unlimited event (availability -1)
+   * reads 'unlimited'. Pin capacity_type here so loosening the -1 sentinel to a
+   * falsy/<=0 check (which would flip a full event to unlimited) fails the test.
    */
   public function testExhaustedCapacityClampsSeatsToZero(): void {
     $instance = $this->createRegistrableInstance(capacity: 1, waitlist: FALSE);
     $this->registerUser($this->stranger, $instance);
     $state = RegistrationState::forInstance($instance, (int) $this->owner->id());
     $this->assertSame(0, $state['seats_remaining']);
+    $this->assertSame('limited', $state['capacity_type']);
+    $this->assertSame(1, $state['capacity']);
   }
 
 }

@@ -81,7 +81,7 @@ class RegistrationApiController extends ControllerBase {
       }
       $out[] = [
         'registrant_id' => $registrant->uuid(),
-        'eventinstance_id' => (int) $instance->id(),
+        'eventinstance_id' => (string) $instance->id(),
         'event_title' => $instance->get('title')->value,
         'start_date' => $this->iso($instance->get('date')->value),
         'end_date' => $this->iso($instance->get('date')->end_value),
