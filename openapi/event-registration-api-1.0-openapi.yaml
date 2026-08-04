@@ -58,6 +58,16 @@ paths:
 
         The acting user's identity is bound from the `X-Acting-User` gate, never from the request
         body. A committed registration returns a `status` of `registered` or `waitlisted`.
+
+        **Write-contract envelope (as surfaced to consumers).** The ACCESS MCP `register_for_event`
+        tool remaps these raw responses onto the standard write envelope
+        `{action: "register", status, executed, data?}` (no `changed` field):
+        the `200` preview → `{status: "preview", executed: false}`; a committed `registered`/
+        `waitlisted` → `{status: "registered"|"waitlisted", executed: true, data.registrant_id}`;
+        and the `409` `already_registered` refusal → the terminal, non-error status
+        `{status: "already_registered", executed: false}`. All other `409` codes
+        (`event_full`, `registration_closed`, `not_registrable`, `not_permitted`), the `403`
+        (as `auth_required`), and `404` (`not_found`) surface as errors `{error, hint?, code}`.
       operationId: registerForEvent
       tags:
         - Registrations
@@ -147,6 +157,12 @@ paths:
             The registration was refused on a state guard. The `error` field is one of
             `not_registrable`, `registration_closed`, `not_permitted`, `already_registered`, or
             `event_full`.
+
+            In the consumer-facing write envelope these split two ways: `already_registered` is a
+            terminal, non-error write status (`{status: "already_registered", executed: false}` —
+            the acting user already holds a seat, nothing changes), while `event_full`,
+            `registration_closed`, `not_registrable`, and `not_permitted` are errors whose `error`
+            value becomes the envelope error `code`.
           content:
             application/json:
               schema:

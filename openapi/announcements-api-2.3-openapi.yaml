@@ -65,6 +65,12 @@ paths:
 
         If `field_affinity_group_node` lists one or more affinity groups, the acting user must
         coordinate every group listed, unless they hold the `administrator` or `news_pm` role.
+
+        **Write-contract envelope (as surfaced to consumers).** The ACCESS MCP `create_announcement`
+        tool remaps this raw `{success, uuid, nid, title, edit_url}` body onto the standard write
+        envelope `{action: "create", status: "created", executed: true, data: {uuid, nid, title,
+        edit_url, moderation_state}}` (no `changed` field; a `warning` is added when some tags could
+        not be matched). The `403` surfaces as an error `{error, hint?, code}`.
       operationId: createAnnouncement
       tags:
         - Announcements
@@ -157,6 +163,12 @@ paths:
         This operation **never** changes the moderation state or publishes the announcement.
         If `field_affinity_group_node` is included, the coordinator check is re-run against the
         new set of groups.
+
+        **Write-contract envelope (as surfaced to consumers).** The ACCESS MCP `update_announcement`
+        tool remaps this raw `{success, uuid, title, edit_url}` body onto the standard write
+        envelope `{action: "update", status: "updated", executed: true, data: {uuid, title,
+        edit_url}}` (no `changed` field; a `warning` is added when some tags could not be matched).
+        The `403`/`404`/`409` surface as errors `{error, hint?, code}`.
       operationId: updateAnnouncement
       tags:
         - Announcements
@@ -247,7 +259,17 @@ paths:
       summary: Delete an announcement
       description: |
         Delete an announcement on behalf of the acting user. The acting user must be permitted
-        to delete the announcement (for example, as its owner).
+        to delete the announcement (for example, as its owner). This route itself commits the
+        delete when called; it has no preview mode.
+
+        **Write-contract envelope (as surfaced to consumers).** The ACCESS MCP `delete_announcement`
+        tool is preview-by-default and only calls this route once `confirmed: true`. It returns the
+        standard write envelope `{action: "delete", status, executed, data}` (no `changed` field):
+        without `confirmed: true` it does NOT call this route — it reads the acting user's own
+        announcements and returns `{status: "preview", executed: false, data: {uuid, title}}`,
+        writing nothing; with `confirmed: true` it calls this `DELETE` and returns
+        `{status: "deleted", executed: true, data: {uuid}}`. A `404` (uuid not found or not the
+        acting user's) surfaces as an error with `code: "not_found"`.
       operationId: deleteAnnouncement
       tags:
         - Announcements
