@@ -186,12 +186,19 @@ class RegistrationStateTest extends EventKernelTestBase {
 
   /**
    * A fully-booked instance clamps seats_remaining at 0, never negative.
+   *
+   * A full LIMITED event (availability 0) must stay capacity_type 'limited'
+   * with its raw capacity — only a genuinely unlimited event (availability -1)
+   * reads 'unlimited'. Pin capacity_type here so loosening the -1 sentinel to a
+   * falsy/<=0 check (which would flip a full event to unlimited) fails the test.
    */
   public function testExhaustedCapacityClampsSeatsToZero(): void {
     $instance = $this->createRegistrableInstance(capacity: 1, waitlist: FALSE);
     $this->registerUser($this->stranger, $instance);
     $state = RegistrationState::forInstance($instance, (int) $this->owner->id());
     $this->assertSame(0, $state['seats_remaining']);
+    $this->assertSame('limited', $state['capacity_type']);
+    $this->assertSame(1, $state['capacity']);
   }
 
 }
