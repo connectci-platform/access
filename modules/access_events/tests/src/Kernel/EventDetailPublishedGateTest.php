@@ -146,7 +146,9 @@ class EventDetailPublishedGateTest extends EventKernelTestBase {
    */
   public function testStrangerDeniedOnUnpublished(): void {
     $instance = $this->createRegistrableInstance();
-    $instance->set('status', 0)->set('uid', $this->owner->id())->save();
+    // Under content_moderation, status is DERIVED from moderation_state on
+    // save, not settable directly — transition to draft to go unpublished.
+    $instance->set('moderation_state', 'draft')->set('uid', $this->owner->id())->save();
 
     $response = $this->asActingUser(
       $this->stranger,
@@ -169,7 +171,9 @@ class EventDetailPublishedGateTest extends EventKernelTestBase {
    */
   public function testOwnerSeesUnpublished(): void {
     $instance = $this->createRegistrableInstance(capacity: 60, waitlist: TRUE);
-    $instance->set('status', 0)->set('uid', $this->owner->id())->save();
+    // Under content_moderation, status is DERIVED from moderation_state on
+    // save, not settable directly — transition to draft to go unpublished.
+    $instance->set('moderation_state', 'draft')->set('uid', $this->owner->id())->save();
 
     $response = $this->asActingUser(
       $this->owner,

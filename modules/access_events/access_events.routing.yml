@@ -1,3 +1,56 @@
+access_events.event_create:
+  path: '/api/2.3/events'
+  defaults:
+    _controller: '\Drupal\access_events\Controller\EventCrudApiController::createEvent'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+    # State-changing route: require a valid X-CSRF-Token header (from
+    # /session/token). Custom routes do not get REST's automatic CSRF check,
+    # so without this a plain cookie-authenticated POST is CSRF-able.
+    _csrf_request_header_token: 'TRUE'
+  options:
+    no_cache: 'TRUE'
+
+access_events.event_update:
+  path: '/api/2.3/event-series/{eventseries}'
+  defaults:
+    _controller: '\Drupal\access_events\Controller\EventCrudApiController::update'
+  methods: [PATCH]
+  requirements:
+    eventseries: '\d+'
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+    # State-changing route: require a valid X-CSRF-Token header (from
+    # /session/token). Custom routes do not get REST's automatic CSRF check,
+    # so without this a plain cookie-authenticated PATCH is CSRF-able.
+    _csrf_request_header_token: 'TRUE'
+  options:
+    parameters:
+      eventseries:
+        type: 'entity:eventseries'
+    no_cache: 'TRUE'
+
+access_events.event_delete:
+  path: '/api/2.3/event-series/{eventseries}'
+  defaults:
+    _controller: '\Drupal\access_events\Controller\EventCrudApiController::delete'
+  methods: [DELETE]
+  requirements:
+    eventseries: '\d+'
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+    # State-changing route: require a valid X-CSRF-Token header (from
+    # /session/token). Custom routes do not get REST's automatic CSRF check,
+    # so without this a plain cookie-authenticated DELETE is CSRF-able.
+    _csrf_request_header_token: 'TRUE'
+  options:
+    parameters:
+      eventseries:
+        type: 'entity:eventseries'
+    no_cache: 'TRUE'
+
 access_events.registrations_list:
   path: '/api/1.0/registrations'
   defaults:

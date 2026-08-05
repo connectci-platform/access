@@ -5,20 +5,27 @@ declare(strict_types=1);
 namespace Drupal\Tests\access_events\Kernel;
 
 use Drupal\access_events\Controller\EventDetailApiController;
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Session\AccountInterface;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\field_inheritance\Entity\FieldInheritance;
 use Drupal\KernelTests\KernelTestBase;
+use Drupal\node\Entity\Node;
+use Drupal\node\Entity\NodeType;
+use Drupal\node\NodeInterface;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events\Entity\EventSeries;
 use Drupal\recurring_events_registration\Entity\Registrant;
 use Drupal\recurring_events_registration\Entity\RegistrantType;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\taxonomy\Entity\Vocabulary;
+use Drupal\Tests\content_moderation\Traits\ContentModerationTestTrait;
 use Drupal\Tests\user\Traits\UserCreationTrait;
 use Drupal\user\Entity\Role;
 use Drupal\user\Entity\User;
 use Drupal\user\RoleInterface;
+use Drupal\workflows\Entity\Workflow;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -28,10 +35,14 @@ use Symfony\Component\HttpFoundation\Request;
  * Provides the module list, entity-schema/config install, two seeded users,
  * and the registrable/non-registrable instance + registrant helpers that both
  * RegistrationStateTest (A1) and EventDetailApiControllerTest (A2) rely on.
+ * Also provides the moderation + node + coordinator scaffolding (workflows,
+ * an `affinity_group` node type with `field_coordinator`, and coordinator
+ * series/instance builders) that the upcoming event-CRUD endpoint tests need.
  */
 abstract class EventKernelTestBase extends KernelTestBase {
 
   use UserCreationTrait;
+  use ContentModerationTestTrait;
 
   /**
    * {@inheritdoc}
@@ -49,6 +60,12 @@ abstract class EventKernelTestBase extends KernelTestBase {
     'recurring_events',
     'recurring_events_registration',
     'taxonomy',
+    'node',
+    'filter',
+    'workflows',
+    'content_moderation',
+    'access_affinitygroup',
+    'key',
   ];
 
   /**
@@ -130,6 +147,272 @@ abstract class EventKernelTestBase extends KernelTestBase {
       Role::load(RoleInterface::AUTHENTICATED_ID),
       ['add registrant entities', 'delete own registrant entities'],
     );
+
+    // --- Moderation + node + coordinator scaffolding -----------------------
+    //
+    // The two content-moderation workflows below (editorial, editorial_
+    // eventinstance) are hand-maintained site config, not shipped in any
+    // module's config/install|optional — access_events itself ships no config
+    // at all. So there is nothing to installConfig() here; build the same
+    // workflow shape ContentModerationTestTrait::createEditorialWorkflow()
+    // builds (as the announcement test does) and attach it to the eventseries
+    // "default" bundle, then build a second workflow keyed
+    // 'editorial_eventinstance' and attach it to the eventinstance "default"
+    // bundle. This mirrors the two states/transitions the site's real
+    // workflows.workflow.editorial(_eventinstance) configs define (draft,
+    // published, archived + create_new_draft/publish/archive), which is all
+    // the endpoint tests need.
+    $this->installEntitySchema('node');
+    $this->installEntitySchema('content_moderation_state');
+    $this->installSchema('node', ['node_access']);
+    $this->installConfig(['filter']);
+
+    $seriesWorkflow = $this->createEditorialWorkflow();
+    // The stock createEditorialWorkflow() ships only draft/published/archived
+    // and no review step. The live editorial workflow adds a
+    // ready_for_review state reached by a send_for_review transition (from
+    // draft), which is exactly the review-needed signal the event-CRUD write
+    // envelope reports: a draft author who lacks publish still holds
+    // send_for_review. Add that state + transition so getValidTransitions()
+    // resolves as it does in production. Kept minimal — the site's
+    // needs_adjustment/request_adjustment/review_to_review branches are not
+    // needed by the write endpoints.
+    $seriesTypePlugin = $seriesWorkflow->getTypePlugin();
+    $seriesTypePlugin->addState('ready_for_review', 'Ready for Review');
+    $seriesConfig = $seriesTypePlugin->getConfiguration();
+    $seriesConfig['states']['ready_for_review']['published'] = FALSE;
+    $seriesConfig['states']['ready_for_review']['default_revision'] = FALSE;
+    $seriesConfig['transitions']['send_for_review'] = [
+      'label' => 'Send for Review',
+      'from' => ['draft'],
+      'to' => 'ready_for_review',
+      'weight' => 5,
+    ];
+    // The live editorial workflow also has a needs_adjustment state (a
+    // DEFAULT-revision unpublished state) reached by request_adjustment from
+    // published. A series can therefore be published once, then moved to
+    // needs_adjustment, which is the current DEFAULT state — with a published
+    // revision still in history. There is no needs_adjustment → archived
+    // transition, so the delete endpoint must NOT throw when it sees such a
+    // series (see testDeleteWasPublishedNowNeedsAdjustment*). Kept minimal to
+    // just the state + the published → needs_adjustment transition.
+    $seriesConfig['states']['needs_adjustment'] = [
+      'label' => 'Needs Adjustment',
+      'published' => FALSE,
+      'default_revision' => TRUE,
+      'weight' => 6,
+    ];
+    $seriesConfig['transitions']['request_adjustment'] = [
+      'label' => 'Request Adjustment',
+      'from' => ['published'],
+      'to' => 'needs_adjustment',
+      'weight' => 6,
+    ];
+    $seriesTypePlugin->setConfiguration($seriesConfig);
+    $seriesWorkflow->getTypePlugin()->addEntityTypeAndBundle('eventseries', 'default');
+    $seriesWorkflow->save();
+
+    if (!Workflow::load('editorial_eventinstance')) {
+      $instanceWorkflow = Workflow::create([
+        'type' => 'content_moderation',
+        'id' => 'editorial_eventinstance',
+        'label' => 'Editorial Workflow for Event Instances',
+        'type_settings' => [
+          'states' => [
+            'archived' => [
+              'label' => 'Archived',
+              'weight' => 5,
+              'published' => FALSE,
+              'default_revision' => TRUE,
+            ],
+            'draft' => [
+              'label' => 'Draft',
+              'published' => FALSE,
+              'default_revision' => FALSE,
+              'weight' => -5,
+            ],
+            'published' => [
+              'label' => 'Published',
+              'published' => TRUE,
+              'default_revision' => TRUE,
+              'weight' => 0,
+            ],
+          ],
+          'transitions' => [
+            'archive' => [
+              'label' => 'Archive',
+              'from' => ['published'],
+              'to' => 'archived',
+              'weight' => 2,
+            ],
+            'archived_draft' => [
+              'label' => 'Restore to Draft',
+              'from' => ['archived'],
+              'to' => 'draft',
+              'weight' => 3,
+            ],
+            'archived_published' => [
+              'label' => 'Restore',
+              'from' => ['archived'],
+              'to' => 'published',
+              'weight' => 4,
+            ],
+            'create_new_draft' => [
+              'label' => 'Create New Draft',
+              'to' => 'draft',
+              'weight' => 0,
+              'from' => ['draft', 'published'],
+            ],
+            'publish' => [
+              'label' => 'Publish',
+              'to' => 'published',
+              'weight' => 1,
+              'from' => ['draft', 'published'],
+            ],
+          ],
+        ],
+      ]);
+      $instanceWorkflow->getTypePlugin()->addEntityTypeAndBundle('eventinstance', 'default');
+      $instanceWorkflow->save();
+    }
+
+    // Rediscover moderation_state on eventseries/eventinstance now that both
+    // workflows are attached.
+    \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
+
+    // The affinity_group node type + field_coordinator (entity_reference →
+    // user, multi-value) — mirrors AnnouncementApiControllerTest::setUp().
+    NodeType::create([
+      'type' => 'affinity_group',
+      'name' => 'Affinity Group',
+    ])->save();
+    FieldStorageConfig::create([
+      'field_name' => 'field_coordinator',
+      'entity_type' => 'node',
+      'type' => 'entity_reference',
+      'cardinality' => -1,
+      'settings' => ['target_type' => 'user'],
+    ])->save();
+    FieldConfig::create([
+      'field_name' => 'field_coordinator',
+      'entity_type' => 'node',
+      'bundle' => 'affinity_group',
+    ])->save();
+
+    Role::create(['id' => 'news_pm', 'label' => 'News PM'])->save();
+    Role::create(['id' => 'administrator', 'label' => 'Administrator', 'is_admin' => TRUE])->save();
+
+    // access_affinitygroup_entity_presave() fires whenever an affinity_group
+    // node is saved (see createAffinityGroupNode() below, which always
+    // saves). It is orthogonal to what the event-CRUD endpoints test, but it
+    // reads a handful of fields and needs the affinity_group_leader role +
+    // the 'affinity_groups' vocab to complete without erroring — the same
+    // fixture AnnouncementApiControllerTest seeds for the same reason. CC
+    // calls are disabled by default (isCCEnabled() → FALSE), so the hook
+    // returns before its Constant Contact work.
+    Role::create(['id' => 'affinity_group_leader', 'label' => 'AG Leader'])->save();
+
+    // Seed the event entity + moderation-transition permissions each role holds
+    // on the LIVE site (user.role.*.yml), so $series->access($op) and the
+    // content_moderation transition gates resolve exactly as they do in
+    // production. Kept faithful to config: news_pm is the events editor; a
+    // plain author (authenticated) may draft and send for review but not
+    // publish or archive; an affinity_group_leader may publish a series.
+    // news_pm — edits/deletes events + the full transition set on both workflows.
+    user_role_grant_permissions('news_pm', [
+      'edit eventseries entity',
+      'delete eventseries entity',
+      'edit eventinstance entity',
+      'delete eventinstance entity',
+      'use editorial transition archive',
+      'use editorial transition archived_draft',
+      'use editorial transition archived_published',
+      'use editorial transition create_new_draft',
+      'use editorial transition publish',
+      'use editorial transition request_adjustment',
+      'use editorial_eventinstance transition archive',
+      'use editorial_eventinstance transition archived_draft',
+      'use editorial_eventinstance transition archived_published',
+      'use editorial_eventinstance transition create_new_draft',
+      'use editorial_eventinstance transition publish',
+      'use editorial_eventinstance transition request_adjustment',
+    ]);
+    // affinity_group_leader — series publish only; nothing on the instance workflow.
+    user_role_grant_permissions('affinity_group_leader', [
+      'use editorial transition publish',
+    ]);
+    // authenticated — every logged-in author. Draft + send-for-review, NOT
+    // publish, NOT archive, on the series workflow; publish on the instance
+    // workflow (present in real config, unused by the write tools here).
+    user_role_grant_permissions(AccountInterface::AUTHENTICATED_ROLE, [
+      'use editorial transition archived_draft',
+      'use editorial transition create_new_draft',
+      'use editorial transition review_to_review',
+      'use editorial transition send_for_review',
+      'use editorial_eventinstance transition publish',
+      'use editorial_eventinstance transition review_to_review',
+      'use editorial_eventinstance transition send_for_review',
+    ]);
+
+    Vocabulary::create(['vid' => 'affinity_groups', 'name' => 'Affinity Groups'])->save();
+    foreach (['field_group_slug'] as $stringField) {
+      FieldStorageConfig::create([
+        'field_name' => $stringField,
+        'entity_type' => 'node',
+        'type' => 'string',
+        'cardinality' => 1,
+      ])->save();
+      FieldConfig::create([
+        'field_name' => $stringField,
+        'entity_type' => 'node',
+        'bundle' => 'affinity_group',
+      ])->save();
+    }
+    FieldStorageConfig::create([
+      'field_name' => 'field_use_ext_email_list',
+      'entity_type' => 'node',
+      'type' => 'boolean',
+      'cardinality' => 1,
+    ])->save();
+    FieldConfig::create([
+      'field_name' => 'field_use_ext_email_list',
+      'entity_type' => 'node',
+      'bundle' => 'affinity_group',
+    ])->save();
+    foreach (['field_ext_email_list', 'field_list_id'] as $agString) {
+      FieldStorageConfig::create([
+        'field_name' => $agString,
+        'entity_type' => 'node',
+        'type' => 'string',
+        'cardinality' => 1,
+      ])->save();
+      FieldConfig::create([
+        'field_name' => $agString,
+        'entity_type' => 'node',
+        'bundle' => 'affinity_group',
+      ])->save();
+    }
+
+    // field_affinity_group_node (on eventseries, ref node → affinity_group) —
+    // the coordinator series helpers below use this to tie a series to the
+    // affinity group whose field_coordinator authorizes edits to it. Mirrors
+    // the site's real eventseries.default.field_affinity_group_node config
+    // field, same pattern already used for field_registration/field_tags
+    // elsewhere in this base.
+    FieldStorageConfig::create([
+      'field_name' => 'field_affinity_group_node',
+      'entity_type' => 'eventseries',
+      'type' => 'entity_reference',
+      'cardinality' => -1,
+      'settings' => ['target_type' => 'node'],
+    ])->save();
+    FieldConfig::create([
+      'field_name' => 'field_affinity_group_node',
+      'entity_type' => 'eventseries',
+      'bundle' => 'default',
+      'settings' => ['handler_settings' => ['target_bundles' => ['affinity_group' => 'affinity_group']]],
+    ])->save();
+    \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
   }
 
   /**
@@ -198,6 +481,7 @@ abstract class EventKernelTestBase extends KernelTestBase {
       'event_registration' => $registration,
     ]);
     $series->save();
+    $this->publishModerated($series);
 
     $instance = EventInstance::create([
       'eventseries_id' => $series->id(),
@@ -205,6 +489,7 @@ abstract class EventKernelTestBase extends KernelTestBase {
       'date' => $date,
     ]);
     $instance->save();
+    $this->publishModerated($instance);
 
     // Populate the field_inheritance keyValue state mapping this instance's
     // uuid to its source series, so the computed inherited fields (title,
@@ -228,6 +513,7 @@ abstract class EventKernelTestBase extends KernelTestBase {
       'type' => 'default',
     ]);
     $series->save();
+    $this->publishModerated($series);
 
     $instance = EventInstance::create([
       'eventseries_id' => $series->id(),
@@ -238,6 +524,7 @@ abstract class EventKernelTestBase extends KernelTestBase {
       ],
     ]);
     $instance->save();
+    $this->publishModerated($instance);
 
     \Drupal::service('recurring_events.event_creation_service')
       ->configureDefaultInheritances($instance, (int) $series->id());
@@ -355,6 +642,7 @@ abstract class EventKernelTestBase extends KernelTestBase {
       'field_tags' => $tagRefs,
     ]);
     $series->save();
+    $this->publishModerated($series);
 
     $instance = EventInstance::create([
       'eventseries_id' => $series->id(),
@@ -365,6 +653,7 @@ abstract class EventKernelTestBase extends KernelTestBase {
       ],
     ]);
     $instance->save();
+    $this->publishModerated($instance);
 
     \Drupal::service('recurring_events.event_creation_service')
       ->configureDefaultInheritances($instance, (int) $series->id());
@@ -478,6 +767,7 @@ abstract class EventKernelTestBase extends KernelTestBase {
       'field_skill_level' => $skillLevelKey,
     ]);
     $series->save();
+    $this->publishModerated($series);
 
     $instance = EventInstance::create([
       'eventseries_id' => $series->id(),
@@ -488,11 +778,31 @@ abstract class EventKernelTestBase extends KernelTestBase {
       ],
     ]);
     $instance->save();
+    $this->publishModerated($instance);
 
     \Drupal::service('recurring_events.event_creation_service')
       ->configureDefaultInheritances($instance, (int) $series->id());
 
     return $instance;
+  }
+
+  /**
+   * Publishes a moderated eventseries/eventinstance, when applicable.
+   *
+   * The pre-existing instance/series builders in this base predate
+   * content_moderation being installed and, by convention, produce
+   * PUBLISHED entities (several existing tests rely on that default). Now
+   * that the editorial/editorial_eventinstance workflows are attached to
+   * eventseries.default/eventinstance.default, a freshly-created moderated
+   * entity computes moderation_state to the workflow's default state
+   * (draft) even with no explicit value, which drives status back to
+   * unpublished on save. Call this right after ->save() to restore the
+   * pre-existing "these builders yield published entities" contract.
+   */
+  protected function publishModerated(EntityInterface $entity): void {
+    if ($entity->hasField('moderation_state')) {
+      $entity->set('moderation_state', 'published')->save();
+    }
   }
 
   /**
@@ -567,6 +877,268 @@ abstract class EventKernelTestBase extends KernelTestBase {
 
     return EventDetailApiController::create(\Drupal::getContainer())
       ->register($instance, $request);
+  }
+
+  /**
+   * Creates a SAVED affinity_group node coordinated by the given user ids.
+   *
+   * @param int[] $coordinatorUids
+   *   User ids to place in field_coordinator.
+   */
+  protected function createAffinityGroupNode(array $coordinatorUids): NodeInterface {
+    $group = Node::create([
+      'type' => 'affinity_group',
+      'title' => 'Coordinator Group',
+      'field_coordinator' => $coordinatorUids,
+      // Read by the access_affinitygroup entity_presave fixture.
+      'field_group_slug' => 'coordinator-group',
+      'field_use_ext_email_list' => 0,
+    ]);
+    $group->save();
+    return $group;
+  }
+
+  /**
+   * Creates a CUSTOM, DRAFT eventseries coordinated by $c (via its group).
+   *
+   * The series' field_affinity_group_node references an affinity_group node
+   * coordinated by $c, so the coordinator-authorization checks the upcoming
+   * endpoints run against it resolve TRUE for $c.
+   */
+  protected function makeCoordinatorSeries(User $c): EventSeries {
+    $group = $this->createAffinityGroupNode([(int) $c->id()]);
+
+    $series = EventSeries::create([
+      'title' => 'Coordinator Event',
+      'body' => 'A coordinator-owned event.',
+      'recur_type' => 'custom',
+      'type' => 'default',
+      'field_affinity_group_node' => [$group->id()],
+    ]);
+    $series->save();
+
+    $instance = EventInstance::create([
+      'eventseries_id' => $series->id(),
+      'type' => 'default',
+      'date' => [
+        'value' => '2999-01-01T10:00:00',
+        'end_value' => '2999-01-01T12:00:00',
+      ],
+    ]);
+    $instance->save();
+
+    \Drupal::service('recurring_events.event_creation_service')
+      ->configureDefaultInheritances($instance, (int) $series->id());
+
+    return $series;
+  }
+
+  /**
+   * Like makeCoordinatorSeries(), but published.
+   *
+   * The series AND its instance are transitioned to moderation_state =
+   * published.
+   */
+  protected function makePublishedCoordinatorSeries(User $c): EventSeries {
+    $series = $this->makeCoordinatorSeries($c);
+    $series->set('moderation_state', 'published')->save();
+
+    foreach ($this->loadInstances($series) as $instance) {
+      $instance->set('moderation_state', 'published')->save();
+    }
+
+    return $series;
+  }
+
+  /**
+   * Like makePublishedCoordinatorSeries(), but two instances.
+   */
+  protected function makePublishedCoordinatorSeriesWithTwoInstances(User $c): EventSeries {
+    $series = $this->makePublishedCoordinatorSeries($c);
+
+    $second = EventInstance::create([
+      'eventseries_id' => $series->id(),
+      'type' => 'default',
+      'date' => [
+        'value' => '2999-02-01T10:00:00',
+        'end_value' => '2999-02-01T12:00:00',
+      ],
+    ]);
+    $second->save();
+    \Drupal::service('recurring_events.event_creation_service')
+      ->configureDefaultInheritances($second, (int) $series->id());
+    $second->set('moderation_state', 'published')->save();
+
+    return $series;
+  }
+
+  /**
+   * A rule-based series coordinated by $c, via its affinity_group.
+   *
+   * Recur_type = weekly_recurring_date.
+   */
+  protected function makeCoordinatorRuleSeries(User $c): EventSeries {
+    $group = $this->createAffinityGroupNode([(int) $c->id()]);
+
+    $series = EventSeries::create([
+      'title' => 'Coordinator Recurring Event',
+      'body' => 'A rule-based coordinator-owned event.',
+      'recur_type' => 'weekly_recurring_date',
+      'type' => 'default',
+      'field_affinity_group_node' => [$group->id()],
+    ]);
+    $series->save();
+
+    return $series;
+  }
+
+  /**
+   * Loads all eventinstance entities belonging to $series.
+   *
+   * @return \Drupal\recurring_events\Entity\EventInstance[]
+   *   The series' event instances.
+   */
+  protected function loadInstances(EventSeries $series): array {
+    $ids = \Drupal::entityTypeManager()->getStorage('eventinstance')
+      ->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('eventseries_id', $series->id())
+      ->execute();
+    return EventInstance::loadMultiple($ids);
+  }
+
+  /**
+   * Maps a CRUD op name to its EventCrudApiController method name.
+   *
+   * EventCrudApiController does not exist yet — it lands when the CRUD
+   * endpoints are implemented. This map is the single place that work binds
+   * against: doCrud()/doOccurrence()/doRecurrence() below resolve the
+   * method off the live class by name at call time, so this file compiles
+   * and the current suite passes now, and calling a do*() helper before the
+   * controller exists fails with a clear "class not found" rather than
+   * silently no-op'ing.
+   *
+   * @return array<string, string>
+   *   Op name => EventCrudApiController method name.
+   */
+  protected function crudOpMethodMap(): array {
+    return [
+      // The create endpoint is createEvent(), not create(): ControllerBase's
+      // static create(ContainerInterface) factory occupies the create() name,
+      // so the instance endpoint cannot reuse it (mirrors
+      // AnnouncementApiController::createAnnouncement).
+      'create' => 'createEvent',
+      'update' => 'update',
+      'delete' => 'delete',
+    ];
+  }
+
+  /**
+   * Dispatches a series create/update/delete op, acting as $actingUser.
+   *
+   * Builds a Request and sends it to EventCrudApiController. Models
+   * doRegister().
+   *
+   * @param string $op
+   *   One of the keys in crudOpMethodMap().
+   * @param int|null $id
+   *   The eventseries id being acted on; NULL for create.
+   * @param \Drupal\user\Entity\User $actingUser
+   *   The acting user whose uid is bound to acting_user_uid.
+   * @param array $body
+   *   The decoded JSON body.
+   * @param array $query
+   *   Query-string parameters.
+   */
+  protected function doCrud(string $op, ?int $id, User $actingUser, array $body, array $query = []): JsonResponse {
+    $path = '/api/1.0/events' . ($id !== NULL ? '/' . $id : '');
+    $method = $body || $op === 'create' ? 'POST' : 'GET';
+    $request = Request::create($path, $method, $query, [], [], [], $body ? json_encode($body) : NULL);
+    $request->attributes->set('acting_user_uid', (int) $actingUser->id());
+    if ($id !== NULL) {
+      $request->attributes->set('eventseries', EventSeries::load($id));
+    }
+
+    return $this->asActingUser(
+      $actingUser,
+      fn () => $this->dispatchCrud($op, $request, $id),
+    );
+  }
+
+  /**
+   * Dispatches an eventinstance (occurrence) op, acting as $actingUser.
+   *
+   * Builds a Request and sends it to EventCrudApiController. Models
+   * doRegister().
+   *
+   * @param string $op
+   *   The occurrence op name (e.g. 'publish', 'archive', 'update').
+   * @param int $instanceId
+   *   The eventinstance id being acted on.
+   * @param \Drupal\user\Entity\User $actingUser
+   *   The acting user whose uid is bound to acting_user_uid.
+   * @param array $query
+   *   Query-string parameters.
+   * @param array $body
+   *   The decoded JSON body.
+   */
+  protected function doOccurrence(string $op, int $instanceId, User $actingUser, array $query = [], array $body = []): JsonResponse {
+    $path = '/api/1.0/events/instances/' . $instanceId . '/' . $op;
+    $request = Request::create($path, $body ? 'POST' : 'GET', $query, [], [], [], $body ? json_encode($body) : NULL);
+    $request->attributes->set('acting_user_uid', (int) $actingUser->id());
+    $request->attributes->set('eventinstance', EventInstance::load($instanceId));
+
+    return $this->asActingUser(
+      $actingUser,
+      fn () => $this->dispatchCrud($op, $request, $instanceId),
+    );
+  }
+
+  /**
+   * Dispatches a recurrence-rule op, acting as $actingUser.
+   *
+   * Builds a Request and sends it to EventCrudApiController. Models
+   * doRegister().
+   *
+   * @param int $seriesId
+   *   The eventseries id whose recurrence rule is being acted on.
+   * @param \Drupal\user\Entity\User $actingUser
+   *   The acting user whose uid is bound to acting_user_uid.
+   * @param array $query
+   *   Query-string parameters.
+   * @param array $body
+   *   The decoded JSON body.
+   */
+  protected function doRecurrence(int $seriesId, User $actingUser, array $query, array $body): JsonResponse {
+    $path = '/api/1.0/events/' . $seriesId . '/recurrence';
+    $request = Request::create($path, 'POST', $query, [], [], [], json_encode($body));
+    $request->attributes->set('acting_user_uid', (int) $actingUser->id());
+    $request->attributes->set('eventseries', EventSeries::load($seriesId));
+
+    return $this->asActingUser(
+      $actingUser,
+      fn () => $this->dispatchCrud('recurrence', $request, $seriesId),
+    );
+  }
+
+  /**
+   * Resolves EventCrudApiController by name and invokes the mapped method.
+   *
+   * Deliberately late-bound (no `use` import, no compile-time reference) so
+   * this base compiles before the controller exists; adding the class makes
+   * these calls start working unchanged.
+   */
+  private function dispatchCrud(string $op, Request $request, ?int $id): JsonResponse {
+    $controllerClass = 'Drupal\\access_events\\Controller\\EventCrudApiController';
+    if (!class_exists($controllerClass)) {
+      throw new \RuntimeException(sprintf(
+        '%s does not exist yet; the do*() dispatch helpers are scaffolding for the event-CRUD write endpoints.',
+        $controllerClass,
+      ));
+    }
+    $method = $this->crudOpMethodMap()[$op] ?? $op;
+    $controller = $controllerClass::create(\Drupal::getContainer());
+    return $id === NULL ? $controller->$method($request) : $controller->$method($id, $request);
   }
 
 }

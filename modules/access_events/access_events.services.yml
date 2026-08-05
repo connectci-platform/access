@@ -29,3 +29,9 @@ services:
     arguments: ['@content_moderation.moderation_information']
     tags:
       - { name: access_check, applies_to: _content_moderation_latest_version }
+  access_events.access_helper:
+    class: Drupal\access_events\EventAccessHelper
+    arguments: ['@access_affinitygroup.coordinator_access', '@current_user']
+  access_events.registrant_counter:
+    class: Drupal\access_events\RegistrantCounter
+    arguments: ['@entity_type.manager']

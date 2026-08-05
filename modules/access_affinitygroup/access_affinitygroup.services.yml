@@ -27,6 +27,8 @@ services:
       - '@logger.factory'
       - '@datetime.time'
       - '@lock'
+  access_affinitygroup.coordinator_access:
+    class: Drupal\access_affinitygroup\Access\CoordinatorAccess
   access_affinitygroup.acting_user_access:
     class: Drupal\access_affinitygroup\Access\ActingUserAccess
     arguments:
