@@ -22,14 +22,21 @@ final class RegistrationState {
    * @param \Drupal\recurring_events\Entity\EventInstance $instance
    *   The event instance.
    * @param int $actingUid
-   *   The acting user's uid (from the rp_account_effective_uid attribute).
+   *   The acting user's uid (from the acting_user_uid attribute).
    *
    * @return array
-   *   ['enabled' => FALSE] when native registration is off, otherwise the full
-   *   state: enabled, capacity (?int), registered_count (int),
-   *   seats_remaining (?int), waitlist_enabled (bool), registration_open (bool),
-   *   registration_window (['opens' => ?string, 'closes' => ?string]) with
-   *   Z-suffixed ISO-8601 dates, and already_registered (bool).
+   *   ['enabled' => FALSE] when native registration is off, otherwise a
+   *   three-way partition keyed on whether an acting user resolved:
+   *   - Entity-derived, ALWAYS present: enabled (TRUE), capacity_type
+   *     ('unlimited'|'limited'), capacity (?int), registered_count (int),
+   *     seats_remaining (?int), waitlist_enabled (bool).
+   *   - Per-user + time-derived, present ONLY when $actingUid >= 1:
+   *     already_registered (bool) is per-user; registration_open (bool) and
+   *     registration_window (['opens' => ?string, 'closes' => ?string], with
+   *     Z-suffixed ISO-8601 dates) are wall-clock-derived. For an anonymous
+   *     (uid < 1) call these three are OMITTED so the payload is cacheable — no
+   *     cache tag can invalidate a clock comparison, and hasUserRegisteredById(0)
+   *     drops the user filter and would read TRUE whenever anyone is registered.
    */
   public static function forInstance(EventInstance $instance, int $actingUid): array {
     /** @var \Drupal\recurring_events_registration\RegistrationCreationService $svc */
@@ -64,23 +71,48 @@ final class RegistrationState {
       ? (clone $dt)->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z')
       : NULL;
 
-    return [
+    // capacity_type is a two-state discriminant (unlimited|limited) so a caller
+    // can tell "unlimited" (retrieveAvailability() === -1, the contrib sentinel
+    // for empty capacity) from a limited event — both otherwise carry NULL
+    // capacity/seats. Derived from $availability, NOT $capRaw: empty capacity
+    // casts to 0, never -1, so a $capRaw === -1 check would be dead code.
+    $state = [
       'enabled' => TRUE,
-      'capacity' => $capacity,
+      'capacity_type' => $availability === -1 ? 'unlimited' : 'limited',
+      'capacity' => $availability === -1 ? NULL : $capacity,
       'registered_count' => (int) $registered,
       'seats_remaining' => $seatsRemaining,
       'waitlist_enabled' => (bool) $svc->hasWaitlist(),
-      'registration_open' => (bool) $svc->registrationIsOpen(),
-      'registration_window' => [
-        'opens' => $iso($window['reg_open'] ?? NULL),
-        'closes' => $iso($window['reg_close'] ?? NULL),
-      ],
-      // hasUserRegisteredById() counts waitlisted registrants too (unlike
-      // registered_count above, which is non-waitlisted only). Intentional: a
-      // waitlisted user must not be able to re-register, so dedup is stricter
-      // than the seat count.
-      'already_registered' => $svc->hasUserRegisteredById($actingUid),
     ];
+
+    // Per-user + time-derived fields: present ONLY for a resolved acting user.
+    // registration_open is wall-clock-derived (registrationIsOpen()) and cannot
+    // be tag-invalidated, so it must not appear in the cacheable anonymous
+    // payload. already_registered is per-user (uid=0 would drop the filter and
+    // read TRUE if anyone is registered). All three are excluded when uid < 1.
+    //
+    // registration_window.opens: for the 'open' (open-immediately) dates-type
+    // the contrib service derives reg_open as a fresh `now` on every call, so
+    // surfacing it made `opens` track the wall clock (meaningless, and it made
+    // registration_open read as effectively always true). Emit NULL instead —
+    // the open-now state is carried by registration_open — so `opens` is stable
+    // across calls. Only a genuinely scheduled window keeps its configured
+    // reg_open timestamp.
+    //
+    // hasUserRegisteredById() counts waitlisted registrants too (unlike
+    // registered_count above, which is non-waitlisted only). Intentional: a
+    // waitlisted user must not be able to re-register, so dedup is stricter
+    // than the seat count.
+    if ($actingUid >= 1) {
+      $state['registration_open'] = (bool) $svc->registrationIsOpen();
+      $state['registration_window'] = [
+        'opens' => $svc->getRegistrationDatesType() === 'open' ? NULL : $iso($window['reg_open'] ?? NULL),
+        'closes' => $iso($window['reg_close'] ?? NULL),
+      ];
+      $state['already_registered'] = $svc->hasUserRegisteredById($actingUid);
+    }
+
+    return $state;
   }
 
 }

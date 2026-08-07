@@ -8,7 +8,7 @@ use Drupal\access_events\Controller\EventDetailApiController;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
- * Tests the GET /api/1.0/events/{eventinstance_id} detail route.
+ * Tests the GET /api/2.3/events/{eventinstance_id} detail route.
  *
  * @covers \Drupal\access_events\Controller\EventDetailApiController
  * @group access_events
@@ -21,8 +21,8 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
   public function testGetReturnsDetailAndRegistration(): void {
     $instance = $this->createRegistrableInstance(capacity: 60, waitlist: TRUE);
 
-    $request = Request::create('/api/1.0/events/' . $instance->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $this->owner->id());
+    $request = Request::create('/api/2.3/events/' . $instance->id());
+    $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
     $controller = EventDetailApiController::create(\Drupal::getContainer());
@@ -63,8 +63,8 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
   public function testGetNonRegistrableInstanceHasBareRegistrationFalse(): void {
     $instance = $this->createNonRegistrableInstance();
 
-    $request = Request::create('/api/1.0/events/' . $instance->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $this->owner->id());
+    $request = Request::create('/api/2.3/events/' . $instance->id());
+    $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
     $data = json_decode(
@@ -84,8 +84,8 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
   public function testAbsentInheritedFieldsAreNull(): void {
     $instance = $this->createRegistrableInstance();
 
-    $request = Request::create('/api/1.0/events/' . $instance->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $this->owner->id());
+    $request = Request::create('/api/2.3/events/' . $instance->id());
+    $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
     $data = json_decode(
@@ -118,8 +118,8 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
       tagNames: ['HPC', 'Machine Learning'],
     );
 
-    $request = Request::create('/api/1.0/events/' . $instance->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $this->owner->id());
+    $request = Request::create('/api/2.3/events/' . $instance->id());
+    $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
     $data = json_decode(
@@ -152,8 +152,8 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
       skillLevelKey: 'Beginner',
     );
 
-    $request = Request::create('/api/1.0/events/' . $instance->id());
-    $request->attributes->set('rp_account_effective_uid', (int) $this->owner->id());
+    $request = Request::create('/api/2.3/events/' . $instance->id());
+    $request->attributes->set('acting_user_uid', (int) $this->owner->id());
     \Drupal::requestStack()->push($request);
 
     $data = json_decode(
@@ -191,6 +191,30 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
   }
 
   /**
+   * The owner registers successfully with the account switched to them.
+   *
+   * Proves the new explicit createAccess assertion PASSES for a legitimate
+   * registrant when the request runs AS the acting user (mirroring the switch
+   * subscriber in prod): the authenticated role holds 'add registrant entities'
+   * and the instance has registration enabled, so the handler allows the create.
+   */
+  public function testOwnerRegisterUnderSwitchSucceeds(): void {
+    $instance = $this->createRegistrableInstance(capacity: 60, waitlist: FALSE);
+    $before = $this->countRegistrants($instance);
+
+    $response = $this->asActingUser(
+      $this->owner,
+      fn () => $this->doRegister($instance, $this->owner, ['confirmed' => TRUE]),
+    );
+
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertTrue($data['success']);
+    $this->assertSame('registered', $data['status']);
+    $this->assertSame($before + 1, $this->countRegistrants($instance));
+  }
+
+  /**
    * A preview (no confirmed) writes nothing and reports the seat outcome.
    */
   public function testPreviewCreatesNoRegistrant(): void {
@@ -211,6 +235,24 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
     $this->assertArrayNotHasKey('waitlisted_count', $data);
     // No write.
     $this->assertSame($before, $this->countRegistrants($instance));
+  }
+
+  /**
+   * GUARD: a preview POST (empty body) creates NO registrant row.
+   *
+   * Pins the invariant Phase 2's preview-by-default path relies on: a register
+   * POST with `confirmed` omitted (empty JSON body `[]`) must write nothing and
+   * return the preview shape (`outcome_if_confirmed`), never a commit.
+   */
+  public function testPreviewPostCreatesNoRegistrantRow(): void {
+    $instance = $this->createRegistrableInstance();
+    $before = $this->countRegistrants($instance);
+    // [] = preview (no confirmed); a bool third arg would be a TypeError.
+    $response = $this->doRegister($instance, $this->owner, []);
+    $after = $this->countRegistrants($instance);
+    $this->assertSame($before, $after, 'A preview POST must not create a registrant row.');
+    $body = json_decode($response->getContent(), TRUE);
+    $this->assertArrayHasKey('outcome_if_confirmed', $body);
   }
 
   /**
@@ -340,7 +382,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
    * A role-restricted series refuses a user lacking the role with 409.
    *
    * The not_permitted refusal is a 409 (registration-STATE refusal), not a 403:
-   * the acting user is already identified and authorized by the RpAccountAccess
+   * the acting user is already identified and authorized by the ActingUserAccess
    * gate, so re-authenticating cannot help. 403 is reserved for the gate's own
    * identity/auth failure, which runs before this controller.
    */

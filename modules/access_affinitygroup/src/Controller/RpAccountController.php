@@ -35,7 +35,7 @@ class RpAccountController extends ControllerBase {
       throw new NotFoundHttpException();
     }
 
-    $effectiveUid = (int) $request->attributes->get('rp_account_effective_uid');
+    $effectiveUid = (int) $request->attributes->get('acting_user_uid');
     $result = $this->service->getAccountsForUserAndRp($effectiveUid, $rp_nid);
     $rows = $result['rows'];
     $state = $result['state'];
@@ -105,7 +105,7 @@ class RpAccountController extends ControllerBase {
    * GET /api/1.0/rp-accounts — the acting user's RP accounts, grouped by RP.
    */
   public function listAccounts(Request $request): JsonResponse {
-    $uid = (int) $request->attributes->get('rp_account_effective_uid');
+    $uid = (int) $request->attributes->get('acting_user_uid');
     $result = $this->service->getAccountsForUser($uid);
     $rows = $result['rows'];
 
