@@ -184,7 +184,12 @@ abstract class EventKernelTestBase extends KernelTestBase {
     $seriesConfig['states']['ready_for_review']['default_revision'] = FALSE;
     $seriesConfig['transitions']['send_for_review'] = [
       'label' => 'Send for Review',
-      'from' => ['draft'],
+      // Matches live config: send_for_review is valid from BOTH draft and
+      // needs_adjustment. Omitting needs_adjustment would hide that arm from
+      // tests AND make isTransitionValid throw for a needs_adjustment series in
+      // the kernel env (the controller's source-state guard admits it), whereas
+      // production allows it.
+      'from' => ['draft', 'needs_adjustment'],
       'to' => 'ready_for_review',
       'weight' => 5,
     ];
@@ -231,6 +236,24 @@ abstract class EventKernelTestBase extends KernelTestBase {
               'default_revision' => FALSE,
               'weight' => -5,
             ],
+            // The live editorial_eventinstance workflow has a needs_adjustment
+            // state (a DEFAULT-revision unpublished state) reached by
+            // request_adjustment from published. An instance can therefore be
+            // published once, then moved to needs_adjustment, which becomes the
+            // current DEFAULT state — with a published revision still in
+            // history. There is no needs_adjustment → archived transition, so
+            // the cancel-occurrence endpoint must NOT throw when it sees such an
+            // instance; it refuses invalid_state instead (see
+            // testCancelDraftOccurrenceRefusesInvalidStateNo500, which drives
+            // the instance to this genuinely non-published DEFAULT state — draft
+            // is a forward revision here (default_revision FALSE), so it never
+            // becomes the current state on its own).
+            'needs_adjustment' => [
+              'label' => 'Needs Adjustment',
+              'published' => FALSE,
+              'default_revision' => TRUE,
+              'weight' => 6,
+            ],
             'published' => [
               'label' => 'Published',
               'published' => TRUE,
@@ -244,6 +267,12 @@ abstract class EventKernelTestBase extends KernelTestBase {
               'from' => ['published'],
               'to' => 'archived',
               'weight' => 2,
+            ],
+            'request_adjustment' => [
+              'label' => 'Request Adjustment',
+              'from' => ['published'],
+              'to' => 'needs_adjustment',
+              'weight' => 6,
             ],
             'archived_draft' => [
               'label' => 'Restore to Draft',
@@ -973,6 +1002,42 @@ abstract class EventKernelTestBase extends KernelTestBase {
   }
 
   /**
+   * A PUBLISHED custom series seeded with one custom_date, coordinated by $c.
+   *
+   * Unlike makeCoordinatorSeries() (which hand-builds one instance and leaves
+   * custom_date empty), this seeds the singular custom_date daterange field so
+   * the recurring_events insert hook OWNS the instance it spawns. That matters
+   * for the add_occurrence path: appending a second custom_date to a PUBLISHED
+   * custom series is a recur-config change, so on save the module's
+   * RecreateEventInstanceCreator regenerates instances from the full
+   * custom_dates set — the durable, module-owned append the endpoint relies on.
+   * The series and its spawned instance(s) are transitioned to published.
+   */
+  protected function makePublishedCustomSeriesWithDate(User $c): EventSeries {
+    $group = $this->createAffinityGroupNode([(int) $c->id()]);
+
+    $series = EventSeries::create([
+      'title' => 'Coordinator Custom Event',
+      'body' => 'A published custom coordinator-owned event.',
+      'recur_type' => 'custom',
+      'type' => 'default',
+      'field_affinity_group_node' => [$group->id()],
+      'custom_date' => [
+        ['value' => '2999-01-01T10:00:00', 'end_value' => '2999-01-01T12:00:00'],
+      ],
+    ]);
+    // The insert hook spawns one instance from the seeded custom_date.
+    $series->save();
+    $series->set('moderation_state', 'published')->save();
+
+    foreach ($this->loadInstances($series) as $instance) {
+      $instance->set('moderation_state', 'published')->save();
+    }
+
+    return $series;
+  }
+
+  /**
    * A rule-based series coordinated by $c, via its affinity_group.
    *
    * Recur_type = weekly_recurring_date.
@@ -980,12 +1045,47 @@ abstract class EventKernelTestBase extends KernelTestBase {
   protected function makeCoordinatorRuleSeries(User $c): EventSeries {
     $group = $this->createAffinityGroupNode([(int) $c->id()]);
 
+    // A rule series' insert hook calculates instances, which formats times via
+    // the core html_time date_format (and html_date). Those config entities ship
+    // in system's config/install but are not present in this minimal kernel env,
+    // so create the ones the weekly-rule instance pipeline needs to avoid a
+    // getPattern()-on-null during save. custom/rule-refusal aside, this keeps a
+    // rule series constructible at all in the test env.
+    foreach ([
+      'html_time' => 'H:i:s',
+      'html_date' => 'Y-m-d',
+    ] as $formatId => $pattern) {
+      if (!\Drupal::entityTypeManager()->getStorage('date_format')->load($formatId)) {
+        \Drupal::entityTypeManager()->getStorage('date_format')->create([
+          'id' => $formatId,
+          'label' => $formatId,
+          'locked' => TRUE,
+          'pattern' => $pattern,
+        ])->save();
+      }
+    }
+
     $series = EventSeries::create([
       'title' => 'Coordinator Recurring Event',
       'body' => 'A rule-based coordinator-owned event.',
       'recur_type' => 'weekly_recurring_date',
       'type' => 'default',
       'field_affinity_group_node' => [$group->id()],
+      // Seed a VALID weekly rule so the series insert hook's calculateInstances()
+      // has the days/time/duration it iterates (an empty weekly_recurring_date
+      // makes WeeklyRecurringDate::calculateInstances() foreach over NULL and the
+      // save throws). A one-week bounded window keeps the spawned instance count
+      // small; the exact instances do not matter to the rule-refusal test — only
+      // that the series exists as a rule series.
+      'weekly_recurring_date' => [
+        'value' => '2999-01-04T00:00:00',
+        'end_value' => '2999-01-10T00:00:00',
+        'time' => '10:00 AM',
+        'end_time' => '11:00 AM',
+        'duration' => 3600,
+        'duration_or_end_time' => 'end_time',
+        'days' => 'monday,wednesday',
+      ],
     ]);
     $series->save();
 
@@ -1030,6 +1130,14 @@ abstract class EventKernelTestBase extends KernelTestBase {
       'create' => 'createEvent',
       'update' => 'update',
       'delete' => 'delete',
+      'restore' => 'restore',
+      'sendForReview' => 'sendForReview',
+      // Instance-level (occurrence) op: cancel_occurrence archives one instance.
+      'cancel' => 'cancelOccurrence',
+      // Instance-level: edit_occurrence changes one instance's date/location.
+      'edit' => 'editOccurrence',
+      // Series-level: add_occurrence appends a custom_date to a custom series.
+      'add' => 'addOccurrence',
     ];
   }
 
@@ -1082,15 +1190,43 @@ abstract class EventKernelTestBase extends KernelTestBase {
    * @param array $body
    *   The decoded JSON body.
    */
-  protected function doOccurrence(string $op, int $instanceId, User $actingUser, array $query = [], array $body = []): JsonResponse {
-    $path = '/api/1.0/events/instances/' . $instanceId . '/' . $op;
-    $request = Request::create($path, $body ? 'POST' : 'GET', $query, [], [], [], $body ? json_encode($body) : NULL);
+  protected function doOccurrence(string $op, int $id, User $actingUser, array $query = [], array $body = []): JsonResponse {
+    // add_occurrence targets a SERIES (POST /api/2.3/event-series/{id}/
+    // occurrence), not an instance: it appends a custom_date to the series. The
+    // edit/cancel ops target an INSTANCE (/api/2.3/event-occurrences/{id}).
+    // Branch on the op so the right entity attribute is bound and the right
+    // path is built. In BOTH branches the query params are baked into the URL
+    // (http_build_query) rather than passed as Request::create()'s $parameters:
+    // for a non-GET method that arg lands in the request (POST) bag, not
+    // ->query, so the controller's $request->query->get('force'/'confirmed')
+    // would MISS it — silently dropping the destructive force-gate.
+    if ($op === 'add') {
+      $path = '/api/2.3/event-series/' . $id . '/occurrence';
+      if ($query) {
+        $path .= '?' . http_build_query($query);
+      }
+      $request = Request::create($path, 'POST', [], [], [], [], $body ? json_encode($body) : NULL);
+      $request->attributes->set('acting_user_uid', (int) $actingUser->id());
+      $request->attributes->set('eventseries', EventSeries::load($id));
+
+      return $this->asActingUser(
+        $actingUser,
+        fn () => $this->dispatchCrud($op, $request, $id),
+      );
+    }
+
+    // Instance-targeting ops (cancel = DELETE, edit = POST/PATCH-shaped).
+    $path = '/api/2.3/event-occurrences/' . $id;
+    if ($query) {
+      $path .= '?' . http_build_query($query);
+    }
+    $request = Request::create($path, $body ? 'POST' : 'DELETE', [], [], [], [], $body ? json_encode($body) : NULL);
     $request->attributes->set('acting_user_uid', (int) $actingUser->id());
-    $request->attributes->set('eventinstance', EventInstance::load($instanceId));
+    $request->attributes->set('eventinstance', EventInstance::load($id));
 
     return $this->asActingUser(
       $actingUser,
-      fn () => $this->dispatchCrud($op, $request, $instanceId),
+      fn () => $this->dispatchCrud($op, $request, $id),
     );
   }
 

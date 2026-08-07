@@ -83,6 +83,13 @@ class RegistrationApiController extends ControllerBase {
         'registrant_id' => $registrant->uuid(),
         'eventinstance_id' => (string) $instance->id(),
         'event_title' => $instance->get('title')->value,
+        // Derived from the INSTANCE's own moderation state — an archived
+        // instance means this occurrence has been cancelled. Read the instance's
+        // state, not the parent series' (they can diverge; the registrant is
+        // attached to this instance). Guard the field: an instance whose bundle
+        // has no content-moderation workflow simply cannot be cancelled.
+        'cancelled' => $instance->hasField('moderation_state')
+          && $instance->get('moderation_state')->value === 'archived',
         'start_date' => $this->iso($instance->get('date')->value),
         'end_date' => $this->iso($instance->get('date')->end_value),
         'location' => $this->plain($instance->get('location')->value ?? NULL),

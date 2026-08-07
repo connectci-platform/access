@@ -10,12 +10,18 @@ use Drupal\user\Entity\Role;
 use Drupal\user\RoleInterface;
 
 /**
- * Tests the registrant-count helper for the has_registrations safety gate.
+ * Tests the eventseries presave backstop for the reschedule-block constraint.
  *
- * @covers \Drupal\access_events\RegistrantCounter
+ * EventSeriesRescheduleBlockTest covers the validate() path. This suite
+ * covers the BARE-SAVE path: some save flows (the content-moderation widget,
+ * revision reverts) call $entity->save() directly without ever calling
+ * validate(), so the constraint never runs there. This hook is the backstop
+ * that still blocks a destructive rebuild in that case.
+ *
+ * @covers \access_events_eventseries_presave
  * @group access_events
  */
-class RegistrantCounterTest extends EventKernelTestBase {
+class EventSeriesPresaveBackstopTest extends EventKernelTestBase {
 
   /**
    * {@inheritdoc}
@@ -101,6 +107,7 @@ class RegistrantCounterTest extends EventKernelTestBase {
         'use editorial transition archived_draft',
         'use editorial transition review_to_review',
         'use editorial transition send_for_review',
+        'use editorial transition publish',
       ],
     );
 
@@ -138,71 +145,79 @@ class RegistrantCounterTest extends EventKernelTestBase {
   }
 
   /**
-   * Counts registrants for a single instance when multiple exist.
+   * A bare save (no validate()) with future registrants is blocked.
+   *
+   * This mirrors the content-moderation widget / revision-revert save paths,
+   * which call save() directly and never invoke validate() — so the
+   * constraint's own validator never runs. The presave hook must still catch
+   * the destructive recur-config change and refuse the save, and the change
+   * must not persist.
    */
-  public function testCountForInstanceCountsAttachedRegistrants(): void {
-    $instance = $this->createRegistrableInstance(capacity: 5);
+  public function testBareSaveBlockedWithFutureRegistrants(): void {
+    $coordinator = $this->createUser();
+    $series = $this->makePublishedCustomSeriesWithDate($coordinator);
+    $instance = $this->loadInstances($series)[array_key_first($this->loadInstances($series))];
+    $registrant = $this->registerUser($this->createUser(), $instance);
+
+    $existingDates = $series->get('custom_date')->getValue();
+    $existingDates[] = ['value' => '2999-06-01T10:00:00', 'end_value' => '2999-06-01T12:00:00'];
+    $series->set('custom_date', $existingDates);
+
+    // Core's SqlContentEntityStorage wraps a presave-hook exception in an
+    // EntityStorageException, with the original RuntimeException as its
+    // previous exception.
+    $threw = FALSE;
+    try {
+      $series->save();
+    }
+    catch (\Drupal\Core\Entity\EntityStorageException $e) {
+      $threw = TRUE;
+      $this->assertInstanceOf(\RuntimeException::class, $e->getPrevious());
+      $this->assertStringContainsString('future registration', $e->getPrevious()->getMessage());
+    }
+    $this->assertTrue($threw, 'Bare save() must throw when the series has future registrants and its recur config changed.');
+
+    // The custom_date change must not have persisted.
+    $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
+    $this->assertCount(1, $reloaded->get('custom_date')->getValue());
+
+    // The registrant must still exist.
+    $this->assertNotNull(\Drupal::entityTypeManager()->getStorage('registrant')->loadUnchanged($registrant->id()));
+  }
+
+  /**
+   * A bare save with NO registrants succeeds.
+   */
+  public function testBareSaveSucceedsWithNoRegistrants(): void {
+    $coordinator = $this->createUser();
+    $series = $this->makePublishedCustomSeriesWithDate($coordinator);
+
+    $existingDates = $series->get('custom_date')->getValue();
+    $existingDates[] = ['value' => '2999-06-01T10:00:00', 'end_value' => '2999-06-01T12:00:00'];
+    $series->set('custom_date', $existingDates);
+    $series->save();
+
+    $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
+    $this->assertCount(2, $reloaded->get('custom_date')->getValue());
+  }
+
+  /**
+   * A content-only edit (title) with registrants is allowed on bare save.
+   *
+   * The recur/date fields are untouched, so checkForOriginalRecurConfigChanges()
+   * returns FALSE and the hook must not throw.
+   */
+  public function testBareSaveContentEditAllowedWithRegistrants(): void {
+    $coordinator = $this->createUser();
+    $series = $this->makePublishedCustomSeriesWithDate($coordinator);
+    $instance = $this->loadInstances($series)[array_key_first($this->loadInstances($series))];
     $this->registerUser($this->createUser(), $instance);
-    $this->registerUser($this->createUser(), $instance);
-    $counter = \Drupal::service('access_events.registrant_counter');
-    $this->assertSame(2, $counter->countForInstance((int) $instance->id()));
-  }
 
-  /**
-   * Zero registrants returns zero.
-   */
-  public function testCountForInstanceZeroWhenNone(): void {
-    $instance = $this->createRegistrableInstance(capacity: 5);
-    $counter = \Drupal::service('access_events.registrant_counter');
-    $this->assertSame(0, $counter->countForInstance((int) $instance->id()));
-  }
+    $series->set('title', 'Updated Title')->set('body', 'Updated body copy.');
+    $series->save();
 
-  /**
-   * Series registrant count sums across all instances.
-   */
-  public function testCountForSeriesSumsAcrossInstances(): void {
-    $instance = $this->createRegistrableInstance(capacity: 5);
-    $this->registerUser($this->createUser(), $instance);
-    $series = $instance->getEventSeries();
-    $counter = \Drupal::service('access_events.registrant_counter');
-    $this->assertSame(1, $counter->countForSeries((int) $series->id()));
-  }
-
-  /**
-   * A series' future count excludes registrants on its past instances.
-   */
-  public function testCountFutureForSeriesExcludesPastInstances(): void {
-    // A future instance with a registrant, and a past instance with a registrant.
-    $futureInstance = $this->createRegistrableInstance(); // default: future date
-    $this->registerUser($this->createUser(), $futureInstance);
-    $pastInstance = $this->createRegistrableInstance(pastDate: TRUE);
-    $this->registerUser($this->createUser(), $pastInstance);
-    $series = $futureInstance->getEventSeries();
-    // Put the past instance on the SAME series so countFutureForSeries can discriminate.
-    $pastInstance->set('eventseries_id', $series->id())->save();
-    $counter = \Drupal::service('access_events.registrant_counter');
-    // Only the future registrant counts.
-    $this->assertSame(1, $counter->countFutureForSeries((int) $series->id()));
-  }
-
-  /**
-   * An instance's future count is zero once the instance has ended.
-   */
-  public function testCountFutureForInstanceZeroWhenInstancePast(): void {
-    $pastInstance = $this->createRegistrableInstance(pastDate: TRUE);
-    $this->registerUser($this->createUser(), $pastInstance);
-    $counter = \Drupal::service('access_events.registrant_counter');
-    $this->assertSame(0, $counter->countFutureForInstance((int) $pastInstance->id()));
-  }
-
-  /**
-   * An instance's future count includes its registrants while still future.
-   */
-  public function testCountFutureForInstanceCountsWhenFuture(): void {
-    $futureInstance = $this->createRegistrableInstance();
-    $this->registerUser($this->createUser(), $futureInstance);
-    $counter = \Drupal::service('access_events.registrant_counter');
-    $this->assertSame(1, $counter->countFutureForInstance((int) $futureInstance->id()));
+    $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
+    $this->assertSame('Updated Title', $reloaded->get('title')->value);
   }
 
 }

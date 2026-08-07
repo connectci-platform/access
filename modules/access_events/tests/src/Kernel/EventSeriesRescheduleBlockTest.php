@@ -6,16 +6,22 @@ namespace Drupal\Tests\access_events\Kernel;
 
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
+use Drupal\recurring_events\Entity\EventSeries;
 use Drupal\user\Entity\Role;
 use Drupal\user\RoleInterface;
 
 /**
- * Tests the registrant-count helper for the has_registrations safety gate.
+ * Tests the reschedule-block constraint on eventseries.
  *
- * @covers \Drupal\access_events\RegistrantCounter
+ * recurring_events rebuilds ALL instances of a series when its recurrence
+ * configuration changes, hard-deleting the existing instances and any
+ * attached registrant entities. This constraint blocks that change while
+ * the series still has future registrants.
+ *
+ * @covers \Drupal\access_events\Plugin\Validation\Constraint\EventSeriesRescheduleBlockConstraintValidator
  * @group access_events
  */
-class RegistrantCounterTest extends EventKernelTestBase {
+class EventSeriesRescheduleBlockTest extends EventKernelTestBase {
 
   /**
    * {@inheritdoc}
@@ -93,7 +99,10 @@ class RegistrantCounterTest extends EventKernelTestBase {
     }
 
     // Grant moderation transitions to authenticated so series/instance saves
-    // don't fail in presave hooks.
+    // don't fail in presave hooks, and so validate() on an already-published
+    // series (moderation_state untouched, still 'published') does not itself
+    // raise a spurious ModerationStateConstraint violation — content_moderation
+    // checks transition validity even when the state does not change.
     $this->grantPermissions(
       Role::load(RoleInterface::AUTHENTICATED_ID),
       [
@@ -101,6 +110,7 @@ class RegistrantCounterTest extends EventKernelTestBase {
         'use editorial transition archived_draft',
         'use editorial transition review_to_review',
         'use editorial transition send_for_review',
+        'use editorial transition publish',
       ],
     );
 
@@ -138,71 +148,103 @@ class RegistrantCounterTest extends EventKernelTestBase {
   }
 
   /**
-   * Counts registrants for a single instance when multiple exist.
+   * A recurrence/date change is blocked while the series has future registrants.
    */
-  public function testCountForInstanceCountsAttachedRegistrants(): void {
-    $instance = $this->createRegistrableInstance(capacity: 5);
+  public function testBlockedWithFutureRegistrants(): void {
+    $coordinator = $this->createUser();
+    $series = $this->makePublishedCoordinatorSeries($coordinator);
+    $instance = $this->createRegistrableInstance();
+    $instance->set('eventseries_id', $series->id())->save();
     $this->registerUser($this->createUser(), $instance);
-    $this->registerUser($this->createUser(), $instance);
-    $counter = \Drupal::service('access_events.registrant_counter');
-    $this->assertSame(2, $counter->countForInstance((int) $instance->id()));
+
+    $series->set('excluded_dates', [['value' => '2999-06-01', 'end_value' => '2999-06-01']]);
+
+    // Switched: validate() re-checks the (untouched) moderation_state
+    // transition, which content_moderation gates on the CURRENT user, not the
+    // entity owner.
+    $violations = $this->asActingUser($coordinator, fn () => $series->validate());
+
+    $this->assertGreaterThan(0, $violations->count());
+    $this->assertStringContainsString(
+      'permanently delete',
+      (string) $violations->get(0)->getMessage(),
+    );
   }
 
   /**
-   * Zero registrants returns zero.
+   * A recurrence/date change is allowed when the series has no registrants.
    */
-  public function testCountForInstanceZeroWhenNone(): void {
-    $instance = $this->createRegistrableInstance(capacity: 5);
-    $counter = \Drupal::service('access_events.registrant_counter');
-    $this->assertSame(0, $counter->countForInstance((int) $instance->id()));
+  public function testAllowedWithNoRegistrants(): void {
+    $coordinator = $this->createUser();
+    $series = $this->makePublishedCoordinatorSeries($coordinator);
+
+    $series->set('excluded_dates', [['value' => '2999-06-01', 'end_value' => '2999-06-01']]);
+
+    $violations = $this->asActingUser($coordinator, fn () => $series->validate());
+
+    $this->assertSame(0, $violations->count());
   }
 
   /**
-   * Series registrant count sums across all instances.
+   * A content-only edit is allowed even with future registrants.
    */
-  public function testCountForSeriesSumsAcrossInstances(): void {
-    $instance = $this->createRegistrableInstance(capacity: 5);
+  public function testContentEditAllowedWithRegistrants(): void {
+    $coordinator = $this->createUser();
+    $series = $this->makePublishedCoordinatorSeries($coordinator);
+    $instance = $this->createRegistrableInstance();
+    $instance->set('eventseries_id', $series->id())->save();
     $this->registerUser($this->createUser(), $instance);
-    $series = $instance->getEventSeries();
-    $counter = \Drupal::service('access_events.registrant_counter');
-    $this->assertSame(1, $counter->countForSeries((int) $series->id()));
+
+    // Recur/date fields are untouched; only content fields change.
+    $series->set('title', 'Updated Title')->set('body', 'Updated body copy.');
+
+    $violations = $this->asActingUser($coordinator, fn () => $series->validate());
+
+    $this->assertSame(0, $violations->count());
   }
 
   /**
-   * A series' future count excludes registrants on its past instances.
+   * Creating a new eventseries is never blocked (and must not throw).
+   *
+   * A new entity's id() is NULL. Without an isNew()/null-id guard,
+   * loadUnchanged(NULL) throws (Drupal refuses to load an entity with a NULL
+   * id) — or, if it ever returned NULL instead, that NULL would hit
+   * checkForOriginalRecurConfigChanges()'s EventSeries type-hint and TypeError.
+   * Either way every event creation would fatal. The validator must guard the
+   * create path before reaching that call.
    */
-  public function testCountFutureForSeriesExcludesPastInstances(): void {
-    // A future instance with a registrant, and a past instance with a registrant.
-    $futureInstance = $this->createRegistrableInstance(); // default: future date
-    $this->registerUser($this->createUser(), $futureInstance);
+  public function testCreateNotBlocked(): void {
+    $author = $this->createUser();
+    $series = EventSeries::create([
+      'title' => 'Brand New Event',
+      'body' => 'A new event, never saved.',
+      'recur_type' => 'custom',
+      'type' => 'default',
+    ]);
+
+    // Switched: a moderated entity computes moderation_state to the
+    // workflow's default state (draft) even unsaved, and content_moderation
+    // gates that (no-op) transition on the CURRENT user.
+    $violations = $this->asActingUser($author, fn () => $series->validate());
+
+    $this->assertSame(0, $violations->count());
+  }
+
+  /**
+   * A recurrence/date change is allowed when registrants are past-only.
+   */
+  public function testPastOnlyRegistrantsAllowed(): void {
+    $coordinator = $this->createUser();
+    $series = $this->makePublishedCoordinatorSeries($coordinator);
     $pastInstance = $this->createRegistrableInstance(pastDate: TRUE);
-    $this->registerUser($this->createUser(), $pastInstance);
-    $series = $futureInstance->getEventSeries();
-    // Put the past instance on the SAME series so countFutureForSeries can discriminate.
     $pastInstance->set('eventseries_id', $series->id())->save();
-    $counter = \Drupal::service('access_events.registrant_counter');
-    // Only the future registrant counts.
-    $this->assertSame(1, $counter->countFutureForSeries((int) $series->id()));
-  }
-
-  /**
-   * An instance's future count is zero once the instance has ended.
-   */
-  public function testCountFutureForInstanceZeroWhenInstancePast(): void {
-    $pastInstance = $this->createRegistrableInstance(pastDate: TRUE);
     $this->registerUser($this->createUser(), $pastInstance);
-    $counter = \Drupal::service('access_events.registrant_counter');
-    $this->assertSame(0, $counter->countFutureForInstance((int) $pastInstance->id()));
-  }
 
-  /**
-   * An instance's future count includes its registrants while still future.
-   */
-  public function testCountFutureForInstanceCountsWhenFuture(): void {
-    $futureInstance = $this->createRegistrableInstance();
-    $this->registerUser($this->createUser(), $futureInstance);
-    $counter = \Drupal::service('access_events.registrant_counter');
-    $this->assertSame(1, $counter->countFutureForInstance((int) $futureInstance->id()));
+    $series->set('excluded_dates', [['value' => '2999-06-01', 'end_value' => '2999-06-01']]);
+
+    $violations = $this->asActingUser($coordinator, fn () => $series->validate());
+
+    $this->assertSame(0, $violations->count());
   }
 
 }

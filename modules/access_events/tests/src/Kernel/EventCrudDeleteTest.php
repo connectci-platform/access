@@ -7,6 +7,7 @@ namespace Drupal\Tests\access_events\Kernel;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
+use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\user\Entity\Role;
 
 /**
@@ -18,7 +19,8 @@ use Drupal\user\Entity\Role;
  * deletes via the recurring_events predelete hook). The op is gated by:
  *  - the coordinator/entity-access helper (userMayManageSeries('delete'));
  *  - a preview/confirm step (nothing is written without confirmed=TRUE);
- *  - registrant protection (refused without force when registrants exist);
+ *  - registrants are kept and notified on archive (no force gate — cancelling
+ *    an event with registrants is the normal path, not a destructive one);
  *  - the `archive` moderation transition permission (published → archived),
  *    which per the live config only news_pm/administrator hold — so an author
  *    or affinity_group_leader who owns the series is refused the archive even
@@ -157,18 +159,142 @@ class EventCrudDeleteTest extends EventKernelTestBase {
   }
 
   /**
-   * With registrants attached and no force, the op refuses and writes nothing.
+   * With registrants attached, the op proceeds (no force gate), keeps the
+   * registration, archives the instance, and notifies.
    */
-  public function testDeleteRefusesWhenRegistrantsExistWithoutForce(): void {
+  public function testDeletePublishedEventWithRegistrantsProceedsAndNotifies(): void {
+    // Enable the notification key so the notifier enqueues.
+    \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
+      ->set('email_notifications', TRUE)
+      ->set('notifications.event_cancelled_notification.enabled', TRUE)
+      ->set('notifications.event_cancelled_notification.subject', 'Event cancelled')
+      ->set('notifications.event_cancelled_notification.body', 'The event has been cancelled.')
+      ->save();
     $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
     $series = $this->makePublishedCoordinatorSeries($coordinator);
     $instance = $series->event_instances->referencedEntities()[0];
     $this->registerUser($this->createUser(), $instance);
+    // No force. confirmed only.
     $response = $this->doCrud('delete', (int) $series->id(), $coordinator, [], ['confirmed' => TRUE]);
-    $this->assertSame(409, $response->getStatusCode());
-    $this->assertSame('has_registrations', json_decode($response->getContent(), TRUE)['error']);
-    $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
-    $this->assertSame('published', $reloaded->get('moderation_state')->value);
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertGreaterThan(0, $data['notified']);
+    // Registration kept.
+    $this->assertGreaterThan(0, \Drupal::service('access_events.registrant_counter')->countForInstance((int) $instance->id()));
+    // Instance archived.
+    $reloaded = \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($instance->id());
+    $this->assertSame('archived', $reloaded->get('moderation_state')->value);
+  }
+
+  /**
+   * delete_event does not re-notify an instance already cancelled individually.
+   *
+   * archiveSeriesWithInstances() skips instances not currently published, so
+   * an instance already archived via cancelOccurrence (whose registrant was
+   * already notified once, there) is not archived again here. delete()
+   * notifies exactly the archivedIds this call produced, NOT every future
+   * instance of the series — notifying by series scope instead would
+   * double-send to that already-notified registrant. This asserts the queue
+   * only grows by the OTHER (newly-archived) instance's registrant, and
+   * `notified` reflects only the newly-archived set.
+   */
+  public function testDeleteDoesNotRenotifyAlreadyCancelledInstance(): void {
+    \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
+      ->set('email_notifications', TRUE)
+      ->set('email_notifications_queue', TRUE)
+      ->set('notifications.event_cancelled_notification.enabled', TRUE)
+      ->set('notifications.event_cancelled_notification.subject', 'Event cancelled')
+      ->set('notifications.event_cancelled_notification.body', 'The event has been cancelled.')
+      ->save();
+    $newsPm = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $series = $this->makePublishedCoordinatorSeriesWithTwoInstances($newsPm);
+    // loadInstances() queries directly rather than reading the series
+    // entity's event_instances computed field, which reflects only the
+    // instances that existed when $series was last loaded.
+    [$first, $second] = array_values($this->loadInstances($series));
+    $this->registerUser($this->createUser(), $first);
+    $this->registerUser($this->createUser(), $second);
+
+    // Cancel the first instance individually — its registrant is notified now.
+    $this->doOccurrence('cancel', (int) $first->id(), $newsPm, ['confirmed' => TRUE]);
+    $queue = \Drupal::service('queue')->get('recurring_events_registration_email_notifications_queue_worker');
+    $afterCancel = $queue->numberOfItems();
+    $this->assertGreaterThan(0, $afterCancel);
+
+    // delete_event archives the (still-published) second instance; the first
+    // is already archived, so it must be skipped, not re-notified.
+    $response = $this->doCrud('delete', (int) $series->id(), $newsPm, [], ['confirmed' => TRUE]);
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+
+    // Only the second instance was archived by this call.
+    $this->assertSame(1, $data['instances_archived']);
+    // Only the second instance's registrant was notified by this call.
+    $this->assertSame(1, $data['notified']);
+    // The queue grew by exactly one more item (the second instance's
+    // registrant), not two.
+    $this->assertSame($afterCancel + 1, $queue->numberOfItems());
+
+    $reloadedFirst = \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($first->id());
+    $reloadedSecond = \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($second->id());
+    $this->assertSame('archived', $reloadedFirst->get('moderation_state')->value);
+    $this->assertSame('archived', $reloadedSecond->get('moderation_state')->value);
+  }
+
+  /**
+   * delete_event does not falsely notify an instance that was never archived.
+   *
+   * archiveSeriesWithInstances() only archives instances currently in the
+   * 'published' state, so an instance left in 'draft' is skipped and stays
+   * draft. delete() notifies exactly the archivedIds this call produced, NOT
+   * every future instance of the series — notifying by series scope instead
+   * would falsely tell that never-archived instance's registrant their
+   * (never-published, never-cancelled) event was cancelled.
+   */
+  public function testDeleteDoesNotNotifyInstanceNeverArchived(): void {
+    \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
+      ->set('email_notifications', TRUE)
+      ->set('email_notifications_queue', TRUE)
+      ->set('notifications.event_cancelled_notification.enabled', TRUE)
+      ->set('notifications.event_cancelled_notification.subject', 'Event cancelled')
+      ->set('notifications.event_cancelled_notification.body', 'The event has been cancelled.')
+      ->save();
+    $newsPm = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $series = $this->makePublishedCoordinatorSeries($newsPm);
+    $published = $this->loadInstances($series)[array_key_first($this->loadInstances($series))];
+    $this->registerUser($this->createUser(), $published);
+
+    // A second instance on the same series, left in its default 'draft'
+    // state — never published, never individually cancelled. published →
+    // draft is not a legal editorial transition (a direct ->set()->save()
+    // silently no-ops), so this instance is built already-draft rather than
+    // demoted from published.
+    $draft = EventInstance::create([
+      'eventseries_id' => $series->id(),
+      'type' => 'default',
+      'date' => [
+        'value' => '2999-02-01T10:00:00',
+        'end_value' => '2999-02-01T12:00:00',
+      ],
+    ]);
+    $draft->save();
+    \Drupal::service('recurring_events.event_creation_service')
+      ->configureDefaultInheritances($draft, (int) $series->id());
+    $this->assertSame('draft', $draft->get('moderation_state')->value);
+    $this->registerUser($this->createUser(), $draft);
+
+    $response = $this->doCrud('delete', (int) $series->id(), $newsPm, [], ['confirmed' => TRUE]);
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+
+    // Only the published instance was archived and notified.
+    $this->assertSame(1, $data['instances_archived']);
+    $this->assertSame(1, $data['notified']);
+
+    $reloadedPublished = \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($published->id());
+    $reloadedDraft = \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($draft->id());
+    $this->assertSame('archived', $reloadedPublished->get('moderation_state')->value);
+    $this->assertSame('draft', $reloadedDraft->get('moderation_state')->value);
   }
 
   /**
@@ -181,6 +307,49 @@ class EventCrudDeleteTest extends EventKernelTestBase {
     $response = $this->doCrud('delete', (int) $sid, $coordinator, [], ['confirmed' => TRUE]);
     $this->assertSame(200, $response->getStatusCode());
     $this->assertNull(\Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($sid));
+  }
+
+  /**
+   * A draft-delete preview with registrants attached carries a warning.
+   *
+   * The hard-delete branch destroys the series' instances (cascading the
+   * registrant deletes via the recurring_events predelete hook), and the
+   * instance-deletion notification key is disabled, so no one is told. The
+   * preview must say so plainly before a coordinator confirms. The registrant
+   * is created directly via registerUser() (entity-level, bypassing the API's
+   * own published-only registration gate) to model legacy data predating that
+   * gate.
+   */
+  public function testDeleteDraftPreviewWithRegistrantsWarnsOfPermanentRemoval(): void {
+    $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $series = $this->makeCoordinatorSeries($coordinator);
+    $instance = $series->event_instances->referencedEntities()[0];
+    $this->registerUser($this->createUser(), $instance);
+
+    $response = $this->doCrud('delete', (int) $series->id(), $coordinator, [], []);
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertTrue($data['would_hard_delete']);
+    $this->assertSame(1, $data['registrants_affected']);
+    $this->assertArrayHasKey('warning', $data);
+    $this->assertStringContainsStringIgnoringCase('permanently', $data['warning']);
+    $this->assertStringContainsStringIgnoringCase('not', $data['warning']);
+    $this->assertStringContainsStringIgnoringCase('notified', $data['warning']);
+  }
+
+  /**
+   * A draft-delete preview with NO registrants carries no warning.
+   */
+  public function testDeleteDraftPreviewWithNoRegistrantsHasNoWarning(): void {
+    $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $series = $this->makeCoordinatorSeries($coordinator);
+
+    $response = $this->doCrud('delete', (int) $series->id(), $coordinator, [], []);
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertTrue($data['would_hard_delete']);
+    $this->assertSame(0, $data['registrants_affected']);
+    $this->assertArrayNotHasKey('warning', $data);
   }
 
   /**

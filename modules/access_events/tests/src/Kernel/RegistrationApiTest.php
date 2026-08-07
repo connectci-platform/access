@@ -9,6 +9,7 @@ use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\field_inheritance\Entity\FieldInheritance;
 use Drupal\KernelTests\KernelTestBase;
+use Drupal\Tests\content_moderation\Traits\ContentModerationTestTrait;
 use Drupal\Tests\user\Traits\UserCreationTrait;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events\Entity\EventSeries;
@@ -29,6 +30,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 class RegistrationApiTest extends KernelTestBase {
 
   use UserCreationTrait;
+  use ContentModerationTestTrait;
 
   /**
    * {@inheritdoc}
@@ -45,6 +47,8 @@ class RegistrationApiTest extends KernelTestBase {
     'field_inheritance',
     'recurring_events',
     'recurring_events_registration',
+    'workflows',
+    'content_moderation',
   ];
 
   /**
@@ -121,6 +125,17 @@ class RegistrationApiTest extends KernelTestBase {
       'destinationField' => '',
       'plugin' => 'default_inheritance',
     ])->save();
+
+    // Content moderation on the eventinstance bundle, so an instance can carry
+    // moderation_state = archived — the signal the controller derives its
+    // "cancelled" flag from. createEditorialWorkflow() ships draft/published/
+    // archived, which is all this test needs.
+    $this->installEntitySchema('content_moderation_state');
+    $instanceWorkflow = $this->createEditorialWorkflow();
+    $instanceWorkflow->getTypePlugin()->addEntityTypeAndBundle('eventinstance', 'default');
+    $instanceWorkflow->save();
+    // Rediscover moderation_state on eventinstance now the workflow is attached.
+    $this->container->get('entity_field.manager')->clearCachedFieldDefinitions();
 
     $this->user = User::create([
       'name' => 'acting',
@@ -281,6 +296,35 @@ class RegistrationApiTest extends KernelTestBase {
     // virtual_meeting_link: must read the link field's ->uri, not ->value
     // (which would be NULL) — this is the fragile bit worth pinning.
     $this->assertSame('https://zoom.example/123', $r['virtual_meeting_link']);
+  }
+
+  /**
+   * A registration on an archived instance is reported as cancelled.
+   */
+  public function testCancelledFlagTrueForArchivedInstance(): void {
+    $instance = $this->createInstance('Cancelled Event', '2999-01-01T10:00:00', '2999-01-01T12:00:00');
+    $this->registerUser($this->user, $instance);
+    // Cancel the occurrence: archive the instance.
+    $instance->set('moderation_state', 'archived')->save();
+
+    $body = $this->listBody('upcoming');
+
+    $this->assertCount(1, $body['registrations']);
+    $this->assertTrue($body['registrations'][0]['cancelled']);
+  }
+
+  /**
+   * A registration on a live (non-archived) instance is not cancelled.
+   */
+  public function testCancelledFlagFalseForLiveInstance(): void {
+    $instance = $this->createInstance('Live Event', '2999-02-01T10:00:00', '2999-02-01T12:00:00');
+    $instance->set('moderation_state', 'published')->save();
+    $this->registerUser($this->user, $instance);
+
+    $body = $this->listBody('upcoming');
+
+    $this->assertCount(1, $body['registrations']);
+    $this->assertFalse($body['registrations'][0]['cancelled']);
   }
 
   /**

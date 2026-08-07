@@ -17,6 +17,10 @@ use Drupal\views\ViewExecutable;
 use Drupal\views\Plugin\views\query\QueryPluginBase;
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Entity\EntityTypeInterface;
+use Drupal\access_events\Plugin\EventInstanceCreator\PastPreservingEventInstanceCreator;
+use Drupal\recurring_events\Entity\EventSeries;
+use Drupal\recurring_events\EventInstanceCreatorInterface;
+use Drupal\recurring_events\EventInstanceCreatorPluginManager;
 
 /**
  * Implements hook_form_alter().
@@ -1315,6 +1319,107 @@ function access_events_entity_presave(EntityInterface $entity) {
 }
 
 /**
+ * Implements hook_ENTITY_TYPE_presave() for eventseries.
+ *
+ * Backstop for the EventSeriesRescheduleBlock constraint: the constraint only
+ * runs where validate() runs, but some save paths (the content-moderation
+ * widget, revision reverts) call save() directly. A recurrence/date change on
+ * a series with future registrants would let recurring_events destructively
+ * rebuild every instance and hard-delete their registrants — abort the save
+ * instead. Uses $entity->original (populated during presave, unlike at
+ * validate time) for the diff.
+ */
+function access_events_eventseries_presave(EntityInterface $entity) {
+  if ($entity->isNew() || !$entity->original instanceof EventSeries) {
+    return;
+  }
+  /** @var \Drupal\recurring_events\EventCreationService $creation */
+  $creation = \Drupal::service('recurring_events.event_creation_service');
+  if (!$creation->checkForOriginalRecurConfigChanges($entity, $entity->original)) {
+    return;
+  }
+  $count = \Drupal::service('access_events.registrant_counter')->countFutureForSeries((int) $entity->id());
+  if ($count > 0) {
+    throw new \RuntimeException(sprintf('This event has %d future registration(s); its dates cannot be changed. Cancel the event (registrations are kept and registrants notified) and create a new one instead.', $count));
+  }
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_predelete() for eventseries.
+ *
+ * Clears any stray series-cancel keyvalue entry (see EventCrudApiController,
+ * collection access_events.series_cancel) when the series itself is
+ * hard-deleted — a hard-deleted series can never be restored, so the entry
+ * would otherwise sit unused forever.
+ */
+function access_events_eventseries_predelete(EntityInterface $entity) {
+  \Drupal::service('keyvalue')->get('access_events.series_cancel')->delete((int) $entity->id());
+}
+
+/**
+ * Implements hook_recurring_events_event_instance_creator_plugin_alter().
+ *
+ * recurring_events fires the active EventInstanceCreator plugin whenever a
+ * published series' recurrence/date config changes. This site's
+ * recurring_events.eventseries.config sets creator_plugin: null, and
+ * EventInstanceCreatorPluginManager::createInstance() falls back to the
+ * default plugin id (recurring_events_eventinstance_recreator, contrib's
+ * destructive Recreate plugin) whenever the requested id is empty — so
+ * today every such rebuild goes through the plugin that deletes and
+ * recreates ALL instances, including ones whose date has already passed and
+ * which may carry attendance history. Swap in the module's own
+ * past-preserving plugin here instead, unconditionally: this only fires on
+ * eventseries, and the invariant (never touch an ended instance) is safe for
+ * every series regardless of recur type.
+ *
+ * This unconditionally overrides whatever choice contrib's
+ * EventSeriesSettingsForm presents for the "Event instance creator" setting
+ * — that admin form's value has no effect on this site as long as this hook
+ * is enabled, since the alter always wins over whatever
+ * EventInstanceCreatorPluginManager::createInstance() resolved.
+ */
+function access_events_recurring_events_event_instance_creator_plugin_alter(EventInstanceCreatorInterface &$active_plugin, EventInstanceCreatorPluginManager $plugin_manager, EventSeries $series) {
+  $active_plugin = $plugin_manager->createInstance('access_events_past_preserving_recreator', []);
+}
+
+/**
+ * Implements hook_recurring_events_event_instances_pre_create_alter().
+ *
+ * EventCreationService::createInstances() computes the full set of dates a
+ * series' CURRENT recur config would produce (for both the 'custom' branch
+ * and every rule-based recur type) and fires this alter on that computed set
+ * immediately before creating any eventinstance entities. createInstances()
+ * has THREE callers: PastPreservingEventInstanceCreator's own rebuild (where
+ * past dates must be dropped so an ended, already-preserved instance is
+ * never duplicated), and recurring_events_eventseries_insert()/
+ * _translation_insert() (a brand-new series, where a past date is a
+ * legitimate thing to create — nothing exists yet to preserve). This alter
+ * has no way to see which of the three called it, so it only filters while
+ * PastPreservingEventInstanceCreator::isRebuilding($event) is TRUE for THIS
+ * series — that plugin sets its rebuilding-series-id for the exact duration
+ * of its own createInstances() call and nowhere else, and only for the one
+ * series it is rebuilding. $events_to_create is keyed by
+ * DrupalDateTime::format('r') => ['start_date' => DrupalDateTime, 'end_date'
+ * => DrupalDateTime]. The `?? NULL` below fails OPEN (an entry with no
+ * end_date key is KEPT, not dropped) — if contrib's shape ever changes so
+ * end_date is absent/renamed, this filter silently stops filtering rather
+ * than erroring, which would let the rebuild duplicate a preserved past
+ * instance. PastPreservingRebuildTest is the tripwire for that drift.
+ */
+function access_events_recurring_events_event_instances_pre_create_alter(array &$events_to_create, EventSeries $event) {
+  if (!PastPreservingEventInstanceCreator::isRebuilding($event)) {
+    return;
+  }
+  $now = \Drupal::time()->getRequestTime();
+  foreach ($events_to_create as $key => $dates) {
+    $end = $dates['end_date'] ?? NULL;
+    if ($end && $end->getTimestamp() <= $now) {
+      unset($events_to_create[$key]);
+    }
+  }
+}
+
+/**
  * Implements hook_search_api_query_alter().
  *
  * Apply where_to_share filter at the Search API query level for API exports.
@@ -1584,6 +1689,15 @@ function _access_events_send_registration_reminders() {
 
   /** @var \Drupal\recurring_events\Entity\EventInstance $instance */
   foreach ($instances as $instance) {
+    // A cancelled (archived) instance's registrants already got the
+    // cancellation notice; a reminder to attend an event that has been
+    // called off would contradict it. moderation_state is not queryable as an
+    // entity-query condition here (it 500s — "'moderation_state' not found"),
+    // so filter after load instead.
+    if ($instance->get('moderation_state')->value === 'archived') {
+      continue;
+    }
+
     // Skip sending reminder if the event has already started.
     if ($instance->date->start_date->getTimestamp() <= time()) {
       // Mark as sent to prevent future attempts.
@@ -1826,6 +1940,16 @@ function access_events_entity_base_field_info_alter(&$fields, EntityTypeInterfac
   if ($entity_type->id() === 'eventseries' && isset($fields['event_registration'])) {
     $fields['event_registration']->setDescription('');
   }
+}
+
+/**
+ * Implements hook_entity_type_alter().
+ */
+function access_events_entity_type_alter(array &$entity_types) {
+  // Blocks a recurrence/date change on an eventseries that still has future
+  // registrants — recurring_events rebuilds ALL instances on such a change,
+  // hard-deleting the existing instances and their registrants.
+  $entity_types['eventseries']->addConstraint('EventSeriesRescheduleBlock');
 }
 
 /**

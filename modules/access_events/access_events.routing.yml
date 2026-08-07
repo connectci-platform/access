@@ -51,6 +51,101 @@ access_events.event_delete:
         type: 'entity:eventseries'
     no_cache: 'TRUE'
 
+access_events.event_restore:
+  path: '/api/2.3/event-series/{eventseries}/restore'
+  defaults:
+    _controller: '\Drupal\access_events\Controller\EventCrudApiController::restore'
+  methods: [POST]
+  requirements:
+    eventseries: '\d+'
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+    # State-changing route: require a valid X-CSRF-Token header (from
+    # /session/token). Custom routes do not get REST's automatic CSRF check,
+    # so without this a plain cookie-authenticated POST is CSRF-able.
+    _csrf_request_header_token: 'TRUE'
+  options:
+    parameters:
+      eventseries:
+        type: 'entity:eventseries'
+    no_cache: 'TRUE'
+
+access_events.event_send_for_review:
+  path: '/api/2.3/event-series/{eventseries}/send-for-review'
+  defaults:
+    _controller: '\Drupal\access_events\Controller\EventCrudApiController::sendForReview'
+  methods: [POST]
+  requirements:
+    eventseries: '\d+'
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+    # State-changing route: require a valid X-CSRF-Token header (from
+    # /session/token). Custom routes do not get REST's automatic CSRF check,
+    # so without this a plain cookie-authenticated POST is CSRF-able.
+    _csrf_request_header_token: 'TRUE'
+  options:
+    parameters:
+      eventseries:
+        type: 'entity:eventseries'
+    no_cache: 'TRUE'
+
+access_events.event_cancel_occurrence:
+  path: '/api/2.3/event-occurrences/{eventinstance}'
+  defaults:
+    _controller: '\Drupal\access_events\Controller\EventCrudApiController::cancelOccurrence'
+  methods: [DELETE]
+  requirements:
+    eventinstance: '\d+'
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+    # State-changing route: require a valid X-CSRF-Token header (from
+    # /session/token). Custom routes do not get REST's automatic CSRF check,
+    # so without this a plain cookie-authenticated DELETE is CSRF-able.
+    _csrf_request_header_token: 'TRUE'
+  options:
+    parameters:
+      eventinstance:
+        type: 'entity:eventinstance'
+    no_cache: 'TRUE'
+
+access_events.event_edit_occurrence:
+  path: '/api/2.3/event-occurrences/{eventinstance}'
+  defaults:
+    _controller: '\Drupal\access_events\Controller\EventCrudApiController::editOccurrence'
+  methods: [PATCH]
+  requirements:
+    eventinstance: '\d+'
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+    # State-changing route: require a valid X-CSRF-Token header (from
+    # /session/token). Custom routes do not get REST's automatic CSRF check,
+    # so without this a plain cookie-authenticated PATCH is CSRF-able.
+    _csrf_request_header_token: 'TRUE'
+  options:
+    parameters:
+      eventinstance:
+        type: 'entity:eventinstance'
+    no_cache: 'TRUE'
+
+access_events.event_add_occurrence:
+  path: '/api/2.3/event-series/{eventseries}/occurrence'
+  defaults:
+    _controller: '\Drupal\access_events\Controller\EventCrudApiController::addOccurrence'
+  methods: [POST]
+  requirements:
+    eventseries: '\d+'
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+    # State-changing route: require a valid X-CSRF-Token header (from
+    # /session/token). Custom routes do not get REST's automatic CSRF check,
+    # so without this a plain cookie-authenticated POST is CSRF-able.
+    _csrf_request_header_token: 'TRUE'
+  options:
+    parameters:
+      eventseries:
+        type: 'entity:eventseries'
+    no_cache: 'TRUE'
+
 access_events.registrations_list:
   path: '/api/1.0/registrations'
   defaults:

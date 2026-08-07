@@ -119,6 +119,15 @@ class PostSurvey {
     foreach ($result as $entity_id) {
       $event_instance = $this->entityTypeManager->getStorage('eventinstance')->load($entity_id);
 
+      // A cancelled (archived) instance's registrants already got the
+      // cancellation notice; a post-survey for an event that was called off
+      // would be confusing at best. moderation_state is not reliably usable
+      // as an entity-query condition on this entity type, so filter here
+      // after load instead.
+      if ($event_instance->get('moderation_state')->value === 'archived') {
+        continue;
+      }
+
       $end_date = $event_instance->date->end_value;
       $end_date = strtotime($end_date);
       $before_end = $end_date - (30 * 60);

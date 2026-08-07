@@ -35,3 +35,6 @@ services:
   access_events.registrant_counter:
     class: Drupal\access_events\RegistrantCounter
     arguments: ['@entity_type.manager']
+  access_events.cancellation_notifier:
+    class: Drupal\access_events\CancellationNotifier
+    arguments: ['@entity_type.manager', '@recurring_events_registration.notification_service', '@datetime.time']

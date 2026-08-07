@@ -128,6 +128,14 @@ class EventDetailApiController extends ControllerBase {
 
     // Guard 1 (uid) + Guard 2 (instance) are already resolved (the attribute +
     // param converter). Guards 3-7 below; each hard-gates with a refusal.
+    // Guard 2b: the instance must be published. An event that was never
+    // announced (still in draft) must not accept registrations. A bundle with
+    // no moderation workflow at all has no draft concept, so it stays
+    // registrable — only an instance that DOES carry moderation_state and is
+    // NOT published is refused here.
+    if ($eventinstance->hasField('moderation_state') && $eventinstance->get('moderation_state')->value !== 'published') {
+      return $this->refuse('not_registrable', 'This event is not published; registration is not open.', 409);
+    }
     // Guard 3: native registration must be enabled.
     if (!$svc->hasRegistration()) {
       return $this->refuse('not_registrable', 'Native ACCESS registration is not enabled for this event.', 409);
