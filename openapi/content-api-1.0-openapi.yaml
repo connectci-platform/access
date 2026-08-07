@@ -84,7 +84,7 @@ paths:
               schema:
                 type: string
         '404':
-          description: Node not found, not published, not eligible, or not on the support domain.
+          description: Node not found, not published, not eligible, or not on the serving domain.
           content:
             application/json:
               schema:
@@ -147,7 +147,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Path not found, not published, not eligible, or not on the support domain.
+          description: Path not found, not published, not eligible, or not on the serving domain.
           content:
             application/json:
               schema:
