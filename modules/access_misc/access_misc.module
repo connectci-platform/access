@@ -10,7 +10,6 @@ use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\FieldableEntityInterface;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\domain_access\DomainAccessManager;
 use Drupal\domain_access\DomainAccessManagerInterface;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
@@ -2112,8 +2111,12 @@ function _access_misc_build_json_ld($entity) {
  * selected and fail validation on submit — content can no longer be created.
  *
  * When a new entity's Domain Access field is empty, pre-select the active
- * domain, filtered by the current user's access so we never default to a domain
- * the user may not publish to.
+ * domain — the domain the content is being created on. This matches Domain 2.x,
+ * which assigned the active domain to new content regardless of the author's own
+ * domain-access grants: where content lands is a property of the request, not of
+ * the author's permissions. (A user can only create content on a domain they can
+ * actually reach, and editing rights remain separately permission-gated, so no
+ * author-access check is needed here.)
  */
 function access_misc_entity_prepare_form(EntityInterface $entity, $operation, FormStateInterface $form_state) {
   $field = DomainAccessManagerInterface::DOMAIN_ACCESS_FIELD;
@@ -2129,22 +2132,6 @@ function access_misc_entity_prepare_form(EntityInterface $entity, $operation, Fo
   $active = \Drupal::service('domain.negotiator')->getActiveDomain();
   if (!$active) {
     return;
-  }
-
-  $account = \Drupal::currentUser();
-  // Users who may publish anywhere get the active domain directly. Otherwise
-  // only pre-select it when the user actually has access to that domain.
-  if (!$account->hasPermission('publish to any domain')) {
-    $user = User::load($account->id());
-    if (!$user instanceof UserInterface) {
-      return;
-    }
-    if (!DomainAccessManager::getAllValue($user)) {
-      $allowed = DomainAccessManager::getAccessValues($user);
-      if (!isset($allowed[$active->id()])) {
-        return;
-      }
-    }
   }
 
   $entity->set($field, ['target_id' => $active->id()]);
