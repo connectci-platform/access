@@ -6,6 +6,7 @@ namespace Drupal\Tests\access_events\Kernel;
 
 use Drupal\access_events\FormWarnings;
 use Drupal\recurring_events\Entity\EventInstance;
+use Drupal\recurring_events\Entity\EventSeries;
 
 /**
  * Tests the FormWarnings computation service: recipient counts and wording
@@ -216,6 +217,38 @@ class FormWarningsTest extends EventKernelTestBase {
     $warning = (string) $this->formWarnings->arrivingPublishedWarning($instance);
 
     $this->assertStringContainsString('will NOT be emailed', $warning);
+  }
+
+  /**
+   * compute() on an unsaved series with no recurrence type set returns an
+   * empty set rather than throwing — this is the add-form shape (a brand-new
+   * EventSeries, recur_type not yet chosen), which previously reached
+   * convertEntityConfigToArray()'s field-plugin lookup with an empty type
+   * and threw a PluginNotFoundException.
+   */
+  public function testComputeOnUnsavedSeriesWithNoRecurTypeReturnsEmpty(): void {
+    $series = EventSeries::create([
+      'title' => 'Brand New Event',
+      'type' => 'default',
+    ]);
+
+    $effectiveCreationSet = \Drupal::service('access_events.effective_creation_set');
+    $this->assertSame([], $effectiveCreationSet->compute($series));
+  }
+
+  /**
+   * arrivingPublishedCounts() on the same no-recur-type unsaved series does
+   * not throw, and reports zero publishable dates.
+   */
+  public function testArrivingPublishedCountsOnUnsavedSeriesWithNoRecurTypeDoesNotThrow(): void {
+    $series = EventSeries::create([
+      'title' => 'Brand New Event',
+      'type' => 'default',
+    ]);
+
+    $counts = $this->formWarnings->arrivingPublishedCounts($series);
+
+    $this->assertSame(0, $counts['publishable']);
   }
 
   /**

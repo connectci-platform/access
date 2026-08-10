@@ -72,6 +72,11 @@ class EffectiveCreationSet {
    *   is verifiably in the past are excluded.
    */
   public function compute(EventSeries $series): array {
+    // An event with no recurrence configuration yet generates no dates.
+    if (!$series->getRecurType()) {
+      return [];
+    }
+
     $config = $this->eventCreationService->convertEntityConfigToArray($series);
     $eventsToCreate = $this->calculateDates($config);
 

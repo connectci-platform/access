@@ -433,14 +433,11 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
 
     // Moderation-state warnings — not on the clone form: createDuplicate()
     // pins a fresh clone to draft (see the clone-form block above), so a
-    // clone never carries a "currently published" state to leave, and the
-    // add form's own first-publish case is already covered below. The add
-    // form DOES get the warning: a brand-new series, saved with moderation_
-    // state = published directly, is exactly the FIRST-publish case the
-    // arriving-published warning must cover (see leavingPublishedWarning()/
-    // arrivingPublishedWarning() docblocks) — a new entity is never
-    // "currently published" (isNew() has no saved state at all), so only the
-    // arriving-published half of the warning can ever show here.
+    // clone never carries a "currently published" state to leave. The add
+    // form is likewise a no-op here: _access_events_attach_moderation_
+    // warnings() itself skips any $entity->isNew() case — a brand-new series
+    // has neither a saved state to leave nor a recurrence configuration to
+    // compute an effective creation set from.
     if ($form_id !== 'eventseries_default_clone_form') {
       _access_events_attach_moderation_warnings($form, $form_state->getFormObject()->getEntity());
     }
@@ -2261,9 +2258,10 @@ function _access_events_attach_email_token_prefixes(array &$form) {
  * leaving-published warning (any transition away from published is a
  * cancel), and a currently-NOT-published entity always carries the
  * arriving-published warning (choosing Published is what would republish
- * it). A brand-new entity (add form) is never "currently published" —
- * isNew() has no saved state at all — so only the arriving-published half
- * can ever show there, which is exactly the FIRST-publish case.
+ * it). A brand-new entity (add form) gets neither: isNew() has no saved
+ * state to leave, and — for a series — no recurrence configuration yet to
+ * compute an effective creation set from, so this is a no-op there; see the
+ * isNew() guard below.
  *
  * No '#cache' max-age override here: unlike the standalone moderation form
  * (see _access_events_attach_standalone_moderation_warnings()), a full
@@ -2276,6 +2274,15 @@ function _access_events_attach_moderation_warnings(array &$form, $entity): void 
     return;
   }
   if (!isset($form['moderation_state'])) {
+    return;
+  }
+  // A brand-new entity (add form) has no saved state to leave (the leaving-
+  // published branch never applies) and, for a series, no recurrence
+  // configuration yet to compute an effective creation set from (the
+  // arriving-published branch would call EffectiveCreationSet::compute()
+  // against a series with no recur type). Nothing meaningful to warn about
+  // either way — skip entirely.
+  if ($entity->isNew()) {
     return;
   }
 
