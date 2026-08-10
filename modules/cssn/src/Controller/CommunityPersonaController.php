@@ -385,41 +385,25 @@ class CommunityPersonaController extends ControllerBase {
   }
 
   /**
-   * Return bio and bio summary.
+   * Return the processed bio.
    *
-   * @return array
-   *   Summary and full bio.
+   * @return string
+   *   Processed bio markup, or an empty string when there is no bio.
    */
-  public function userBio($uid) {
-
-    // Load the user using the current user id.
+  public function userBio($uid): string {
     $user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($uid);
-
-    // User Bio.
-    if ($user_entity->get('field_user_bio')->value == NULL) {
-      $bio = "";
+    if (!$user_entity || $user_entity->get('field_user_bio')->isEmpty()) {
+      return '';
     }
-    else {
-      $bio = $user_entity->get('field_user_bio')->value;
-    }
-    // Trim $bio to 450 characters.
-    $bio_summary = $bio;
-    if (strlen($bio) > 450) {
-      $more = "<div class='mt-4 inline-block bg-light-teal'>
-                  <button id='bio-more' onclick='bioMore()' style='border-width: 0 !important;' class='btn btn-link btn-sm text-dark-teal p-3' type='button' aria-expanded='false' aria-controls='full-bio'>
-                    <i class='bi-chevron-down' aria-hidden='true'></i> More
-                  </button>
-                </div>";
-      $bio_summary = substr($bio, 0, 450) . "... $more";
-      $less = "<div class='mt-4 inline-block bg-light-teal'>
-                  <button id='bio-less' onclick='bioLess()' style='border-width: 0 !important;' class='btn btn-link btn-sm text-dark-teal p-3' type='button' aria-expanded='true' aria-controls='full-bio'>
-                    <i class='bi-chevron-up' aria-hidden='true'></i> Less
-                  </button>
-                </div>";
-      $bio .= $less;
-    }
-
-    return [$bio_summary, $bio];
+    // field_user_bio's only allowed format is basic_html (see
+    // field.field.user.user.field_user_bio.yml: allowed_formats). Pass it
+    // explicitly — reading ->format off the field list returns NULL, and most
+    // stored rows carry no per-item format anyway. The expandable_text
+    // component handles clamping.
+    return check_markup(
+      $user_entity->get('field_user_bio')->value,
+      'basic_html'
+    );
   }
 
   /**
@@ -453,9 +437,12 @@ class CommunityPersonaController extends ControllerBase {
     $current_user = \Drupal::currentUser();
 
     // User Bio.
-    $user_bio = $this->userBio($current_user->id());
-    $bio_summary = $user_bio[0];
-    $bio = $user_bio[1];
+    $bio = $this->userBio($current_user->id());
+    $bio_expandable = $bio === '' ? '' : [
+      '#theme' => 'expandable_text',
+      '#content' => ['#markup' => $bio],
+      '#lines' => 4,
+    ];
 
     // List of affinity groups.
     $user_affinity_groups = $this->affinityGroupList($current_user);
@@ -539,12 +526,7 @@ class CommunityPersonaController extends ControllerBase {
               <h2 class="h4 text-lg font-bold leading-5 m-0 text-white">{{ bio_title }}</h2>
             </div>
             <div class="d-flex flex flex-wrap py-3">
-              <div id="bio-summary" aria-hidden="false">
-                {{ bio_summary |raw }}
-              </div>
-              <div id="full-bio" class="sr-only" aria-hidden="true">
-                {{ bio |raw }}
-              </div>
+              {{ bio_expandable }}
             </div>
           </div>
           {% endif %}
@@ -684,8 +666,8 @@ class CommunityPersonaController extends ControllerBase {
         </div>',
       '#context' => [
         'bio_title' => t('Bio'),
-        'bio_summary' => $bio_summary,
         'bio' => $bio,
+        'bio_expandable' => $bio_expandable,
         'ag_title' => t('My Affinity Groups'),
         'ag_intro' => t('Connect with researchers of common interests.'),
         'user_affinity_groups' => $user_affinity_groups,
@@ -772,9 +754,12 @@ class CommunityPersonaController extends ControllerBase {
       $user_last_name = $user->get('field_user_last_name')->value;
 
       // User Bio.
-      $user_bio = $this->userBio($user->id());
-      $bio_summary = $user_bio[0];
-      $bio = $user_bio[1];
+      $bio = $this->userBio($user->id());
+      $bio_expandable = $bio === '' ? '' : [
+        '#theme' => 'expandable_text',
+        '#content' => ['#markup' => $bio],
+        '#lines' => 4,
+      ];
 
       // List of affinity groups.
       $user_affinity_groups = $this->affinityGroupList($user, TRUE);
@@ -818,12 +803,7 @@ class CommunityPersonaController extends ControllerBase {
                 <h2 class="h4 text-lg font-bold leading-5 text-white m-0">{{ bio_title }}</h2>
               </div>
               <div class="d-flex flex flex-wrap py-3">
-                <div id="bio-summary" aria-hidden="false">
-                  {{ bio_summary |raw }}
-                </div>
-                <div id="full-bio" class="sr-only" aria-hidden="true">
-                  {{ bio |raw }}
-                </div>
+                {{ bio_expandable }}
               </div>
             </div>
             {% endif %}
@@ -946,8 +926,8 @@ class CommunityPersonaController extends ControllerBase {
           </div>',
         '#context' => [
           'bio_title' => t('Bio'),
-          'bio_summary' => $bio_summary,
           'bio' => $bio,
+          'bio_expandable' => $bio_expandable,
           'ag_title' => t('Affinity Groups'),
           'user_affinity_groups' => $user_affinity_groups,
           'mi_title' => t('Interests'),
