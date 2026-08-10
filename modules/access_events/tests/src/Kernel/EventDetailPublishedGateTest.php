@@ -92,42 +92,6 @@ class EventDetailPublishedGateTest extends EventKernelTestBase {
     );
   }
 
-  /**
-   * Attaches the empty site-level fields access_events_entity_presave() reads.
-   */
-  private function attachInstancePresaveFields(): void {
-    $fields = [
-      // domain_access lives on BOTH the series (read) and the instance
-      // (read + optionally set). A plain string multi-value field satisfies the
-      // hook's ->getValue()/array_column() with no domain module present.
-      ['eventseries', 'domain_access', 'string', -1],
-      ['eventinstance', 'domain_access', 'string', -1],
-      // post_survey_url: the hook reads $instance->get('post_survey_url')->uri
-      // (the inherited computed field name, not field_post_survey_url). Attach a
-      // plain empty link field under that exact name so the read returns null.
-      ['eventinstance', 'post_survey_url', 'link', 1],
-      // The two survey-sent flags: the hook reads ->value and may set 0.
-      ['eventinstance', 'field_post_survey_reminder_sent', 'integer', 1],
-      ['eventinstance', 'field_post_survey_sent', 'integer', 1],
-    ];
-    foreach ($fields as [$entityType, $fieldName, $type, $cardinality]) {
-      if (!FieldStorageConfig::loadByName($entityType, $fieldName)) {
-        FieldStorageConfig::create([
-          'entity_type' => $entityType,
-          'field_name' => $fieldName,
-          'type' => $type,
-          'cardinality' => $cardinality,
-        ])->save();
-        FieldConfig::create([
-          'entity_type' => $entityType,
-          'field_name' => $fieldName,
-          'bundle' => 'default',
-          'label' => $fieldName,
-        ])->save();
-      }
-    }
-    \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
-  }
 
   /**
    * Builds a GET request carrying the acting-user attribute and returns get().

@@ -66,6 +66,8 @@ abstract class EventKernelTestBase extends KernelTestBase {
     'content_moderation',
     'access_affinitygroup',
     'key',
+    'access_events',
+    'access_misc',
   ];
 
   /**
@@ -237,28 +239,42 @@ abstract class EventKernelTestBase extends KernelTestBase {
               'weight' => -5,
             ],
             // The live editorial_eventinstance workflow has a needs_adjustment
-            // state (a DEFAULT-revision unpublished state) reached by
-            // request_adjustment from published. An instance can therefore be
-            // published once, then moved to needs_adjustment, which becomes the
-            // current DEFAULT state — with a published revision still in
-            // history. There is no needs_adjustment → archived transition, so
-            // the cancel-occurrence endpoint must NOT throw when it sees such an
-            // instance; it refuses invalid_state instead (see
+            // state reached by request_adjustment from ready_for_review. An
+            // instance can therefore be sent for review and then bounced back
+            // to needs_adjustment, which becomes the current state — with a
+            // published revision still in history. There is no
+            // needs_adjustment → archived transition, so the cancel-occurrence
+            // endpoint must NOT throw when it sees such an instance; it
+            // refuses invalid_state instead (see
             // testCancelDraftOccurrenceRefusesInvalidStateNo500, which drives
-            // the instance to this genuinely non-published DEFAULT state — draft
-            // is a forward revision here (default_revision FALSE), so it never
+            // the instance to this genuinely non-published state — draft is a
+            // forward revision here (default_revision FALSE), so it never
             // becomes the current state on its own).
+            //
+            // default_revision is FALSE: an instance flagged
+            // individually_cancelled and moved to needs_adjustment must not
+            // overwrite the default (published or archived) revision the
+            // flag's coherence rule depends on.
             'needs_adjustment' => [
               'label' => 'Needs Adjustment',
               'published' => FALSE,
-              'default_revision' => TRUE,
-              'weight' => 6,
+              'default_revision' => FALSE,
+              'weight' => 7,
             ],
             'published' => [
               'label' => 'Published',
               'published' => TRUE,
               'default_revision' => TRUE,
               'weight' => 0,
+            ],
+            // The kernel instance workflow otherwise lacks the review arm the
+            // live site has (an instance moving through draft → review before
+            // publish, mirroring the series workflow).
+            'ready_for_review' => [
+              'label' => 'Ready for Review',
+              'published' => FALSE,
+              'default_revision' => FALSE,
+              'weight' => 6,
             ],
           ],
           'transitions' => [
@@ -268,15 +284,31 @@ abstract class EventKernelTestBase extends KernelTestBase {
               'to' => 'archived',
               'weight' => 2,
             ],
+            // A restored (published→archived) occurrence can be re-cancelled
+            // without leaving the archived state, so an already-archived
+            // occurrence stays representable as its own current revision.
+            'archived_archived' => [
+              'label' => 'Archived',
+              'from' => ['archived'],
+              'to' => 'archived',
+              'weight' => 2,
+            ],
             'request_adjustment' => [
               'label' => 'Request Adjustment',
-              'from' => ['published'],
+              'from' => ['ready_for_review'],
               'to' => 'needs_adjustment',
               'weight' => 6,
             ],
             'archived_draft' => [
+              // Matches production (workflows.workflow.editorial_eventinstance.yml):
+              // valid from BOTH archived and needs_adjustment. The needs_
+              // adjustment arm is what the standalone moderation form's
+              // reorder-a-non-publishing-option-first treatment targets — a
+              // needs_adjustment instance's ONLY lower-weight-than-publish
+              // alternative is this transition, so it must be the one the
+              // form_alter promotes ahead of Published in #options.
               'label' => 'Restore to Draft',
-              'from' => ['archived'],
+              'from' => ['archived', 'needs_adjustment'],
               'to' => 'draft',
               'weight' => 3,
             ],
@@ -296,7 +328,19 @@ abstract class EventKernelTestBase extends KernelTestBase {
               'label' => 'Publish',
               'to' => 'published',
               'weight' => 1,
-              'from' => ['draft', 'published'],
+              'from' => ['draft', 'needs_adjustment', 'published', 'ready_for_review'],
+            ],
+            'send_for_review' => [
+              'label' => 'Send for Review',
+              'from' => ['draft', 'needs_adjustment'],
+              'to' => 'ready_for_review',
+              'weight' => 5,
+            ],
+            'review_to_review' => [
+              'label' => 'Review to Review',
+              'from' => ['ready_for_review'],
+              'to' => 'ready_for_review',
+              'weight' => 7,
             ],
           ],
         ],
@@ -360,6 +404,7 @@ abstract class EventKernelTestBase extends KernelTestBase {
       'use editorial transition publish',
       'use editorial transition request_adjustment',
       'use editorial_eventinstance transition archive',
+      'use editorial_eventinstance transition archived_archived',
       'use editorial_eventinstance transition archived_draft',
       'use editorial_eventinstance transition archived_published',
       'use editorial_eventinstance transition create_new_draft',
@@ -441,6 +486,60 @@ abstract class EventKernelTestBase extends KernelTestBase {
       'bundle' => 'default',
       'settings' => ['handler_settings' => ['target_bundles' => ['affinity_group' => 'affinity_group']]],
     ])->save();
+
+    // access_events is enabled by default in this base, so
+    // access_events_entity_presave() (reads domain_access, post_survey_url,
+    // field_post_survey_*) and access_events_entity_access() (reads
+    // field_other_authors, unconditionally, no hasField guard) fire on every
+    // eventseries/eventinstance save from here on. Seed the site-level fields
+    // those hooks touch, empty, so their reads return empty and their
+    // conditional blocks are skipped rather than fataling.
+    $this->attachInstancePresaveFields();
+    if (!FieldStorageConfig::loadByName('eventseries', 'field_other_authors')) {
+      FieldStorageConfig::create([
+        'field_name' => 'field_other_authors',
+        'entity_type' => 'eventseries',
+        'type' => 'entity_reference',
+        'cardinality' => -1,
+        'settings' => ['target_type' => 'user'],
+      ])->save();
+      FieldConfig::create([
+        'field_name' => 'field_other_authors',
+        'entity_type' => 'eventseries',
+        'bundle' => 'default',
+      ])->save();
+    }
+
+    \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
+  }
+
+  /**
+   * Attaches the empty site-level fields access_events_entity_presave() reads.
+   */
+  protected function attachInstancePresaveFields(): void {
+    $fields = [
+      ['eventseries', 'domain_access', 'string', -1],
+      ['eventinstance', 'domain_access', 'string', -1],
+      ['eventinstance', 'post_survey_url', 'link', 1],
+      ['eventinstance', 'field_post_survey_reminder_sent', 'integer', 1],
+      ['eventinstance', 'field_post_survey_sent', 'integer', 1],
+    ];
+    foreach ($fields as [$entityType, $fieldName, $type, $cardinality]) {
+      if (!FieldStorageConfig::loadByName($entityType, $fieldName)) {
+        FieldStorageConfig::create([
+          'entity_type' => $entityType,
+          'field_name' => $fieldName,
+          'type' => $type,
+          'cardinality' => $cardinality,
+        ])->save();
+        FieldConfig::create([
+          'entity_type' => $entityType,
+          'field_name' => $fieldName,
+          'bundle' => 'default',
+          'label' => $fieldName,
+        ])->save();
+      }
+    }
     \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
   }
 
@@ -835,6 +934,54 @@ abstract class EventKernelTestBase extends KernelTestBase {
   }
 
   /**
+   * Counts queued email_notifications items carrying the given notification key.
+   */
+  protected function assertQueueCount(string $key, int $expected): void {
+    // The real queue id and stdClass item shape, per contrib
+    // NotificationService::addEmailNotificationToQueue().
+    $queue = \Drupal::queue('recurring_events_registration_email_notifications_queue_worker');
+    $found = 0;
+    $items = [];
+    while ($item = $queue->claimItem()) {
+      $items[] = $item;
+      if (($item->data->key ?? NULL) === $key) {
+        $found++;
+      }
+    }
+    foreach ($items as $item) {
+      $queue->releaseItem($item);
+    }
+    $this->assertSame($expected, $found, "queue items for $key");
+  }
+
+  protected function reloadInstance(EventInstance $instance): EventInstance {
+    return \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($instance->id());
+  }
+
+  /**
+   * Enables the notification machinery the kernel env leaves unset.
+   */
+  protected function enableEventNotifications(): void {
+    // subject/body must be set (not just enabled): NotificationService::
+    // getConfigValue() reads $notifications[$key][$name] with no isset()
+    // guard, so a missing key -- not just an empty one -- is a PHP warning
+    // that kernel tests promote to a fatal.
+    \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
+      ->set('email_notifications', TRUE)
+      ->set('email_notifications_queue', TRUE)
+      ->set('notifications.event_cancelled_notification.enabled', TRUE)
+      ->set('notifications.event_cancelled_notification.subject', 'Event cancelled')
+      ->set('notifications.event_cancelled_notification.body', 'The event has been cancelled.')
+      ->set('notifications.event_reinstated_notification.enabled', TRUE)
+      ->set('notifications.event_reinstated_notification.subject', 'Event reinstated')
+      ->set('notifications.event_reinstated_notification.body', 'The event is back on.')
+      ->set('notifications.instance_modification_notification.enabled', TRUE)
+      ->set('notifications.instance_modification_notification.subject', 'Event modified')
+      ->set('notifications.instance_modification_notification.body', 'The event has been modified.')
+      ->save();
+  }
+
+  /**
    * Registers a user for an instance and returns the saved registrant.
    */
   protected function registerUser(User $user, EventInstance $instance, bool $waitlist = FALSE): Registrant {
@@ -847,6 +994,39 @@ abstract class EventKernelTestBase extends KernelTestBase {
       'type' => 'default',
     ]);
     $registrant->save();
+    return $registrant;
+  }
+
+  /**
+   * Registers a user against an instance that is NOT currently published,
+   * modeling legacy registration data that predates the registrant-presave
+   * publish gate (e.g. a registrant who signed up while the occurrence was
+   * briefly live, before it was pulled back to draft/archived).
+   *
+   * The gate only refuses a NEW registrant save against a non-published
+   * instance — it does not (and must not) reach back and invalidate
+   * registrants that already exist, so this models that legitimate data
+   * shape by publishing the instance via a SYNCING save (bypassing the
+   * gate, exactly like a revert/rebuild would), registering, then restoring
+   * the instance to its original moderation_state via another syncing save.
+   * Several delete/cancel-guard tests need a registrant sitting on a
+   * currently-non-published instance to prove the guard itself (not the
+   * registrant-creation gate) is what's under test.
+   */
+  protected function registerUserOnDraftInstance(User $user, EventInstance $instance, bool $waitlist = FALSE): Registrant {
+    $originalState = $instance->hasField('moderation_state') ? $instance->get('moderation_state')->value : NULL;
+
+    $instance->setSyncing(TRUE);
+    $instance->set('moderation_state', 'published');
+    $instance->save();
+
+    $registrant = $this->registerUser($user, $instance, $waitlist);
+
+    $instance = $this->reloadInstance($instance);
+    $instance->setSyncing(TRUE);
+    $instance->set('moderation_state', $originalState);
+    $instance->save();
+
     return $registrant;
   }
 
@@ -1110,12 +1290,10 @@ abstract class EventKernelTestBase extends KernelTestBase {
   /**
    * Maps a CRUD op name to its EventCrudApiController method name.
    *
-   * EventCrudApiController does not exist yet — it lands when the CRUD
-   * endpoints are implemented. This map is the single place that work binds
-   * against: doCrud()/doOccurrence()/doRecurrence() below resolve the
-   * method off the live class by name at call time, so this file compiles
-   * and the current suite passes now, and calling a do*() helper before the
-   * controller exists fails with a clear "class not found" rather than
+   * This map is the single place that work binds against: doCrud()/
+   * doOccurrence() below resolve the method off the live class by name at
+   * call time, so calling a do*() helper before the controller exists (were
+   * it ever removed) would fail with a clear "class not found" rather than
    * silently no-op'ing.
    *
    * @return array<string, string>
@@ -1134,9 +1312,13 @@ abstract class EventKernelTestBase extends KernelTestBase {
       'sendForReview' => 'sendForReview',
       // Instance-level (occurrence) op: cancel_occurrence archives one instance.
       'cancel' => 'cancelOccurrence',
+      // Instance-level: restore_occurrence un-cancels one instance. Distinct
+      // op key from the series-level 'restore' above (same method-map, two
+      // different controller methods).
+      'restoreOccurrence' => 'restoreOccurrence',
       // Instance-level: edit_occurrence changes one instance's date/location.
       'edit' => 'editOccurrence',
-      // Series-level: add_occurrence appends a custom_date to a custom series.
+      // Series-level: add_occurrence directly creates one instance.
       'add' => 'addOccurrence',
     ];
   }
@@ -1192,14 +1374,15 @@ abstract class EventKernelTestBase extends KernelTestBase {
    */
   protected function doOccurrence(string $op, int $id, User $actingUser, array $query = [], array $body = []): JsonResponse {
     // add_occurrence targets a SERIES (POST /api/2.3/event-series/{id}/
-    // occurrence), not an instance: it appends a custom_date to the series. The
-    // edit/cancel ops target an INSTANCE (/api/2.3/event-occurrences/{id}).
-    // Branch on the op so the right entity attribute is bound and the right
-    // path is built. In BOTH branches the query params are baked into the URL
-    // (http_build_query) rather than passed as Request::create()'s $parameters:
-    // for a non-GET method that arg lands in the request (POST) bag, not
-    // ->query, so the controller's $request->query->get('force'/'confirmed')
-    // would MISS it — silently dropping the destructive force-gate.
+    // occurrence), not an instance: it directly creates a new instance on the
+    // series. The edit/cancel/restoreOccurrence ops target an INSTANCE
+    // (/api/2.3/event-occurrences/{id}[/restore]). Branch on the op so the
+    // right entity attribute is bound and the right path is built. In every
+    // branch the query params are baked into the URL (http_build_query)
+    // rather than passed as Request::create()'s $parameters: for a non-GET
+    // method that arg lands in the request (POST) bag, not ->query, so the
+    // controller's $request->query->get('force'/'confirmed') would MISS it —
+    // silently dropping the destructive force-gate.
     if ($op === 'add') {
       $path = '/api/2.3/event-series/' . $id . '/occurrence';
       if ($query) {
@@ -1208,6 +1391,21 @@ abstract class EventKernelTestBase extends KernelTestBase {
       $request = Request::create($path, 'POST', [], [], [], [], $body ? json_encode($body) : NULL);
       $request->attributes->set('acting_user_uid', (int) $actingUser->id());
       $request->attributes->set('eventseries', EventSeries::load($id));
+
+      return $this->asActingUser(
+        $actingUser,
+        fn () => $this->dispatchCrud($op, $request, $id),
+      );
+    }
+
+    if ($op === 'restoreOccurrence') {
+      $path = '/api/2.3/event-occurrences/' . $id . '/restore';
+      if ($query) {
+        $path .= '?' . http_build_query($query);
+      }
+      $request = Request::create($path, 'POST', [], [], [], [], $body ? json_encode($body) : NULL);
+      $request->attributes->set('acting_user_uid', (int) $actingUser->id());
+      $request->attributes->set('eventinstance', EventInstance::load($id));
 
       return $this->asActingUser(
         $actingUser,
@@ -1227,33 +1425,6 @@ abstract class EventKernelTestBase extends KernelTestBase {
     return $this->asActingUser(
       $actingUser,
       fn () => $this->dispatchCrud($op, $request, $id),
-    );
-  }
-
-  /**
-   * Dispatches a recurrence-rule op, acting as $actingUser.
-   *
-   * Builds a Request and sends it to EventCrudApiController. Models
-   * doRegister().
-   *
-   * @param int $seriesId
-   *   The eventseries id whose recurrence rule is being acted on.
-   * @param \Drupal\user\Entity\User $actingUser
-   *   The acting user whose uid is bound to acting_user_uid.
-   * @param array $query
-   *   Query-string parameters.
-   * @param array $body
-   *   The decoded JSON body.
-   */
-  protected function doRecurrence(int $seriesId, User $actingUser, array $query, array $body): JsonResponse {
-    $path = '/api/1.0/events/' . $seriesId . '/recurrence';
-    $request = Request::create($path, 'POST', $query, [], [], [], json_encode($body));
-    $request->attributes->set('acting_user_uid', (int) $actingUser->id());
-    $request->attributes->set('eventseries', EventSeries::load($seriesId));
-
-    return $this->asActingUser(
-      $actingUser,
-      fn () => $this->dispatchCrud('recurrence', $request, $seriesId),
     );
   }
 

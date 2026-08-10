@@ -18,35 +18,41 @@ use Drupal\user\Entity\Role;
  *    ONE instance's date/location content fields. Editing an instance is a
  *    content edit on the instance, not a series recur-config change, so it
  *    does NOT trigger the module's recreate. A date change with FUTURE
- *    registrants attached requires confirmed=TRUE and previews first (moving
- *    an occurrence's date must never be silent to someone already signed up);
- *    a date change with no future registrants, or a location-only edit,
- *    proceeds without confirmation. On a confirmed date change,
+ *    registrants attached on a LIVE (published) instance requires
+ *    confirmed=TRUE and previews first (moving an occurrence's date must
+ *    never be silent to someone already signed up); a date change with no
+ *    future registrants, or a location-only edit, proceeds without
+ *    confirmation. A DARK (non-published) instance's preview always reports
+ *    registrants_to_notify: 0 plus a note that registrants are notified when
+ *    the event is restored — the real post-save reaction only ever fires off
+ *    a live, moderated instance. On a confirmed date change,
  *    instance_modification_notification (enabled + retemplated for a
- *    reschedule) emails the future registrants; contrib's own
- *    recurring_events_registration_entity_update() enqueues that key whenever
- *    an eventinstance's date field actually changes on save, so this fires
- *    identically whether the save comes from this endpoint or the node/
- *    eventinstance edit form — this controller does not also enqueue.
+ *    reschedule) emails the affected registrants:
+ *    EventStateReactions::reactToInstanceModified() enqueues that key
+ *    whenever the saved instance is published both before and after the
+ *    save AND the date field actually changed, so this fires identically
+ *    whether the save comes from this endpoint or the node/eventinstance
+ *    edit form — this controller does not also enqueue. Unlike the old
+ *    contrib hook_entity_update() this replaces, the reaction notifies off
+ *    the UNION of the old and new end dates, not just the new one — a
+ *    registrant who was future under the OLD schedule is still notified even
+ *    if the edit moves the event into the past.
  *  - add_occurrence (POST /api/2.3/event-series/{eventseries}/occurrence)
- *    appends a one-off date to a CUSTOM series by writing the singular
- *    custom_date daterange field (start_date/end_date → value/end_value). A
- *    RULE series (weekly_recurring_date, …) is REFUSED with recurrence_conflict:
- *    a one-off cannot be appended to a rule series.
+ *    directly CREATES one new eventinstance on the series via the same
+ *    contrib chain the series' own machinery uses (createEventInstance() →
+ *    configureDefaultInheritances() → save()) — NOT a custom_date config
+ *    write. The new instance's birth moderation_state follows the parent's
+ *    published/archived status, so this works on BOTH a published and an
+ *    archived series (the old rule-series recurrence_conflict refusal is
+ *    gone: a direct create is not a recur-config change, so it also works on
+ *    a rule series). A duplicate start-timestamp collision with an existing
+ *    instance refuses duplicate_date; if the colliding instance is itself a
+ *    cancelled (archived + individually_cancelled) twin, the message instead
+ *    points the caller at restore_occurrence.
  *
- * The destructive edge is on add_occurrence: appending a date to a PUBLISHED
- * custom series changes the series' recur config, and recurring_events fires its
- * RecreateEventInstanceCreator on a published-series recur-config change — a
- * hard-delete + recreate of ALL instances, which would destroy any attached
- * registrants. Rather than a force-to-proceed escape hatch, add_occurrence
- * appends the date and calls $eventseries->validate(): the
- * EventSeriesRescheduleBlock constraint refuses the save (has_registrations,
- * 409) when the series has FUTURE registrants — past-only registrants do not
- * block, since a rebuild cannot harm a registrant whose instance already
- * ended. A DRAFT series never materializes an appended custom_date into a
- * real instance (the module recreate is gated on published), so it is
- * refused up front (invalid_state, 409) rather than reporting a phantom
- * success.
+ * A DRAFT series' new instance would be born archived like its dark parent —
+ * never visibly published — so add_occurrence refuses invalid_state up front
+ * rather than report a phantom success.
  */
 class EventCrudOccurrenceEditTest extends EventKernelTestBase {
 
@@ -169,10 +175,18 @@ class EventCrudOccurrenceEditTest extends EventKernelTestBase {
    * + reports the registrant count.
    *
    * The date override is applied to the single targeted instance; the
-   * envelope reports registrants_affected. Editing the instance is a content
-   * edit, not a series recur-config change, so no recreate fires.
+   * envelope reports registrants_affected, drained from what the state
+   * reaction actually recorded. Editing the instance is a content edit, not
+   * a series recur-config change, so no recreate fires.
    */
   public function testEditOccurrenceChangesDate(): void {
+    \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
+      ->set('email_notifications', TRUE)
+      ->set('email_notifications_queue', TRUE)
+      ->set('notifications.instance_modification_notification.enabled', TRUE)
+      ->set('notifications.instance_modification_notification.subject', 'Event Rescheduled')
+      ->set('notifications.instance_modification_notification.body', 'The event has been rescheduled.')
+      ->save();
     $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
     $series = $this->makePublishedCoordinatorSeries($coordinator);
     $instance = $this->loadInstances($series)[array_key_first($this->loadInstances($series))];
@@ -326,13 +340,16 @@ class EventCrudOccurrenceEditTest extends EventKernelTestBase {
 
   /**
    * A PAST instance moved to the FUTURE requires confirm and reports the
-   * true count — the prospective new date is what contrib's hook notifies
+   * true count — the prospective new date is what the preview gate warns
    * against, not the instance's current (past) stored date.
    *
    * Before the gate was keyed on the prospective date, this scenario gated on
    * countFutureForInstance() against the OLD (past) date — 0 — so it never
-   * previewed and reported registrants_to_notify = 0, while contrib's
-   * post-save hook (keyed on the NEW date) would silently mass-notify anyway.
+   * previewed and reported registrants_to_notify = 0, while the actual save
+   * would silently mass-notify anyway (a live instance stays live across this
+   * move, so EventStateReactions::reactToInstanceModified() fires either
+   * way). The confirmed response's registrants_affected is asserted against
+   * the REAL drained notified count, not a guess.
    */
   public function testEditOccurrencePastToFutureRequiresConfirmAndNotifies(): void {
     \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
@@ -346,8 +363,10 @@ class EventCrudOccurrenceEditTest extends EventKernelTestBase {
     $series = $this->makeCoordinatorSeries($coordinator);
     $instance = $this->loadInstances($series)[array_key_first($this->loadInstances($series))];
     $instance->set('date', ['value' => '2000-01-01T10:00:00', 'end_value' => '2000-01-01T12:00:00']);
-    $instance->set('moderation_state', 'published')->save();
+    // The series must be published BEFORE the instance: the occurrence-publish-under-unpublished-event refusal refuses
+    // publishing an occurrence while its parent series is still dark.
     $series->set('moderation_state', 'published')->save();
+    $instance->set('moderation_state', 'published')->save();
     $this->registerUser($this->createUser(), $instance);
 
     // Unconfirmed: must preview, reporting the true (non-zero) count — the
@@ -369,12 +388,14 @@ class EventCrudOccurrenceEditTest extends EventKernelTestBase {
     $queue = \Drupal::service('queue')->get('recurring_events_registration_email_notifications_queue_worker');
     $before = $queue->numberOfItems();
 
-    // Confirmed: the move applies and contrib's hook enqueues the notice
+    // Confirmed: the move applies and the state reaction enqueues the notice
     // against the new (future) date.
     $confirmedResponse = $this->doOccurrence('edit', (int) $instance->id(), $coordinator, ['confirmed' => TRUE], [
       'date' => ['value' => '2099-07-01T10:00:00', 'end_value' => '2099-07-01T12:00:00'],
     ]);
     $this->assertSame(200, $confirmedResponse->getStatusCode(), $confirmedResponse->getContent());
+    $confirmedData = json_decode($confirmedResponse->getContent(), TRUE);
+    $this->assertSame(1, $confirmedData['registrants_affected'], 'The real drained notified count, not a guess.');
     $after = $queue->numberOfItems();
     $this->assertSame($before + 1, $after, 'The past-to-future move enqueues exactly one notification.');
 
@@ -383,17 +404,23 @@ class EventCrudOccurrenceEditTest extends EventKernelTestBase {
   }
 
   /**
-   * A FUTURE instance corrected to the PAST requires NO confirm and notifies
-   * nobody — contrib's hook checks the NEW date post-save and never fires
-   * once it lands in the past.
+   * A FUTURE instance corrected to the PAST requires NO confirm (the preview
+   * gate is keyed on the PROSPECTIVE new date, which here is past) but STILL
+   * notifies the registrant — they were legitimately future under the OLD
+   * schedule and deserve to know the event moved, even though the row now
+   * holds a past date.
    *
-   * Before the gate was keyed on the prospective date, this scenario gated on
-   * countFutureForInstance() against the OLD (future) date — non-zero — so
-   * it wrongly demanded confirmation and reported a registrants_to_notify
-   * count that would never actually be notified (contrib's hook checks the
-   * date AFTER save, sees it's now past, and never enqueues).
+   * This is the opposite of what contrib's own hook_entity_update() did (it
+   * checked ONLY the post-save new date, so a future→past correction fired
+   * no notice at all) — EventStateReactions::reactToInstanceModified() /
+   * CancellationNotifier::enqueueModificationGated() instead notify when
+   * EITHER the old or the new end date is not verifiably past, which a "was
+   * future, now past" edit satisfies via the OLD boundary. Confirming this
+   * with a raw entity-level save (not the API) proves the DB genuinely holds
+   * the past date at the point notification decides to fire — a "count
+   * against the DB post-save" implementation would wrongly see nothing here.
    */
-  public function testEditOccurrenceFutureToPastRequiresNoConfirmAndNoNotify(): void {
+  public function testEditOccurrenceFutureToPastStillNotifies(): void {
     \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
       ->set('email_notifications', TRUE)
       ->set('email_notifications_queue', TRUE)
@@ -409,7 +436,10 @@ class EventCrudOccurrenceEditTest extends EventKernelTestBase {
     $queue = \Drupal::service('queue')->get('recurring_events_registration_email_notifications_queue_worker');
     $before = $queue->numberOfItems();
 
-    // Unconfirmed, no preview required: the prospective new date is past.
+    // Unconfirmed, no preview required: the prospective new date is past, so
+    // the preview gate sees no reschedule RISK to confirm (nobody is stranded
+    // by a move that lands in the past) — but the save proceeds straight
+    // through and the real reaction still fires off the OLD boundary.
     $response = $this->doOccurrence('edit', (int) $instance->id(), $coordinator, [], [
       'date' => ['value' => '2000-01-01T10:00:00', 'end_value' => '2000-01-01T12:00:00'],
     ]);
@@ -417,10 +447,10 @@ class EventCrudOccurrenceEditTest extends EventKernelTestBase {
     $data = json_decode($response->getContent(), TRUE);
     $this->assertTrue($data['success']);
     $this->assertArrayNotHasKey('status', $data, 'A future-to-past correction is never gated to a preview.');
-    $this->assertSame(0, $data['registrants_affected'], 'The envelope must not promise a notify that never happens.');
+    $this->assertSame(1, $data['registrants_affected'], 'The registrant was future under the OLD date — still notified.');
 
     $after = $queue->numberOfItems();
-    $this->assertSame($before, $after, 'contrib\'s hook never fires once the new date is past — nothing enqueued.');
+    $this->assertSame($before + 1, $after, 'The old-boundary registrant is still notified even though the new date is past.');
 
     $reloaded = \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($instance->id());
     $this->assertStringContainsString('2000-01-01', $reloaded->get('date')->value);
@@ -458,139 +488,190 @@ class EventCrudOccurrenceEditTest extends EventKernelTestBase {
   }
 
   /**
-   * add_occurrence appends a durable date to a custom series → a new instance.
-   *
-   * A published custom series seeded with one custom_date owns one instance.
-   * Appending a second date changes the recur config, so on save the module
-   * recreates instances from the two custom_dates → the instance count grows.
-   * The appended custom_date is durable on the series.
-   *
-   * The rebuild's newly-created instance must be PUBLISHED, not left at its
-   * workflow default of draft — createInstances() always spawns draft, and
-   * contrib's own state-sync no-ops on this site's workflow-id mismatch (see
-   * PastPreservingEventInstanceCreator's PUBLISH SYNC docblock). Asserted on
-   * the newly-created instance SPECIFICALLY (the one NOT present before this
-   * call) rather than via makePublishedCustomSeriesWithDate()'s own
-   * hand-publish loop, which only ran once at series creation and would mask
-   * a regression here — it never re-publishes an instance this later rebuild
-   * spawns.
+   * A DARK (archived) instance's date-change preview reports
+   * registrants_to_notify: 0 plus the restore-notice note, never a nonzero
+   * count contrib's hook will never actually send.
    */
-  public function testAddOccurrenceAppendsToCustomSeries(): void {
+  public function testEditDarkOccurrencePreviewReportsZero(): void {
+    $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $series = $this->makePublishedCoordinatorSeries($coordinator);
+    $instance = $this->loadInstances($series)[array_key_first($this->loadInstances($series))];
+    $this->registerUser($this->createUser(), $instance);
+    $this->doOccurrence('cancel', (int) $instance->id(), $coordinator, ['confirmed' => TRUE]);
+    $this->assertSame(
+      'archived',
+      \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($instance->id())->get('moderation_state')->value,
+    );
+
+    $response = $this->doOccurrence('edit', (int) $instance->id(), $coordinator, [], [
+      'date' => ['value' => '2099-07-01T10:00:00', 'end_value' => '2099-07-01T12:00:00'],
+    ]);
+    $this->assertSame(200, $response->getStatusCode(), $response->getContent());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertSame('preview', $data['status']);
+    $this->assertSame(0, $data['registrants_to_notify']);
+    $this->assertSame('Registrants are notified when the event is restored.', $data['note']);
+
+    // Nothing written.
+    $this->assertNotSame(
+      '2099-07-01T10:00:00',
+      \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($instance->id())->get('date')->value,
+    );
+  }
+
+  /**
+   * add_occurrence directly creates one new instance on a published custom
+   * series — no custom_date write, no rebuild of anything else.
+   */
+  public function testAddOccurrenceCreatesInstanceOnPublishedSeries(): void {
     $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
     $series = $this->makePublishedCustomSeriesWithDate($coordinator);
     $beforeIds = array_map(fn ($i) => (int) $i->id(), $this->loadInstances($series));
-    $before = count($beforeIds);
 
-    $response = $this->doOccurrence('add', (int) $series->id(), $coordinator, ['confirmed' => TRUE], [
-      'start_date' => '2099-08-01T10:00:00',
-      'end_date' => '2099-08-01T12:00:00',
+    $response = $this->doOccurrence('add', (int) $series->id(), $coordinator, [], [
+      'date' => ['value' => '2099-08-01T10:00:00', 'end_value' => '2099-08-01T12:00:00'],
     ]);
-    $this->assertSame(200, $response->getStatusCode());
+    $this->assertSame(200, $response->getStatusCode(), $response->getContent());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertTrue($data['success']);
+    $this->assertSame('published', $data['moderation_state']);
 
-    $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
-    // The custom_date field now carries both dates (durable append).
-    $dates = array_column($reloaded->get('custom_date')->getValue(), 'value');
-    $this->assertContains('2099-08-01T10:00:00', $dates);
-    // A new instance spawned for the added date.
-    $afterInstances = $this->loadInstances($reloaded);
-    $this->assertGreaterThan($before, count($afterInstances));
+    $newInstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($data['eventinstance_id']);
+    $this->assertNotNull($newInstance);
+    $this->assertNotContains((int) $newInstance->id(), $beforeIds, 'A genuinely new instance was created.');
+    $this->assertSame('published', $newInstance->get('moderation_state')->value, 'Born published — the parent series is published.');
+    $this->assertStringContainsString('2099-08-01', $newInstance->get('date')->value);
 
-    $newInstances = array_filter($afterInstances, fn ($i) => !in_array((int) $i->id(), $beforeIds, TRUE));
-    $this->assertNotEmpty($newInstances, 'At least one new instance was created by the rebuild.');
-    foreach ($newInstances as $newInstance) {
-      $this->assertSame(
-        'published',
-        $newInstance->get('moderation_state')->value,
-        'A published series\' rebuild-created instance must itself be published, not left at the workflow default of draft.',
-      );
+    // The pre-existing instances are UNTOUCHED — no rebuild.
+    $afterIds = array_map(fn ($i) => (int) $i->id(), $this->loadInstances($series));
+    foreach ($beforeIds as $id) {
+      $this->assertContains($id, $afterIds, 'A direct create must not delete/recreate any existing instance.');
     }
   }
 
   /**
-   * add_occurrence on a RULE series refuses recurrence_conflict, writes nothing.
+   * add_occurrence on an ARCHIVED (dark) series still succeeds, and the new
+   * instance is born ARCHIVED to match its dark parent.
    *
-   * A one-off date cannot be appended to a rule-based series (weekly_recurring_
-   * date, …): included_dates is a whitelist filter, not an append surface. The
-   * refusal is a 409 recurrence_conflict and the series' custom_date stays empty.
+   * The old custom_date/rebuild path could only ever fire off a PUBLISHED
+   * series; the direct-create replacement has no such restriction — the
+   * birth-state alter follows the parent's isPublished() either way.
    */
-  public function testAddOccurrenceRefusesOnRuleSeries(): void {
+  public function testAddOccurrenceOnArchivedSeriesBornArchived(): void {
     $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
-    $series = $this->makeCoordinatorRuleSeries($coordinator);
+    $series = $this->makePublishedCustomSeriesWithDate($coordinator);
+    $series->set('moderation_state', 'archived')->save();
+    $this->assertSame('archived', \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id())->get('moderation_state')->value);
 
-    $response = $this->doOccurrence('add', (int) $series->id(), $coordinator, ['confirmed' => TRUE], [
-      'start_date' => '2099-08-01T10:00:00',
-      'end_date' => '2099-08-01T12:00:00',
+    $response = $this->doOccurrence('add', (int) $series->id(), $coordinator, [], [
+      'date' => ['value' => '2099-08-01T10:00:00', 'end_value' => '2099-08-01T12:00:00'],
     ]);
-    $this->assertSame(409, $response->getStatusCode());
-    $this->assertSame('recurrence_conflict', json_decode($response->getContent(), TRUE)['error']);
+    $this->assertSame(200, $response->getStatusCode(), $response->getContent());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertTrue($data['success']);
+    $this->assertSame('archived', $data['moderation_state']);
 
-    $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
-    $this->assertSame([], $reloaded->get('custom_date')->getValue());
+    $newInstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($data['eventinstance_id']);
+    $this->assertSame('archived', $newInstance->get('moderation_state')->value, 'Born archived — the parent series is dark.');
   }
 
   /**
-   * A published custom series WITH a future registrant refuses has_registrations.
-   *
-   * Appending a date to a published custom series is a recur-config change;
-   * saving fires the module recreate, which would hard-delete the existing
-   * instances and destroy their registrants. add_occurrence appends the date
-   * and calls $eventseries->validate() — the EventSeriesRescheduleBlock
-   * constraint (covered directly in EventSeriesRescheduleBlockTest) refuses the
-   * save while the series has a FUTURE registrant. The refusal is a 409
-   * has_registrations and nothing is written: the instance count is unchanged.
+   * add_occurrence on a RULE series now SUCCEEDS (direct create is not a
+   * recur-config change) — extending a weekly series past its rule end with
+   * a one-off date is the sanctioned "add a date" story.
    */
-  public function testAddOccurrenceRefusesPublishedSeriesWithFutureRegistrants(): void {
+  public function testAddOccurrenceSucceedsOnRuleSeries(): void {
+    $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $series = $this->makeCoordinatorRuleSeries($coordinator);
+    $series->set('moderation_state', 'published')->save();
+
+    $response = $this->doOccurrence('add', (int) $series->id(), $coordinator, [], [
+      'date' => ['value' => '2099-08-01T10:00:00', 'end_value' => '2099-08-01T12:00:00'],
+    ]);
+    $this->assertSame(200, $response->getStatusCode(), $response->getContent());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertTrue($data['success']);
+
+    $newInstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($data['eventinstance_id']);
+    $this->assertNotNull($newInstance);
+    $this->assertStringContainsString('2099-08-01', $newInstance->get('date')->value);
+  }
+
+  /**
+   * A duplicate start collides with an existing (non-cancelled) instance —
+   * refused duplicate_date, nothing created.
+   */
+  public function testAddOccurrenceDuplicateDateRefused(): void {
     $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
     $series = $this->makePublishedCustomSeriesWithDate($coordinator);
-    $instance = $this->loadInstances($series)[array_key_first($this->loadInstances($series))];
-    $this->registerUser($this->createUser(), $instance);
+    $existing = $this->loadInstances($series)[array_key_first($this->loadInstances($series))];
+    $existingStart = $existing->get('date')->value;
     $before = count($this->loadInstances($series));
 
-    $response = $this->doOccurrence('add', (int) $series->id(), $coordinator, ['confirmed' => TRUE], [
-      'start_date' => '2099-08-01T10:00:00',
-      'end_date' => '2099-08-01T12:00:00',
+    $response = $this->doOccurrence('add', (int) $series->id(), $coordinator, [], [
+      'date' => ['value' => $existingStart, 'end_value' => $existing->get('date')->end_value],
     ]);
     $this->assertSame(409, $response->getStatusCode());
-    $this->assertSame('has_registrations', json_decode($response->getContent(), TRUE)['error']);
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertSame('duplicate_date', $data['error']);
+    $this->assertSame('An occurrence already exists at this date.', $data['message']);
 
-    // Nothing added.
-    $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
-    $this->assertCount($before, $reloaded->get('event_instances')->referencedEntities());
+    $this->assertCount($before, $this->loadInstances($series));
+  }
+
+  /**
+   * A duplicate start collides with an existing instance that is ITSELF
+   * cancelled (archived + individually_cancelled) — the cancelled-twin
+   * variant message points the caller at restore_occurrence instead.
+   */
+  public function testAddOccurrenceDuplicateDateCancelledTwinPointsAtRestore(): void {
+    $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $series = $this->makePublishedCustomSeriesWithDate($coordinator);
+    $existing = $this->loadInstances($series)[array_key_first($this->loadInstances($series))];
+    $existingStart = $existing->get('date')->value;
+    $existingEnd = $existing->get('date')->end_value;
+
+    $this->doOccurrence('cancel', (int) $existing->id(), $coordinator, ['confirmed' => TRUE]);
+    $this->assertSame(
+      'archived',
+      \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($existing->id())->get('moderation_state')->value,
+    );
+
+    $response = $this->doOccurrence('add', (int) $series->id(), $coordinator, [], [
+      'date' => ['value' => $existingStart, 'end_value' => $existingEnd],
+    ]);
+    $this->assertSame(409, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertSame('duplicate_date', $data['error']);
+    $this->assertSame(
+      'An occurrence already exists at this date; it is cancelled — use restore_occurrence to bring it back instead of adding a duplicate.',
+      $data['message'],
+    );
   }
 
   /**
    * A draft custom series refuses invalid_state.
    *
-   * A draft series' recur-config change does not fire the module recreate (it
-   * is gated on published), so appending a custom_date would not materialize a
-   * visible instance. Rather than report a phantom success, add_occurrence
-   * refuses up front.
+   * A draft series' new instance would be born archived (following its dark
+   * parent), never visibly published, so add_occurrence refuses up front
+   * rather than report a phantom success.
    */
   public function testAddOccurrenceRefusesDraftSeries(): void {
     $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
     $series = $this->makeCoordinatorSeries($coordinator);
 
     $response = $this->doOccurrence('add', (int) $series->id(), $coordinator, [], [
-      'start_date' => '2099-08-01T10:00:00',
-      'end_date' => '2099-08-01T12:00:00',
+      'date' => ['value' => '2099-08-01T10:00:00', 'end_value' => '2099-08-01T12:00:00'],
     ]);
     $this->assertSame(409, $response->getStatusCode());
     $this->assertSame('invalid_state', json_decode($response->getContent(), TRUE)['error']);
   }
 
   /**
-   * A published series whose ONLY registrant is on a PAST instance proceeds.
-   *
-   * The reschedule-block constraint keys on FUTURE registrants only — a
-   * rebuild cannot harm a registrant whose instance has already ended. This is
-   * a deliberate behavior change from the old force-gate (which blocked on ANY
-   * registrant, past or future): a series with only past registrants now
-   * proceeds without needing a force escape hatch.
-   *
-   * The series is seeded with a PAST custom_date (rather than reparenting a
-   * second instance onto a series that already owns a future one) so it owns
-   * exactly one, past-dated, module-spawned instance going into add_occurrence
-   * — the registrant is attached to that single instance.
+   * A published series whose ONLY registrant is on a PAST instance proceeds
+   * without incident — a direct create touches nothing but the new row, so
+   * a past registrant elsewhere on the series is irrelevant to add_occurrence
+   * (unlike the old rebuild-based path, which had to reason about it).
    */
   public function testAddOccurrenceProceedsWithPastOnlyRegistrants(): void {
     $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
@@ -612,35 +693,22 @@ class EventCrudOccurrenceEditTest extends EventKernelTestBase {
     $pastInstance = $instances[array_key_first($instances)];
     $pastInstance->set('moderation_state', 'published')->save();
     $registrant = $this->registerUser($this->createUser(), $pastInstance);
-    $before = count($this->loadInstances($series));
     $pastInstanceId = (int) $pastInstance->id();
     $registrantId = (int) $registrant->id();
 
-    $response = $this->doOccurrence('add', (int) $series->id(), $coordinator, ['confirmed' => TRUE], [
-      'start_date' => '2099-08-01T10:00:00',
-      'end_date' => '2099-08-01T12:00:00',
+    $response = $this->doOccurrence('add', (int) $series->id(), $coordinator, [], [
+      'date' => ['value' => '2099-08-01T10:00:00', 'end_value' => '2099-08-01T12:00:00'],
     ]);
     $this->assertSame(200, $response->getStatusCode(), $response->getContent());
-
     $data = json_decode($response->getContent(), TRUE);
     $this->assertTrue($data['success']);
 
-    // The appended date is durable and a new instance spawned.
-    $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
-    $dates = array_column($reloaded->get('custom_date')->getValue(), 'value');
-    $this->assertContains('2099-08-01T10:00:00', $dates);
-    $this->assertGreaterThan($before, count($this->loadInstances($reloaded)));
-
-    // The past instance survives the rebuild with the SAME entity id, and its
-    // registrant is untouched — PastPreservingEventInstanceCreator (wired via
-    // access_events_recurring_events_event_instance_creator_plugin_alter())
-    // must never delete an ended instance, even though this add_occurrence
-    // call is exactly the kind of recur-config change that would otherwise
-    // fire contrib's destructive RecreateEventInstanceCreator.
+    // The past instance and its registrant are untouched — a direct create
+    // never looks at, let alone deletes, any other instance.
     $survivingPastInstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($pastInstanceId);
-    $this->assertNotNull($survivingPastInstance, 'The past instance was not deleted by the append.');
+    $this->assertNotNull($survivingPastInstance, 'The past instance was not touched by the direct create.');
     $survivingRegistrant = \Drupal::entityTypeManager()->getStorage('registrant')->load($registrantId);
-    $this->assertNotNull($survivingRegistrant, 'The past instance registrant was not deleted by the append.');
+    $this->assertNotNull($survivingRegistrant, 'The past instance registrant was not touched by the direct create.');
   }
 
   /**
@@ -658,12 +726,90 @@ class EventCrudOccurrenceEditTest extends EventKernelTestBase {
     $this->assertSame(409, $editResponse->getStatusCode());
     $this->assertSame('not_coordinator', json_decode($editResponse->getContent(), TRUE)['error']);
 
-    $addResponse = $this->doOccurrence('add', (int) $series->id(), $stranger, ['confirmed' => TRUE], [
-      'start_date' => '2099-08-01T10:00:00',
-      'end_date' => '2099-08-01T12:00:00',
+    $addResponse = $this->doOccurrence('add', (int) $series->id(), $stranger, [], [
+      'date' => ['value' => '2099-08-01T10:00:00', 'end_value' => '2099-08-01T12:00:00'],
     ]);
     $this->assertSame(409, $addResponse->getStatusCode());
     $this->assertSame('not_coordinator', json_decode($addResponse->getContent(), TRUE)['error']);
+  }
+
+  /**
+   * Full API walk, twice: cancel → edit dates → restore, and the second
+   * cycle's emails/envelopes are IDENTICAL to the first — nothing leaks
+   * between cycles in the collector or the notification queue.
+   *
+   * "Postpone" here means: cancel the occurrence, move its date out (edit
+   * while dark — no notify promise), then restore it (which DOES notify, per
+   * the reinstatement reaction). Repeating the whole cycle a second time must produce the exact same
+   * outcome shape as the first: one cancellation notice, one reinstatement
+   * notice, nothing left over in the collector or the queues in between.
+   */
+  public function testPostponeCycleTwiceAccumulatesNothing(): void {
+    \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
+      ->set('email_notifications', TRUE)
+      ->set('notifications.event_cancelled_notification.enabled', TRUE)
+      ->set('notifications.event_cancelled_notification.subject', 'Event cancelled')
+      ->set('notifications.event_cancelled_notification.body', 'The event has been cancelled.')
+      ->set('notifications.event_reinstated_notification.enabled', TRUE)
+      ->set('notifications.event_reinstated_notification.subject', 'Event reinstated')
+      ->set('notifications.event_reinstated_notification.body', 'The event is back on.')
+      ->save();
+    $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $series = $this->makePublishedCoordinatorSeries($coordinator);
+    $instance = $this->loadInstances($series)[array_key_first($this->loadInstances($series))];
+    $this->registerUser($this->createUser(), $instance);
+
+    $queue = \Drupal::service('queue')->get('recurring_events_registration_email_notifications_queue_worker');
+    $collector = \Drupal::service('access_events.state_change_collector');
+    $instanceId = (int) $instance->id();
+    $seriesId = (int) $series->id();
+
+    $runCycle = function (string $newDate) use ($coordinator, $instanceId, $queue): array {
+      $before = $queue->numberOfItems();
+
+      $cancelResponse = $this->doOccurrence('cancel', $instanceId, $coordinator, ['confirmed' => TRUE]);
+      $this->assertSame(200, $cancelResponse->getStatusCode(), $cancelResponse->getContent());
+      $cancelData = json_decode($cancelResponse->getContent(), TRUE);
+
+      // The instance is dark (just cancelled) here — the preview branch would
+      // otherwise still gate on the raw registrant count even though it
+      // reports 0 for a dark instance (see testEditDarkOccurrencePreviewReportsZero),
+      // so confirm explicitly to make the date write land.
+      $editResponse = $this->doOccurrence('edit', $instanceId, $coordinator, ['confirmed' => TRUE], [
+        'date' => ['value' => $newDate . 'T10:00:00', 'end_value' => $newDate . 'T12:00:00'],
+      ]);
+      $this->assertSame(200, $editResponse->getStatusCode(), $editResponse->getContent());
+
+      $restoreResponse = $this->doOccurrence('restoreOccurrence', $instanceId, $coordinator);
+      $this->assertSame(200, $restoreResponse->getStatusCode(), $restoreResponse->getContent());
+      $restoreData = json_decode($restoreResponse->getContent(), TRUE);
+
+      $after = $queue->numberOfItems();
+
+      return [
+        'cancel_notified' => $cancelData['notified'],
+        'restore_notified' => $restoreData['notified'],
+        'queue_delta' => $after - $before,
+      ];
+    };
+
+    $first = $runCycle('2099-09-01');
+    // Nothing left over in the collector between cycles.
+    $this->assertSame([], $collector->drain('eventinstance', $instanceId));
+    $this->assertSame([], $collector->drain('eventseries', $seriesId));
+
+    $second = $runCycle('2099-10-01');
+    $this->assertSame([], $collector->drain('eventinstance', $instanceId));
+    $this->assertSame([], $collector->drain('eventseries', $seriesId));
+
+    $this->assertSame($first, $second, 'The second cycle\'s emails/envelopes must be identical to the first.');
+    $this->assertSame(1, $first['cancel_notified']);
+    $this->assertSame(1, $first['restore_notified']);
+    $this->assertSame(2, $first['queue_delta'], 'One cancellation + one reinstatement notice per cycle.');
+
+    $reloaded = \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($instanceId);
+    $this->assertSame('published', $reloaded->get('moderation_state')->value);
+    $this->assertStringContainsString('2099-10-01', $reloaded->get('date')->value);
   }
 
 }

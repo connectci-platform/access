@@ -79,15 +79,28 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  * accepted tradeoff for never re-creating (and so never risking a duplicate
  * of) an existing past instance.
  *
- * PUBLISH SYNC: createInstances() spawns every new instance at 'draft' (the
- * editorial_eventinstance workflow's default), regardless of the series'
- * moderation_state. Contrib's own EventCreationService::updateInstanceStatus()
- * would normally mirror a new instance to its series' state, but it silently
- * no-ops whenever the series and instance workflows differ — which they do on
- * this site (editorial vs. editorial_eventinstance). Left alone, rebuilding a
- * PUBLISHED series would replace its visible occurrences with invisible
- * drafts. processInstances() below explicitly publishes the newly-created
- * instances when the series is published, and only then.
+ * BIRTH STATE: createInstances() spawns every new instance through
+ * EventCreationService::createEventInstance(), whose data array now passes
+ * through hook_recurring_events_event_instance_alter() before the instance is
+ * created — access_events_recurring_events_event_instance_alter() sets
+ * moderation_state from the series' own published/not-published status there.
+ * That alter is what a rebuilt instance is born under; this plugin does not
+ * need to publish anything after the fact.
+ *
+ * FLAGGED INSTANCES: an instance an operator individually cancelled
+ * (individually_cancelled = TRUE, set by EventStateReactions::
+ * instancePresave() and left TRUE across a series restore — see
+ * EventStateReactions::sweepRestore()) is preserved exactly like a past
+ * instance, regardless of whether its date is actually in the future — see
+ * isFlagged(). It is skipped from both the delete loop and the registrant
+ * belt, so a rebuild never destroys a deliberate public cancellation nor
+ * throws on a registrant it may still carry. On the create side, the module
+ * alter (access_events_recurring_events_event_instances_pre_create_alter())
+ * also drops any config date whose computed start exactly matches a
+ * preserved flagged instance's start, so the rebuild never materializes a
+ * live twin at the same timestamp as a publicly cancelled occurrence —
+ * mirrored by EffectiveCreationSet so any caller computing the effective set
+ * (not just this plugin's own rebuild) sees the same exclusion.
  *
  * @EventInstanceCreator(
  *   id = "access_events_past_preserving_recreator",
@@ -154,16 +167,27 @@ class PastPreservingEventInstanceCreator extends EventInstanceCreatorBase implem
    */
   public function processInstances(EventSeries $series) {
     $instances = $series->event_instances->referencedEntities();
-    // Captured before anything is deleted or created, so the later publish
-    // step can tell "created by THIS rebuild" apart from "already existed"
-    // (a preserved past instance, or any instance this rebuild leaves alone).
-    $preExistingIds = array_map(fn ($i) => (int) $i->id(), $instances);
 
     $future = [];
     foreach ($instances as $instance) {
-      if (!$this->hasEnded($instance)) {
-        $future[] = $instance;
+      if ($this->hasEnded($instance)) {
+        continue;
       }
+      if ($this->isFlagged($instance)) {
+        // Individually-cancelled instances are preserved in place, exactly
+        // like a past instance — SKIP them from both the delete loop and the
+        // registrant belt below, whether or not they carry a registrant.
+        // They were deliberately, individually cancelled (see
+        // EventStateReactions::instancePresave()'s cancellation-email
+        // reaction flag write); a
+        // recur-config rebuild has no more business destroying that record
+        // than it does an ended instance's attendance history. This is NOT
+        // the past-vs-future partition changing — a flagged instance can
+        // still be in the future — it is a second, orthogonal reason an
+        // otherwise-future instance is left untouched.
+        continue;
+      }
+      $future[] = $instance;
     }
 
     // Belt: every instance about to be deleted must be registrant-free — the
@@ -171,7 +195,9 @@ class PastPreservingEventInstanceCreator extends EventInstanceCreatorBase implem
     // the population they can see (future registrants at validate/presave
     // time). If a future instance somehow still carries a registrant here,
     // abort the whole rebuild rather than silently destroying it; the series
-    // keeps its OLD instances (nothing was deleted yet).
+    // keeps its OLD instances (nothing was deleted yet). Flagged instances
+    // never reach this loop (skipped above), so the belt cannot abort a
+    // rebuild on their account.
     foreach ($future as $instance) {
       $count = (int) $this->entityTypeManager->getStorage('registrant')->getQuery()
         ->condition('eventinstance_id', $instance->id())
@@ -211,34 +237,6 @@ class PastPreservingEventInstanceCreator extends EventInstanceCreatorBase implem
     }
     finally {
       self::$rebuildingSeriesId = NULL;
-    }
-
-    // createInstances() spawns new instances at 'draft' — the
-    // editorial_eventinstance workflow's default state — regardless of the
-    // series' own moderation_state. Contrib's updateInstanceStatus() would
-    // normally sync a new instance to its series' state, but it no-ops here:
-    // it only mirrors moderation_state when the series and instance share the
-    // SAME workflow id, and on this site they use distinct workflows
-    // (editorial for eventseries, editorial_eventinstance for eventinstance)
-    // — see EventCreationService::updateInstanceStatus(). Left alone, a
-    // rebuild of a PUBLISHED series would replace its visible occurrences
-    // with invisible drafts: register()'s published-only gate refuses them,
-    // and the "added" occurrence never appears to a visitor. Only a published
-    // series' newly-created instances are published here — a rebuild of a
-    // draft series must not publish instances the series itself never
-    // exposed.
-    if ($series->get('moderation_state')->value === 'published') {
-      $reloaded = $this->entityTypeManager->getStorage('eventseries')->loadUnchanged($series->id());
-      foreach ($reloaded->event_instances->referencedEntities() as $instance) {
-        if (in_array((int) $instance->id(), $preExistingIds, TRUE)) {
-          // Not created by this rebuild (a preserved past instance, or one
-          // this rebuild left untouched) — its own moderation_state stands.
-          continue;
-        }
-        if ($instance->get('moderation_state')->value !== 'published') {
-          $instance->set('moderation_state', 'published')->save();
-        }
-      }
     }
   }
 
@@ -289,6 +287,25 @@ class PastPreservingEventInstanceCreator extends EventInstanceCreatorBase implem
     }
     // date.end_value stores as 'Y-m-d\TH:i:s' UTC (no offset suffix).
     return $timestamp <= $this->time->getRequestTime();
+  }
+
+  /**
+   * TRUE if the instance was individually cancelled (publicly, on purpose).
+   *
+   * individually_cancelled is set by EventStateReactions::instancePresave()
+   * whenever a single instance transitions away from published outside a
+   * series-wide sweep (StateChangeCollector::isSweeping()) — a coordinator
+   * deliberately pulling one occurrence, independent of the series. It stays
+   * TRUE across a series restore (EventStateReactions::sweepRestore() skips a
+   * flagged instance on purpose), so it marks the instance as PERMANENTLY
+   * withdrawn until a human explicitly un-flags/republishes it directly — not
+   * a transient state a rebuild should ever paper over by deleting and
+   * recreating it. A flagged instance is preserved exactly like a past one,
+   * whether or not it happens to also be in the future.
+   */
+  protected function isFlagged(EventInstance $instance): bool {
+    return $instance->hasField('individually_cancelled')
+      && (bool) $instance->get('individually_cancelled')->value;
   }
 
 }

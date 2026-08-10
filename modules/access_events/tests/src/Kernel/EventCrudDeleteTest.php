@@ -8,6 +8,7 @@ use Drupal\Core\Session\AccountInterface;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\recurring_events\Entity\EventInstance;
+use Drupal\recurring_events\Entity\EventSeries;
 use Drupal\user\Entity\Role;
 
 /**
@@ -189,14 +190,15 @@ class EventCrudDeleteTest extends EventKernelTestBase {
   /**
    * delete_event does not re-notify an instance already cancelled individually.
    *
-   * archiveSeriesWithInstances() skips instances not currently published, so
-   * an instance already archived via cancelOccurrence (whose registrant was
-   * already notified once, there) is not archived again here. delete()
-   * notifies exactly the archivedIds this call produced, NOT every future
-   * instance of the series — notifying by series scope instead would
-   * double-send to that already-notified registrant. This asserts the queue
-   * only grows by the OTHER (newly-archived) instance's registrant, and
-   * `notified` reflects only the newly-archived set.
+   * The series save's state-reaction sweep (EventStateReactions::
+   * sweepCancel()) only archives instances currently in the 'published'
+   * state, so an instance already archived via cancelOccurrence (whose
+   * registrant was already notified once, there) is not swept again here.
+   * The sweep notifies exactly the instances it archives THIS save, NOT
+   * every future instance of the series — notifying by series scope instead
+   * would double-send to that already-notified registrant. This asserts the
+   * queue only grows by the OTHER (newly-archived) instance's registrant,
+   * and `notified` reflects only the newly-archived set.
    */
   public function testDeleteDoesNotRenotifyAlreadyCancelledInstance(): void {
     \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
@@ -244,12 +246,12 @@ class EventCrudDeleteTest extends EventKernelTestBase {
   /**
    * delete_event does not falsely notify an instance that was never archived.
    *
-   * archiveSeriesWithInstances() only archives instances currently in the
+   * The state-reaction sweep only archives instances currently in the
    * 'published' state, so an instance left in 'draft' is skipped and stays
-   * draft. delete() notifies exactly the archivedIds this call produced, NOT
-   * every future instance of the series — notifying by series scope instead
-   * would falsely tell that never-archived instance's registrant their
-   * (never-published, never-cancelled) event was cancelled.
+   * draft. The sweep notifies exactly the instances it archives THIS save,
+   * NOT every future instance of the series — notifying by series scope
+   * instead would falsely tell that never-archived instance's registrant
+   * their (never-published, never-cancelled) event was cancelled.
    */
   public function testDeleteDoesNotNotifyInstanceNeverArchived(): void {
     \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
@@ -281,7 +283,7 @@ class EventCrudDeleteTest extends EventKernelTestBase {
     \Drupal::service('recurring_events.event_creation_service')
       ->configureDefaultInheritances($draft, (int) $series->id());
     $this->assertSame('draft', $draft->get('moderation_state')->value);
-    $this->registerUser($this->createUser(), $draft);
+    $this->registerUserOnDraftInstance($this->createUser(), $draft);
 
     $response = $this->doCrud('delete', (int) $series->id(), $newsPm, [], ['confirmed' => TRUE]);
     $this->assertSame(200, $response->getStatusCode());
@@ -310,31 +312,101 @@ class EventCrudDeleteTest extends EventKernelTestBase {
   }
 
   /**
-   * A draft-delete preview with registrants attached carries a warning.
+   * A draft-delete preview with registrants attached refuses, not warns.
    *
-   * The hard-delete branch destroys the series' instances (cascading the
-   * registrant deletes via the recurring_events predelete hook), and the
-   * instance-deletion notification key is disabled, so no one is told. The
-   * preview must say so plainly before a coordinator confirms. The registrant
-   * is created directly via registerUser() (entity-level, bypassing the API's
-   * own published-only registration gate) to model legacy data predating that
-   * gate.
+   * Under the delete-side registrant guard, a draft series with ANY
+   * registrations (past or future — attendance history is protected data)
+   * can never be hard-deleted, so the preview states the refusal-to-come
+   * rather than the old "will be permanently removed" warning. The
+   * registrant is created via registerUserOnDraftInstance() (entity-level,
+   * bypassing the registrant-presave publish gate via a transient publish)
+   * to model legacy data predating that gate.
    */
-  public function testDeleteDraftPreviewWithRegistrantsWarnsOfPermanentRemoval(): void {
+  public function testDeleteDraftPreviewWithRegistrantsRefusesInsteadOfWarning(): void {
     $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
     $series = $this->makeCoordinatorSeries($coordinator);
     $instance = $series->event_instances->referencedEntities()[0];
-    $this->registerUser($this->createUser(), $instance);
+    $this->registerUserOnDraftInstance($this->createUser(), $instance);
 
     $response = $this->doCrud('delete', (int) $series->id(), $coordinator, [], []);
     $this->assertSame(200, $response->getStatusCode());
     $data = json_decode($response->getContent(), TRUE);
-    $this->assertTrue($data['would_hard_delete']);
+    // Blocked: the preview correctly reports the delete will NOT proceed.
+    $this->assertFalse($data['would_hard_delete']);
     $this->assertSame(1, $data['registrants_affected']);
-    $this->assertArrayHasKey('warning', $data);
-    $this->assertStringContainsStringIgnoringCase('permanently', $data['warning']);
-    $this->assertStringContainsStringIgnoringCase('not', $data['warning']);
-    $this->assertStringContainsStringIgnoringCase('notified', $data['warning']);
+    $this->assertArrayNotHasKey('warning', $data);
+    $this->assertArrayHasKey('refusal', $data);
+    $this->assertStringContainsStringIgnoringCase('cannot be deleted', $data['refusal']);
+    // The guard's own ALL-TIME count, surfaced alongside the future-scoped
+    // registrants_affected so the two never have to be reconciled by the
+    // caller — see EventCrudApiController::delete()'s $registrants docblock.
+    $this->assertSame(1, $data['registrations_total']);
+  }
+
+  /**
+   * A draft with ONLY a past registrant still refuses, with a coherent count.
+   *
+   * The registrants_affected field is future-scoped (countFutureForSeries)
+   * and reports 0 here — nobody would be notified or is at risk of a
+   * future-facing loss.
+   * But EventDeleteGuard blocks on ANY registration, past included, so the
+   * preview must still refuse. This is the case where registrants_affected
+   * and the refusal would visually disagree without registrations_total
+   * making the guard's own count explicit.
+   */
+  public function testDeleteDraftPreviewWithPastOnlyRegistrantRefusesCoherently(): void {
+    $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $group = $this->createAffinityGroupNode([(int) $coordinator->id()]);
+    $series = EventSeries::create([
+      'title' => 'Past-Only Registrant Draft',
+      'body' => 'A draft series whose only instance is already in the past.',
+      'recur_type' => 'custom',
+      'type' => 'default',
+      'field_affinity_group_node' => [$group->id()],
+    ]);
+    $series->save();
+    $instance = EventInstance::create([
+      'eventseries_id' => $series->id(),
+      'type' => 'default',
+      'date' => ['value' => '2000-01-01T10:00:00', 'end_value' => '2000-01-01T12:00:00'],
+    ]);
+    $instance->save();
+    $this->registerUserOnDraftInstance($this->createUser(), $instance);
+
+    $response = $this->doCrud('delete', (int) $series->id(), $coordinator, [], []);
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertFalse($data['would_hard_delete']);
+    // Future-scoped count is 0 — the past instance carries the only registrant.
+    $this->assertSame(0, $data['registrants_affected']);
+    $this->assertArrayHasKey('refusal', $data);
+    $this->assertStringContainsStringIgnoringCase('cannot be deleted', $data['refusal']);
+    // The all-time count makes the refusal coherent despite
+    // registrants_affected reading 0.
+    $this->assertSame(1, $data['registrations_total']);
+  }
+
+  /**
+   * A confirmed draft-delete with registrants attached is refused (409).
+   *
+   * Nothing is deleted.
+   */
+  public function testDeleteDraftWithRegistrantsConfirmedRefuses409(): void {
+    $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $series = $this->makeCoordinatorSeries($coordinator);
+    $instance = $series->event_instances->referencedEntities()[0];
+    $registrant = $this->registerUserOnDraftInstance($this->createUser(), $instance);
+    $sid = (int) $series->id();
+
+    $response = $this->doCrud('delete', $sid, $coordinator, [], ['confirmed' => TRUE]);
+    $this->assertSame(409, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertSame('registrations_exist', $data['error']);
+
+    $etm = \Drupal::entityTypeManager();
+    $this->assertNotNull($etm->getStorage('eventseries')->loadUnchanged($sid));
+    $this->assertNotNull($etm->getStorage('eventinstance')->loadUnchanged($instance->id()));
+    $this->assertNotNull($etm->getStorage('registrant')->loadUnchanged($registrant->id()));
   }
 
   /**

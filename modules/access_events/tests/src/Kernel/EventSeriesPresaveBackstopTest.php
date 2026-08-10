@@ -114,35 +114,6 @@ class EventSeriesPresaveBackstopTest extends EventKernelTestBase {
     \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
   }
 
-  /**
-   * Attaches the empty site-level fields access_events_entity_presave() reads.
-   */
-  private function attachInstancePresaveFields(): void {
-    $fields = [
-      ['eventseries', 'domain_access', 'string', -1],
-      ['eventinstance', 'domain_access', 'string', -1],
-      ['eventinstance', 'post_survey_url', 'link', 1],
-      ['eventinstance', 'field_post_survey_reminder_sent', 'integer', 1],
-      ['eventinstance', 'field_post_survey_sent', 'integer', 1],
-    ];
-    foreach ($fields as [$entityType, $fieldName, $type, $cardinality]) {
-      if (!FieldStorageConfig::loadByName($entityType, $fieldName)) {
-        FieldStorageConfig::create([
-          'entity_type' => $entityType,
-          'field_name' => $fieldName,
-          'type' => $type,
-          'cardinality' => $cardinality,
-        ])->save();
-        FieldConfig::create([
-          'entity_type' => $entityType,
-          'field_name' => $fieldName,
-          'bundle' => 'default',
-          'label' => $fieldName,
-        ])->save();
-      }
-    }
-    \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
-  }
 
   /**
    * A bare save (no validate()) with future registrants is blocked.
@@ -173,7 +144,7 @@ class EventSeriesPresaveBackstopTest extends EventKernelTestBase {
     catch (\Drupal\Core\Entity\EntityStorageException $e) {
       $threw = TRUE;
       $this->assertInstanceOf(\RuntimeException::class, $e->getPrevious());
-      $this->assertStringContainsString('future registration', $e->getPrevious()->getMessage());
+      $this->assertStringContainsString('schedule cannot be rebuilt', $e->getPrevious()->getMessage());
     }
     $this->assertTrue($threw, 'Bare save() must throw when the series has future registrants and its recur config changed.');
 

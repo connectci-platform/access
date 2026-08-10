@@ -12,29 +12,26 @@ use Drupal\user\Entity\Role;
 /**
  * Covers DELETE /api/2.3/event-occurrences/{eventinstance} — cancel occurrence.
  *
- * cancel_occurrence soft-cancels a SINGLE event instance by archiving it: the
- * targeted instance transitions to moderation_state = archived while its
- * sibling instances and the parent series are left untouched. It is the
- * instance-level equivalent of delete_event's archive branch, and is gated
- * identically:
- *  - the coordinator/entity-access helper (userMayManageSeries('delete') on the
- *    instance's PARENT series — instance authz resolves via the series' affinity
- *    group);
- *  - a preview/confirm step (nothing is written without confirmed=TRUE);
- *  - registrants are kept and notified on cancel (no force gate — cancelling
- *    an occurrence with registrants is the normal path, not a destructive one);
- *  - the `archive` moderation transition permission on the
- *    editorial_eventinstance workflow (published → archived), which per the live
- *    config only news_pm/administrator hold — so an author or
- *    affinity_group_leader who may "manage" the instance is still refused the
- *    archive.
+ * cancel_occurrence is tri-state (plus a catch-all), keyed on the instance's
+ * CURRENT moderation_state:
+ *  - published → archive it. The save alone does the orchestration: the
+ *    cancellation-email reaction (EventStateReactions, wired to the moderation-state-change hooks) sets
+ *    individually_cancelled and enqueues the cancellation email — this
+ *    controller does not separately notify, so a cancel produces exactly ONE
+ *    notification, not two.
+ *  - archived → idempotent: sets individually_cancelled TRUE (if not already)
+ *    and reports the instance is now excluded from a future series restore.
+ *  - draft, unregistered → refuses invalid_state ("delete it instead").
+ *  - draft, registered → refuses invalid_state ("needs manual review").
+ *  - any other state (needs_adjustment, ready_for_review, …) → refuses
+ *    invalid_state (catch-all).
  *
- * The transition gate is the correction over the original brief, which showed a
- * bare set('moderation_state','archived')->save() with no transition-permission
- * check and no wrong-state guard: that would let ANY user passing the
- * coordinator check archive an instance (bypassing content_moderation
- * validation), making cancel MORE permissive than delete — an authz
- * inconsistency — and would 500 on a non-published instance.
+ * Instance authz resolves via the instance's PARENT series' affinity-group
+ * coordinator grant (userMayManageSeries('delete')), and the published branch
+ * additionally requires the `archive` moderation transition on the
+ * editorial_eventinstance workflow — per the live config only news_pm/
+ * administrator hold it, so an author or affinity_group_leader who may
+ * "manage" the instance is still refused the archive.
  */
 class EventCrudCancelOccurrenceTest extends EventKernelTestBase {
 
@@ -168,6 +165,7 @@ class EventCrudCancelOccurrenceTest extends EventKernelTestBase {
 
     $storage = \Drupal::entityTypeManager()->getStorage('eventinstance');
     $this->assertSame('archived', $storage->loadUnchanged($target->id())->get('moderation_state')->value);
+    $this->assertSame('1', (string) $storage->loadUnchanged($target->id())->get('individually_cancelled')->value);
     // Sibling untouched.
     $this->assertSame('published', $storage->loadUnchanged($sibling->id())->get('moderation_state')->value);
     // Parent series untouched.
@@ -205,9 +203,14 @@ class EventCrudCancelOccurrenceTest extends EventKernelTestBase {
 
   /**
    * With registrants attached, cancel proceeds (no force gate), keeps the
-   * registration, archives the instance, and notifies.
+   * registration, archives the instance, and notifies EXACTLY ONCE.
+   *
+   * Before this task, cancelOccurrence called CancellationNotifier::
+   * notifyInstanceCancelled() directly AND the cancellation-email reaction fired off the
+   * same save — a double-enqueue bug. That direct call is gone; the envelope
+   * now comes solely from draining the collector the cancellation-email reaction populated.
    */
-  public function testCancelOccurrenceWithRegistrantsProceedsAndNotifies(): void {
+  public function testCancelOccurrenceWithRegistrantsProceedsAndNotifiesOnce(): void {
     // Enable the notification key so the notifier enqueues.
     \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
       ->set('email_notifications', TRUE)
@@ -220,11 +223,18 @@ class EventCrudCancelOccurrenceTest extends EventKernelTestBase {
     $target = $this->orderedInstances($series)[0];
     $this->registerUser($this->createUser(), $target);
 
+    $queue = \Drupal::service('queue')->get('recurring_events_registration_email_notifications_queue_worker');
+    $before = $queue->numberOfItems();
+
     // No force. confirmed only.
     $response = $this->doOccurrence('cancel', (int) $target->id(), $coordinator, ['confirmed' => TRUE]);
     $this->assertSame(200, $response->getStatusCode());
     $data = json_decode($response->getContent(), TRUE);
-    $this->assertGreaterThan(0, $data['notified']);
+    $this->assertSame(1, $data['notified'], 'Exactly one notification — the double-enqueue bug is gone.');
+
+    $after = $queue->numberOfItems();
+    $this->assertSame($before + 1, $after, 'Exactly one queue item, not two.');
+
     // Registration kept.
     $this->assertGreaterThan(0, \Drupal::service('access_events.registrant_counter')->countForInstance((int) $target->id()));
     // Instance archived.
@@ -311,11 +321,10 @@ class EventCrudCancelOccurrenceTest extends EventKernelTestBase {
   /**
    * Cancelling an already-archived occurrence is idempotent — no 500.
    *
-   * The first cancel archives the instance. A second cancel finds archived →
-   * archived is not a legal transition, so validating it must NOT throw an
-   * uncaught \InvalidArgumentException (HTTP 500). The already-archived instance
-   * is effectively already cancelled, so the re-cancel returns a clean success
-   * no-op with the instance still archived.
+   * The archived branch does not route through a moderation transition at
+   * all (archived→archived is not a defined transition); it directly (re)sets
+   * individually_cancelled and saves. The response notes the instance's
+   * exclusion from a future series restore.
    */
   public function testCancelAlreadyArchivedOccurrenceIsIdempotentNo500(): void {
     $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
@@ -329,30 +338,93 @@ class EventCrudCancelOccurrenceTest extends EventKernelTestBase {
 
     $second = $this->doOccurrence('cancel', (int) $target->id(), $coordinator, ['confirmed' => TRUE]);
     $this->assertSame(200, $second->getStatusCode());
-    $this->assertTrue(json_decode($second->getContent(), TRUE)['success']);
+    $secondData = json_decode($second->getContent(), TRUE);
+    $this->assertTrue($secondData['success']);
+    $this->assertArrayHasKey('note', $secondData);
     $this->assertSame('archived', $storage->loadUnchanged($target->id())->get('moderation_state')->value);
+    $this->assertSame('1', (string) $storage->loadUnchanged($target->id())->get('individually_cancelled')->value);
   }
 
   /**
-   * Cancelling a non-published occurrence refuses invalid_state — no 500.
+   * Cancelling an unpublished DRAFT occurrence with no registrations refuses
+   * invalid_state, pointing the caller at delete instead.
    *
-   * Only a published occurrence can be cancelled: there is no legal archive
-   * transition from needs_adjustment on editorial_eventinstance, so the
-   * wrong-state guard must refuse invalid_state (409) rather than let
-   * isTransitionValid throw an uncaught \InvalidArgumentException (HTTP 500).
-   * needs_adjustment (not draft) is used because it is a DEFAULT-revision state:
-   * draft is a forward revision on this workflow, so it never becomes the
-   * instance's current state on its own — needs_adjustment is the genuine
-   * "published once, now unpublished" case the guard must handle cleanly.
+   * needs_adjustment can no longer be manufactured as a DEFAULT revision by a
+   * bare save on this workflow (the flip makes it a pending revision), so the
+   * draft branch is exercised via a genuinely draft-state instance instead —
+   * one that never went through a publish/archive cycle.
    */
-  public function testCancelDraftOccurrenceRefusesInvalidStateNo500(): void {
+  public function testCancelUnregisteredDraftOccurrenceRefusesInvalidState(): void {
+    $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $series = $this->makeCoordinatorSeries($coordinator);
+    $target = $this->orderedInstances($series)[0];
+    $this->assertSame('draft', $target->get('moderation_state')->value);
+
+    $response = $this->doOccurrence('cancel', (int) $target->id(), $coordinator, ['confirmed' => TRUE]);
+    $this->assertSame(409, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertSame('invalid_state', $data['error']);
+    $this->assertSame('This occurrence is an unpublished draft; delete it instead.', $data['message']);
+    $this->assertSame(
+      'draft',
+      \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($target->id())->get('moderation_state')->value,
+    );
+  }
+
+  /**
+   * Cancelling an unpublished DRAFT occurrence WITH registrations refuses
+   * invalid_state with the manual-review message, distinct from the
+   * unregistered-draft message.
+   *
+   * registerUserOnDraftInstance() models a real "was published, someone
+   * registered, then the occurrence got pulled back to draft" sequence — the
+   * registrant-presave publish gate only refuses a NEW registrant save
+   * against a non-published instance, it does not reach back and invalidate
+   * registrants who already exist.
+   */
+  public function testCancelRegisteredDraftOccurrenceRefusesInvalidStateNeedsReview(): void {
+    $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $series = $this->makeCoordinatorSeries($coordinator);
+    $target = $this->orderedInstances($series)[0];
+    $this->assertSame('draft', $target->get('moderation_state')->value);
+    $this->registerUserOnDraftInstance($this->createUser(), $target);
+    $this->assertSame('draft', $this->reloadInstance($target)->get('moderation_state')->value);
+
+    $response = $this->doOccurrence('cancel', (int) $target->id(), $coordinator, ['confirmed' => TRUE]);
+    $this->assertSame(409, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertSame('invalid_state', $data['error']);
+    $this->assertSame('This occurrence is an unpublished draft with registrations; it needs manual review.', $data['message']);
+    $this->assertSame(
+      'draft',
+      \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($target->id())->get('moderation_state')->value,
+    );
+  }
+
+  /**
+   * Cancelling an occurrence in any OTHER state (needs_adjustment) refuses
+   * invalid_state via the catch-all branch — no 500.
+   *
+   * needs_adjustment is default_revision: FALSE on editorial_eventinstance in
+   * this kernel env — an ORDINARY
+   * bare save moving published → needs_adjustment creates a non-default
+   * PENDING revision and leaves the current default revision at published
+   * (see content_moderation's EntityOperations::entityPresave() /
+   * ModerationHandler::onPresave()), so it can never become the CURRENT
+   * state that way. setSyncing(TRUE) bypasses content_moderation's own
+   * default-revision computation entirely (onPresave() no-ops when syncing),
+   * letting this plain save land the needs_adjustment state as the default
+   * revision directly — mirrors InstanceReactionsTest's same technique for
+   * forcing a state.
+   */
+  public function testCancelNeedsAdjustmentOccurrenceRefusesInvalidStateCatchAll(): void {
     $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
     $series = $this->makePublishedCoordinatorSeriesWithTwoInstances($coordinator);
     $target = $this->orderedInstances($series)[0];
-    // Move this instance to needs_adjustment (request_adjustment: published →
-    // needs_adjustment), a default-revision state, so it becomes the current
-    // state while a published revision stays in history.
+    $target->setSyncing(TRUE);
     $target->set('moderation_state', 'needs_adjustment')->save();
+    $target = \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($target->id());
+    $this->assertSame('needs_adjustment', $target->get('moderation_state')->value, 'Fixture setup: the instance must genuinely be at needs_adjustment as its default revision.');
 
     $response = $this->doOccurrence('cancel', (int) $target->id(), $coordinator, ['confirmed' => TRUE]);
     $this->assertSame(409, $response->getStatusCode());
@@ -361,6 +433,47 @@ class EventCrudCancelOccurrenceTest extends EventKernelTestBase {
       'needs_adjustment',
       \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($target->id())->get('moderation_state')->value,
     );
+  }
+
+  /**
+   * A series-wide cancel (delete_event's archive sweep) writes
+   * individually_cancelled = FALSE on the swept instances (StateChangeCollector
+   * ::isSweeping() suppresses the cancellation-email reaction's flag write during a sweep), so a later
+   * series restore brings them all back. Cancelling ONE of those instances
+   * individually via cancel_occurrence afterward writes the flag TRUE on it
+   * specifically — and a subsequent series restore skips exactly that one.
+   */
+  public function testCancelWhileSeriesCancelledWritesFlagAndRestoreSkipsIt(): void {
+    $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $series = $this->makePublishedCoordinatorSeriesWithTwoInstances($coordinator);
+    $instances = $this->orderedInstances($series);
+    $target = $instances[0];
+    $sibling = $instances[1];
+
+    // Series-wide cancel: sweepCancel() archives both instances WITHOUT
+    // setting individually_cancelled (isSweeping() suppresses the cancellation-email reaction's flag
+    // write for the duration of the sweep).
+    $this->doCrud('delete', (int) $series->id(), $coordinator, [], ['confirmed' => TRUE]);
+    $storage = \Drupal::entityTypeManager()->getStorage('eventinstance');
+    $this->assertSame('archived', $storage->loadUnchanged($target->id())->get('moderation_state')->value);
+    $this->assertSame('archived', $storage->loadUnchanged($sibling->id())->get('moderation_state')->value);
+    $this->assertSame('0', (string) $storage->loadUnchanged($target->id())->get('individually_cancelled')->value);
+    $this->assertSame('0', (string) $storage->loadUnchanged($sibling->id())->get('individually_cancelled')->value);
+
+    // Now individually cancel the target while it is ALREADY archived (the
+    // archived branch of cancelOccurrence): the flag goes TRUE specifically
+    // on this instance.
+    $cancelResponse = $this->doOccurrence('cancel', (int) $target->id(), $coordinator, ['confirmed' => TRUE]);
+    $this->assertSame(200, $cancelResponse->getStatusCode());
+    $this->assertSame('1', (string) $storage->loadUnchanged($target->id())->get('individually_cancelled')->value);
+    $this->assertSame('0', (string) $storage->loadUnchanged($sibling->id())->get('individually_cancelled')->value);
+
+    // Series restore: sweepRestore() republishes every archived, UNFLAGGED
+    // instance — the sibling comes back, the individually-cancelled target
+    // does not.
+    $this->doCrud('restore', (int) $series->id(), $coordinator, []);
+    $this->assertSame('published', $storage->loadUnchanged($sibling->id())->get('moderation_state')->value);
+    $this->assertSame('archived', $storage->loadUnchanged($target->id())->get('moderation_state')->value, 'The individually-cancelled instance must stay archived through a series restore.');
   }
 
 }

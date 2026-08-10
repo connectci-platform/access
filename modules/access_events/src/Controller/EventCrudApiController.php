@@ -3,17 +3,16 @@
 namespace Drupal\access_events\Controller;
 
 use Drupal\access_affinitygroup\Access\CoordinatorAccess;
-use Drupal\access_events\CancellationNotifier;
 use Drupal\access_events\EventAccessHelper;
+use Drupal\access_events\EventDeleteGuard;
 use Drupal\access_events\RegistrantCounter;
+use Drupal\access_events\StateChangeCollector;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\content_moderation\ModerationInformationInterface;
 use Drupal\content_moderation\StateTransitionValidationInterface;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Entity\ContentEntityInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
-use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
-use Drupal\Core\KeyValueStore\KeyValueStoreInterface;
 use Drupal\node\NodeInterface;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events\Entity\EventSeries;
@@ -90,32 +89,33 @@ class EventCrudApiController extends ControllerBase {
   protected ModerationInformationInterface $moderationInformation;
 
   /**
-   * The cancellation notifier.
+   * The per-request outcome collector state reactions record into.
    *
-   * @var \Drupal\access_events\CancellationNotifier
+   * Reactions running off the series/instance save (access_events.state_
+   * reactions, wired to the moderation-state-change hooks) record what
+   * happened — instances archived/published, notifications sent — keyed by
+   * entity type and id. The controller drains it once after the save to
+   * build the response envelope; it never orchestrates the side effects
+   * itself.
+   *
+   * @var \Drupal\access_events\StateChangeCollector
    */
-  protected CancellationNotifier $cancellationNotifier;
-
-  /**
-   * The series-cancel keyvalue store — series id => int[] of instance ids
-   * archived by that series-level cancel.
-   *
-   * This is the machine authority a later restore reads to know which
-   * instances IT is responsible for republishing, as distinct from an
-   * instance a coordinator cancelled on its own beforehand (which must stay
-   * cancelled through a series cancel/restore cycle).
-   *
-   * @var \Drupal\Core\KeyValueStore\KeyValueStoreInterface
-   */
-  protected KeyValueStoreInterface $seriesCancelStore;
+  protected StateChangeCollector $stateChangeCollector;
 
   /**
    * The time service — for gating editOccurrence's confirm on the
-   * prospective new date the same way contrib's notification hook does.
+   * prospective new date, ahead of the actual save that decides notification.
    *
    * @var \Drupal\Component\Datetime\TimeInterface
    */
   protected TimeInterface $time;
+
+  /**
+   * The single place the has-registrations delete rule is decided.
+   *
+   * @var \Drupal\access_events\EventDeleteGuard
+   */
+  protected EventDeleteGuard $deleteGuard;
 
   /**
    * Constructs the controller.
@@ -127,9 +127,9 @@ class EventCrudApiController extends ControllerBase {
     EntityTypeManagerInterface $entity_type_manager,
     StateTransitionValidationInterface $transition_validation,
     ModerationInformationInterface $moderation_information,
-    CancellationNotifier $cancellation_notifier,
-    KeyValueFactoryInterface $key_value_factory,
+    StateChangeCollector $state_change_collector,
     TimeInterface $time,
+    EventDeleteGuard $delete_guard,
   ) {
     $this->accessHelper = $access_helper;
     $this->coordinatorAccess = $coordinator_access;
@@ -137,9 +137,9 @@ class EventCrudApiController extends ControllerBase {
     $this->entityTypeManager = $entity_type_manager;
     $this->transitionValidation = $transition_validation;
     $this->moderationInformation = $moderation_information;
-    $this->cancellationNotifier = $cancellation_notifier;
-    $this->seriesCancelStore = $key_value_factory->get('access_events.series_cancel');
+    $this->stateChangeCollector = $state_change_collector;
     $this->time = $time;
+    $this->deleteGuard = $delete_guard;
   }
 
   /**
@@ -153,9 +153,9 @@ class EventCrudApiController extends ControllerBase {
       $container->get('entity_type.manager'),
       $container->get('content_moderation.state_transition_validation'),
       $container->get('content_moderation.moderation_information'),
-      $container->get('access_events.cancellation_notifier'),
-      $container->get('keyvalue'),
+      $container->get('access_events.state_change_collector'),
       $container->get('datetime.time'),
+      $container->get('access_events.event_delete_guard'),
     );
   }
 
@@ -245,8 +245,10 @@ class EventCrudApiController extends ControllerBase {
    *
    * CONTENT-ONLY: writes only the whitelisted content fields (body,
    * field_summary, …) plus title. It never writes moderation_state (a
-   * transition op, gated separately) and never touches recurrence config (that
-   * is the destructive update_recurrence path). Any caller-supplied
+   * transition op, gated separately) and never touches recurrence config —
+   * the API's schedule surface is per-occurrence only (edit_occurrence,
+   * add_occurrence, cancel_occurrence); an unregistered pattern-wide date
+   * change goes through the browser form instead. Any caller-supplied
    * moderation_state is ignored. This matters for authorization: a coordinator
    * authorized via the affinity-group grant may lack a moderation transition, so
    * a content-only save (which never invokes transition validation) succeeds for
@@ -315,13 +317,21 @@ class EventCrudApiController extends ControllerBase {
    * instances are notified after the archive succeeds (send-only; see
    * CancellationNotifier).
    *
+   * A never-published draft carrying ANY registrations (past or future —
+   * attendance history is protected data) is REFUSED, not hard-deleted: see
+   * EventDeleteGuard, the single place that rule is decided. The predelete
+   * hook throw remains the backstop; this branch refuses BEFORE attempting
+   * the delete so the caller gets a clean 409 instead of an unhandled
+   * EntityStorageException.
+   *
    * Gates run in a fixed order so no partial write happens on a refusal:
    *  1. acting-uid guard;
    *  2. resolveSeries (404 if not found);
    *  3. userMayManageSeries('delete') entity-access gate;
    *  4. compute everPublished + future registrant count;
    *  5. preview unless confirmed (writes nothing);
-   *  6. never-published draft → hard delete;
+   *  6. never-published draft → refuse if it has ANY registrations, else
+   *     hard delete;
    *  7. else → the `archive` transition-permission gate, THEN archive + notify.
    *
    * @param int|\Drupal\recurring_events\Entity\EventSeries $eventseries
@@ -348,38 +358,59 @@ class EventCrudApiController extends ControllerBase {
     }
 
     $confirmed = filter_var($request->query->get('confirmed'), FILTER_VALIDATE_BOOLEAN);
+    // FUTURE-scoped: this is who gets notified on the archive path below, and
+    // (on the never-published branch) who would have been silently destroyed
+    // under the old hard-delete-always behavior. It is NOT the same
+    // population EventDeleteGuard blocks on — see $blockedReason immediately
+    // below — so a draft with ONLY past registrants reports
+    // registrants_affected: 0 here while still being refused. That divergence
+    // is intentional (the two numbers answer different questions: "who would
+    // be notified/lost" vs. "does ANY registration, past or future, exist at
+    // all"), not a bug — the refusal response always also carries the guard's
+    // own ALL-TIME count (registrations_total) so a caller never has to
+    // reconcile the two itself.
     $registrants = $this->registrantCounter->countFutureForSeries((int) $series->id());
     $everPublished = $this->wasEverPublished($series);
 
+    // A never-published draft with ANY registrations (past or future) can
+    // never be hard-deleted — see EventDeleteGuard. Compute this once here so
+    // both the preview and the confirmed branch below agree on it.
+    $blockedReason = !$everPublished
+      ? $this->deleteGuard->deletionBlockedReason($series)
+      : NULL;
+    $registrationsTotal = !$everPublished
+      ? $this->registrantCounter->countForSeries((int) $series->id())
+      : NULL;
+
     // Preview (no confirmed): describe what would happen, write nothing. The
-    // never-published branch hard-deletes the series (cascading its
-    // instances' registrant rows via the recurring_events predelete hook),
-    // and the instance-deletion notification key is disabled — so those
-    // registrants are never told. Say so plainly here, before the coordinator
-    // confirms; the archive path keeps registrations, so it carries no such
-    // warning.
+    // archive path keeps registrations, so it carries no refusal.
     if (!$confirmed) {
       $preview = [
         'status' => 'preview',
         'executed' => FALSE,
         'series_id' => (int) $series->id(),
         'would_archive' => $everPublished,
-        'would_hard_delete' => !$everPublished,
+        'would_hard_delete' => !$everPublished && $blockedReason === NULL,
         'registrants_affected' => $registrants,
       ];
-      if (!$everPublished && $registrants > 0) {
-        $preview['warning'] = sprintf(
-          'This draft has %d registration(s) that will be PERMANENTLY REMOVED. Registrants will NOT be notified.',
-          $registrants,
-        );
+      if ($blockedReason !== NULL) {
+        $preview['refusal'] = $blockedReason;
+        // The guard's own ALL-TIME count — see the $registrants docblock note
+        // above for why this can differ from registrants_affected.
+        $preview['registrations_total'] = $registrationsTotal;
       }
       return $this->success($preview);
     }
 
+    if ($blockedReason !== NULL) {
+      return $this->refuse('registrations_exist', $blockedReason, 409);
+    }
+
     if (!$everPublished) {
-      // Never-published draft: hard delete. The recurring_events predelete hook
-      // cascades the instance deletes. There is no legal archive transition
-      // FROM draft, so there is nothing for state_transition_validation to check.
+      // Never-published draft with no registrations: hard delete. The
+      // recurring_events predelete hook cascades the (registrant-free)
+      // instance deletes. There is no legal archive transition FROM draft, so
+      // there is nothing for state_transition_validation to check.
       $series->delete();
       return $this->success([
         'success' => TRUE,
@@ -398,8 +429,8 @@ class EventCrudApiController extends ControllerBase {
     // non-throwing hasTransitionFromStateToState() avoids the
     // \InvalidArgumentException that isTransitionValid() → getTransitionFrom-
     // StateToState() throws (→ HTTP 500) when the transition is absent. This
-    // mirrors archiveSeriesWithInstances(), which likewise acts only on the
-    // published → archived transition and skips non-published instances.
+    // mirrors the state-reaction sweep (EventStateReactions::sweepCancel()),
+    // which likewise acts only on published, not-verifiably-past instances.
     $workflow = $this->moderationInformation->getWorkflowForEntity($series);
     $fromState = $this->moderationInformation->getOriginalState($series);
     if (!$workflow->getTypePlugin()->hasTransitionFromStateToState($fromState->id(), 'archived')) {
@@ -435,45 +466,23 @@ class EventCrudApiController extends ControllerBase {
       return $this->refuse('forbidden', 'You may not archive this event.', 403);
     }
 
-    // Write-ahead: record the candidate set (currently-published instances)
-    // BEFORE archiving, so a restore reads a value even if the process dies
-    // mid-archive. The series save is archiveSeriesWithInstances()'s LAST
-    // operation — if the process dies before it, the series is still
-    // 'published' (or whatever it was), so restore()'s archived-state guard
-    // refuses invalid_state rather than reading this memory at all; a
-    // retried delete overwrites the entry cleanly. Writing AFTER the archive
-    // instead would leave a crash window where the archive completes (series
-    // saved) but the memory write never happens — restore would then find no
-    // entry and fall back to "republish everything", wrongly reviving any
-    // instance an earlier cancelOccurrence had individually archived. An
-    // over-broad memory written here is safe either way: restore intersects
-    // it with whatever is CURRENTLY archived.
-    $candidateIds = [];
-    foreach ($series->get('event_instances')->referencedEntities() as $instance) {
-      if ($instance->get('moderation_state')->value === 'published') {
-        $candidateIds[] = (int) $instance->id();
-      }
-    }
-    $this->seriesCancelStore->set((int) $series->id(), $candidateIds);
+    // The save itself does all the orchestration: access_events.state_
+    // reactions (wired to eventseries_update) sweeps every published,
+    // not-verifiably-past instance to archived, enqueues their registrants'
+    // cancellation notices via CancellationNotifier::enqueueGated, and
+    // records the outcomes on the collector under this series' key. The
+    // controller does not orchestrate — it only gates, writes the state, and
+    // reads back what happened.
+    $series->set('moderation_state', 'archived')->save();
+    $payload = $this->stateChangeCollector->drain('eventseries', (int) $series->id());
 
-    $archivedIds = $this->archiveSeriesWithInstances($series);
-    // Reconcile: overwrite with the actually-archived set, in case a skip
-    // (e.g. a transition-permission divergence) narrowed it from the
-    // candidate set computed above.
-    $this->seriesCancelStore->set((int) $series->id(), $archivedIds);
-
-    // Keep registrations; notify only the instances just archived — NOT every
-    // future instance of the series. An instance already cancelled via
-    // cancelOccurrence was notified then; renotifying here would double-send.
-    // An instance left in draft/needs_adjustment was never archived at all;
-    // notifying it would falsely tell its registrants the event was cancelled.
-    $notified = $this->cancellationNotifier->notifyInstances($archivedIds, CancellationNotifier::KEY);
     return $this->success([
       'success' => TRUE,
       'series_id' => (int) $series->id(),
-      'instances_archived' => count($archivedIds),
+      'instances_archived' => $payload['instances_archived'] ?? 0,
       'registrants_affected' => $registrants,
-      'notified' => $notified,
+      'notified' => $payload['notified'] ?? 0,
+      'notifications_disabled' => $payload['notifications_disabled'] ?? FALSE,
       'hard_deleted' => FALSE,
     ]);
   }
@@ -499,10 +508,11 @@ class EventCrudApiController extends ControllerBase {
    *     throw \InvalidArgumentException (HTTP 500) on a missing transition;
    *  5. the `archived_published` transition-permission gate, THEN restore.
    *
-   * On success, notifies the just-republished instances' registrants that the
-   * event is back on (CancellationNotifier::notifyInstances, keyed under
-   * REINSTATE_KEY, send-only) and reports the count as `notified` in the
-   * envelope.
+   * On success, the series save's state-reaction sweep (EventStateReactions::
+   * sweepRestore()) notifies the just-republished instances' registrants that
+   * the event is back on (CancellationNotifier::enqueueGated, keyed under
+   * REINSTATE_KEY, send-only); this controller reports the drained count as
+   * `notified` in the envelope.
    *
    * @param int|\Drupal\recurring_events\Entity\EventSeries $eventseries
    *   The resolved series (route converter) or a raw series/instance id.
@@ -572,32 +582,22 @@ class EventCrudApiController extends ControllerBase {
       return $this->refuse('forbidden', 'You may not restore this event.', 403);
     }
 
-    // The series-cancel memory (written by delete()'s archive path) is the
-    // machine authority for which instances THIS series' cancel archived, as
-    // opposed to one a coordinator cancelled individually beforehand. NULL
-    // means no entry — either this series predates the feature or the
-    // memory was already consumed by an earlier restore — and
-    // restoreSeriesWithInstances() falls back to republishing every archived
-    // instance, today's behavior. An empty array is NOT the same as NULL: it
-    // means every instance was already individually cancelled when the
-    // series was archived, so the series itself republishes but zero
-    // instances do.
-    $remembered = $this->seriesCancelStore->get((int) $series->id(), NULL);
-    $restoredIds = $this->restoreSeriesWithInstances($series, $remembered);
-    // The memory is single-use: once consumed by a restore, delete it so a
-    // later re-archive/re-restore cycle starts clean rather than reading a
-    // stale set.
-    $this->seriesCancelStore->delete((int) $series->id());
-    // Notify only the instances just republished — NOT every future instance
-    // of the series — for the same reason delete() scopes to archivedIds: an
-    // instance that was never archived should not get a "this event is back
-    // on" notice for an event it was never told was cancelled.
-    $notified = $this->cancellationNotifier->notifyInstances($restoredIds, CancellationNotifier::REINSTATE_KEY);
+    // The save itself does all the orchestration: access_events.state_
+    // reactions sweeps every archived, unflagged (not individually
+    // cancelled), not-verifiably-past instance to published, enqueues their
+    // registrants' reinstatement notices via CancellationNotifier::
+    // enqueueGated, and records the outcomes on the collector under this
+    // series' key. The controller does not orchestrate — it only gates,
+    // writes the state, and reads back what happened.
+    $series->set('moderation_state', 'published')->save();
+    $payload = $this->stateChangeCollector->drain('eventseries', (int) $series->id());
+
     return $this->success([
       'success' => TRUE,
       'series_id' => (int) $series->id(),
-      'instances_restored' => count($restoredIds),
-      'notified' => $notified,
+      'instances_restored' => $payload['instances_published'] ?? 0,
+      'notified' => $payload['notified'] ?? 0,
+      'notifications_disabled' => $payload['notifications_disabled'] ?? FALSE,
     ]);
   }
 
@@ -684,25 +684,46 @@ class EventCrudApiController extends ControllerBase {
   /**
    * DELETE /api/2.3/event-occurrences/{eventinstance} — cancel one occurrence.
    *
-   * Soft-cancels a SINGLE event instance by ARCHIVING it: the targeted instance
-   * transitions to moderation_state = archived while its sibling instances and
-   * the parent series are left untouched. This is the instance-level equivalent
-   * of delete()'s archive branch, so it is gated IDENTICALLY — scoped to the one
-   * instance. A bare set('moderation_state','archived')->save() would bypass
-   * content_moderation validation and let any user passing the coordinator check
-   * archive an instance regardless of whether they hold the `archive`
-   * transition, making cancel MORE permissive than delete; the transition gate
-   * below closes that hole.
+   * Tri-state, plus a catch-all refusal, keyed on the instance's CURRENT
+   * moderation_state:
+   *  - published → archive it. The save alone does the orchestration: the
+   *    cancellation-email reaction (EventStateReactions::instancePresave()/
+   *    instanceUpdate(), wired to the moderation-state-change hooks) sets
+   *    individually_cancelled and enqueues
+   *    the cancellation email; this controller does not orchestrate — it only
+   *    gates, writes the state, and drains the collector for the response
+   *    envelope. This is the instance-level equivalent of delete()'s archive
+   *    branch, gated IDENTICALLY (scoped to the one instance): a bare
+   *    set('moderation_state','archived')->save() would bypass content_
+   *    moderation validation and let any user passing the coordinator check
+   *    archive an instance regardless of whether they hold the `archive`
+   *    transition, making cancel MORE permissive than delete — the transition
+   *    gate below closes that hole.
+   *  - archived → idempotent: set individually_cancelled TRUE (if not already)
+   *    and save. This is the ONLY branch that ever sets the flag on an
+   *    already-archived instance directly (the cancellation-email reaction
+   *    only fires on a published→non-published transition, which an
+   *    archived→archived re-save is not);
+   *    it exists so an instance that arrived at archived via a SERIES-WIDE
+   *    sweep (never individually flagged) can still be marked "don't bring
+   *    this one back" without a live transition to ride. The response notes
+   *    the instance is now excluded from a future series restore.
+   *  - draft, unregistered → refuse invalid_state: delete it instead (there is
+   *    nothing published to soft-cancel, and no registration to protect).
+   *  - draft, registered (countForInstance() > 0) → refuse invalid_state: a
+   *    draft occurrence should never carry a registrant in the normal flow, so
+   *    this is flagged for manual review rather than silently archived or
+   *    silently deleted.
+   *  - any other state (needs_adjustment, ready_for_review, …) → refuse
+   *    invalid_state (catch-all).
    *
    * Instance-level authorization resolves via the instance's PARENT series: the
    * series carries the affinity group whose coordinators may manage its
    * occurrences, and userMayManageSeries() operates on a series. 'delete' is the
-   * op — cancelling an occurrence is delete-shaped (it archives).
+   * op — cancelling an occurrence is delete-shaped.
    *
    * The registration on this instance is always KEPT on cancel — there is no
-   * force-to-destroy gate on this path. Existing registrants are notified
-   * after the archive succeeds, if the instance has not yet ended (send-only;
-   * see CancellationNotifier).
+   * force-to-destroy gate on this path.
    *
    * Gates run in a fixed order so no partial write happens on a refusal:
    *  1. acting-uid guard;
@@ -710,12 +731,14 @@ class EventCrudApiController extends ControllerBase {
    *  3. userMayManageSeries('delete') on the parent series (entity-access gate);
    *  4. compute future registrant count;
    *  5. preview unless confirmed (writes nothing);
-   *  6. the archived-state guard (hasTransitionFromStateToState) on the
-   *     editorial_eventinstance workflow — an already-archived instance is an
-   *     idempotent no-op; a non-published one refuses invalid_state — BEFORE
-   *     isTransitionValid, which would otherwise throw \InvalidArgumentException
-   *     (HTTP 500) on a missing transition;
-   *  7. the `archive` transition-permission gate, THEN archive + notify.
+   *  6. branch on the instance's CURRENT state (published/archived/draft/other);
+   *  7. published branch only: the `archive` transition-permission gate, THEN
+   *     archive (the cancellation-email reaction does the rest). The
+   *     archived/draft/other branches do not
+   *     hold a live content_moderation transition to validate — archived→
+   *     archived and draft→draft are self-transitions the workflow does not
+   *     define, so those branches write the flag/refuse directly rather than
+   *     calling isTransitionValid() on a transition that does not exist.
    *
    * @param int|\Drupal\recurring_events\Entity\EventInstance $eventinstance
    *   In production the route converter supplies the resolved EventInstance; the
@@ -760,53 +783,207 @@ class EventCrudApiController extends ControllerBase {
       ]);
     }
 
-    // The instance uses the editorial_eventinstance workflow, whose only path to
-    // `archived` is the `archive` transition from `published`. Guard on the
-    // transition EXISTING from the current state before validating it: the
-    // non-throwing hasTransitionFromStateToState() avoids the
-    // \InvalidArgumentException that isTransitionValid() →
-    // getTransitionFromStateToState() throws (→ HTTP 500) when the transition is
-    // absent, AND avoids wrongly archiving a non-published instance. Mirrors
-    // delete()'s archive guard, scoped to one instance.
-    $workflow = $this->moderationInformation->getWorkflowForEntity($eventinstance);
-    $fromState = $this->moderationInformation->getOriginalState($eventinstance);
-    if (!$workflow->getTypePlugin()->hasTransitionFromStateToState($fromState->id(), 'archived')) {
-      // Already archived: effectively already cancelled — an idempotent no-op
-      // success reflecting reality, not a 500 or a confusing error.
-      if ($fromState->id() === 'archived') {
-        return $this->success([
-          'success' => TRUE,
-          'eventinstance_id' => (int) $eventinstance->id(),
-          'registrants_affected' => $registrants,
-          'notified' => 0,
-        ]);
+    $currentState = $eventinstance->get('moderation_state')->value;
+
+    if ($currentState === 'published') {
+      // The instance uses the editorial_eventinstance workflow, whose only path
+      // to `archived` is the `archive` transition from `published`. Entity
+      // access (above) does not check moderation-transition permissions —
+      // those are separate `use editorial_eventinstance transition <name>`
+      // grants. Verify the acting user actually holds `archive` before
+      // touching anything; never hardcode a role/permission string.
+      // isTransitionValid takes StateInterface OBJECTS, not string ids. Per
+      // the real config only news_pm/administrator hold `archive` on
+      // editorial_eventinstance, so this refuses the common case (author,
+      // AG-leader) — the SAME operation and roster delete gates.
+      $workflow = $this->moderationInformation->getWorkflowForEntity($eventinstance);
+      $fromState = $this->moderationInformation->getOriginalState($eventinstance);
+      $toState = $workflow->getTypePlugin()->getState('archived');
+      if (!$this->transitionValidation->isTransitionValid($workflow, $fromState, $toState, $this->currentUser(), $eventinstance)) {
+        return $this->refuse('forbidden', 'You may not cancel this occurrence.', 403);
       }
-      // Draft / any other non-published state: there is no legal archive
-      // transition from here — only a published occurrence can be cancelled.
-      return $this->refuse('invalid_state', 'This occurrence is not published; only a published occurrence can be cancelled.', 409);
+
+      // The save itself does all the orchestration: the cancellation-email
+      // reaction (EventStateReactions::instancePresave()/instanceUpdate())
+      // sets individually_cancelled and enqueues the cancellation email; the
+      // controller only drains what happened. The reaction records the SAME
+      // outcome under both the instance's own key and its parent series' key
+      // (see reactToInstanceCancelled()) — the
+      // series-level echo carries nothing this single-occurrence response
+      // needs, but it must still be drained (not just read and discarded) so
+      // it never lingers to pollute a later, unrelated collector read in the
+      // same request.
+      $eventinstance->set('moderation_state', 'archived')->save();
+      $payload = $this->stateChangeCollector->drain('eventinstance', (int) $eventinstance->id());
+      $this->stateChangeCollector->drain('eventseries', (int) $series->id());
+
+      return $this->success([
+        'success' => TRUE,
+        'eventinstance_id' => (int) $eventinstance->id(),
+        'registrants_affected' => $registrants,
+        'notified' => $payload['notified'] ?? 0,
+        'notifications_disabled' => $payload['notifications_disabled'] ?? FALSE,
+      ]);
+    }
+
+    if ($currentState === 'archived') {
+      // Idempotent: mark (or confirm) the instance as individually cancelled
+      // so a later series-wide restore skips it — see EventStateReactions::
+      // sweepRestore(). No live transition to validate (archived→archived is
+      // not a defined transition), so this branch writes the flag directly
+      // rather than routing through isTransitionValid().
+      $eventinstance->set('individually_cancelled', TRUE)->save();
+      return $this->success([
+        'success' => TRUE,
+        'eventinstance_id' => (int) $eventinstance->id(),
+        'registrants_affected' => $registrants,
+        'notified' => 0,
+        'note' => 'This occurrence was already cancelled; it will be excluded from a future series restore.',
+      ]);
+    }
+
+    if ($currentState === 'draft') {
+      $draftRegistrants = $this->registrantCounter->countForInstance((int) $eventinstance->id());
+      if ($draftRegistrants > 0) {
+        return $this->refuse('invalid_state', 'This occurrence is an unpublished draft with registrations; it needs manual review.', 409);
+      }
+      return $this->refuse('invalid_state', 'This occurrence is an unpublished draft; delete it instead.', 409);
+    }
+
+    // Catch-all: any other state (needs_adjustment, ready_for_review, …) has
+    // no defined cancel semantics.
+    return $this->refuse('invalid_state', sprintf('This occurrence is "%s"; only a published or archived occurrence can be cancelled.', $currentState), 409);
+  }
+
+  /**
+   * POST /api/2.3/event-occurrences/{eventinstance}/restore — un-cancel one
+   * occurrence.
+   *
+   * The inverse of cancelOccurrence(). Branches on whether the instance's
+   * PARENT series is currently published (binary isPublished(), never a
+   * string state compare — mirrors EventStateReactions::assertParentPublished()
+   * so this controller and the occurrence-publish-under-unpublished-event
+   * refusal always agree):
+   *  - archived + published parent → publish it. The save alone does the
+   *    orchestration: the reinstatement reaction
+   *    (EventStateReactions::instancePresave()/instanceUpdate()) clears
+   *    individually_cancelled and enqueues the reinstatement email; this
+   *    controller only drains what happened.
+   *  - archived + dark (non-published) parent → publishing would violate the
+   *    occurrence-publish-under-unpublished-event refusal (an occurrence
+   *    cannot be published while its event is not), so
+   *    this branch instead just CLEARS the individually_cancelled flag and
+   *    saves — the instance stays archived, but is no longer excluded from
+   *    the series' own restore sweep (EventStateReactions::sweepRestore()), so
+   *    it comes back automatically once the SERIES itself is restored. The
+   *    response signals this with returns_with_series: true.
+   *  - non-archived (published, draft, …) → refuse invalid_state: there is
+   *    nothing to restore.
+   *
+   * Gates run in a fixed order so no partial write happens on a refusal:
+   *  1. acting-uid guard;
+   *  2. resolve the instance (404 if not found);
+   *  3. userMayManageSeries('update') on the parent series (entity-access
+   *     gate) — restoring is a moderation-state change on an EXISTING
+   *     instance, not a delete, so 'update' is the op (mirrors the series-
+   *     level restore()'s own choice of 'update' over 'delete');
+   *  4. the archived-state guard — non-archived refuses invalid_state up
+   *     front;
+   *  5. branch on the parent's published/dark status;
+   *  6. published-parent branch only: the `archived_published` transition-
+   *     permission gate, THEN publish (the reinstatement reaction does the
+   *     rest). The dark-parent branch does not hold a live transition to
+   *     validate (publishing under a dark parent is exactly what the
+   *     occurrence-publish-under-unpublished-event refusal refuses), so it
+   *     clears the flag directly instead.
+   *
+   * @param int|\Drupal\recurring_events\Entity\EventInstance $eventinstance
+   *   In production the route converter supplies the resolved EventInstance; the
+   *   direct-dispatch test path supplies a raw instance id. Both are accepted.
+   * @param \Symfony\Component\HttpFoundation\Request $request
+   *   The request.
+   */
+  public function restoreOccurrence($eventinstance, Request $request): JsonResponse {
+    $uid = (int) $request->attributes->get('acting_user_uid');
+    if ($uid < 1) {
+      return $this->refuse('forbidden', 'No acting user.', 403);
+    }
+
+    // Accept a resolved entity (route converter) or a raw id (test dispatch).
+    if (!$eventinstance instanceof EventInstance) {
+      $eventinstance = $this->entityTypeManager->getStorage('eventinstance')->load($eventinstance);
+    }
+    if (!$eventinstance instanceof EventInstance) {
+      return $this->refuse('not_found', 'Event occurrence not found.', 404);
+    }
+
+    // Instance authz resolves via the parent series' affinity-group coordinator
+    // grant. userMayManageSeries('update') already calls $series->access(
+    // 'update') internally, so no separate entity-access check is needed here.
+    $series = $eventinstance->getEventSeries();
+    if (!$series || !$this->accessHelper->userMayManageSeries($series, 'update')) {
+      return $this->refuse('not_coordinator', 'You may not restore this occurrence.', 409);
+    }
+
+    $currentState = $eventinstance->get('moderation_state')->value;
+    if ($currentState !== 'archived') {
+      return $this->refuse('invalid_state', 'This occurrence is not cancelled; only a cancelled (archived) occurrence can be restored.', 409);
+    }
+
+    // Reload the parent from storage — never getEventSeries()/->entity, which
+    // can resolve a cached or in-request-modified copy rather than the
+    // series' last-saved state. Mirrors EventStateReactions::
+    // assertParentPublished()'s own loadUnchanged() + binary isPublished().
+    $parent = $this->entityTypeManager->getStorage('eventseries')->loadUnchanged($series->id());
+    $parentPublished = $parent instanceof EventSeries && $parent->isPublished();
+
+    if (!$parentPublished) {
+      // Publishing would violate the occurrence-publish-under-unpublished-
+      // event refusal while the parent is dark. Clear
+      // the flag instead so the instance rejoins the series' own restore
+      // sweep once the series itself comes back; it stays archived for now.
+      $eventinstance->set('individually_cancelled', FALSE)->save();
+      return $this->success([
+        'success' => TRUE,
+        'eventinstance_id' => (int) $eventinstance->id(),
+        'returns_with_series' => TRUE,
+        'notified' => 0,
+      ]);
     }
 
     // Entity access (above) does not check moderation-transition permissions —
-    // those are separate `use editorial_eventinstance transition <name>` grants.
-    // Verify the acting user actually holds the `archive` transition (published
-    // → archived) on the instance workflow before touching anything; never
-    // hardcode a role/permission string. isTransitionValid takes StateInterface
-    // OBJECTS, not string ids. Per the real config only news_pm/administrator
-    // hold `archive` on editorial_eventinstance, so this refuses the common case
-    // (author, AG-leader) — the SAME operation and roster delete gates.
-    $toState = $workflow->getTypePlugin()->getState('archived');
+    // those are separate `use editorial_eventinstance transition <name>`
+    // grants. Verify the acting user actually holds `archived_published`
+    // (archived → published) before touching anything; never hardcode a
+    // role/permission string. isTransitionValid takes StateInterface OBJECTS,
+    // not string ids. Per the real config only news_pm/administrator hold
+    // `archived_published` on editorial_eventinstance.
+    $workflow = $this->moderationInformation->getWorkflowForEntity($eventinstance);
+    $fromState = $this->moderationInformation->getOriginalState($eventinstance);
+    $toState = $workflow->getTypePlugin()->getState('published');
     if (!$this->transitionValidation->isTransitionValid($workflow, $fromState, $toState, $this->currentUser(), $eventinstance)) {
-      return $this->refuse('forbidden', 'You may not cancel this occurrence.', 403);
+      return $this->refuse('forbidden', 'You may not restore this occurrence.', 403);
     }
 
-    $eventinstance->set('moderation_state', 'archived')->save();
-    // Keep the registration; notify affected future registrants (send-only).
-    $notified = $this->cancellationNotifier->notifyInstanceCancelled((int) $eventinstance->id());
+    // The save itself does all the orchestration: the reinstatement reaction
+    // (EventStateReactions::instancePresave()/instanceUpdate()) clears
+    // individually_cancelled and enqueues the reinstatement email; the
+    // controller only drains what happened. The reaction records the SAME
+    // outcome under both the instance's own key and its parent series' key
+    // (see reactToInstanceReinstated()) — the
+    // series-level echo carries nothing this single-occurrence response
+    // needs, but it must still be drained (not just read and discarded) so
+    // it never lingers to pollute a later, unrelated collector read in the
+    // same request.
+    $eventinstance->set('moderation_state', 'published')->save();
+    $payload = $this->stateChangeCollector->drain('eventinstance', (int) $eventinstance->id());
+    $this->stateChangeCollector->drain('eventseries', (int) $series->id());
+
     return $this->success([
       'success' => TRUE,
       'eventinstance_id' => (int) $eventinstance->id(),
-      'registrants_affected' => $registrants,
-      'notified' => $notified,
+      'notified' => $payload['notified'] ?? 0,
+      'notifications_disabled' => $payload['notifications_disabled'] ?? FALSE,
     ]);
   }
 
@@ -819,32 +996,43 @@ class EventCrudApiController extends ControllerBase {
    * the parent series are untouched, and no registrants are lost.
    *
    * A DATE change is where this can go wrong silently: someone already
-   * registered needs to hear about a move. contrib's own
-   * recurring_events_registration_entity_update() decides whether to notify
-   * based on the NEW date, checked AFTER save
-   * ($entity->date->end_date->getTimestamp() > time()) — not the old stored
-   * date. So the confirm gate here must mirror that: it is keyed on the
-   * PROSPECTIVE new end timestamp (parsed from the request body), not
-   * countFutureForInstance() against the instance's current (pre-save) date.
-   * Gating on the old date would silently mass-notify a past→future move
-   * (the hook fires post-save against the new future date; the old-date gate
-   * saw nothing to confirm) and would falsely promise a notify on a
-   * future→past correction (the hook's post-save check sees the date is now
-   * past and never fires, but the old-date gate reported registrants as
-   * "to notify"). If the request changes `date` and the PROSPECTIVE new date
-   * is future and the instance has registrants, the edit requires
-   * confirmed=TRUE and previews first (no write), reporting
-   * registrants_to_notify. A date change to the past, a date change with no
-   * registrants, or a location-only edit all proceed without confirmation —
-   * there is either nothing to notify or no reschedule risk. On a confirmed
-   * date change, the save itself is what registrants are notified of: the
-   * contrib hook enqueues instance_modification_notification whenever the
-   * date field actually changed AND the new date is future, so this fires
-   * identically for this endpoint and for the node/eventinstance edit form —
-   * this controller does not separately enqueue anything. The population the
-   * hook notifies is EVERY registrant of the instance (retrieveRegisteredParties(),
-   * not future-scoped), which is why the gate/report below use
-   * RegistrantCounter::countForInstance(), not countFutureForInstance().
+   * registered needs to hear about a move. The PREVIEW gate (below the save)
+   * is intentionally more permissive than what actually ends up notified:
+   * it's keyed on the PROSPECTIVE new end timestamp (parsed straight from the
+   * request body), not on the instance's current (pre-save) date or its
+   * published state — so a coordinator always sees an honest "here's who
+   * would be notified" warning before confirming, even for edits (like
+   * publishing a draft AND moving its date in one call) that the real post-
+   * save state reaction would end up gating differently. If the request
+   * changes `date` and the PROSPECTIVE new date is future and the instance
+   * has registrants, the edit requires confirmed=TRUE and previews first (no
+   * write), reporting registrants_to_notify. A date change to the past, a
+   * date change with no registrants, or a location-only edit all proceed
+   * without confirmation — there is either nothing to notify or no
+   * reschedule risk.
+   *
+   * On a confirmed date change, the save itself is what registrants are
+   * notified of: EventStateReactions::instanceUpdate() ->
+   * reactToInstanceModified() enqueues the reschedule notice whenever the
+   * saved instance is published BOTH before and after this save AND the date
+   * field actually changed — the SAME state reaction fires identically for
+   * this endpoint and for the node/eventinstance edit form, so this
+   * controller does not separately enqueue anything. Unlike the preview
+   * above, the real reaction also looks at the OLD end date (not just the
+   * new one): a registrant who was live under the OLD schedule still gets
+   * notified even if the edit moves the event into the past, because they
+   * didn't know it moved. The response's registrants_affected is drained
+   * from what the reaction actually recorded, not re-derived here — see
+   * below the save.
+   *
+   * PREVIEW GATING — published vs. dark: the registrants_to_notify preview
+   * above is computed ONLY when the instance's default revision is currently
+   * published — the real post-save reaction only ever fires off a saved,
+   * moderated instance that is (and stays) live, so previewing a non-zero
+   * count against a DARK instance (draft/archived/needs_adjustment/…) would
+   * promise a notification nobody will get. A dark instance's date-change
+   * preview instead reports registrants_to_notify: 0 plus a note that
+   * registrants are notified when the event is restored.
    *
    * Instance-level authorization resolves via the instance's PARENT series — the
    * series carries the affinity group whose coordinators may manage its
@@ -883,16 +1071,16 @@ class EventCrudApiController extends ControllerBase {
     }
 
     $body = json_decode($request->getContent(), TRUE) ?: [];
-    // The population the contrib hook notifies is every registrant of the
-    // instance (retrieveRegisteredParties(), not future-scoped) — see the
-    // method docblock. countForInstance(), not countFutureForInstance().
+    // The preview population is every registrant of the instance, not
+    // future-scoped — see the method docblock. countForInstance(), not
+    // countFutureForInstance().
     $registrants = $this->registrantCounter->countForInstance((int) $eventinstance->id());
 
     // A date move strands whoever is already registered if nobody tells
     // them. Only an actual date CHANGE carries that risk — compare against
     // the current stored value the same way
-    // recurring_events_registration_entity_update() does, so this gate and
-    // the module's own notification hook agree on what counts as a
+    // EventStateReactions::reactToInstanceModified() does post-save, so this
+    // preview gate and the actual state reaction agree on what counts as a
     // reschedule. A location-only edit, or a date write that leaves the
     // value unchanged, needs no confirmation.
     $changesDate = array_key_exists('date', $body)
@@ -910,92 +1098,121 @@ class EventCrudApiController extends ControllerBase {
 
     $confirmed = filter_var($request->query->get('confirmed'), FILTER_VALIDATE_BOOLEAN);
 
+    // The registrants_to_notify preview is only meaningful when the instance
+    // is currently LIVE (published default revision) — a dark instance's
+    // registrants are not notified by this save; they are notified when the
+    // event is restored (see the method docblock).
+    $isLive = $eventinstance->isPublished();
+
     // Preview (no confirmed): describe what would happen, write nothing.
     if ($changesDate && $newDateIsFuture && $registrants > 0 && !$confirmed) {
-      return $this->success([
+      $preview = [
         'status' => 'preview',
         'executed' => FALSE,
         'eventinstance_id' => (int) $eventinstance->id(),
         'date_changes' => TRUE,
-        'registrants_to_notify' => $registrants,
-      ]);
+        'registrants_to_notify' => $isLive ? $registrants : 0,
+      ];
+      if (!$isLive) {
+        $preview['note'] = 'Registrants are notified when the event is restored.';
+      }
+      return $this->success($preview);
     }
 
     // Content-only override on the one instance. date is the instance's own
     // daterange; field_location is its location string. Nothing else is writable
-    // here — a recur-config change is the add_occurrence / update_recurrence path.
+    // here — a recur-config change goes through add_occurrence /
+    // cancel_occurrence (per-occurrence) or the browser form (unregistered
+    // pattern-wide edits), never this endpoint.
     if (array_key_exists('date', $body)) {
       $eventinstance->set('date', $body['date']);
     }
     if (array_key_exists('field_location', $body)) {
       $eventinstance->set('field_location', $body['field_location']);
     }
-    // Saving here is what a registered future registrant gets notified of: if
-    // the date actually changed, recurring_events_registration_entity_update()
-    // (hook_entity_update() on eventinstance) enqueues
-    // instance_modification_notification for every registrant on this
-    // instance — the SAME hook fires whether this save comes from this API or
-    // from the eventinstance edit form, so no separate enqueue happens here.
+    // Saving here is what a registered future registrant gets notified of:
+    // EventStateReactions::instanceUpdate() -> reactToInstanceModified()
+    // enqueues the reschedule notice whenever this save's date field actually
+    // changed AND the instance is (and stays) published — the SAME state
+    // reaction fires whether this save comes from this API or from the node/
+    // eventinstance edit form, so no separate enqueue happens here.
     $eventinstance->save();
 
-    // Report the count only when the hook will actually fire (changesDate AND
-    // newDateIsFuture — the exact condition the hook checks post-save).
-    // Otherwise report 0: a future→past correction must not promise a notify
-    // that contrib's hook will never send once it sees the new date is past.
-    $notifiedCount = ($changesDate && $newDateIsFuture) ? $registrants : 0;
+    // Drain the REAL outcome the state-reaction machinery just recorded,
+    // rather than re-deriving a guess from $changesDate/$newDateIsFuture —
+    // those two locals only describe the REQUEST, not what the state
+    // reactions actually decided (e.g. they don't know whether the instance
+    // was actually published before AND after this save, which is also part
+    // of what gates the notice). Mirrors cancelOccurrence()/
+    // restoreOccurrence(): the eventseries echo key carries nothing this
+    // single-occurrence response needs, but must still be drained (not just
+    // read) so it never lingers to pollute a later, unrelated collector read
+    // in the same request.
+    $payload = $this->stateChangeCollector->drain('eventinstance', (int) $eventinstance->id());
+    $this->stateChangeCollector->drain('eventseries', (int) $series->id());
 
     return $this->success([
       'success' => TRUE,
       'eventinstance_id' => (int) $eventinstance->id(),
-      'registrants_affected' => $notifiedCount,
+      'registrants_affected' => $payload['notified'] ?? 0,
     ]);
   }
 
   /**
    * POST /api/2.3/event-series/{eventseries}/occurrence — add one occurrence.
    *
-   * Appends a one-off date to a CUSTOM series by writing the singular custom_date
-   * daterange field. The API params start_date/end_date map onto the field's
-   * value/end_value keys (the same mapping boundary applyRecurDates() draws for
-   * create). The existing custom_date rows are read, the new row appended, and
-   * the field set back — so the append is additive, not a replace.
+   * Creates one new eventinstance directly on the series, via the SAME contrib
+   * chain the series' own create/rebuild machinery uses
+   * (EventCreationService::createEventInstance() → configureDefaultInheritances()
+   * → save()) — NOT a custom_date config write. createEventInstance() returns
+   * an UNSAVED instance whose birth moderation_state is decided by
+   * access_events_recurring_events_event_instance_alter() (published parent →
+   * published; archived parent → archived — see PastPreservingEventInstance
+   * Creator's BIRTH STATE docblock), so this endpoint needs no state logic of
+   * its own and works identically whether the series is published or archived.
    *
-   * REFUSAL — rule series: a rule-based series (weekly_recurring_date, …) is
-   * refused recurrence_conflict. You cannot append a one-off date to a rule
-   * series: its dates come from the recurrence rule, and included_dates is a
-   * whitelist FILTER over rule-generated dates, not an append surface. Changing a
-   * rule series' dates is the update_recurrence path.
+   * This REPLACES the old custom_date-append + validate()/save() path (which
+   * relied on the series' recur-config-change save to trigger a full
+   * hard-delete + recreate of every instance via
+   * RecreateEventInstanceCreator/PastPreservingEventInstanceCreator). A direct
+   * instance create touches nothing but the one new row: no rebuild, no
+   * reschedule-block validation, no risk to any other instance's registrants —
+   * which is also why the old rule-series recurrence_conflict refusal is GONE:
+   * a rule series' dates come from its rule, but a direct create is not a
+   * config change, so extending a weekly series past its rule end with a
+   * one-off addition is exactly the sanctioned "add a date" story on either
+   * recur_type.
    *
-   * REFUSAL — draft series: a draft custom series' recur-config change does not
-   * fire the module recreate (it is gated on published), so appending a
-   * custom_date would not materialize a visible instance. Refused invalid_state
-   * rather than reporting a phantom success.
-   *
-   * DESTRUCTIVE — published custom recreate: appending a date to a PUBLISHED
-   * custom series is a recur-config change, and recurring_events fires its
-   * RecreateEventInstanceCreator on such a change — a HARD-DELETE + recreate of
-   * ALL the series' instances, which would destroy any attached registrants. The
-   * append is applied to the entity in memory and then validated: the
-   * EventSeriesRescheduleBlock constraint refuses the save (has_registrations)
-   * when the series has FUTURE registrants. Past-only registrants do not block —
-   * a rebuild cannot harm a registrant whose instance already ended.
+   * DUPLICATE-DATE REFUSAL: before creating, every existing instance of the
+   * series is checked for a start-timestamp collision (strtotime-equal to the
+   * requested start). An exact collision refuses duplicate_date rather than
+   * silently creating a same-time twin. If the colliding instance is itself
+   * archived AND individually_cancelled (a deliberately withdrawn occurrence —
+   * see EventStateReactions::instancePresave()'s cancellation-email reaction
+   * flag write), the message
+   * instead points the caller at restore_occurrence — re-adding at that exact
+   * moment is almost always meant to bring the cancelled occurrence back, not
+   * to create a second, competing one.
    *
    * Gates run in a fixed order so no partial write happens on a refusal:
    *  1. acting-uid guard;
-   *  2. userMayManageSeries('update') entity-access gate (appending is an update);
-   *  3. rule-series refusal (recurrence_conflict) — writes nothing;
-   *  4. body validation (start_date/end_date required);
-   *  5. draft-series refusal (invalid_state) — writes nothing;
-   *  6. append the custom_date in memory, then validate(): refused
-   *     (has_registrations) when the reschedule-block constraint objects;
-   *     otherwise save (which regenerates instances, since the series is
-   *     published).
+   *  2. userMayManageSeries('update') entity-access gate (adding is an update);
+   *  3. body validation (date.value/date.end_value required);
+   *  4. draft-series refusal (invalid_state) — a draft series' new instance
+   *     would be born archived like its dark parent (see the birth-state
+   *     alter), never visibly published, so refuse up front rather than
+   *     report a phantom success;
+   *  5. duplicate-start check across the series' existing instances
+   *     (duplicate_date, with the cancelled-twin variant);
+   *  6. the contrib create chain: createEventInstance() → configure
+   *     DefaultInheritances() → save().
    *
    * @param int|\Drupal\recurring_events\Entity\EventSeries $eventseries
    *   In production the route converter supplies the resolved EventSeries; the
    *   direct-dispatch test path supplies a raw series id. Both are accepted.
    * @param \Symfony\Component\HttpFoundation\Request $request
-   *   The request; start_date/end_date in the JSON body.
+   *   The request; date.value/date.end_value in the JSON body (same shape as
+   *   edit_occurrence's date field).
    */
   public function addOccurrence($eventseries, Request $request): JsonResponse {
     $uid = (int) $request->attributes->get('acting_user_uid');
@@ -1011,193 +1228,99 @@ class EventCrudApiController extends ControllerBase {
       return $this->refuse('not_found', 'Event series not found.', 404);
     }
 
-    // Appending a date is an update to the series' recur config — gate on
-    // 'update'. userMayManageSeries('update') already calls $series->access(
-    // 'update') internally, so no separate entity-access check is needed here.
+    // Adding an occurrence is an update to the series — gate on 'update'.
+    // userMayManageSeries('update') already calls $series->access('update')
+    // internally, so no separate entity-access check is needed here.
     if (!$this->accessHelper->userMayManageSeries($eventseries, 'update')) {
       return $this->refuse('not_coordinator', 'You may not add an occurrence.', 409);
     }
 
-    // Rule-series refusal: a one-off cannot be appended to a rule series.
-    if ($eventseries->getRecurType() !== 'custom') {
-      return $this->refuse('recurrence_conflict', 'This event uses a recurrence rule; use update_recurrence to change its dates.', 409);
-    }
-
     $body = json_decode($request->getContent(), TRUE) ?: [];
-    if (empty($body['start_date']) || empty($body['end_date'])) {
-      return $this->refuse('validation_error', 'start_date and end_date are required.', 422);
+    $startValue = is_array($body['date'] ?? NULL) ? ($body['date']['value'] ?? NULL) : NULL;
+    $endValue = is_array($body['date'] ?? NULL) ? ($body['date']['end_value'] ?? NULL) : NULL;
+    if (empty($startValue) || empty($endValue)) {
+      return $this->refuse('validation_error', 'date.value and date.end_value are required.', 422);
     }
 
-    // Draft series: appending a custom_date does NOT materialize an instance
-    // (the module recreate is gated on published), so refuse rather than report
-    // a phantom success.
-    $isPublished = $eventseries->get('moderation_state')->value === 'published';
-    if (!$isPublished) {
+    // Draft (never-published) series: a new instance would be born archived
+    // (the birth-state alter follows the parent's isPublished()), with no
+    // path back to visible since the series itself was never published
+    // either — refuse rather than report a phantom success. Mirrors the old
+    // custom_date path's draft refusal, same message. An ARCHIVED (was-
+    // published, now dark) series is explicitly ALLOWED: its new instance is
+    // likewise born archived, but comes back the ordinary way once the
+    // series itself is restored — a coherent, recoverable outcome, unlike a
+    // series that was never published at all.
+    $currentSeriesState = $eventseries->get('moderation_state')->value;
+    if ($currentSeriesState === 'draft') {
       return $this->refuse('invalid_state', 'This event is a draft; publish it before adding occurrences. (A draft add would not create a visible occurrence.)', 409);
     }
 
-    // Append the new custom_date, then validate: the reschedule-block constraint
-    // refuses the save when the series has future registrants (a date change
-    // would destroy them). validate() surfaces that as a violation.
-    $existing = $eventseries->get('custom_date')->getValue();
-    $existing[] = ['value' => $body['start_date'], 'end_value' => $body['end_date']];
-    $eventseries->set('custom_date', $existing);
-    $violations = $eventseries->validate();
-    if ($violations->count() > 0) {
-      return $this->refuse('has_registrations', 'This event has registrations; its dates cannot be changed. Cancel and recreate to change the schedule.', 409);
-    }
-    try {
-      $eventseries->save();
-    }
-    catch (\Drupal\Core\Entity\EntityStorageException $e) {
-      // A registrant on an instance with a NULL/malformed end date is invisible
-      // to the constraint's SQL count, so the save can pass validation and the
-      // rebuild plugin's last-resort registrant check aborts mid-save instead.
-      // Core wraps that abort (and rolls the save back — nothing was deleted or
-      // changed); surface it as the same refusal the constraint gives rather
-      // than an unhandled 500. Any other storage failure is not ours to mask.
-      if ($e->getPrevious() instanceof \RuntimeException
-        && str_contains($e->getMessage(), 'registration')) {
-        return $this->refuse('has_registrations', 'This event has a registration on an occurrence without a valid end date; its dates cannot be changed. Cancel and recreate to change the schedule.', 409);
+    // Duplicate-start check: compare the requested start against every
+    // existing instance's start, both normalized via strtotime(' UTC') so a
+    // formatting difference (e.g. trailing seconds) does not mask a real
+    // collision. An exact match refuses rather than silently creating a
+    // same-time twin.
+    $requestedStart = strtotime($startValue . ' UTC');
+    foreach ($this->loadInstancesForSeries((int) $eventseries->id()) as $existingInstance) {
+      $existingStart = $existingInstance->get('date')->value;
+      if ($existingStart === NULL || $existingStart === '') {
+        continue;
       }
-      throw $e;
+      if (strtotime($existingStart . ' UTC') !== $requestedStart) {
+        continue;
+      }
+      $isCancelledTwin = $existingInstance->get('moderation_state')->value === 'archived'
+        && (bool) $existingInstance->get('individually_cancelled')->value;
+      if ($isCancelledTwin) {
+        return $this->refuse('duplicate_date', 'An occurrence already exists at this date; it is cancelled — use restore_occurrence to bring it back instead of adding a duplicate.', 409);
+      }
+      return $this->refuse('duplicate_date', 'An occurrence already exists at this date.', 409);
     }
 
-    $reloaded = $this->entityTypeManager->getStorage('eventseries')->loadUnchanged($eventseries->id());
-    $instanceIds = array_map(
-      fn ($i) => (int) $i->id(),
-      $reloaded->get('event_instances')->referencedEntities(),
-    );
+    // The real contrib create chain: createEventInstance() returns an UNSAVED
+    // instance whose moderation_state the birth-state alter has already set
+    // from the parent's published/archived status; configureDefaultInheritances()
+    // wires the computed inherited fields (title, description, …); save()
+    // persists it. No rebuild, no validate() — a direct create touches nothing
+    // but this one new row.
+    $start = new \Drupal\Core\Datetime\DrupalDateTime($startValue, 'UTC');
+    $end = new \Drupal\Core\Datetime\DrupalDateTime($endValue, 'UTC');
+    /** @var \Drupal\recurring_events\EventCreationService $creationService */
+    $creationService = \Drupal::service('recurring_events.event_creation_service');
+    $instance = $creationService->createEventInstance($eventseries, $start, $end);
+    $creationService->configureDefaultInheritances($instance, (int) $eventseries->id());
+    $instance->save();
 
     return $this->success([
       'success' => TRUE,
       'series_id' => (int) $eventseries->id(),
-      'instance_ids' => $instanceIds,
+      'eventinstance_id' => (int) $instance->id(),
+      'moderation_state' => $instance->get('moderation_state')->value,
     ]);
   }
 
   /**
-   * Republishes an archived series and each of its archived instances.
+   * Loads a series' default-revision instances via a fresh entity query.
    *
-   * The inverse of archiveSeriesWithInstances(): the series republish does NOT
-   * cascade to instances, so each archived instance is republished explicitly.
-   * It is gated against the INSTANCE's OWN workflow (editorial_eventinstance),
-   * not the series' editorial workflow — the two are distinct
-   * content_moderation workflows with independently-granted transition
-   * permissions. The series-level `archived_published` gate in restore() already
-   * ran, so only news_pm/administrator reach this method; both also hold
-   * `archived_published` on editorial_eventinstance, so a permitted user never
-   * lands in a partial state. Each instance is still validated rather than
-   * assumed — a future permission divergence must not silently transition an
-   * instance the user does not hold the grant for. Only instances currently
-   * `archived` are republished; others are skipped (never throwing), mirroring
-   * archiveSeriesWithInstances().
+   * Never the computed event_instances field, which can reflect a stale
+   * in-memory set on an entity that was loaded before a sibling instance was
+   * added elsewhere in the same request. Used by addOccurrence()'s duplicate-
+   * start check.
    *
-   * @param \Drupal\recurring_events\Entity\EventSeries $series
-   *   The series to restore.
-   * @param int[]|null $only
-   *   The instance ids THIS series-level cancel archived (from the
-   *   series-cancel keyvalue memory), or NULL. NULL means no filter — the
-   *   legacy fallback that republishes every archived instance, for a series
-   *   with no memory entry (predates this feature, or the memory was already
-   *   consumed). An empty array is NOT NULL: it means every instance was
-   *   already individually cancelled when the series was archived, so zero
-   *   instances should republish here even though the series itself does.
-   *   Conflating [] with missing would wrongly fall back to
-   *   republish-everything and revive instances the series cancel never
-   *   touched.
+   * @param int $seriesId
+   *   The eventseries id.
    *
-   * @return int[]
-   *   The ids of the instances actually republished by this call. Callers
-   *   notify exactly this set — not "every future instance of the series" —
-   *   so an instance that was never archived (e.g. left in draft) does not
-   *   get a false "this event is back on" notice.
+   * @return \Drupal\recurring_events\Entity\EventInstance[]
+   *   The series' event instances.
    */
-  private function restoreSeriesWithInstances(EventSeries $series, ?array $only = NULL): array {
-    $restoredIds = [];
-    foreach ($series->get('event_instances')->referencedEntities() as $instance) {
-      if ($instance->get('moderation_state')->value !== 'archived') {
-        continue;
-      }
-      // Restrict to the set THIS series cancel archived. An instance
-      // cancelled individually beforehand (cancelOccurrence) is archived but
-      // not in $only, so it is skipped here and stays archived through the
-      // series cancel/restore cycle.
-      if ($only !== NULL && !in_array((int) $instance->id(), $only, TRUE)) {
-        continue;
-      }
-      $instanceWorkflow = $this->moderationInformation->getWorkflowForEntity($instance);
-      $instanceFromState = $this->moderationInformation->getOriginalState($instance);
-      if (!$instanceWorkflow->getTypePlugin()->hasTransitionFromStateToState('archived', 'published')) {
-        // No archived → published transition on this instance's workflow; skip
-        // rather than throw. Not expected for a state-archived instance.
-        continue;
-      }
-      $instanceToState = $instanceWorkflow->getTypePlugin()->getState('published');
-      if (!$this->transitionValidation->isTransitionValid($instanceWorkflow, $instanceFromState, $instanceToState, $this->currentUser(), $instance)) {
-        // Not expected for a user who passed the series gate; skip rather than
-        // fail the whole op.
-        continue;
-      }
-      $instance->set('moderation_state', 'published')->save();
-      $restoredIds[] = (int) $instance->id();
-    }
-    $series->set('moderation_state', 'published')->save();
-    return $restoredIds;
-  }
-
-  /**
-   * Archives a published series and each of its published instances.
-   *
-   * The series archive does NOT cascade to instances, so each instance is
-   * archived explicitly. It is gated against the INSTANCE's OWN workflow
-   * (editorial_eventinstance), not the series' editorial workflow — the two are
-   * distinct content_moderation workflows with independently-granted transition
-   * permissions. The series-level `archive` gate in delete() already ran, so
-   * only news_pm/administrator reach this method; both also hold `archive` on
-   * editorial_eventinstance, so a permitted user never lands in a partial
-   * state. Each instance is still validated rather than assumed — a future
-   * permission divergence between the two workflows must not silently
-   * transition an instance the user does not hold the grant for.
-   *
-   * @param \Drupal\recurring_events\Entity\EventSeries $series
-   *   The series to archive.
-   *
-   * @return int[]
-   *   The ids of the instances actually archived by this call. Callers notify
-   *   exactly this set — not "every future instance of the series" — so an
-   *   instance that was already individually cancelled (via cancelOccurrence,
-   *   whose registrants were notified then) does not get a second, duplicate
-   *   notice here, and an instance left in a non-published state (draft,
-   *   needs_adjustment — not archived at all) does not get a false
-   *   "cancelled" notice.
-   */
-  private function archiveSeriesWithInstances(EventSeries $series): array {
-    $archivedIds = [];
-    foreach ($series->get('event_instances')->referencedEntities() as $instance) {
-      if ($instance->get('moderation_state')->value !== 'published') {
-        continue;
-      }
-      $instanceWorkflow = $this->moderationInformation->getWorkflowForEntity($instance);
-      $instanceFromState = $this->moderationInformation->getOriginalState($instance);
-      $instanceToState = $instanceWorkflow->getTypePlugin()->getState('archived');
-      if (!$this->transitionValidation->isTransitionValid($instanceWorkflow, $instanceFromState, $instanceToState, $this->currentUser(), $instance)) {
-        // Not expected for a user who passed the series gate; skip rather than
-        // fail the whole op.
-        continue;
-      }
-      // content_moderation already forces a new revision on this save, so the
-      // log message costs nothing extra — it is a breadcrumb for a human
-      // debugging "why did this instance stay cancelled after a series
-      // restore" at /events/{id}/revisions. The series-cancel keyvalue
-      // memory is the machine authority restore() actually reads; this is
-      // not it.
-      $instance->setRevisionLogMessage('Archived by series cancel of series ' . $series->id());
-      $instance->set('moderation_state', 'archived')->save();
-      $archivedIds[] = (int) $instance->id();
-    }
-    $series->set('moderation_state', 'archived')->save();
-    return $archivedIds;
+  private function loadInstancesForSeries(int $seriesId): array {
+    $storage = $this->entityTypeManager->getStorage('eventinstance');
+    $ids = $storage->getQuery()
+      ->condition('eventseries_id', $seriesId)
+      ->accessCheck(FALSE)
+      ->execute();
+    return $ids ? array_values($storage->loadMultiple($ids)) : [];
   }
 
   /**

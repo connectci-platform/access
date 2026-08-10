@@ -6,9 +6,14 @@ namespace Drupal\Tests\access_events\Kernel;
 
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
+use Drupal\recurring_events\Entity\EventInstance;
 
 /**
  * Tests the send-only cancellation notifier.
+ *
+ * Covers enqueueGated() — the sole entry point, used by both the state-
+ * reaction orchestration in EventStateReactions (the cancellation-email reaction and the reinstatement reaction, series-cancel and
+ * series-restore sweeps) and the occurrence-level cancel/restore endpoints.
  *
  * @coversDefaultClass \Drupal\access_events\CancellationNotifier
  * @group access_events
@@ -111,43 +116,104 @@ class CancellationNotifierTest extends EventKernelTestBase {
   }
 
   /**
-   * Enqueues one notice per future-instance registrant; never deletes them.
+   * enqueueGated() with the notification key disabled enqueues nothing and
+   * the queue does not grow.
+   *
+   * The site master switch (email_notifications) is ON but the specific
+   * key's own enabled flag is OFF — gateOpen() requires BOTH.
    */
-  public function testNotifyInstanceEnqueuesAndKeepsRegistrant(): void {
-    $config = \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config');
-    $config->set('email_notifications', TRUE)
-      ->set('email_notifications_queue', TRUE)
+  public function testEnqueueGatedKeyDisabledEnqueuesNothingWithoutQueueGrowth(): void {
+    \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
+      ->set('email_notifications', TRUE)
+      ->set('notifications.event_cancelled_notification.enabled', FALSE)
+      ->save();
+
+    $instance = $this->createRegistrableInstance();
+    $this->registerUser($this->createUser(), $instance);
+
+    $queue = \Drupal::service('queue')->get('recurring_events_registration_email_notifications_queue_worker');
+    $before = $queue->numberOfItems();
+
+    $notifier = \Drupal::service('access_events.cancellation_notifier');
+    $enqueued = $notifier->enqueueGated($instance, \Drupal\access_events\CancellationNotifier::KEY);
+
+    $this->assertSame(0, $enqueued);
+    $this->assertSame($before, $queue->numberOfItems());
+  }
+
+  /**
+   * enqueueGated() with the site master switch off enqueues nothing.
+   *
+   * The key's own flag is ON but the master email_notifications switch is
+   * OFF — gateOpen() requires BOTH, so this must still refuse to loop over
+   * registrants.
+   */
+  public function testEnqueueGatedMasterSwitchOffEnqueuesNothingWithoutQueueGrowth(): void {
+    \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
+      ->set('email_notifications', FALSE)
+      ->set('notifications.event_cancelled_notification.enabled', TRUE)
+      ->save();
+
+    $instance = $this->createRegistrableInstance();
+    $this->registerUser($this->createUser(), $instance);
+
+    $queue = \Drupal::service('queue')->get('recurring_events_registration_email_notifications_queue_worker');
+    $before = $queue->numberOfItems();
+
+    $notifier = \Drupal::service('access_events.cancellation_notifier');
+    $enqueued = $notifier->enqueueGated($instance, \Drupal\access_events\CancellationNotifier::KEY);
+
+    $this->assertSame(0, $enqueued);
+    $this->assertSame($before, $queue->numberOfItems());
+  }
+
+  /**
+   * enqueueGated() with both gates open enqueues one notice per registrant
+   * whose occurrence is NOT VERIFIABLY past — the permissive
+   * RegistrantCounter::endIsNotVerifiablyPast() boundary.
+   *
+   * A NULL end date is "not verifiably past" and must count. The entity API
+   * refuses a NULL-end date.value save (validation constraints on the
+   * daterange field), so the NULL end is seeded via a direct DB update on
+   * the instance's field-data table, mirroring how a legacy/malformed row
+   * could exist in production, followed by resetCache() so the reload picks
+   * it up.
+   */
+  public function testEnqueueGatedCountsNotVerifiablyPastIncludingNullEndRow(): void {
+    \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
+      ->set('email_notifications', TRUE)
       ->set('notifications.event_cancelled_notification.enabled', TRUE)
       ->set('notifications.event_cancelled_notification.subject', 'Event cancelled')
       ->set('notifications.event_cancelled_notification.body', 'The event has been cancelled.')
       ->save();
 
-    $instance = $this->createRegistrableInstance();
-    $registrant = $this->registerUser($this->createUser(), $instance);
-    $registrantId = $registrant->id();
+    // A normal future instance — counts.
+    $future = $this->createRegistrableInstance();
+    $this->registerUser($this->createUser(), $future);
+
+    // A second instance whose end date is forced to NULL directly on the
+    // storage table — not verifiably past, so it must ALSO count, unlike
+    // the stricter instanceIsFuture() boundary (which treats an empty end as
+    // NOT future).
+    $nullEnd = $this->createRegistrableInstance();
+    $this->registerUser($this->createUser(), $nullEnd);
+    $this->setInstanceEndDateNull($nullEnd);
 
     $notifier = \Drupal::service('access_events.cancellation_notifier');
-    $enqueued = $notifier->notifyInstanceCancelled((int) $instance->id());
+    $futureEnqueued = $notifier->enqueueGated($future, \Drupal\access_events\CancellationNotifier::KEY);
+    $nullEnqueued = $notifier->enqueueGated($nullEnd, \Drupal\access_events\CancellationNotifier::KEY);
 
-    $this->assertSame(1, $enqueued);
-
-    // SEND-ONLY: the registrant row must still exist.
-    $reloaded = \Drupal::entityTypeManager()->getStorage('registrant')->loadUnchanged($registrantId);
-    $this->assertNotNull($reloaded, 'Notify must NOT delete the registrant.');
-
-    // A queue item was created (the real worker id NotificationService
-    // enqueues to; see NotificationService::addEmailNotificationToQueue()).
-    $queue = \Drupal::service('queue')->get('recurring_events_registration_email_notifications_queue_worker');
-    $this->assertGreaterThan(0, $queue->numberOfItems());
+    $this->assertSame(1, $futureEnqueued);
+    $this->assertSame(1, $nullEnqueued);
   }
 
   /**
-   * A past instance is not notified.
+   * enqueueGated() with a verifiably-past instance (a real, parseable end
+   * date in the past) enqueues nothing.
    */
-  public function testNotifyInstancePastEnqueuesNothing(): void {
-    $config = \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config');
-    $config->set('email_notifications', TRUE)
-      ->set('email_notifications_queue', TRUE)
+  public function testEnqueueGatedVerifiablyPastEnqueuesNothing(): void {
+    \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
+      ->set('email_notifications', TRUE)
       ->set('notifications.event_cancelled_notification.enabled', TRUE)
       ->save();
 
@@ -155,50 +221,56 @@ class CancellationNotifierTest extends EventKernelTestBase {
     $this->registerUser($this->createUser(), $pastInstance);
 
     $notifier = \Drupal::service('access_events.cancellation_notifier');
-    $this->assertSame(0, $notifier->notifyInstanceCancelled((int) $pastInstance->id()));
+    $this->assertSame(0, $notifier->enqueueGated($pastInstance, \Drupal\access_events\CancellationNotifier::KEY));
   }
 
   /**
-   * Enqueues across every future instance of a cancelled series.
+   * addEmailNotificationToQueue() always queues (never sends synchronously)
+   * regardless of the email_notifications_queue config flag — there is no
+   * force-queue mechanism in CancellationNotifier to bypass, since contrib's
+   * own addEmailNotificationToQueue() only gates on email_notifications +
+   * notifications.<key>.enabled (verified directly against its source), not
+   * the queue-vs-immediate flag. This asserts the queue behavior holds even
+   * with email_notifications_queue explicitly OFF.
    */
-  public function testNotifySeriesEnqueuesAcrossFutureInstancesOnly(): void {
-    $config = \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config');
-    $config->set('email_notifications', TRUE)
-      ->set('email_notifications_queue', TRUE)
+  public function testEnqueueGatedQueuesRegardlessOfEmailNotificationsQueueFlag(): void {
+    \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
+      ->set('email_notifications', TRUE)
+      ->set('email_notifications_queue', FALSE)
       ->set('notifications.event_cancelled_notification.enabled', TRUE)
       ->set('notifications.event_cancelled_notification.subject', 'Event cancelled')
       ->set('notifications.event_cancelled_notification.body', 'The event has been cancelled.')
       ->save();
 
-    $futureInstance = $this->createRegistrableInstance();
-    $futureRegistrant = $this->registerUser($this->createUser(), $futureInstance);
-    $futureRegistrantId = $futureRegistrant->id();
+    $instance = $this->createRegistrableInstance();
+    $this->registerUser($this->createUser(), $instance);
 
-    $pastInstance = $this->createRegistrableInstance(pastDate: TRUE);
-    $pastRegistrant = $this->registerUser($this->createUser(), $pastInstance);
-    $pastRegistrantId = $pastRegistrant->id();
-
-    // Move the past instance into the same series as the future one so a
-    // single series spans both a future and an already-ended occurrence.
-    $seriesId = (int) $futureInstance->get('eventseries_id')->target_id;
-    $pastInstance->set('eventseries_id', $seriesId)->save();
+    $queue = \Drupal::service('queue')->get('recurring_events_registration_email_notifications_queue_worker');
+    $before = $queue->numberOfItems();
 
     $notifier = \Drupal::service('access_events.cancellation_notifier');
-    $enqueued = $notifier->notifySeriesCancelled($seriesId);
+    $enqueued = $notifier->enqueueGated($instance, \Drupal\access_events\CancellationNotifier::KEY);
 
     $this->assertSame(1, $enqueued);
-
-    $registrantStorage = \Drupal::entityTypeManager()->getStorage('registrant');
-    $this->assertNotNull($registrantStorage->loadUnchanged($futureRegistrantId), 'Notify must NOT delete the future registrant.');
-    $this->assertNotNull($registrantStorage->loadUnchanged($pastRegistrantId), 'Notify must NOT delete the past registrant.');
+    $this->assertSame($before + 1, $queue->numberOfItems());
   }
 
   /**
-   * A non-existent series enqueues nothing rather than erroring.
+   * Forces an event instance's date.end_value to NULL via a direct DB
+   * update on its field-data table, then resets the entity storage cache so
+   * a subsequent load sees it.
+   *
+   * The entity API's own validation constraints refuse a NULL end_value save
+   * on the daterange field, so this models a legacy/malformed row the way
+   * only a direct write can.
    */
-  public function testNotifySeriesMissingReturnsZero(): void {
-    $notifier = \Drupal::service('access_events.cancellation_notifier');
-    $this->assertSame(0, $notifier->notifySeriesCancelled(999999));
+  private function setInstanceEndDateNull(EventInstance $instance): void {
+    $connection = \Drupal::database();
+    $connection->update('eventinstance_field_data')
+      ->fields(['date__end_value' => NULL])
+      ->condition('id', $instance->id())
+      ->execute();
+    \Drupal::entityTypeManager()->getStorage('eventinstance')->resetCache([(int) $instance->id()]);
   }
 
 }

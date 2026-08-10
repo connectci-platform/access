@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\access_events\Kernel;
 
+use Drupal\access_events\RegistrantCounter;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\user\Entity\Role;
@@ -110,7 +111,7 @@ class RegistrantCounterTest extends EventKernelTestBase {
   /**
    * Attaches the empty site-level fields access_events_entity_presave() reads.
    */
-  private function attachInstancePresaveFields(): void {
+  protected function attachInstancePresaveFields(): void {
     $fields = [
       ['eventseries', 'domain_access', 'string', -1],
       ['eventinstance', 'domain_access', 'string', -1],
@@ -203,6 +204,38 @@ class RegistrantCounterTest extends EventKernelTestBase {
     $this->registerUser($this->createUser(), $futureInstance);
     $counter = \Drupal::service('access_events.registrant_counter');
     $this->assertSame(1, $counter->countFutureForInstance((int) $futureInstance->id()));
+  }
+
+  /**
+   * Not-past count includes NULL end-date registrants.
+   */
+  public function testCountNotPastIncludesNullEndRegistrants(): void {
+    $instance = $this->createRegistrableInstance();
+    $this->registerUser($this->createUser([], 'nullend'), $instance);
+    // NULL-end dates exist only as legacy data — the entity API refuses to create
+    // them. Seed the condition at the database layer (where the counter reads).
+    $entityType = $instance->getEntityType();
+    $tableName = $entityType->getDataTable() ?: $entityType->getBaseTable();
+    \Drupal::database()->update($tableName)
+      ->fields(['date__end_value' => NULL])
+      ->condition('id', $instance->id())
+      ->execute();
+    \Drupal::entityTypeManager()->getStorage('eventinstance')->resetCache([$instance->id()]);
+    $counter = \Drupal::service('access_events.registrant_counter');
+    $this->assertSame(0, $counter->countFutureForInstance((int) $instance->id()));
+    $this->assertSame(1, $counter->countNotPastForInstance((int) $instance->id()));
+    $this->assertSame(1, $counter->countNotPastForSeries((int) $instance->getEventSeries()->id()));
+  }
+
+  /**
+   * endIsNotVerifiablyPast boundary tests.
+   */
+  public function testEndIsNotVerifiablyPastBoundary(): void {
+    $now = \Drupal::time()->getRequestTime();
+    $this->assertTrue(RegistrantCounter::endIsNotVerifiablyPast(NULL, $now));
+    $this->assertTrue(RegistrantCounter::endIsNotVerifiablyPast('not-a-date', $now));
+    $this->assertTrue(RegistrantCounter::endIsNotVerifiablyPast(gmdate('Y-m-d\TH:i:s', $now + 3600), $now));
+    $this->assertFalse(RegistrantCounter::endIsNotVerifiablyPast(gmdate('Y-m-d\TH:i:s', $now - 3600), $now));
   }
 
 }

@@ -35,6 +35,41 @@ services:
   access_events.registrant_counter:
     class: Drupal\access_events\RegistrantCounter
     arguments: ['@entity_type.manager']
+  access_events.event_delete_guard:
+    class: Drupal\access_events\EventDeleteGuard
+    arguments: ['@access_events.registrant_counter']
   access_events.cancellation_notifier:
     class: Drupal\access_events\CancellationNotifier
-    arguments: ['@entity_type.manager', '@recurring_events_registration.notification_service', '@datetime.time']
+    arguments: ['@entity_type.manager', '@recurring_events_registration.notification_service', '@datetime.time', '@config.factory']
+  access_events.state_change_collector:
+    class: Drupal\access_events\StateChangeCollector
+  access_events.state_reactions:
+    class: Drupal\access_events\EventStateReactions
+    arguments:
+      [
+        "@entity_type.manager",
+        "@access_events.registrant_counter",
+        "@access_events.cancellation_notifier",
+        "@access_events.state_change_collector",
+        "@datetime.time",
+      ]
+  access_events.effective_creation_set:
+    class: Drupal\access_events\EffectiveCreationSet
+    arguments:
+      [
+        "@recurring_events.event_creation_service",
+        "@plugin.manager.field.field_type",
+        "@module_handler",
+        "@messenger",
+        "@datetime.time",
+      ]
+  access_events.form_warnings:
+    class: Drupal\access_events\FormWarnings
+    arguments:
+      [
+        "@access_events.registrant_counter",
+        "@access_events.effective_creation_set",
+        "@config.factory",
+        "@entity_type.manager",
+        "@string_translation",
+      ]

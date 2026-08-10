@@ -283,13 +283,16 @@ class EventCrudRestoreTest extends EventKernelTestBase {
    * The core cycle: a series cancel must not revive an individually-cancelled
    * occurrence.
    *
-   * A coordinator cancels instance A on its own (cancelOccurrence), then a
-   * series-level delete archives only the still-published instance B — A was
-   * already archived, so archiveSeriesWithInstances() skips it, and the
-   * series-cancel keyvalue memory records only B. Restoring the series must
-   * republish ONLY B; A must stay archived, because the series cancel never
-   * touched it and restoring it would falsely tell A's registrant "this event
-   * is back on" for an event they were separately told was off.
+   * A coordinator cancels instance A on its own (cancelOccurrence), which
+   * sets individually_cancelled on it (the cancellation-email reaction,
+   * since that save is not part of a sweep). The series-level delete's sweep
+   * (EventStateReactions::
+   * sweepCancel()) then archives only the still-published instance B — A is
+   * already archived, so the sweep's publishedNotPastInstances() query skips
+   * it. Restoring the series must republish ONLY B; sweepRestore() skips A
+   * because it is flagged individually_cancelled, so it stays archived —
+   * restoring it would falsely tell A's registrant "this event is back on"
+   * for an event they were separately told was off.
    */
   public function testRestoreAfterSeriesCancelLeavesIndividuallyCancelledInstanceArchived(): void {
     \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
@@ -323,7 +326,7 @@ class EventCrudRestoreTest extends EventKernelTestBase {
     $afterDelete = $queue->numberOfItems();
     $this->assertSame($afterCancelA + 1, $afterDelete);
 
-    // Restore the series: only B (the series-cancel's actual archive set)
+    // Restore the series: only B (the only unflagged archived instance)
     // should republish. A must stay archived.
     $restoreResponse = $this->doCrud('restore', (int) $series->id(), $newsPm, [], ['confirmed' => TRUE]);
     $this->assertSame(200, $restoreResponse->getStatusCode());
@@ -341,10 +344,10 @@ class EventCrudRestoreTest extends EventKernelTestBase {
 
   /**
    * Empty-set: every occurrence was individually cancelled before the series
-   * cancel, so the series-cancel memory records an EMPTY instance set — not a
-   * missing one. Restore must republish the series and ZERO instances; an
-   * empty array is not the same as no memory entry (which would fall back to
-   * "republish everything").
+   * cancel, so the sweep finds nothing published to archive and every
+   * instance is flagged individually_cancelled. Restore must republish the
+   * series and ZERO instances — sweepRestore() skips every one of them on
+   * the flag.
    */
   public function testRestoreWithAllInstancesIndividuallyCancelledRepublishesZeroInstances(): void {
     $newsPm = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
@@ -356,8 +359,8 @@ class EventCrudRestoreTest extends EventKernelTestBase {
       $this->doOccurrence('cancel', (int) $instance->id(), $newsPm, ['confirmed' => TRUE]);
     }
 
-    // The series-level delete finds no published instances left to archive —
-    // the memory it writes is [], not absent.
+    // The series-level delete's sweep finds no published instances left to
+    // archive.
     $deleteResponse = $this->doCrud('delete', (int) $series->id(), $newsPm, [], ['confirmed' => TRUE]);
     $this->assertSame(200, $deleteResponse->getStatusCode());
     $deleteData = json_decode($deleteResponse->getContent(), TRUE);
@@ -377,20 +380,30 @@ class EventCrudRestoreTest extends EventKernelTestBase {
   }
 
   /**
-   * Legacy fallback: a series archived by direct entity saves (no series-
-   * cancel memory entry, e.g. predating this feature) restores every archived
-   * instance — today's behavior, preserved when there is no remembered set.
+   * Legacy/migrated data: a series whose instances were archived by a
+   * SYNCING save (e.g. a migration or a pre-feature import that bypassed the
+   * normal cancel path — a normal, non-sweep save would flag each instance
+   * individually_cancelled) restores every archived instance.
+   *
+   * The archived/unflagged state on each instance IS the authority (see
+   * EventStateReactions::sweepRestore()). A syncing save skips
+   * instancePresave()'s cancellation-email reaction flag write entirely, so
+   * these instances are archived but NOT individually_cancelled,
+   * modeling data that predates (or bypassed) the individually_cancelled
+   * flag mechanism.
    */
-  public function testRestoreWithNoMemoryEntryFallsBackToRestoringEveryArchivedInstance(): void {
+  public function testRestoreOfSyncingArchivedInstancesRestoresEveryUnflaggedInstance(): void {
     $newsPm = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
     $series = $this->makePublishedCoordinatorSeriesWithTwoInstances($newsPm);
     $instances = array_values($this->loadInstances($series));
 
-    // Simulate a pre-feature archive: direct entity saves, bypassing delete()
-    // entirely, so no keyvalue entry is ever written for this series.
+    // Archive each instance via a syncing save — bypasses instancePresave()'s
+    // individually_cancelled flag write, modeling legacy/migrated data.
     foreach ($instances as $instance) {
+      $instance->setSyncing(TRUE);
       $instance->set('moderation_state', 'archived')->save();
     }
+    $series->setSyncing(TRUE);
     $series->set('moderation_state', 'archived')->save();
 
     $restoreResponse = $this->doCrud('restore', (int) $series->id(), $newsPm, [], ['confirmed' => TRUE]);
@@ -405,15 +418,20 @@ class EventCrudRestoreTest extends EventKernelTestBase {
   }
 
   /**
-   * Re-deleting an already-archived series must not clobber the remembered
-   * set with an empty one.
+   * Re-deleting an already-archived series must not disturb which instances
+   * a later restore brings back.
    *
-   * The idempotent no-op branch in delete() (already-archived) returns before
-   * the archive path runs, so it must never touch the series-cancel memory. A
-   * restore after a redundant re-delete must still restore the set the FIRST
-   * delete actually archived.
+   * The individually_cancelled flag set on A when it was cancelled on its
+   * own (before the series-level delete) is the persistent authority
+   * sweepRestore() reads — not a per-request memory a redundant call could
+   * clobber. The idempotent no-op branch in delete() (already-archived)
+   * returns before the state-reaction save runs at all, so a re-delete does
+   * not touch any instance's flag or state. A restore after the redundant
+   * re-delete must still restore only B — A stays archived because it is
+   * still individually_cancelled, not because of anything the re-delete did
+   * or didn't record.
    */
-  public function testRedeletingArchivedSeriesDoesNotClobberRememberedSet(): void {
+  public function testRedeletingArchivedSeriesDoesNotDisturbRestoreScope(): void {
     $newsPm = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
     $series = $this->makePublishedCoordinatorSeriesWithTwoInstances($newsPm);
     [$instanceA, $instanceB] = array_values($this->loadInstances($series));
@@ -425,15 +443,17 @@ class EventCrudRestoreTest extends EventKernelTestBase {
     $this->assertSame(1, json_decode($first->getContent(), TRUE)['instances_archived']);
 
     // Re-delete: the series is already archived, so this is the idempotent
-    // no-op branch — it must not overwrite the remembered set with [].
+    // no-op branch — it must not touch either instance's individually_
+    // cancelled flag.
     $second = $this->doCrud('delete', (int) $series->id(), $newsPm, [], ['confirmed' => TRUE]);
     $this->assertSame(200, $second->getStatusCode());
 
     $restoreResponse = $this->doCrud('restore', (int) $series->id(), $newsPm, [], ['confirmed' => TRUE]);
     $this->assertSame(200, $restoreResponse->getStatusCode());
     $restoreData = json_decode($restoreResponse->getContent(), TRUE);
-    // The remembered set (B only) still restores correctly after the no-op
-    // re-delete — not zero instances, which is what a clobbered [] would give.
+    // B (never individually cancelled) still restores correctly after the
+    // no-op re-delete — not zero instances, which is what a flag wrongly
+    // cleared or set by the re-delete would give.
     $this->assertSame(1, $restoreData['instances_restored']);
 
     $reloadedA = \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($instanceA->id());
@@ -445,9 +465,10 @@ class EventCrudRestoreTest extends EventKernelTestBase {
   /**
    * Archiving via a series cancel leaves a revision-log breadcrumb.
    *
-   * The keyvalue memory is the machine authority for what a restore should
-   * republish; this log message is a breadcrumb for a human debugging "why
-   * did this instance stay cancelled after a series restore" at
+   * The archived/unflagged state on each instance is the machine authority
+   * for what a restore should republish (see EventStateReactions::
+   * sweepRestore()); this log message is a breadcrumb for a human debugging
+   * "why did this instance stay cancelled after a series restore" at
    * /events/{id}/revisions.
    */
   public function testSeriesDeleteLeavesRevisionLogBreadcrumbOnArchivedInstance(): void {

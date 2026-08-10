@@ -78,35 +78,6 @@ class EventDetailHttpCacheTest extends EventKernelTestBase {
     \Drupal::service('router.builder')->rebuild();
   }
 
-  /**
-   * Attaches the empty site-level fields access_events_entity_presave() reads.
-   */
-  private function attachInstancePresaveFields(): void {
-    $fields = [
-      ['eventseries', 'domain_access', 'string', -1],
-      ['eventinstance', 'domain_access', 'string', -1],
-      ['eventinstance', 'post_survey_url', 'link', 1],
-      ['eventinstance', 'field_post_survey_reminder_sent', 'integer', 1],
-      ['eventinstance', 'field_post_survey_sent', 'integer', 1],
-    ];
-    foreach ($fields as [$entityType, $fieldName, $type, $cardinality]) {
-      if (!\Drupal\field\Entity\FieldStorageConfig::loadByName($entityType, $fieldName)) {
-        \Drupal\field\Entity\FieldStorageConfig::create([
-          'entity_type' => $entityType,
-          'field_name' => $fieldName,
-          'type' => $type,
-          'cardinality' => $cardinality,
-        ])->save();
-        \Drupal\field\Entity\FieldConfig::create([
-          'entity_type' => $entityType,
-          'field_name' => $fieldName,
-          'bundle' => 'default',
-          'label' => $fieldName,
-        ])->save();
-      }
-    }
-    \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
-  }
 
   /**
    * An anonymous read dispatched through the real HTTP kernel is cacheable.

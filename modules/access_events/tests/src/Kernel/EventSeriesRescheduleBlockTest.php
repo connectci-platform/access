@@ -117,35 +117,6 @@ class EventSeriesRescheduleBlockTest extends EventKernelTestBase {
     \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
   }
 
-  /**
-   * Attaches the empty site-level fields access_events_entity_presave() reads.
-   */
-  private function attachInstancePresaveFields(): void {
-    $fields = [
-      ['eventseries', 'domain_access', 'string', -1],
-      ['eventinstance', 'domain_access', 'string', -1],
-      ['eventinstance', 'post_survey_url', 'link', 1],
-      ['eventinstance', 'field_post_survey_reminder_sent', 'integer', 1],
-      ['eventinstance', 'field_post_survey_sent', 'integer', 1],
-    ];
-    foreach ($fields as [$entityType, $fieldName, $type, $cardinality]) {
-      if (!FieldStorageConfig::loadByName($entityType, $fieldName)) {
-        FieldStorageConfig::create([
-          'entity_type' => $entityType,
-          'field_name' => $fieldName,
-          'type' => $type,
-          'cardinality' => $cardinality,
-        ])->save();
-        FieldConfig::create([
-          'entity_type' => $entityType,
-          'field_name' => $fieldName,
-          'bundle' => 'default',
-          'label' => $fieldName,
-        ])->save();
-      }
-    }
-    \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
-  }
 
   /**
    * A recurrence/date change is blocked while the series has future registrants.
@@ -166,7 +137,7 @@ class EventSeriesRescheduleBlockTest extends EventKernelTestBase {
 
     $this->assertGreaterThan(0, $violations->count());
     $this->assertStringContainsString(
-      'permanently delete',
+      'schedule cannot be rebuilt',
       (string) $violations->get(0)->getMessage(),
     );
   }
@@ -245,6 +216,140 @@ class EventSeriesRescheduleBlockTest extends EventKernelTestBase {
     $violations = $this->asActingUser($coordinator, fn () => $series->validate());
 
     $this->assertSame(0, $violations->count());
+  }
+
+  /**
+   * A recur/date change is still refused on an ARCHIVED series with
+   * registrations not verifiably past.
+   *
+   * The not-past registrant count swap's countNotPastForSeries() counts registrants independent of the
+   * series' OWN moderation_state — the series being archived (not published)
+   * must not exempt it. This is the population the destructive rebuild would
+   * still hard-delete if the change were allowed through.
+   */
+  public function testRecurChangeRefusedOnArchivedRegisteredSeries(): void {
+    $coordinator = $this->createUser();
+    $series = $this->makePublishedCoordinatorSeries($coordinator);
+    $instance = $this->createRegistrableInstance();
+    $instance->set('eventseries_id', $series->id())->save();
+    $this->registerUser($this->createUser(), $instance);
+
+    $series->set('moderation_state', 'archived')->save();
+    $series = EventSeries::load($series->id());
+
+    $series->set('excluded_dates', [['value' => '2999-06-01', 'end_value' => '2999-06-01']]);
+
+    $violations = $this->asActingUser($coordinator, fn () => $series->validate());
+
+    $this->assertGreaterThan(0, $violations->count());
+    $this->assertStringContainsString(
+      'schedule cannot be rebuilt',
+      (string) $violations->get(0)->getMessage(),
+    );
+  }
+
+  /**
+   * A recur/date change is refused when a registrant's instance has a NULL
+   * end date.
+   *
+   * countNotPastForSeries() treats a NULL/unparseable end_value as "not
+   * verifiably past" (uncertainty favors the registrant), unlike the old
+   * countFutureForSeries() SQL boundary (`end_value > now`), which is FALSE
+   * for NULL and so misses this registrant entirely. The DB-level NULL is
+   * seeded directly — the entity API refuses to persist a NULL end_value.
+   */
+  public function testNullEndRegistrantBlocksRecurChange(): void {
+    $coordinator = $this->createUser();
+    $series = $this->makePublishedCoordinatorSeries($coordinator);
+    $instance = $this->createRegistrableInstance();
+    $instance->set('eventseries_id', $series->id())->save();
+    $this->registerUser($this->createUser(), $instance);
+
+    $entityType = $instance->getEntityType();
+    $tableName = $entityType->getDataTable() ?: $entityType->getBaseTable();
+    \Drupal::database()->update($tableName)
+      ->fields(['date__end_value' => NULL])
+      ->condition('id', $instance->id())
+      ->execute();
+    \Drupal::entityTypeManager()->getStorage('eventinstance')->resetCache([$instance->id()]);
+
+    $series->set('excluded_dates', [['value' => '2999-06-01', 'end_value' => '2999-06-01']]);
+
+    $violations = $this->asActingUser($coordinator, fn () => $series->validate());
+
+    $this->assertGreaterThan(0, $violations->count());
+    $this->assertStringContainsString(
+      'schedule cannot be rebuilt',
+      (string) $violations->get(0)->getMessage(),
+    );
+  }
+
+  /**
+   * The request-adjustment refusal: Request Adjustment on a published, registered series is refused.
+   */
+  public function testRequestAdjustmentRefusedWithRegistrants(): void {
+    $newsPm = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $coordinator = $this->createUser();
+    $series = $this->makePublishedCoordinatorSeries($coordinator);
+    $instance = $this->createRegistrableInstance();
+    $instance->set('eventseries_id', $series->id())->save();
+    $this->registerUser($this->createUser(), $instance);
+
+    $series->set('moderation_state', 'needs_adjustment');
+
+    $violations = $this->asActingUser($newsPm, fn () => $series->validate());
+
+    $this->assertGreaterThan(0, $violations->count());
+    $messages = array_map(
+      fn ($violation) => (string) $violation->getMessage(),
+      iterator_to_array($violations),
+    );
+    $this->assertTrue(
+      (bool) array_filter($messages, fn ($m) => str_contains($m, 'Request Adjustment would hide')),
+      'Expected the Request Adjustment refusal message among: ' . implode(' | ', $messages),
+    );
+
+    // Bare-save mirror: access_events_eventseries_presave() must throw too,
+    // for any save path that skips validate() entirely.
+    $threw = FALSE;
+    try {
+      $this->asActingUser($newsPm, function () use ($series) {
+        $series->save();
+      });
+    }
+    catch (\Drupal\Core\Entity\EntityStorageException $e) {
+      $threw = TRUE;
+      $this->assertInstanceOf(\RuntimeException::class, $e->getPrevious());
+      $this->assertStringContainsString('Request Adjustment would hide', $e->getPrevious()->getMessage());
+    }
+    $this->assertTrue($threw, 'Bare save() must throw for Request Adjustment on a published, registered series.');
+  }
+
+  /**
+   * The request-adjustment refusal's permitted path: Request Adjustment with NO registrants runs the cancel sweep
+   * (zero emails — notifications are not enabled in this test).
+   */
+  public function testRequestAdjustmentPermittedRunsCancelSemantics(): void {
+    $newsPm = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    $coordinator = $this->createUser();
+    $series = $this->makePublishedCoordinatorSeries($coordinator);
+
+    $violations = $this->asActingUser($newsPm, fn () => (clone $series)->set('moderation_state', 'needs_adjustment')->validate());
+    $this->assertSame(0, $violations->count());
+
+    $this->asActingUser($newsPm, function () use ($series) {
+      $series->set('moderation_state', 'needs_adjustment')->save();
+    });
+
+    foreach ($this->loadInstances($series) as $instance) {
+      $reloaded = $this->reloadInstance($instance);
+      $this->assertSame('archived', $reloaded->get('moderation_state')->value);
+    }
+
+    // Notifications are not enabled in this test (enableEventNotifications()
+    // was never called), so the cancel sweep's cancellation notice is gated shut
+    // — zero emails queued, even though instances were archived.
+    $this->assertQueueCount('event_cancelled_notification', 0);
   }
 
 }

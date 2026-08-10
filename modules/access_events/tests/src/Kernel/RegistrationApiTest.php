@@ -189,6 +189,14 @@ class RegistrationApiTest extends KernelTestBase {
    * recurring_events_registration/tests/src/Kernel/RegistrantTest.php, with a
    * daterange added on the instance (the "date" base field) so the "when"
    * filter has something to sort/filter on.
+   *
+   * Published by default: this file's fixtures predate the registrant-
+   * presave publish gate (registerUser() below creates registrants directly,
+   * the same way a real registration does), and every existing case here is
+   * about the registrations list/cancel API, not moderation gating, so a
+   * freshly created instance here starts life registrable. The dedicated
+   * gate tests below use createDraftInstance() instead when they need an
+   * explicitly non-published target.
    */
   protected function createInstance(string $title, string $start, string $end, array $seriesValues = []): EventInstance {
     $series = EventSeries::create([
@@ -206,6 +214,7 @@ class RegistrationApiTest extends KernelTestBase {
         'end_value' => $end,
       ],
     ]);
+    $instance->set('moderation_state', 'published');
     $instance->save();
 
     // field_inheritance resolves each computed field's source entity from a
@@ -540,5 +549,14 @@ class RegistrationApiTest extends KernelTestBase {
     $this->assertSame('cancelled', json_decode($response->getContent(), TRUE)['status']);
     $this->assertEmpty($this->loadByUuid($uuid));
   }
+
+  // The registration-requires-published-occurrence gate (the registrant-presave publish gate) is NOT exercised in this file:
+  // this test class's $modules list deliberately omits access_events (it
+  // tests RegistrationApiController in isolation from the access_events
+  // hooks), so access_events_entity_presave() never runs here and a gate
+  // test placed in this file would pass or fail for the wrong reason. The registration-requires-published-occurrence gate's
+  // presave-gate and update-exemption cases live in ModificationEmailGateTest
+  // instead, which extends EventKernelTestBase and so has access_events
+  // genuinely installed.
 
 }

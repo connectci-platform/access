@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Drupal\access_events;
 
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events_registration\NotificationService;
 
 /**
@@ -49,103 +51,73 @@ class CancellationNotifier {
    */
   public const REINSTATE_KEY = 'event_reinstated_notification';
 
+  /**
+   * The key for a live occurrence's date/time having moved.
+   *
+   * This is the module's replacement for contrib's own
+   * recurring_events_registration_entity_update(), which access_events
+   * unimplements (see access_events_module_implements_alter()) because it
+   * fires with no state gates at all — a date edit on an archived or still-
+   * drafting occurrence would notify registrants of a "reschedule" on an
+   * event nobody can currently see. Sharing contrib's
+   * instance_modification_notification key would mean an already-configured
+   * site's template/enabled state carries over unchanged, which is exactly
+   * what's wanted here (unlike KEY/REINSTATE_KEY above, this is not
+   * replacing a DESTRUCTIVE contrib path, just a gate-less one) — so this
+   * reuses the same key rather than minting a module-owned one.
+   */
+  public const MODIFICATION_KEY = 'instance_modification_notification';
+
   public function __construct(
     protected EntityTypeManagerInterface $entityTypeManager,
     protected NotificationService $notificationService,
     protected TimeInterface $time,
+    protected ConfigFactoryInterface $configFactory,
   ) {}
 
   /**
-   * Notifies registrants of one cancelled (archived) instance, if it's future.
+   * Queues one notification per registrant whose occurrence is not
+   * verifiably past.
    *
-   * @return int
-   *   Number of notifications enqueued.
-   */
-  public function notifyInstanceCancelled(int $instanceId): int {
-    $instance = $this->entityTypeManager->getStorage('eventinstance')->load($instanceId);
-    if (!$instance || !$this->instanceIsFuture($instance)) {
-      return 0;
-    }
-    return $this->enqueueForInstance($instanceId, self::KEY);
-  }
-
-  /**
-   * Notifies registrants across a cancelled series' future instances.
+   * The entry point for the state-reaction orchestration in
+   * EventStateReactions, using RegistrantCounter::endIsNotVerifiablyPast() and
+   * taking the loaded entity directly.
    *
-   * @return int
-   *   Number of notifications enqueued.
-   */
-  public function notifySeriesCancelled(int $seriesId): int {
-    return $this->notifySeriesFutureInstances($seriesId, self::KEY);
-  }
-
-  /**
-   * Notifies registrants of exactly the given (future) instances under $key.
+   * Returns 0 without looping over registrants when either notification gate
+   * (the key's enabled flag or the site master switch) is off — there is no
+   * force-queue mechanism to bypass, since addEmailNotificationToQueue()
+   * itself would silently no-op on the same two config keys either way.
    *
-   * Used by delete()/restore() so the notify set matches the archive/restore
-   * set exactly — not "every future instance of the series". Archiving skips
-   * instances that are not currently published (e.g. one already archived
-   * individually via cancelOccurrence, or one left in draft); notifying by
-   * series scope instead of by this returned set would double-notify the
-   * former and falsely notify the latter.
-   *
-   * @param int[] $instanceIds
-   *   Event instance ids to notify.
+   * @param \Drupal\recurring_events\Entity\EventInstance $instance
+   *   The event instance whose registrants to notify.
    * @param string $key
    *   The notification key to enqueue under.
    *
    * @return int
    *   Number of notifications enqueued.
    */
-  public function notifyInstances(array $instanceIds, string $key): int {
-    $count = 0;
-    foreach ($instanceIds as $instanceId) {
-      $instance = $this->entityTypeManager->getStorage('eventinstance')->load($instanceId);
-      if ($instance && $this->instanceIsFuture($instance)) {
-        $count += $this->enqueueForInstance((int) $instanceId, $key);
-      }
-    }
-    return $count;
-  }
-
-  /**
-   * Enqueues $key for every registrant on the series' future instances.
-   *
-   * @return int
-   *   Number of notifications enqueued.
-   */
-  protected function notifySeriesFutureInstances(int $seriesId, string $key): int {
-    $series = $this->entityTypeManager->getStorage('eventseries')->load($seriesId);
-    if (!$series) {
+  public function enqueueGated(EventInstance $instance, string $key): int {
+    if (!$this->gateOpen($key)) {
       return 0;
     }
-    $count = 0;
-    foreach ($series->event_instances->referencedEntities() as $instance) {
-      if ($this->instanceIsFuture($instance)) {
-        $count += $this->enqueueForInstance((int) $instance->id(), $key);
-      }
-    }
-    return $count;
-  }
 
-  /**
-   * Enqueues a notice under $key for every registrant on an instance.
-   *
-   * Keyed so both the cancel and reinstate paths share this lookup+enqueue
-   * without duplicating the registrant query.
-   */
-  protected function enqueueForInstance(int $instanceId, string $key): int {
+    $instanceId = (int) $instance->id();
     $ids = $this->entityTypeManager->getStorage('registrant')->getQuery()
       ->condition('eventinstance_id', $instanceId)
       ->accessCheck(FALSE)
       ->execute();
+    if (!$ids) {
+      return 0;
+    }
+
+    $now = $this->time->getRequestTime();
+    $endValue = $instance->get('date')->end_value;
+    if (!RegistrantCounter::endIsNotVerifiablyPast($endValue, $now)) {
+      return 0;
+    }
+
     $count = 0;
     foreach ($this->entityTypeManager->getStorage('registrant')->loadMultiple($ids) as $registrant) {
-      // SEND-ONLY. addEmailNotificationToQueue enqueues a pre-rendered
-      // message; it gates on email_notifications + notifications.<key>.
-      // enabled and calls setKey()/setEntity() itself. It does NOT delete the
-      // registrant (unlike the module's own delete hooks, which enqueue/send
-      // and then unconditionally delete the registrant row).
       $this->notificationService->addEmailNotificationToQueue($key, $registrant);
       $count++;
     }
@@ -153,20 +125,63 @@ class CancellationNotifier {
   }
 
   /**
-   * TRUE if the instance's date has not yet ended (end_value > now).
+   * Queues one reschedule notice per registrant, keyed off an old/new
+   * end-date boundary rather than the instance's single current end value.
    *
-   * INVARIANT: this boundary must stay identical to RegistrantCounter's
-   * countFutureFor* queries — both use getRequestTime() and a strict >.
-   * Changing either alone (>=, wall-clock time()) silently splits the
-   * notified population from the reschedule-blocked population.
+   * enqueueGated() above answers "is THIS instance's current end not
+   * verifiably past" — right for a cancel/reinstate notice, where there is
+   * only one end value in play. A date EDIT is different: by the time this
+   * runs the row has already been overwritten with the NEW date, so asking
+   * the DB "was this registrant's instance not-past under the OLD schedule"
+   * is no longer answerable from storage. The caller passes both boundaries
+   * (the pre-save $oldEnd and the post-save $newEnd) and a registrant is
+   * notified if EITHER says not-verifiably-past — a future event moved into
+   * the past still owes its registrants a notice that it moved, even though
+   * the saved row alone would look like nothing worth notifying about.
+   *
+   * @param \Drupal\recurring_events\Entity\EventInstance $instance
+   *   The event instance whose registrants to notify.
+   * @param string|null $oldEnd
+   *   The end_value the instance's date field held before this save.
+   * @param string|null $newEnd
+   *   The end_value the instance's date field holds after this save.
+   *
+   * @return int
+   *   Number of notifications enqueued.
    */
-  protected function instanceIsFuture($instance): bool {
-    $end = $instance->get('date')->end_value;
-    if (!$end) {
-      return FALSE;
+  public function enqueueModificationGated(EventInstance $instance, ?string $oldEnd, ?string $newEnd): int {
+    if (!$this->gateOpen(self::MODIFICATION_KEY)) {
+      return 0;
     }
-    // date.end_value stores as 'Y-m-d\TH:i:s' UTC (no offset suffix).
-    return strtotime($end . ' UTC') > $this->time->getRequestTime();
+
+    $instanceId = (int) $instance->id();
+    $ids = $this->entityTypeManager->getStorage('registrant')->getQuery()
+      ->condition('eventinstance_id', $instanceId)
+      ->accessCheck(FALSE)
+      ->execute();
+    if (!$ids) {
+      return 0;
+    }
+
+    $now = $this->time->getRequestTime();
+    if (!RegistrantCounter::endIsNotVerifiablyPast($oldEnd, $now) && !RegistrantCounter::endIsNotVerifiablyPast($newEnd, $now)) {
+      return 0;
+    }
+
+    $count = 0;
+    foreach ($this->entityTypeManager->getStorage('registrant')->loadMultiple($ids) as $registrant) {
+      $this->notificationService->addEmailNotificationToQueue(self::MODIFICATION_KEY, $registrant);
+      $count++;
+    }
+    return $count;
+  }
+
+  /**
+   * Whether both notification gates (site master switch + the key) are on.
+   */
+  private function gateOpen(string $key): bool {
+    $config = $this->configFactory->get('recurring_events_registration.registrant.config');
+    return (bool) $config->get('email_notifications') && (bool) $config->get('notifications.' . $key . '.enabled');
   }
 
 }

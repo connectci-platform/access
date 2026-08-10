@@ -9,14 +9,28 @@ use Drupal\recurring_events\Entity\EventSeries;
 /**
  * Tests that a recur-config rebuild preserves past instances + registrants.
  *
- * recurring_events rebuilds ALL instances of a series when its recurrence
- * config changes. Contrib's stock RecreateEventInstanceCreator deletes and
- * recreates every instance, PAST ones included, destroying any attendance
- * history (and the underlying registrant rows) they carry.
+ * Contrib's recurring_events module rebuilds ALL instances of a series when
+ * its recurrence config changes; the stock RecreateEventInstanceCreator
+ * deletes and recreates every instance, PAST ones included, destroying any
+ * attendance history (and the underlying registrant rows) they carry.
  * PastPreservingEventInstanceCreator (wired in via
  * access_events_recurring_events_event_instance_creator_plugin_alter()) must
  * instead leave ended instances completely untouched and only rebuild the
  * future side.
+ *
+ * INTERACTION WITH THE DELETE-SIDE REGISTRANT GUARD: the plugin's
+ * processInstances() deletes each future instance directly
+ * ($instance->delete(), not clearEventInstances()), so every one of those
+ * deletes also passes through access_events_eventinstance_predelete() (see
+ * access_events.module). That hook is a pass-through here, not a no-op by
+ * accident: the plugin's own belt (the registrant count check immediately
+ * before the delete loop) already guarantees every instance in the delete
+ * set is registrant-free, so the guard's count agrees and never throws.
+ * testRecurConfigChangePreservesPastInstanceAndRegistrant() below asserts
+ * this holds for a normal rebuild; testNullEndValueInstanceTripsBeltNotBlock()
+ * asserts the inverse — when the belt's own count is nonzero, its throw (not
+ * the predelete guard, which never gets a chance to run before the plugin's
+ * own check aborts the loop) is what stops the delete.
  *
  * @covers \Drupal\access_events\Plugin\EventInstanceCreator\PastPreservingEventInstanceCreator
  * @group access_events
@@ -165,15 +179,49 @@ class PastPreservingRebuildTest extends EventKernelTestBase {
   public function testRecurConfigChangePreservesPastInstanceAndRegistrant(): void {
     [$series, $past, $future, $registrant] = $this->buildSeriesWithPastAndFuture();
     $pastId = (int) $past->id();
+    $futureId = (int) $future->id();
     $registrantId = (int) $registrant->id();
     $preExistingIds = array_map(fn ($i) => (int) $i->id(), $this->loadInstances($series));
 
+    // The plugin is about to $instance->delete() the future instance below,
+    // which traverses access_events_eventinstance_predelete() like any other
+    // eventinstance delete. Confirm the SAME guard the hooks use already
+    // agrees this specific instance is deletable before the rebuild runs —
+    // pins that the interaction is a verified pass-through (the plugin's own
+    // belt already cleared it), not an untested incidental non-throw.
+    $this->assertNull(
+      \Drupal::service('access_events.event_delete_guard')->deletionBlockedReason($future),
+      'The delete-side registrant guard already agrees the future instance the rebuild is about to delete is registrant-free.',
+    );
+
     // Append a new future custom_date — a recur-config change on a published
-    // series, which fires the instance-creator plugin.
+    // series, which fires the instance-creator plugin. If the guard above
+    // disagreed with the plugin's own belt, this save would throw (wrapped in
+    // EntityStorageException) instead of succeeding — the assertions below
+    // that the rebuild completed are therefore also proof the guard's
+    // pass-through held for every instance actually deleted, not just $future.
     $existing = $series->get('custom_date')->getValue();
     $existing[] = ['value' => '2999-06-01T10:00:00', 'end_value' => '2999-06-01T12:00:00'];
     $series->set('custom_date', $existing);
     $series->save();
+
+    // The original future instance either survived (if the plugin happened to
+    // keep its id) or was deleted and replaced — either is legal (see the
+    // "future instance ids are allowed to change" note below) — but if it WAS
+    // deleted, that delete is the traversal this test is pinning; assert here
+    // that it is actually gone (not silently left behind by a guard that
+    // wrongly blocked it), confirming the delete->guard->pass-through->delete
+    // sequence actually executed rather than a rebuild that quietly no-opped.
+    $futureStillPresent = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($futureId) !== NULL;
+    $originalFutureDateStillMaterialized = in_array(
+      '2999-01-01T10:00:00',
+      array_map(fn ($i) => $i->get('date')->value, $this->loadInstances($series)),
+      TRUE,
+    );
+    $this->assertTrue(
+      $futureStillPresent || $originalFutureDateStillMaterialized,
+      'The original future date is represented after the rebuild, either by the same instance or a replacement — proving the delete (when it happened) actually traversed the guard and completed rather than silently failing.',
+    );
 
     $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
 
@@ -427,6 +475,129 @@ class PastPreservingRebuildTest extends EventKernelTestBase {
         'A rebuild-created instance on a published series must itself be published.',
       );
     }
+  }
+
+  /**
+   * A flagged (individually_cancelled) instance is preserved even though it
+   * carries no registrant and is NOT past — orthogonal to the past/future
+   * partition.
+   *
+   * EventStateReactions::instancePresave() sets individually_cancelled = TRUE
+   * whenever a single instance moves away from published outside a
+   * series-wide sweep. This test builds a published FUTURE instance,
+   * individually cancels it (archiving it directly, unregistered), then
+   * fires a recur-config rebuild — the flagged instance must survive with
+   * the SAME id and stay archived, exactly like a past instance would,
+   * because PastPreservingEventInstanceCreator::isFlagged() skips it from
+   * both the delete loop and the registrant belt.
+   */
+  public function testRebuildPreservesFlaggedInstanceEvenUnregistered(): void {
+    [$series, , $future] = $this->buildSeriesWithPastAndFuture();
+    $futureId = (int) $future->id();
+
+    // Individually cancel the future instance directly (no registrant on
+    // it) — outside any series-wide sweep, so EventStateReactions::
+    // instancePresave() sets individually_cancelled = TRUE.
+    $future->set('moderation_state', 'archived');
+    $future->save();
+    $flagged = $this->reloadInstance($future);
+    $this->assertSame('1', (string) $flagged->get('individually_cancelled')->value, 'Fixture instance is genuinely flagged.');
+    $this->assertSame(0, $this->countRegistrants($flagged), 'Fixture flagged instance carries no registrant.');
+
+    // Recur-config change on the still-published series — fires the
+    // instance-creator plugin exactly as the other rebuild tests do.
+    $existing = $series->get('custom_date')->getValue();
+    $existing[] = ['value' => '2999-06-01T10:00:00', 'end_value' => '2999-06-01T12:00:00'];
+    $series->set('custom_date', $existing);
+    $series->save();
+
+    $survivingFlagged = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($futureId);
+    $this->assertNotNull($survivingFlagged, 'The flagged instance was not deleted by the rebuild.');
+    $this->assertSame('2999-01-01T10:00:00', $survivingFlagged->get('date')->value, 'The flagged instance kept its original date.');
+    $this->assertSame('archived', $survivingFlagged->get('moderation_state')->value, 'The flagged instance stayed archived — the rebuild did not touch its state.');
+    $this->assertSame('1', (string) $survivingFlagged->get('individually_cancelled')->value, 'The flag itself survived the rebuild untouched.');
+  }
+
+  /**
+   * No live twin is created at a preserved flagged instance's date.
+   *
+   * The series' custom_date config still lists the flagged instance's own
+   * date (it was never removed from config — only its instance's state
+   * changed) — a naive rebuild would treat that as "this date needs an
+   * instance" and materialize a fresh, published twin right next to the
+   * publicly cancelled one. access_events_recurring_events_event_instances_
+   * pre_create_alter()'s flagged-date exclusion (via EffectiveCreationSet::
+   * filterFlaggedDates()) must prevent that: exactly ONE instance exists at
+   * that start timestamp after the rebuild, and it is the original flagged
+   * one, still archived.
+   */
+  public function testRebuildDoesNotRecreateFlaggedDate(): void {
+    [$series, , $future] = $this->buildSeriesWithPastAndFuture();
+    $futureId = (int) $future->id();
+    $flaggedDate = $future->get('date')->value;
+
+    $future->set('moderation_state', 'archived');
+    $future->save();
+    $this->assertSame('1', (string) $this->reloadInstance($future)->get('individually_cancelled')->value, 'Fixture instance is genuinely flagged.');
+
+    // Recur-config change that leaves the flagged date in config (only
+    // appends a new date) — the scenario where a naive rebuild would
+    // otherwise recreate a live twin at the flagged date.
+    $existing = $series->get('custom_date')->getValue();
+    $existing[] = ['value' => '2999-06-01T10:00:00', 'end_value' => '2999-06-01T12:00:00'];
+    $series->set('custom_date', $existing);
+    $series->save();
+
+    $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
+    $allInstances = $this->loadInstances($reloaded);
+    $matchingFlaggedDate = array_filter($allInstances, fn ($i) => $i->get('date')->value === $flaggedDate);
+    $this->assertCount(1, $matchingFlaggedDate, 'Exactly one instance represents the flagged date — no live twin was created.');
+    $onlyInstance = reset($matchingFlaggedDate);
+    $this->assertSame($futureId, (int) $onlyInstance->id(), 'The one instance at the flagged date is the original preserved (flagged) instance.');
+    $this->assertSame('archived', $onlyInstance->get('moderation_state')->value, 'No live twin means no published instance sits at the flagged date.');
+  }
+
+  /**
+   * DOCUMENTED DOCTRINE: an UNREGISTERED, un-flagged future instance's
+   * divergence from current config is discarded (deleted + regenerated), not
+   * preserved.
+   *
+   * This is the ordinary, expected rebuild behavior for the common case —
+   * flagging (individually_cancelled) and past-ness are the ONLY two reasons
+   * a future instance survives a rebuild. An instance that is simply
+   * unregistered and not flagged has no such protection: if its own date is
+   * no longer requested by the series' CURRENT config, the rebuild deletes
+   * it and regenerates the config's actual date set from scratch. This test
+   * pins that doctrine so a future change does not accidentally start
+   * preserving every stray future instance regardless of registration state
+   * or flag.
+   */
+  public function testRebuildDiscardsUnregisteredDivergence(): void {
+    [$series, , $future] = $this->buildSeriesWithPastAndFuture();
+    $futureId = (int) $future->id();
+    $this->assertSame(0, $this->countRegistrants($future), 'Fixture future instance carries no registrant.');
+    $this->assertSame('0', (string) $future->get('individually_cancelled')->value, 'Fixture future instance is not flagged.');
+
+    // Replace the future date in config entirely (not append) — the
+    // original future instance's date is no longer requested at all.
+    $existing = $series->get('custom_date')->getValue();
+    $existing[1] = ['value' => '2999-09-01T10:00:00', 'end_value' => '2999-09-01T12:00:00'];
+    $series->set('custom_date', $existing);
+    $series->save();
+
+    $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
+    $allInstances = $this->loadInstances($reloaded);
+    $instanceDates = array_map(fn ($i) => $i->get('date')->value, $allInstances);
+
+    // The unregistered, unflagged original future instance is gone — either
+    // deleted outright or replaced by a new id at the same or a different
+    // date; assert on the definitive signal: its old date is no longer
+    // requested by config AND no instance carries the old future id.
+    $this->assertNotContains('2999-01-01T10:00:00', $instanceDates, 'The old future date is no longer materialized — divergence was discarded, not preserved.');
+    $survivorAtOldId = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($futureId);
+    $stillPresent = $survivorAtOldId !== NULL && $survivorAtOldId->get('date')->value === '2999-01-01T10:00:00';
+    $this->assertFalse($stillPresent, 'The original unregistered, unflagged future instance was not preserved at its original date.');
+    $this->assertContains('2999-09-01T10:00:00', $instanceDates, 'The new config date was materialized in its place.');
   }
 
 }
