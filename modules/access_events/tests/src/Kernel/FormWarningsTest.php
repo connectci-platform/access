@@ -152,8 +152,9 @@ class FormWarningsTest extends EventKernelTestBase {
   }
 
   /**
-   * Arriving-published recipients on a series count the not-verifiably-past
-   * registrant population across what will become published.
+   * Arriving-published recipients on a series count only the registrants a
+   * series restore would actually email: those on archived, not-individually-
+   * cancelled, not-past instances — the population sweepRestore() republishes.
    */
   public function testArrivingPublishedSeriesCountsRecipients(): void {
     $this->enableEventNotifications();
@@ -164,10 +165,53 @@ class FormWarningsTest extends EventKernelTestBase {
     // instance regardless of its current moderation state, so the fixture
     // does not depend on the instance being live at registration time.
     $this->registerUserOnDraftInstance($this->createUser([], 'r1'), $instance);
+    // The instance must be archived to be a restore recipient: a series
+    // restore only republishes (and emails) instances it finds still archived
+    // and not individually cancelled.
+    $instance->set('moderation_state', 'archived')->save();
 
     $counts = $this->formWarnings->arrivingPublishedCounts($series);
 
     $this->assertSame(1, $counts['recipients']);
+  }
+
+  /**
+   * A published instance is NOT counted as an arriving-published recipient: a
+   * series restore only re-emails instances it republishes from archived, so
+   * an already-live instance's registrant gets no reinstatement email and must
+   * not inflate the count.
+   */
+  public function testArrivingPublishedSeriesExcludesPublishedInstanceRecipients(): void {
+    $this->enableEventNotifications();
+
+    $instance = $this->createRegistrableInstance();
+    $series = $instance->getEventSeries();
+    $this->registerUserOnDraftInstance($this->createUser([], 'r1'), $instance);
+    // Instance stays in its published (live) state — not a restore recipient.
+
+    $counts = $this->formWarnings->arrivingPublishedCounts($series);
+
+    $this->assertSame(0, $counts['recipients']);
+  }
+
+  /**
+   * An individually-cancelled archived instance is NOT counted as an
+   * arriving-published recipient: a series restore skips flagged instances, so
+   * their registrants never receive the reinstatement email.
+   */
+  public function testArrivingPublishedSeriesExcludesIndividuallyCancelledRecipients(): void {
+    $this->enableEventNotifications();
+
+    $instance = $this->createRegistrableInstance();
+    $series = $instance->getEventSeries();
+    $this->registerUserOnDraftInstance($this->createUser([], 'r1'), $instance);
+    $instance->set('moderation_state', 'archived');
+    $instance->set('individually_cancelled', TRUE);
+    $instance->save();
+
+    $counts = $this->formWarnings->arrivingPublishedCounts($series);
+
+    $this->assertSame(0, $counts['recipients']);
   }
 
   /**
@@ -216,7 +260,7 @@ class FormWarningsTest extends EventKernelTestBase {
 
     $warning = (string) $this->formWarnings->arrivingPublishedWarning($instance);
 
-    $this->assertStringContainsString('will NOT be emailed', $warning);
+    $this->assertStringContainsString('would NOT be emailed', $warning);
   }
 
   /**

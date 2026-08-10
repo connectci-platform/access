@@ -120,14 +120,18 @@ class FormWarnings {
   private function arrivingPublishedWarningForInstance(EventInstance $entity): TranslatableMarkup {
     $recipients = $this->registrantCounter->countNotPastForInstance((int) $entity->id());
 
+    // Conditional wording: on an edit form the editor has not chosen a target
+    // state yet, and only ARRIVING at published emails registrants. Choosing
+    // another non-published state (e.g. archived → draft) republishes nothing
+    // and emails no one, so this must not assert republish/email as certain.
     if (!$this->notificationGateOpen(CancellationNotifier::REINSTATE_KEY)) {
-      return $this->t('This occurrence will be republished. Registrants will NOT be emailed — notifications are currently turned off.');
+      return $this->t('Publishing this occurrence would republish it. Registrants would NOT be emailed — notifications are currently turned off.');
     }
 
     return $this->formatPlural(
       $recipients,
-      'This occurrence will be republished and 1 registrant will be emailed.',
-      'This occurrence will be republished and @count registrants will be emailed.',
+      'Publishing this occurrence will email 1 registrant.',
+      'Publishing this occurrence will email @count registrants.',
     );
   }
 
@@ -143,9 +147,14 @@ class FormWarnings {
    * elapsed while the series sat unpublished — those are never recreated,
    * so an editor publishing a long-dormant series is told plainly that some
    * of what they configured will not reappear. recipients = the union of
-   * not-verifiably-past registrants across the series' instances that will
-   * end up published (the same population reactToInstanceReinstated()'s
-   * per-instance notification ends up reaching in aggregate).
+   * not-verifiably-past registrants across only the instances the series
+   * restore sweep will actually republish and email — archived, not
+   * individually cancelled, not verifiably past (see
+   * countNotPastForRestorableInstancesInSeries() and
+   * EventStateReactions::sweepRestore()). This is narrower than
+   * RegistrantCounter::countNotPastForSeries(), which is state-blind and would
+   * overstate the count by including instances that are already published or
+   * individually cancelled and so get no reinstatement email.
    */
   private function arrivingPublishedWarningForSeries(EventSeries $entity): TranslatableMarkup {
     $effectiveSet = $this->effectiveCreationSet->compute($entity);
@@ -154,7 +163,7 @@ class FormWarnings {
     $currentlyScheduled = count($entity->event_instances->referencedEntities());
     $skippedPast = max(0, $currentlyScheduled - $publishable);
 
-    $recipients = $this->registrantCounter->countNotPastForSeries((int) $entity->id());
+    $recipients = $this->countNotPastForRestorableInstancesInSeries((int) $entity->id());
 
     if (!$this->notificationGateOpen(CancellationNotifier::REINSTATE_KEY)) {
       if ($skippedPast > 0) {
@@ -215,7 +224,7 @@ class FormWarnings {
     return [
       'publishable' => $publishable,
       'skipped_past' => max(0, $currentlyScheduled - $publishable),
-      'recipients' => $this->registrantCounter->countNotPastForSeries((int) $entity->id()),
+      'recipients' => $this->countNotPastForRestorableInstancesInSeries((int) $entity->id()),
     ];
   }
 
@@ -361,6 +370,44 @@ class FormWarnings {
     $total = 0;
     foreach ($storage->loadMultiple($ids) as $instance) {
       if ($instance->get('moderation_state')->value !== 'published') {
+        continue;
+      }
+      $total += $this->registrantCounter->countNotPastForInstance((int) $instance->id());
+    }
+    return $total;
+  }
+
+  /**
+   * Sums not-verifiably-past registrants across only the instances a series
+   * restore would actually republish and email: archived, NOT individually
+   * cancelled, and not verifiably past.
+   *
+   * This mirrors exactly the population EventStateReactions::sweepRestore()
+   * acts on — it publishes each archived, not-past instance and skips the
+   * individually_cancelled ones — so the arriving-at-published warning's
+   * recipient count matches who really gets the reinstatement email, rather
+   * than the state-blind series-wide total. moderation_state is a
+   * content_moderation COMPUTED field and cannot appear in an entity-query
+   * condition, so it is filtered PHP-side after the query, the same way
+   * countNotPastForPublishedInstancesInSeries() and
+   * EventStateReactions::notPastInstancesInState() do.
+   */
+  private function countNotPastForRestorableInstancesInSeries(int $seriesId): int {
+    $storage = $this->entityTypeManager->getStorage('eventinstance');
+    $ids = $storage->getQuery()
+      ->condition('eventseries_id', $seriesId)
+      ->accessCheck(FALSE)
+      ->execute();
+    if (!$ids) {
+      return 0;
+    }
+
+    $total = 0;
+    foreach ($storage->loadMultiple($ids) as $instance) {
+      if ($instance->get('moderation_state')->value !== 'archived') {
+        continue;
+      }
+      if ($instance->hasField('individually_cancelled') && (bool) $instance->get('individually_cancelled')->value) {
         continue;
       }
       $total += $this->registrantCounter->countNotPastForInstance((int) $instance->id());

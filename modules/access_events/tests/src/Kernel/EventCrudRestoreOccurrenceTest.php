@@ -215,6 +215,37 @@ class EventCrudRestoreOccurrenceTest extends EventKernelTestBase {
   }
 
   /**
+   * The dark-parent restore branch (clearing the individually-cancelled flag
+   * while the instance stays archived) is gated on the same `archive`
+   * transition permission as the publish branch, not merely on managing the
+   * series. An affinity_group_leader coordinator who lacks `archive` is
+   * refused, and the flag is left set.
+   */
+  public function testAgLeaderMayNotClearFlagUnderDarkParentLacksArchiveTransition(): void {
+    $agLeader = $this->createUser([], NULL, FALSE, ['roles' => ['affinity_group_leader']]);
+    $series = $this->makePublishedCoordinatorSeriesWithTwoInstances($agLeader);
+    $target = $this->orderedInstances($series)[0];
+
+    // Force the dark-parent + archived-flagged-instance state directly via
+    // syncing saves (the ag_leader lacks the transitions to reach it through
+    // the API): the instance is archived and individually cancelled, its
+    // parent series is archived (dark).
+    $target->setSyncing(TRUE);
+    $target->set('moderation_state', 'archived');
+    $target->set('individually_cancelled', TRUE);
+    $target->save();
+    $series->setSyncing(TRUE);
+    $series->set('moderation_state', 'archived')->save();
+
+    $response = $this->doOccurrence('restoreOccurrence', (int) $target->id(), $agLeader);
+    $this->assertSame(403, $response->getStatusCode(), $response->getContent());
+    $this->assertSame('forbidden', json_decode($response->getContent(), TRUE)['error']);
+    $reloaded = \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($target->id());
+    $this->assertSame('archived', $reloaded->get('moderation_state')->value);
+    $this->assertSame('1', (string) $reloaded->get('individually_cancelled')->value, 'The flag was left set.');
+  }
+
+  /**
    * A non-archived (published) occurrence refuses invalid_state — nothing to
    * restore.
    */

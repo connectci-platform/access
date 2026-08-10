@@ -293,6 +293,18 @@ class EventCrudApiController extends ControllerBase {
     foreach ($values as $field => $value) {
       $series->set($field, $value);
     }
+
+    // The browser edit form runs entity validation before saving, so core's
+    // moderation-state constraint refuses a content edit to a live published
+    // series from an author who lacks the publish transition. This endpoint
+    // must not offer a way around that gate: validate the series and, if any
+    // violation exists, refuse rather than save. Administrators hold the
+    // transition, so their edits produce no violation and pass through.
+    $violations = $series->validate();
+    if ($violations->count() > 0) {
+      return $this->refuse('invalid_state', (string) $violations[0]->getMessage(), 409);
+    }
+
     $series->save();
 
     return $this->success([
@@ -829,9 +841,15 @@ class EventCrudApiController extends ControllerBase {
     if ($currentState === 'archived') {
       // Idempotent: mark (or confirm) the instance as individually cancelled
       // so a later series-wide restore skips it — see EventStateReactions::
-      // sweepRestore(). No live transition to validate (archived→archived is
-      // not a defined transition), so this branch writes the flag directly
-      // rather than routing through isTransitionValid().
+      // sweepRestore(). This is a withdrawal of the occurrence's participation,
+      // the same archive-family editorial decision that reaching `archived` via
+      // moderation requires, so gate it on the same `archive` transition
+      // permission rather than the broader manage-series grant. Administrators
+      // hold that permission and pass; an author or AG-leader who can manage
+      // the series but not archive is refused.
+      if (!$this->currentUser()->hasPermission('use editorial_eventinstance transition archive')) {
+        return $this->refuse('forbidden', 'Cancelling this occurrence\'s participation requires the events-editor permission.', 403);
+      }
       $eventinstance->set('individually_cancelled', TRUE)->save();
       return $this->success([
         'success' => TRUE,
@@ -942,6 +960,13 @@ class EventCrudApiController extends ControllerBase {
       // event refusal while the parent is dark. Clear
       // the flag instead so the instance rejoins the series' own restore
       // sweep once the series itself comes back; it stays archived for now.
+      // Clearing the flag is an archive-family editorial decision (it re-arms
+      // the occurrence to return to published), so gate it on the same
+      // `archive` transition permission the moderation path requires rather
+      // than the broader manage-series grant. Administrators hold it and pass.
+      if (!$this->currentUser()->hasPermission('use editorial_eventinstance transition archive')) {
+        return $this->refuse('forbidden', 'Restoring this occurrence\'s participation requires the events-editor permission.', 403);
+      }
       $eventinstance->set('individually_cancelled', FALSE)->save();
       return $this->success([
         'success' => TRUE,
@@ -1469,6 +1494,14 @@ class EventCrudApiController extends ControllerBase {
   private function applyContentFields(array &$values, array $body): void {
     foreach (self::CONTENT_ATTRIBUTES as $field) {
       if (array_key_exists($field, $body)) {
+        // The browser edit forms hide domain_access from anyone without the
+        // domain-administration permission (only administrators may set it
+        // there), so an API caller who lacks that permission must not be able
+        // to set it either. Silently drop just this field for such callers,
+        // leaving every other content field applied as usual.
+        if ($field === 'domain_access' && !$this->currentUser()->hasPermission('administer domains')) {
+          continue;
+        }
         $values[$field] = $body[$field];
       }
     }

@@ -303,6 +303,30 @@ class EventCrudCancelOccurrenceTest extends EventKernelTestBase {
   }
 
   /**
+   * The archived branch (marking an already-archived occurrence individually
+   * cancelled) is gated on the same `archive` transition permission as the
+   * published branch, not merely on managing the series. An affinity_group_
+   * leader coordinator who can manage the series but lacks `archive` is
+   * refused, and the flag is not written.
+   */
+  public function testAgLeaderMayNotFlagArchivedOccurrenceLacksArchiveTransition(): void {
+    $agLeader = $this->createUser([], NULL, FALSE, ['roles' => ['affinity_group_leader']]);
+    $series = $this->makePublishedCoordinatorSeriesWithTwoInstances($agLeader);
+    $target = $this->orderedInstances($series)[0];
+    // Force the instance to archived directly (a syncing save lands the state
+    // as the default revision, as elsewhere in this suite).
+    $target->setSyncing(TRUE);
+    $target->set('moderation_state', 'archived')->save();
+
+    $response = $this->doOccurrence('cancel', (int) $target->id(), $agLeader, ['confirmed' => TRUE]);
+    $this->assertSame(403, $response->getStatusCode(), $response->getContent());
+    $this->assertSame('forbidden', json_decode($response->getContent(), TRUE)['error']);
+    $reloaded = \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($target->id());
+    $this->assertSame('archived', $reloaded->get('moderation_state')->value);
+    $this->assertSame('0', (string) $reloaded->get('individually_cancelled')->value, 'The flag was not written.');
+  }
+
+  /**
    * news_pm holds `archive` on editorial_eventinstance and may cancel.
    */
   public function testNewsPmMayCancelOccurrence(): void {

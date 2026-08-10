@@ -40,7 +40,7 @@ services:
     arguments: ['@access_events.registrant_counter']
   access_events.cancellation_notifier:
     class: Drupal\access_events\CancellationNotifier
-    arguments: ['@entity_type.manager', '@recurring_events_registration.notification_service', '@datetime.time', '@config.factory']
+    arguments: ['@entity_type.manager', '@recurring_events_registration.notification_service', '@datetime.time', '@config.factory', '@database']
   access_events.state_change_collector:
     class: Drupal\access_events\StateChangeCollector
   access_events.state_reactions:

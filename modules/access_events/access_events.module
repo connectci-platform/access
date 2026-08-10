@@ -44,7 +44,10 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   if ($form_id == 'content_moderation_entity_moderation_form') {
     _access_events_standalone_moderation_form_alter($form, $form_state);
   }
-  if ($form_id == 'eventseries_revision_revert_confirm' || $form_id == 'eventinstance_revision_revert_confirm') {
+  if ($form_id == 'eventseries_revision_revert_confirm'
+    || $form_id == 'eventinstance_revision_revert_confirm'
+    || $form_id == 'eventseries_revision_revert_translation_confirm'
+    || $form_id == 'eventinstance_revision_revert_translation_confirm') {
     $form['#validate'][] = 'access_events_revision_revert_validate';
   }
   if ($form_id == 'eventseries_default_clone_form' || $form_id == 'eventinstance_default_clone_form') {
@@ -53,11 +56,28 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     // own default-value computation happens to land on the workflow's
     // initial state (draft) for a new entity given today's transition graph,
     // but that is an emergent property of the workflow config, not a
-    // guarantee — a duplicate must always be born draft regardless of the
-    // source's state, so pin the widget default explicitly rather than
-    // relying on transition-graph shape.
-    if (isset($form['moderation_state']['widget'][0]['state'])) {
-      $form['moderation_state']['widget'][0]['state']['#default_value'] = 'draft';
+    // guarantee — a duplicate must always be born in a non-publishing state
+    // regardless of the source's state, so pin the widget default explicitly
+    // rather than relying on transition-graph shape. Roles without the
+    // create-new-draft permission on the instance workflow do not get 'draft'
+    // in the widget's option list at all (their options are
+    // [published, ready_for_review]) and the widget would otherwise preselect
+    // published, so only pin 'draft' when it is actually offered; when it is
+    // not, fall back to the first non-publishing option the widget offers
+    // (options are weight-ordered, so this is the lowest-weight non-publishing
+    // target) so the clone is still never born published.
+    if (isset($form['moderation_state']['widget'][0]['state']['#options'])) {
+      $stateOptions = $form['moderation_state']['widget'][0]['state']['#options'];
+      if (isset($stateOptions['draft'])) {
+        $form['moderation_state']['widget'][0]['state']['#default_value'] = 'draft';
+      }
+      else {
+        $nonPublishing = array_diff_key($stateOptions, ['published' => TRUE]);
+        $fallback = array_key_first($nonPublishing);
+        if ($fallback !== NULL) {
+          $form['moderation_state']['widget'][0]['state']['#default_value'] = $fallback;
+        }
+      }
     }
   }
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
@@ -1608,6 +1628,35 @@ function access_events_recurring_events_pre_delete_instance(EventInstance $insta
 }
 
 /**
+ * Implements hook_recurring_events_registration_message_params_alter().
+ *
+ * Stamps the registrant's occurrence (and series) id onto the queued
+ * notification's params. Registration notices are fully rendered and queued
+ * at enqueue time and the queue table carries no column identifying which
+ * occurrence a queued item belongs to. CancellationNotifier's supersede sweep
+ * needs that id to scope its "remove the now-stale earlier notice" deletion to
+ * a single occurrence, so it never removes a queued notice for a DIFFERENT
+ * event to the same person. Stamping it here — the one place contrib exposes
+ * for adding scalar params to a queued item — is what makes that safe scoping
+ * possible. The id is read from the registrant's own eventinstance_id/
+ * eventseries_id references, so it is correct regardless of which notification
+ * key the item carries.
+ */
+function access_events_recurring_events_registration_message_params_alter(array &$params, $registrant): void {
+  if (!is_object($registrant) || !method_exists($registrant, 'get')) {
+    return;
+  }
+  $instanceId = $registrant->get('eventinstance_id')->target_id ?? NULL;
+  if ($instanceId !== NULL) {
+    $params[\Drupal\access_events\CancellationNotifier::INSTANCE_PARAM] = (int) $instanceId;
+  }
+  $seriesId = $registrant->get('eventseries_id')->target_id ?? NULL;
+  if ($seriesId !== NULL) {
+    $params['access_events_series_id'] = (int) $seriesId;
+  }
+}
+
+/**
  * Implements hook_recurring_events_event_instance_creator_plugin_alter().
  *
  * recurring_events fires the active EventInstanceCreator plugin whenever a
@@ -2193,12 +2242,52 @@ function access_events_registrant_publish_gate_validate($form, FormStateInterfac
     return;
   }
 
-  $instanceId = (int) $entity->get('eventinstance_id')->target_id;
+  $instanceId = _access_events_registrant_gate_instance_id($entity);
   $registrable = $instanceId > 0
     && \Drupal::service('access_events.state_reactions')->instanceIsRegistrable($instanceId);
   if (!$registrable) {
     $form_state->setErrorByName('', t('Registration is closed — this occurrence is not currently published.'));
   }
+}
+
+/**
+ * Resolves the eventinstance id a NEW registrant is being created against.
+ *
+ * Contrib's RegistrantForm only calls setEventInstance() (populating the
+ * entity's eventinstance_id field) inside save(), AFTER form validation
+ * runs — so at validate time the unsaved entity's field is always empty.
+ * The route the add form is served on (entity.registrant.add_form,
+ * /events/{eventinstance}/registrations/add) carries the target instance in
+ * its {eventinstance} parameter, upcast to an EventInstance object by the
+ * route's entity:eventinstance parameter converter, so fall back to reading
+ * it from there when the entity field is unset.
+ *
+ * @param \Drupal\recurring_events_registration\Entity\Registrant $entity
+ *   The new (unsaved) registrant.
+ * @param \Drupal\Core\Routing\RouteMatchInterface|null $routeMatch
+ *   The route match to consult; defaults to the current request's.
+ *
+ * @return int
+ *   The resolved instance id, or 0 if neither source yields one.
+ */
+function _access_events_registrant_gate_instance_id($entity, ?\Drupal\Core\Routing\RouteMatchInterface $routeMatch = NULL): int {
+  if ($entity->hasField('eventinstance_id')) {
+    $fieldInstanceId = (int) $entity->get('eventinstance_id')->target_id;
+    if ($fieldInstanceId > 0) {
+      return $fieldInstanceId;
+    }
+  }
+
+  $routeMatch = $routeMatch ?? \Drupal::routeMatch();
+  $routeInstance = $routeMatch->getParameter('eventinstance');
+  if ($routeInstance instanceof EventInstance) {
+    return (int) $routeInstance->id();
+  }
+  if (is_numeric($routeInstance)) {
+    return (int) $routeInstance;
+  }
+
+  return 0;
 }
 
 /**
@@ -2291,9 +2380,24 @@ function _access_events_attach_moderation_warnings(array &$form, $entity): void 
     ? $formWarnings->leavingPublishedWarning($entity)
     : $formWarnings->arrivingPublishedWarning($entity);
 
+  $markup = '<div class="messages messages--warning">' . Html::escape((string) $warningText) . '</div>';
+
+  // For a currently-archived (dark) occurrence whose widget still offers a
+  // draft target, carry the same choosing-Draft-on-dark disclosure the
+  // standalone moderation form shows: moving the occurrence to Draft takes it
+  // out of the archived state the series restore sweep queries for, so it will
+  // no longer be republished by that sweep. This only ever applied to the
+  // standalone form before; the entity edit form's widget offers the same
+  // draft target, so it needs the same disclosure.
+  if ($entity instanceof EventInstance
+    && $entity->get('moderation_state')->value === 'archived'
+    && isset($form['moderation_state']['widget'][0]['state']['#options']['draft'])) {
+    $markup .= '<div class="messages messages--warning">' . Html::escape((string) $formWarnings->draftOnDarkWarning()) . '</div>';
+  }
+
   $form['access_events_moderation_warning'] = [
     '#type' => 'markup',
-    '#markup' => '<div class="messages messages--warning">' . Html::escape((string) $warningText) . '</div>',
+    '#markup' => $markup,
     '#weight' => isset($form['moderation_state']['#weight']) ? $form['moderation_state']['#weight'] - 1 : -100,
   ];
 }
@@ -2501,9 +2605,13 @@ function _access_events_standalone_moderation_form_alter(array &$form, FormState
  * EventInstancePublishGuard constraint (the occurrence-publish-under-
  * unpublished-event refusal) run — via each validator's own
  * checkViolations()/checkViolation() method, never a re-typed copy of the
- * message strings — against a candidate entity built from $entity's last-
- * saved state (loadUnchanged()) with the submitted new_state applied. This
- * form never calls $entity->validate() (see
+ * message strings — against a candidate entity built from the entity core's
+ * EntityModerationForm will actually save: the one it stashed on form_state
+ * ($form_state->get('entity')), which is the LATEST revision and may carry
+ * pending field changes (e.g. a rescheduled date on a pending draft) that
+ * loadUnchanged() (the default revision) would not see. Applying the
+ * submitted new_state to a clone of that entity is what lets the constraint
+ * checks read the real config the save will present. This
  * _access_events_standalone_moderation_form_alter()'s docblock for why), so
  * without this handler the ONLY thing catching a disallowed transition here
  * would be a presave hook throwing an uncaught exception instead of a clean
@@ -2520,12 +2628,11 @@ function access_events_standalone_moderation_validate(array &$form, FormStateInt
     return;
   }
 
-  $storage = \Drupal::entityTypeManager()->getStorage($entity->getEntityTypeId());
-  $candidate = $storage->loadUnchanged($entity->id());
-  if (!$candidate) {
-    return;
-  }
-  $candidate = clone $candidate;
+  // Clone the entity core will save (the latest revision on form_state, which
+  // may carry pending field changes) and apply the submitted new_state, so the
+  // constraint checks see the config the save will actually present rather than
+  // the default revision's.
+  $candidate = clone $entity;
   $candidate->set('moderation_state', $newState);
 
   if ($candidate instanceof EventSeries) {
@@ -2548,7 +2655,14 @@ function access_events_standalone_moderation_validate(array &$form, FormStateInt
  * Validate handler for the eventseries/eventinstance revision revert confirm
  * forms (recurring_events' own EventSeriesRevisionRevertForm /
  * EventInstanceRevisionRevertForm — form ids eventseries_revision_revert_
- * confirm / eventinstance_revision_revert_confirm).
+ * confirm / eventinstance_revision_revert_confirm), and their per-translation
+ * variants (EventSeriesRevisionRevertTranslationForm /
+ * EventInstanceRevisionRevertTranslationForm — form ids
+ * eventseries_revision_revert_translation_confirm /
+ * eventinstance_revision_revert_translation_confirm). The translation forms
+ * extend the plain revert forms and pass the same raw revision id as
+ * buildForm()'s first argument, so args[0] carries the revision id for all
+ * four.
  *
  * Appended (not prepended): FormBuilder seeds a form's #validate array
  * (from the form object's own getFormId()-based defaults, i.e. core's
@@ -2583,7 +2697,7 @@ function access_events_revision_revert_validate(array &$form, FormStateInterface
   }
 
   $formId = $form_state->getFormObject()->getFormId();
-  $entityType = $formId === 'eventseries_revision_revert_confirm' ? 'eventseries' : 'eventinstance';
+  $entityType = str_starts_with($formId, 'eventseries') ? 'eventseries' : 'eventinstance';
   $storage = \Drupal::entityTypeManager()->getStorage($entityType);
   if (!method_exists($storage, 'loadRevision')) {
     return;

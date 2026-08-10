@@ -734,15 +734,21 @@ class EventCrudOccurrenceEditTest extends EventKernelTestBase {
   }
 
   /**
-   * Full API walk, twice: cancel → edit dates → restore, and the second
-   * cycle's emails/envelopes are IDENTICAL to the first — nothing leaks
-   * between cycles in the collector or the notification queue.
+   * Full API walk, twice: cancel → edit dates → restore, and nothing leaks
+   * between cycles in the collector.
    *
    * "Postpone" here means: cancel the occurrence, move its date out (edit
    * while dark — no notify promise), then restore it (which DOES notify, per
-   * the reinstatement reaction). Repeating the whole cycle a second time must produce the exact same
-   * outcome shape as the first: one cancellation notice, one reinstatement
-   * notice, nothing left over in the collector or the queues in between.
+   * the reinstatement reaction). Each cycle reports one cancellation notice
+   * and one reinstatement notice, and the collector is empty between cycles.
+   *
+   * The two cycles differ in one deliberate way: the second cycle's restore
+   * SUPERSEDES the first cycle's still-unclaimed reinstatement notice for the
+   * same registrant and occurrence (its "back on <first date>" wording is now
+   * stale — the occurrence has since moved to a later date), so the second
+   * cycle's net queue growth is one less than the first. The cancellation
+   * notices are never collapsed — a cancel then a reinstate is a legitimate
+   * pair — so both cycles' cancellations remain queued.
    */
   public function testPostponeCycleTwiceAccumulatesNothing(): void {
     \Drupal::configFactory()->getEditable('recurring_events_registration.registrant.config')
@@ -802,10 +808,24 @@ class EventCrudOccurrenceEditTest extends EventKernelTestBase {
     $this->assertSame([], $collector->drain('eventinstance', $instanceId));
     $this->assertSame([], $collector->drain('eventseries', $seriesId));
 
-    $this->assertSame($first, $second, 'The second cycle\'s emails/envelopes must be identical to the first.');
+    // Both cycles report the same notification outcome (one cancel, one
+    // restore each).
     $this->assertSame(1, $first['cancel_notified']);
     $this->assertSame(1, $first['restore_notified']);
-    $this->assertSame(2, $first['queue_delta'], 'One cancellation + one reinstatement notice per cycle.');
+    $this->assertSame(1, $second['cancel_notified']);
+    $this->assertSame(1, $second['restore_notified']);
+
+    // The first cycle grows the queue by two (a cancellation + a
+    // reinstatement). The second cycle grows it by only one: its cancellation
+    // is added, its reinstatement is added, and the first cycle's now-stale
+    // reinstatement is superseded and removed.
+    $this->assertSame(2, $first['queue_delta'], 'One cancellation + one reinstatement notice on the first cycle.');
+    $this->assertSame(1, $second['queue_delta'], 'The second cycle supersedes the first cycle\'s stale reinstatement.');
+
+    // Standing queue after two cycles: two cancellations (never collapsed) and
+    // exactly one reinstatement (the latest — the earlier one was superseded).
+    $this->assertQueueCount('event_cancelled_notification', 2);
+    $this->assertQueueCount('event_reinstated_notification', 1);
 
     $reloaded = \Drupal::entityTypeManager()->getStorage('eventinstance')->loadUnchanged($instanceId);
     $this->assertSame('published', $reloaded->get('moderation_state')->value);

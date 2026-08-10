@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\access_events\Kernel;
 
+use Drupal\Core\Routing\RouteMatch;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events\Entity\EventSeries;
 use Drupal\recurring_events_registration\Entity\Registrant;
+use Symfony\Component\Routing\Route;
 
 /**
  * Tests the reschedule-notice reaction's gate: EventStateReactions::
@@ -245,6 +247,116 @@ class ModificationEmailGateTest extends EventKernelTestBase {
 
     $reloaded = \Drupal::entityTypeManager()->getStorage('registrant')->loadUnchanged($registrant->id());
     $this->assertSame('0', (string) $reloaded->get('waitlist')->value, 'The update proceeded without being gated.');
+  }
+
+  /**
+   * _access_events_registrant_gate_instance_id()'s precedence: the entity's
+   * own eventinstance_id field wins even when a route match carrying a
+   * DIFFERENT instance is also available — the route is only ever a
+   * fallback for when the entity field is empty.
+   *
+   * Regression coverage for the registrant-add-form validate handler
+   * reading eventinstance_id off the unsaved entity: contrib's
+   * RegistrantForm only populates that field inside save(), AFTER
+   * validation runs, so at validate time it was always empty and every
+   * browser registration was refused regardless of the target occurrence's
+   * published state.
+   */
+  public function testGateInstanceIdEntityFieldTakesPrecedenceOverRoute(): void {
+    $fieldInstance = $this->createRegistrableInstance();
+    $routeInstance = $this->createRegistrableInstance();
+
+    $registrant = Registrant::create([
+      'eventinstance_id' => $fieldInstance->id(),
+      'eventseries_id' => $fieldInstance->get('eventseries_id')->target_id,
+      'email' => 'entity-field@example.com',
+      'waitlist' => 0,
+      'type' => 'default',
+    ]);
+
+    $routeMatch = new RouteMatch('entity.registrant.add_form', new Route('/events/{eventinstance}/registrations/add'), ['eventinstance' => $routeInstance]);
+
+    $this->assertSame(
+      (int) $fieldInstance->id(),
+      _access_events_registrant_gate_instance_id($registrant, $routeMatch),
+    );
+  }
+
+  /**
+   * With the entity field empty (the real add-form-at-validate-time shape),
+   * the route parameter is consulted — and resolves correctly when it
+   * arrives upcast to an EventInstance object, exactly as the
+   * entity.registrant.add_form route's `type: entity:eventinstance`
+   * parameter converter delivers it.
+   */
+  public function testGateInstanceIdFallsBackToRouteParameterObject(): void {
+    $instance = $this->createRegistrableInstance();
+
+    $registrant = Registrant::create([
+      'eventseries_id' => $instance->get('eventseries_id')->target_id,
+      'email' => 'route-object@example.com',
+      'waitlist' => 0,
+      'type' => 'default',
+    ]);
+
+    $routeMatch = new RouteMatch('entity.registrant.add_form', new Route('/events/{eventinstance}/registrations/add'), ['eventinstance' => $instance]);
+
+    $this->assertSame(
+      (int) $instance->id(),
+      _access_events_registrant_gate_instance_id($registrant, $routeMatch),
+    );
+  }
+
+  /**
+   * The route parameter also resolves when it arrives as a bare numeric id
+   * rather than an upcast entity object — defensive coverage in case a
+   * future route change (or a differently-configured route reusing this
+   * validate handler) delivers the raw id instead of the converted entity.
+   */
+  public function testGateInstanceIdFallsBackToRouteParameterId(): void {
+    $instance = $this->createRegistrableInstance();
+
+    $registrant = Registrant::create([
+      'eventseries_id' => $instance->get('eventseries_id')->target_id,
+      'email' => 'route-id@example.com',
+      'waitlist' => 0,
+      'type' => 'default',
+    ]);
+
+    $routeMatch = new RouteMatch('entity.registrant.add_form', new Route('/events/{eventinstance}/registrations/add'), ['eventinstance' => $instance->id()]);
+
+    $this->assertSame(
+      (int) $instance->id(),
+      _access_events_registrant_gate_instance_id($registrant, $routeMatch),
+    );
+  }
+
+  /**
+   * Neither the entity field nor the route parameter resolves an instance
+   * id: the helper returns 0, which the caller treats as "not registrable"
+   * — a registrant with no resolvable occurrence is never valid.
+   */
+  public function testGateInstanceIdReturnsZeroWhenNeitherSourceResolves(): void {
+    $series = EventSeries::create([
+      'title' => 'Unrelated Series',
+      'recur_type' => 'custom',
+      'type' => 'default',
+    ]);
+    $series->save();
+
+    $registrant = Registrant::create([
+      'eventseries_id' => $series->id(),
+      'email' => 'neither@example.com',
+      'waitlist' => 0,
+      'type' => 'default',
+    ]);
+
+    $routeMatch = new RouteMatch('some.unrelated.route', new Route('/unrelated'), []);
+
+    $this->assertSame(
+      0,
+      _access_events_registrant_gate_instance_id($registrant, $routeMatch),
+    );
   }
 
 }

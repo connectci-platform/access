@@ -6,6 +6,8 @@ namespace Drupal\access_events;
 
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\DatabaseExceptionWrapper;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events_registration\NotificationService;
@@ -68,11 +70,30 @@ class CancellationNotifier {
    */
   public const MODIFICATION_KEY = 'instance_modification_notification';
 
+  /**
+   * The DB queue table's queue name for registration email notifications.
+   *
+   * Matches the queue NotificationService::addEmailNotificationToQueue()
+   * writes to, so the supersede sweep can find and remove the items enqueued
+   * there before they are claimed.
+   */
+  private const QUEUE_NAME = 'recurring_events_registration_email_notifications_queue_worker';
+
+  /**
+   * The params key our message-params alter stamps the instance id under.
+   *
+   * Kept in sync with access_events_recurring_events_registration_message_
+   * params_alter() in access_events.module — the alter writes it, the
+   * supersede sweep reads it to scope a match to a single occurrence.
+   */
+  public const INSTANCE_PARAM = 'access_events_instance_id';
+
   public function __construct(
     protected EntityTypeManagerInterface $entityTypeManager,
     protected NotificationService $notificationService,
     protected TimeInterface $time,
     protected ConfigFactoryInterface $configFactory,
+    protected Connection $database,
   ) {}
 
   /**
@@ -118,6 +139,15 @@ class CancellationNotifier {
 
     $count = 0;
     foreach ($this->entityTypeManager->getStorage('registrant')->loadMultiple($ids) as $registrant) {
+      // A reinstatement supersedes any earlier, still-unclaimed reinstatement
+      // to the same registrant for this same occurrence: that earlier notice
+      // was rendered with an old subject/body/date at enqueue time and would
+      // otherwise reach the registrant alongside this fresher one. Remove it
+      // before enqueuing. A cancellation is deliberately NOT superseded here —
+      // a cancel followed by a reinstate is a legitimate pair.
+      if ($key === self::REINSTATE_KEY) {
+        $this->removeSupersededQueueItems((string) $registrant->email->value, $instanceId, [self::REINSTATE_KEY]);
+      }
       $this->notificationService->addEmailNotificationToQueue($key, $registrant);
       $count++;
     }
@@ -170,10 +200,93 @@ class CancellationNotifier {
 
     $count = 0;
     foreach ($this->entityTypeManager->getStorage('registrant')->loadMultiple($ids) as $registrant) {
+      // A modification notice supersedes any earlier, still-unclaimed
+      // reinstatement OR modification notice to the same registrant for this
+      // same occurrence: those earlier notices were rendered with a now-stale
+      // date at enqueue time (e.g. a restore queued "back on, <old date>",
+      // then this edit moved the date) and would otherwise reach the
+      // registrant as a contradictory pair. Remove them before enqueuing. A
+      // cancellation is deliberately NOT superseded — a cancel then a later
+      // reschedule is a legitimate sequence.
+      $this->removeSupersededQueueItems((string) $registrant->email->value, $instanceId, [self::REINSTATE_KEY, self::MODIFICATION_KEY]);
       $this->notificationService->addEmailNotificationToQueue(self::MODIFICATION_KEY, $registrant);
       $count++;
     }
     return $count;
+  }
+
+  /**
+   * Deletes unclaimed queued notices this path would otherwise duplicate.
+   *
+   * Notices are fully rendered (subject/body/recipient/date) at enqueue time
+   * and sit in the DB queue until cron drains them. When this path is about to
+   * enqueue a fresher notice that makes an earlier queued one stale (a second
+   * reinstatement, or a modification after a reinstatement), the earlier one
+   * must be removed so a registrant never receives a contradictory pair.
+   *
+   * The match is scoped narrowly on purpose: recipient email AND one of the
+   * superseding notification keys AND — critically — the SAME occurrence, read
+   * from the item's own params[self::INSTANCE_PARAM], which
+   * access_events_recurring_events_registration_message_params_alter() stamps
+   * on every notice this module enqueues. Without the instance-id scope a
+   * supersede could delete a queued notice for a DIFFERENT event to the same
+   * person; the queue table carries no queryable instance column, so the id is
+   * read from the unserialized item data instead.
+   *
+   * @param string $email
+   *   The recipient email to match.
+   * @param int $instanceId
+   *   The occurrence id the new notice belongs to.
+   * @param string[] $supersedingKeys
+   *   The notification keys whose earlier items this notice supersedes.
+   */
+  private function removeSupersededQueueItems(string $email, int $instanceId, array $supersedingKeys): void {
+    if ($email === '' || !$supersedingKeys) {
+      return;
+    }
+
+    // The core queue table is created lazily on the first enqueue (see
+    // DatabaseQueue::ensureTableExists()), so it may not exist yet the first
+    // time this path runs. When it does not, there is nothing queued to
+    // supersede — treat a missing table as an empty result rather than let the
+    // query fatal.
+    // expire = 0 means unclaimed (an item a worker has leased carries a
+    // non-zero expire); only unclaimed items are safe to drop here.
+    try {
+      $rows = $this->database->select('queue', 'q')
+        ->fields('q', ['item_id', 'data'])
+        ->condition('name', self::QUEUE_NAME)
+        ->condition('expire', 0)
+        ->execute();
+    }
+    catch (DatabaseExceptionWrapper $e) {
+      return;
+    }
+
+    $toDelete = [];
+    foreach ($rows as $row) {
+      $item = @unserialize((string) $row->data);
+      if (!$item instanceof \stdClass) {
+        continue;
+      }
+      if (!isset($item->to, $item->key) || $item->to !== $email) {
+        continue;
+      }
+      if (!in_array($item->key, $supersedingKeys, TRUE)) {
+        continue;
+      }
+      $itemInstanceId = $item->params[self::INSTANCE_PARAM] ?? NULL;
+      if ($itemInstanceId === NULL || (int) $itemInstanceId !== $instanceId) {
+        continue;
+      }
+      $toDelete[] = $row->item_id;
+    }
+
+    if ($toDelete) {
+      $this->database->delete('queue')
+        ->condition('item_id', $toDelete, 'IN')
+        ->execute();
+    }
   }
 
   /**
