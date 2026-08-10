@@ -2375,3 +2375,57 @@ EOT;
 EOT;
   update_block_body(225, $body_225, 'full_no_editor');
 }
+
+/**
+ * Put ACCESS documentation pages on the support domain, not "all affiliates".
+ *
+ * Documentation pages are the `page` nodes linked from the access-documentation
+ * menu. They should be scoped to the ACCESS support domain only; leaving
+ * field_domain_all_affiliates checked publishes them site-wide to every
+ * affiliate. Assign the support domain and uncheck "send to all affiliates".
+ */
+function access_misc_update_10040(&$sandbox) {
+  $node_storage = \Drupal::entityTypeManager()->getStorage('node');
+
+  // Collect the node ids referenced by links in the access-documentation menu.
+  $link_ids = \Drupal::entityTypeManager()
+    ->getStorage('menu_link_content')
+    ->getQuery()
+    ->accessCheck(FALSE)
+    ->condition('menu_name', 'access-documentation')
+    ->execute();
+
+  $nids = [];
+  foreach (MenuLinkContent::loadMultiple($link_ids) as $link) {
+    $url = $link->getUrlObject();
+    if (!$url->isRouted() || $url->getRouteName() !== 'entity.node.canonical') {
+      continue;
+    }
+    $params = $url->getRouteParameters();
+    if (!empty($params['node'])) {
+      $nids[$params['node']] = $params['node'];
+    }
+  }
+
+  // The /documentation section landing page is the parent of these links, not a
+  // link within the menu itself, so pull it in explicitly by resolving its
+  // alias to a node id.
+  $landing_path = \Drupal::service('path_alias.manager')->getPathByAlias('/documentation');
+  if (preg_match('#^/node/(\d+)$#', $landing_path, $matches)) {
+    $nids[$matches[1]] = $matches[1];
+  }
+
+  $changed = 0;
+  foreach ($node_storage->loadMultiple($nids) as $node) {
+    if ($node->bundle() !== 'page') {
+      continue;
+    }
+    $node->set('field_domain_access', [SiteTools::DOMAIN_ACCESS_SUPPORT]);
+    $node->set('field_domain_all_affiliates', 0);
+    $node->setNewRevision(FALSE);
+    $node->save();
+    $changed++;
+  }
+
+  return t('Scoped @count documentation page(s) to the ACCESS support domain and unchecked "send to all affiliates".', ['@count' => $changed]);
+}

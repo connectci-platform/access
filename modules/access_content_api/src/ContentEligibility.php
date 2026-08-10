@@ -54,17 +54,27 @@ class ContentEligibility {
   }
 
   /**
-   * Returns TRUE if the node is in scope for the support-domain API.
+   * Returns TRUE if the node is in scope for the given domain.
    *
    * A node qualifies if it is flagged "all affiliates" (domain_access grants
-   * such nodes a site-wide view) or explicitly assigned to the support domain.
+   * such nodes a site-wide view) or explicitly assigned to the domain.
    */
-  public function isOnSupportDomain(NodeInterface $node): bool {
+  public function isOnDomain(NodeInterface $node, string $domain_id): bool {
     if (DomainAccessManager::getAllValue($node)) {
       return TRUE;
     }
     // getAccessValues() returns an array keyed by domain machine name.
-    return array_key_exists($this->getSupportDomainId(), DomainAccessManager::getAccessValues($node));
+    return array_key_exists($domain_id, DomainAccessManager::getAccessValues($node));
+  }
+
+  /**
+   * Returns TRUE if the node is in scope for the support-domain API.
+   *
+   * The content index (the RAG corpus definition) stays pinned to the support
+   * domain; the render endpoints are domain-aware via isOnDomain().
+   */
+  public function isOnSupportDomain(NodeInterface $node): bool {
+    return $this->isOnDomain($node, $this->getSupportDomainId());
   }
 
   /**
@@ -75,14 +85,21 @@ class ContentEligibility {
    * (e.g. https://support.access-ci.org) rather than the active request.
    */
   public function supportDomainUrl(string $path): string {
+    return $this->domainUrl($this->getSupportDomainId(), $path);
+  }
+
+  /**
+   * Builds an absolute URL on the given domain for a site-relative path.
+   */
+  public function domainUrl(string $domain_id, string $path): string {
     $domain = $this->entityTypeManager->getStorage('domain')
-      ->load($this->getSupportDomainId());
+      ->load($domain_id);
     if (!$domain) {
       // Misconfiguration: the configured support domain entity is missing. Fall
       // back to the relative path but log it, since RAG consumers expect an
       // absolute URL and this silently degrades citation quality.
-      $this->logger->warning('Support domain "@id" not found; emitting relative URL "@path".', [
-        '@id' => $this->getSupportDomainId(),
+      $this->logger->warning('Domain "@id" not found; emitting relative URL "@path".', [
+        '@id' => $domain_id,
         '@path' => $path,
       ]);
       return $path;

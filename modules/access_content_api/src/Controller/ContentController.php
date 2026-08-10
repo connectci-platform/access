@@ -10,6 +10,7 @@ use Drupal\Core\Cache\CacheableResponse;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Session\AnonymousUserSession;
+use Drupal\domain\DomainNegotiatorInterface;
 use Drupal\node\NodeInterface;
 use Drupal\path_alias\AliasManagerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -27,6 +28,7 @@ final class ContentController extends ControllerBase {
     protected AliasManagerInterface $aliasManager,
     protected ContentEligibility $eligibility,
     protected RenderHash $renderHash,
+    protected DomainNegotiatorInterface $domainNegotiator,
   ) {}
 
   /**
@@ -37,6 +39,7 @@ final class ContentController extends ControllerBase {
       $container->get('path_alias.manager'),
       $container->get('access_content_api.eligibility'),
       $container->get('access_content_api.render_hash'),
+      $container->get('domain.negotiator'),
     );
   }
 
@@ -94,7 +97,13 @@ final class ContentController extends ControllerBase {
       return $this->notFound();
     }
 
-    if (!$this->eligibility->isOnSupportDomain($node)) {
+    // Serve for the active domain so each site's own content is reachable.
+    // Unmatched hostnames negotiate to the site default domain (contrib
+    // DomainNegotiator falls back to loadDefaultDomain), so the support
+    // fallback below only covers an empty domain table (e.g. kernel tests).
+    $serving_domain = $this->domainNegotiator->getActiveDomain()?->id()
+      ?: $this->eligibility->getSupportDomainId();
+    if (!$this->eligibility->isOnDomain($node, $serving_domain)) {
       return $this->notFound();
     }
 
@@ -112,7 +121,9 @@ final class ContentController extends ControllerBase {
     $cacheMetadata = new CacheableMetadata();
     $cacheMetadata->addCacheTags(['node:' . $nid]);
     $cacheMetadata->setCacheMaxAge(self::CACHE_MAX_AGE);
-    $cacheMetadata->setCacheContexts(array_merge(['user.roles:anonymous'], $extraCacheContexts));
+    // url.site: the eligibility decision and emitted URL vary by the
+    // serving domain.
+    $cacheMetadata->setCacheContexts(array_merge(['user.roles:anonymous', 'url.site'], $extraCacheContexts));
 
     if ($request->headers->get('If-None-Match') === $etag) {
       // Carry the same cache metadata as the 200 so cache layers vary the 304
@@ -124,7 +135,7 @@ final class ContentController extends ControllerBase {
     }
 
     $alias = $this->aliasManager->getAliasByPath('/node/' . $nid);
-    $url = $this->eligibility->supportDomainUrl($alias);
+    $url = $this->eligibility->domainUrl($serving_domain, $alias);
 
     // Single source of truth for text + hash (see RenderHash).
     $text = $this->renderHash->extractedText($node, $cacheMetadata);

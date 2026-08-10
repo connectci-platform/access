@@ -144,6 +144,70 @@ class ContentEndpointTest extends ContentApiKernelTestBase {
   }
 
   /**
+   * A node serves on its own domain when that domain is active.
+   */
+  public function testServesNodeOnItsOwnActiveDomain(): void {
+    $this->grantAnonymousAccessContent();
+    $other = Domain::create([
+      'id' => 'other_domain',
+      'hostname' => 'other.example.com',
+      'name' => 'Other',
+      'scheme' => 'https',
+      'status' => 1,
+    ]);
+    $other->save();
+
+    $node = $this->createPage([
+      'field_domain_access' => [['target_id' => 'other_domain']],
+    ]);
+
+    \Drupal::service('domain.negotiator')->setActiveDomain($other);
+    // Canary: setActiveDomain() does not latch the negotiated flag, so a
+    // stray re-negotiation would silently revert to the default domain and
+    // void this test. Fail loudly instead.
+    $this->assertSame('other_domain', \Drupal::service('domain.negotiator')->getActiveDomain()->id());
+    $controller = \Drupal::classResolver()->getInstanceFromDefinition(
+      ContentController::class
+    );
+    $request = Request::create('/api/1.0/content/' . $node->id());
+    $response = $controller->byId($request, (int) $node->id());
+    $this->assertEquals(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    // The emitted URL is on the serving domain, not the support domain.
+    $this->assertStringStartsWith('https://other.example.com/', $data['path']);
+    // url.site guards dynamic_page_cache from replaying one host's response
+    // on another; losing it is invisible without this assertion.
+    $this->assertContains('url.site', $response->getCacheableMetadata()->getCacheContexts());
+  }
+
+  /**
+   * A support-only node does not serve on another active domain.
+   */
+  public function testReturns404ForSupportNodeOnOtherActiveDomain(): void {
+    $this->grantAnonymousAccessContent();
+    $other = Domain::create([
+      'id' => 'other_domain',
+      'hostname' => 'other.example.com',
+      'name' => 'Other',
+      'scheme' => 'https',
+      'status' => 1,
+    ]);
+    $other->save();
+
+    // Default fixture is support-domain-assigned.
+    $node = $this->createPage();
+
+    \Drupal::service('domain.negotiator')->setActiveDomain($other);
+    $this->assertSame('other_domain', \Drupal::service('domain.negotiator')->getActiveDomain()->id());
+    $controller = \Drupal::classResolver()->getInstanceFromDefinition(
+      ContentController::class
+    );
+    $request = Request::create('/api/1.0/content/' . $node->id());
+    $response = $controller->byId($request, (int) $node->id());
+    $this->assertEquals(404, $response->getStatusCode());
+  }
+
+  /**
    * Tests that an unknown path alias returns 404.
    */
   public function testPathByQueryUnknownAlias(): void {
