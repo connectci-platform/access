@@ -51,6 +51,18 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['#validate'][] = 'access_events_revision_revert_validate';
   }
   if ($form_id == 'eventseries_default_clone_form' || $form_id == 'eventinstance_default_clone_form') {
+    // This form is the guaranteed born-draft surface for a hand-authored
+    // clone. A duplicate cannot be forced to draft at presave instead: a
+    // duplicate arrives at presave as a new eventinstance carrying an
+    // eventseries_id and a source-copied moderation_state, which is the same
+    // shape a machinery-created occurrence has (the birth alter stamps its
+    // published/archived state into the create() data before the entity
+    // exists), so presave cannot tell a duplicate from a machinery insert and
+    // must not force either to draft. Pinning the widget default here is what
+    // makes a UI clone born draft; a purely programmatic createDuplicate()
+    // that skips this form would keep the source's state, but no such
+    // clone-and-save path exists for eventinstances in this codebase.
+    //
     // createDuplicate() copies the source entity's moderation_state field
     // value onto the (new, unsaved) duplicate; the ModerationStateWidget's
     // own default-value computation happens to land on the workflow's
@@ -1734,21 +1746,31 @@ function access_events_recurring_events_event_instances_pre_create_alter(array &
 /**
  * Implements hook_recurring_events_event_instance_alter().
  *
- * Machinery-created instances follow their series: live series bear live
- * occurrences; a dark series' occurrences are born archived so a series
- * restore or first publish brings them along. Draft is reserved for
- * occurrences a person authored directly.
+ * This alter fires from two callers, and only one of them carries a series.
  *
- * $event is typed non-nullable: EventCreationService::createEventInstance()
- * only passes it through to this alter after a hand-applied contrib edit
- * (EventCreationService.php:553, made durable as a composer patch) that adds
- * $event as the alter's second argument — contrib's own hook_*_alter()
- * signature carries only $data. If that patch is ever missing, PHP throws a
- * TypeError on this parameter instead of the instance silently keeping
- * contrib's 'draft' default, which would otherwise mis-birth every
- * machinery-created instance under a published series.
+ * The machinery path (EventCreationService::createEventInstance(), patched to
+ * pass the series as the alter's second argument — the contrib patch at
+ * EventCreationService.php:553) stamps the new occurrence's birth state to
+ * follow its series: a live series bears live occurrences; a dark (draft or
+ * cancelled) series' occurrences are born archived so a later series restore
+ * or first publish sweep brings them along.
+ *
+ * The hand-authored path (EventSeriesController::addInstance(), the
+ * /events/series/{eventseries}/add "Add Instance" form) invokes the same alter
+ * with only $data and no series, so $event arrives NULL. That is the correct
+ * signal to leave the moderation_state untouched: an occurrence a person
+ * authors directly must be born in the workflow's own default state (draft),
+ * never swept by a series-level transition. So when no series is present we
+ * return early and stamp nothing. The nullable parameter is what keeps that
+ * caller from throwing a TypeError and white-screening the Add Instance form.
  */
-function access_events_recurring_events_event_instance_alter(array &$data, EventSeries $event): void {
+function access_events_recurring_events_event_instance_alter(array &$data, ?EventSeries $event = NULL): void {
+  // No series context: the hand-authored Add Instance path. Leave the
+  // workflow default (draft) in place — a person-authored occurrence is born
+  // draft and is never carried by a series restore sweep.
+  if ($event === NULL) {
+    return;
+  }
   $data['moderation_state'] = $event->isPublished() ? 'published' : 'archived';
 }
 

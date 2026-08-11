@@ -248,6 +248,31 @@ class InstanceBirthStateTest extends EventKernelTestBase {
   }
 
   /**
+   * The hand-authored "Add Instance" caller invokes the birth alter with only
+   * $data and no series, and that must neither throw nor stamp a state.
+   *
+   * EventSeriesController::addInstance() (the /events/series/{eventseries}/add
+   * form) builds a $data array carrying eventseries_id + type and calls
+   * ->alter('recurring_events_event_instance', $data) with no second argument,
+   * so the alter's series parameter arrives NULL. This exercises exactly that
+   * shape: the alter must run without a TypeError and must leave
+   * moderation_state unset, so the eventinstance form is born in the workflow's
+   * own draft default rather than being stamped published/archived. A
+   * regression here (a non-nullable series parameter) white-screens the Add
+   * Instance form for every editor.
+   */
+  public function testAddInstanceAlterShapeLeavesStateUnstamped(): void {
+    $data = [
+      'eventseries_id' => 1,
+      'type' => 'default',
+    ];
+    \Drupal::moduleHandler()->alter('recurring_events_event_instance', $data);
+
+    $this->assertArrayNotHasKey('moderation_state', $data,
+      'With no series context (the hand-authored Add Instance path), the birth alter leaves moderation_state unstamped so the occurrence keeps the workflow draft default.');
+  }
+
+  /**
    * The composed cancel+rebuild save from the series-reactions work
    * (SeriesReactionsTest::testCancelAndRebuildComposeInOneSave()) is now
    * assertable on the resulting instance's birth state: one save that both
