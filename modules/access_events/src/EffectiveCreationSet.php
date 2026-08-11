@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\access_events;
 
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\Field\FieldTypePluginManagerInterface;
 use Drupal\Core\Messenger\MessengerInterface;
@@ -90,6 +91,20 @@ class EffectiveCreationSet {
     $this->messenger->deleteAll();
     try {
       $this->moduleHandler->alter('recurring_events_event_instances_pre_create', $eventsToCreate, $series);
+    }
+    catch (\Throwable $e) {
+      // compute() is a read-only preview of the effective set, not a real
+      // save. The contrib alter reads the site's global excluded/included
+      // date config and parses each entry with DrupalDateTime::
+      // createFromFormat(), which throws on a malformed/partial stored date —
+      // real content this preview must not fatal on. Fall back to the
+      // pre-alter computed set (the alter only ever removes dates it excludes,
+      // so the preview is at worst slightly over-inclusive) rather than let a
+      // bad global-date config take down whatever form triggered the preview.
+      \Drupal::logger('access_events')->notice('Effective-set preview skipped the pre-create alter for series @id: @message.', [
+        '@id' => $series->id(),
+        '@message' => $e->getMessage(),
+      ]);
     }
     finally {
       $this->messenger->deleteAll();
@@ -186,6 +201,15 @@ class EffectiveCreationSet {
    * 'custom' recur type reads custom_dates directly; every other recur type
    * delegates to its field plugin's static calculateInstances().
    *
+   * Both branches run their result through validRows() before returning, so
+   * every row this method emits is a well-formed tuple whose start_date and
+   * end_date are real DrupalDateTime values. Real content violates the
+   * assumption that field data is fully populated — a coordinator can save a
+   * custom_dates row with an empty start (the date-list widget allows
+   * empty/partial rows), and a half-configured rule-based recurrence can make
+   * a field plugin throw — so neither the raw custom list nor a contrib
+   * calculateInstances() call can be trusted to yield only complete tuples.
+   *
    * @return array<string, array{start_date: \Drupal\Core\Datetime\DrupalDateTime, end_date: \Drupal\Core\Datetime\DrupalDateTime}>
    */
   private function calculateDates(array $config): array {
@@ -196,17 +220,60 @@ class EffectiveCreationSet {
     if ($config['type'] === 'custom') {
       $eventsToCreate = [];
       foreach ($config['custom_dates'] ?? [] as $dateRange) {
-        $eventsToCreate[$dateRange['start_date']->format('r')] = [
-          'start_date' => $dateRange['start_date'],
-          'end_date' => $dateRange['end_date'],
+        // A custom date row without a start date yields no occurrence: it
+        // cannot be keyed or scheduled, so it is simply omitted from the
+        // effective set (contrib's own createInstances() cannot build an
+        // instance from it either).
+        $start = $dateRange['start_date'] ?? NULL;
+        if (!$start instanceof DrupalDateTime) {
+          continue;
+        }
+        $eventsToCreate[$start->format('r')] = [
+          'start_date' => $start,
+          'end_date' => $dateRange['end_date'] ?? NULL,
         ];
       }
-      return $eventsToCreate;
+      return self::validRows($eventsToCreate);
     }
 
-    $fieldDefinition = $this->fieldTypePluginManager->getDefinition($config['type']);
-    $fieldClass = $fieldDefinition['class'];
-    return $fieldClass::calculateInstances($config);
+    // A rule-based recurrence delegates to its field plugin's
+    // calculateInstances(), which trusts its config to be fully populated: a
+    // half-configured rule (an empty days list, a missing start/end date, an
+    // unregistered recur type) makes contrib throw a TypeError / Error /
+    // PluginNotFoundException rather than return an empty set. An
+    // unconfigured or partially-configured recurrence has no effective set
+    // for warning purposes, so fail safe to [] rather than let that surface
+    // as a fatal on whatever form triggered the computation.
+    try {
+      $fieldDefinition = $this->fieldTypePluginManager->getDefinition($config['type']);
+      $fieldClass = $fieldDefinition['class'];
+      $eventsToCreate = $fieldClass::calculateInstances($config);
+    }
+    catch (\Throwable $e) {
+      return [];
+    }
+    return self::validRows($eventsToCreate);
+  }
+
+  /**
+   * Keeps only rows whose start_date and end_date are real DrupalDateTime
+   * values — the single choke point guaranteeing compute() only ever emits
+   * well-formed tuples.
+   *
+   * A missing/NULL end_date would be kept by filterFuture() (it fails open on
+   * a null end) but would then be dereferenced downstream (the flagged-date
+   * filter and the createInstances() call both format both ends), so a row
+   * missing either half is dropped here rather than carried forward.
+   *
+   * @param array<string, array{start_date: mixed, end_date: mixed}> $eventsToCreate
+   *
+   * @return array<string, array{start_date: \Drupal\Core\Datetime\DrupalDateTime, end_date: \Drupal\Core\Datetime\DrupalDateTime}>
+   */
+  private static function validRows(array $eventsToCreate): array {
+    return array_filter($eventsToCreate, function (array $dates): bool {
+      return ($dates['start_date'] ?? NULL) instanceof DrupalDateTime
+        && ($dates['end_date'] ?? NULL) instanceof DrupalDateTime;
+    });
   }
 
   /**

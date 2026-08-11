@@ -96,8 +96,19 @@ class EventPostSurvey extends ControllerBase {
     $entity_id = is_numeric($request->attributes->get('entity')) ? $request->attributes->get('entity') : 0;
     $user_id = is_numeric($request->attributes->get('user')->id()) ? $request->attributes->get('user')->id() : 0;
 
+    // A stale survey link can outlive its instance (the occurrence was
+    // hard-deleted) or its series (the parent was removed, orphaning the
+    // instance). Either way there is no survey URL to forward to, so show a
+    // graceful "no longer available" message rather than fatal on the missing
+    // entity.
     $event_instance = $this->entityTypeManager->getStorage('eventinstance')->load($entity_id);
-    $entity_series = $event_instance->getEventSeries();
+    $entity_series = $event_instance ? $event_instance->getEventSeries() : NULL;
+    if (!$entity_series) {
+      return [
+        '#type' => 'markup',
+        '#markup' => $this->t('This survey is no longer available.'),
+      ];
+    }
     $post_survey_url = $entity_series->field_post_survey_url->uri;
 
     // Check registration exists

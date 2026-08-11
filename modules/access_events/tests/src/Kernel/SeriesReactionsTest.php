@@ -239,6 +239,46 @@ class SeriesReactionsTest extends EventKernelTestBase {
   }
 
   /**
+   * A recur-config change on a non-published weekly series whose config is
+   * left partial (days emptied, date range cleared) does NOT fatal on save,
+   * and leaves the existing instance set untouched. The non-published rebuild
+   * trigger would otherwise invoke contrib's WeeklyRecurringDate::
+   * calculateInstances() on the partial config, which foreach-es the empty
+   * days and passes null dates into non-nullable typehints and throws — the
+   * completeness pre-check skips the rebuild instead, so a half-configured
+   * recurrence yields no rebuild rather than a fatal.
+   */
+  public function testPartialWeeklyConfigChangeOnNonPublishedSeriesDoesNotFatal(): void {
+    $coordinator = $this->createUser();
+    // A valid weekly series (its insert hook spawns instances from the
+    // populated rule). makeCoordinatorRuleSeries() leaves it non-published.
+    $series = $this->makeCoordinatorRuleSeries($coordinator);
+    $seriesId = (int) $series->id();
+    $before = count($this->loadInstances(EventSeries::load($seriesId)));
+
+    // Now clear the rule down to a partial shape and save — a recur-config
+    // change (so the rebuild trigger's precondition is met) on a
+    // non-published series (so OUR trigger, not contrib's, owns the rebuild).
+    $series = EventSeries::load($seriesId);
+    $series->set('weekly_recurring_date', [
+      'value' => NULL,
+      'end_value' => NULL,
+      'time' => '10:00 AM',
+      'end_time' => '11:00 AM',
+      'duration' => 3600,
+      'duration_or_end_time' => 'end_time',
+      'days' => '',
+    ]);
+    // No exception thrown by save() is the assertion.
+    $series->save();
+
+    // The partial-config rebuild was skipped, so the existing instance set is
+    // left in place rather than destroyed.
+    $after = count($this->loadInstances(EventSeries::load($seriesId)));
+    $this->assertSame($before, $after);
+  }
+
+  /**
    * A pending-draft date change (a series still in 'draft', never published)
    * triggers nothing extra from our rebuild trigger — recurring_events' own
    * eventseries_update already owns the unmoderated/draft-insert-adjacent
@@ -370,6 +410,7 @@ class SeriesReactionsTest extends EventKernelTestBase {
       \Drupal::service('recurring_events_registration.notification_service'),
       \Drupal::service('datetime.time'),
       \Drupal::service('config.factory'),
+      \Drupal::service('database'),
     ) extends \Drupal\access_events\CancellationNotifier {
       public function __construct(
         private int $throwOnInstanceId,
@@ -377,8 +418,9 @@ class SeriesReactionsTest extends EventKernelTestBase {
         \Drupal\recurring_events_registration\NotificationService $notificationService,
         \Drupal\Component\Datetime\TimeInterface $time,
         \Drupal\Core\Config\ConfigFactoryInterface $configFactory,
+        \Drupal\Core\Database\Connection $database,
       ) {
-        parent::__construct($entityTypeManager, $notificationService, $time, $configFactory);
+        parent::__construct($entityTypeManager, $notificationService, $time, $configFactory, $database);
       }
 
       public function enqueueGated(\Drupal\recurring_events\Entity\EventInstance $instance, string $key): int {

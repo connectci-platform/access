@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\Tests\access_events\Kernel;
 
 use Drupal\access_events\FormWarnings;
+use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events\Entity\EventSeries;
 
@@ -281,6 +282,123 @@ class FormWarningsTest extends EventKernelTestBase {
   }
 
   /**
+   * compute() on a custom series carrying a custom_dates row with a NULL
+   * start date returns the set WITHOUT that row and does not throw. Real
+   * content violates the assumption every custom_dates row carries a start:
+   * the date-list widget accepts empty/partial rows, so a saved series can
+   * hold a row whose start_date is NULL — the shape that fataled the live
+   * eventseries EDIT form. A row without a start date generates no occurrence
+   * and is simply omitted; the valid row survives.
+   */
+  public function testComputeOnCustomSeriesWithNullStartRowOmitsRowDoesNotThrow(): void {
+    $series = $this->makeUnpublishedCustomSeriesWithDates([
+      ['value' => '2999-01-01T10:00:00', 'end_value' => '2999-01-01T12:00:00'],
+    ]);
+
+    // Append a malformed custom_date row with only an end value (no start) —
+    // the exact production shape a partial widget row produces. Set in memory
+    // (not re-saved): saving re-runs contrib's own instance creation, which is
+    // itself unguarded against this row; compute() reads the live field values
+    // off the entity, so setting them directly reproduces the read path the
+    // EDIT form exercises.
+    $series->set('custom_date', [
+      ['value' => '2999-01-01T10:00:00', 'end_value' => '2999-01-01T12:00:00'],
+      ['value' => NULL, 'end_value' => '2999-03-01T12:00:00'],
+    ]);
+
+    $effectiveCreationSet = \Drupal::service('access_events.effective_creation_set');
+    $result = $effectiveCreationSet->compute($series);
+
+    // Only the well-formed row survives; the null-start row is omitted.
+    $this->assertCount(1, $result);
+    foreach ($result as $row) {
+      $this->assertInstanceOf(DrupalDateTime::class, $row['start_date']);
+      $this->assertInstanceOf(DrupalDateTime::class, $row['end_date']);
+    }
+  }
+
+  /**
+   * compute() on a custom series whose only custom_dates row has a NULL end
+   * date omits that row too. The returned tuple must never carry a null
+   * end_date downstream (filterFuture()/the flagged-date filter/contrib's
+   * createInstances() all dereference both ends), so a row missing its end is
+   * dropped at the single row-validity choke point rather than kept.
+   */
+  public function testComputeOnCustomSeriesWithNullEndRowOmitsRow(): void {
+    $series = $this->makeUnpublishedCustomSeriesWithDates([
+      ['value' => '2999-01-01T10:00:00', 'end_value' => '2999-01-01T12:00:00'],
+    ]);
+
+    $series->set('custom_date', [
+      ['value' => '2999-01-01T10:00:00', 'end_value' => '2999-01-01T12:00:00'],
+      ['value' => '2999-04-01T10:00:00', 'end_value' => NULL],
+    ]);
+
+    $effectiveCreationSet = \Drupal::service('access_events.effective_creation_set');
+    $result = $effectiveCreationSet->compute($series);
+
+    $this->assertCount(1, $result);
+    foreach ($result as $row) {
+      $this->assertInstanceOf(DrupalDateTime::class, $row['end_date']);
+    }
+  }
+
+  /**
+   * compute() on a rule-based (weekly) series whose recurrence config is
+   * missing returns [] and does not throw. A half-configured rule makes
+   * contrib's WeeklyRecurringDate::calculateInstances() dereference an empty
+   * days list / null start-end date range and throw a TypeError — an
+   * unconfigured recurrence has no effective set for warning purposes, so
+   * compute() fails safe to [] rather than fataling on the form.
+   */
+  public function testComputeOnWeeklySeriesWithMissingConfigReturnsEmptyDoesNotThrow(): void {
+    // A weekly recur_type whose date range and days list were never populated
+    // — the times are present but the start/end dates are null and days is
+    // empty, the partial shape a half-filled recurrence form leaves behind.
+    // The series is saved as custom first (so the insert hook does not try to
+    // spawn rule instances from the partial config), then switched to weekly
+    // in memory. WeeklyRecurringDate::calculateInstances() foreach-es the
+    // empty days string and passes the null dates into its non-nullable
+    // typehints, throwing — compute() must swallow that and return [].
+    $series = $this->makeUnpublishedCustomSeriesWithDates([
+      ['value' => '2999-01-01T10:00:00', 'end_value' => '2999-01-01T12:00:00'],
+    ]);
+    $series->set('recur_type', 'weekly_recurring_date');
+    $series->set('custom_date', []);
+    $series->set('weekly_recurring_date', [
+      'value' => NULL,
+      'end_value' => NULL,
+      'time' => '10:00 AM',
+      'end_time' => '11:00 AM',
+      'duration' => 3600,
+      'duration_or_end_time' => 'end_time',
+      'days' => '',
+    ]);
+
+    $effectiveCreationSet = \Drupal::service('access_events.effective_creation_set');
+
+    $this->assertSame([], $effectiveCreationSet->compute($series));
+  }
+
+  /**
+   * compute() on a well-formed weekly series returns real date rows — the
+   * regression guard proving the defensive wrapper around the rule-based
+   * branch did not swallow valid rule computation.
+   */
+  public function testComputeOnValidWeeklySeriesReturnsRealRows(): void {
+    $series = $this->makeValidWeeklySeries();
+
+    $effectiveCreationSet = \Drupal::service('access_events.effective_creation_set');
+    $result = $effectiveCreationSet->compute($series);
+
+    $this->assertNotEmpty($result);
+    foreach ($result as $row) {
+      $this->assertInstanceOf(DrupalDateTime::class, $row['start_date']);
+      $this->assertInstanceOf(DrupalDateTime::class, $row['end_date']);
+    }
+  }
+
+  /**
    * arrivingPublishedCounts() on the same no-recur-type unsaved series does
    * not throw, and reports zero publishable dates.
    */
@@ -388,6 +506,51 @@ class FormWarningsTest extends EventKernelTestBase {
     // The insert hook spawns one instance per custom_date. Left in the
     // workflow's default (draft) state — this series has never been
     // published, modeling the FIRST-publish / long-dormant-series path.
+    $series->save();
+
+    return $series;
+  }
+
+  /**
+   * Creates a saved weekly rule-based series with a VALID recurrence config.
+   *
+   * The regression fixture for the rule-based branch: a fully-populated
+   * weekly_recurring_date over a one-week bounded window, whose
+   * calculateInstances() produces real date rows. Mirrors
+   * EventKernelTestBase::makeCoordinatorRuleSeries()'s date_format seeding —
+   * a rule series' instance pipeline formats times via the core html_time /
+   * html_date formats, which are not present in this minimal kernel env.
+   */
+  protected function makeValidWeeklySeries(): EventSeries {
+    foreach ([
+      'html_time' => 'H:i:s',
+      'html_date' => 'Y-m-d',
+    ] as $formatId => $pattern) {
+      if (!\Drupal::entityTypeManager()->getStorage('date_format')->load($formatId)) {
+        \Drupal::entityTypeManager()->getStorage('date_format')->create([
+          'id' => $formatId,
+          'label' => $formatId,
+          'locked' => TRUE,
+          'pattern' => $pattern,
+        ])->save();
+      }
+    }
+
+    $series = EventSeries::create([
+      'title' => 'Valid Weekly Event',
+      'body' => 'A rule-based weekly series with fully-populated config.',
+      'recur_type' => 'weekly_recurring_date',
+      'type' => 'default',
+      'weekly_recurring_date' => [
+        'value' => '2999-01-04T00:00:00',
+        'end_value' => '2999-01-10T00:00:00',
+        'time' => '10:00 AM',
+        'end_time' => '11:00 AM',
+        'duration' => 3600,
+        'duration_or_end_time' => 'end_time',
+        'days' => 'monday,wednesday',
+      ],
+    ]);
     $series->save();
 
     return $series;

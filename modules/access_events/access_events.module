@@ -2091,8 +2091,16 @@ function _access_events_send_registration_reminders() {
       continue;
     }
 
+    // An instance with no start date has no "already started" moment to
+    // reason about — skip it rather than let a null start_date fatal the whole
+    // cron reminder loop and abort every remaining instance's reminder.
+    $start_date = $instance->date->start_date;
+    if ($start_date === NULL) {
+      continue;
+    }
+
     // Skip sending reminder if the event has already started.
-    if ($instance->date->start_date->getTimestamp() <= time()) {
+    if ($start_date->getTimestamp() <= time()) {
       // Mark as sent to prevent future attempts.
       $instance->set('reminder_sent', time());
       $instance->setNewRevision(FALSE);

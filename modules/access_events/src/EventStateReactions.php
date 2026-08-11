@@ -144,11 +144,57 @@ class EventStateReactions {
     if (!$creationService->checkForOriginalRecurConfigChanges($entity, $entity->original)) {
       return;
     }
+    // A half-configured recurrence yields no instances: the rebuild reads the
+    // series' recur config through contrib's field plugins, which trust that
+    // config to be complete. A weekly series in particular can be saved with
+    // an empty days list or a null start/end date range, and
+    // WeeklyRecurringDate::calculateInstances() foreach-es the days and passes
+    // the dates into non-nullable typehints — a rebuild on that partial config
+    // would throw. Skip the rebuild when the recurrence is not complete enough
+    // to compute instances, matching the safe-omit principle (no instances is
+    // the correct outcome for a recurrence that isn't fully specified).
+    if (!$this->recurConfigIsComplete($entity)) {
+      return;
+    }
     $pluginManager = \Drupal::service('plugin.manager.event_instance_creator');
     $config = \Drupal::config('recurring_events.eventseries.config');
     $activePlugin = $pluginManager->createInstance($config->get('creator_plugin'), []);
     \Drupal::moduleHandler()->alter('recurring_events_event_instance_creator_plugin', $activePlugin, $pluginManager, $entity);
-    $activePlugin->processInstances($entity);
+    // The completeness pre-check above covers the common weekly case, but the
+    // other rule types have their own required-config assumptions; a general
+    // catch keeps any partial-config rebuild from surfacing as a fatal on the
+    // save. A failed rebuild simply leaves the existing instance set in place.
+    try {
+      $activePlugin->processInstances($entity);
+    }
+    catch (\Throwable $e) {
+      \Drupal::logger('access_events')->notice('Skipped instance rebuild for series @id: recurrence config could not be computed (@message).', [
+        '@id' => $entity->id(),
+        '@message' => $e->getMessage(),
+      ]);
+    }
+  }
+
+  /**
+   * Whether the series' recurrence config is complete enough to compute
+   * instances without contrib's field plugins tripping on missing data.
+   *
+   * A custom series is always computable (its per-row start/end are validated
+   * where they are read). For a weekly series — the one contrib field plugin
+   * that does not guard its own required config — both the start and end date
+   * of the range must be present AND the days list non-empty; a partial
+   * weekly config yields no instances. Other rule types carry their own
+   * guards in contrib, so they are admitted here and the try/catch around the
+   * rebuild is their backstop.
+   */
+  private function recurConfigIsComplete(EventSeries $entity): bool {
+    if ($entity->getRecurType() === 'weekly_recurring_date') {
+      $weekly = $entity->get('weekly_recurring_date');
+      return $weekly->start_date !== NULL
+        && $weekly->end_date !== NULL
+        && !empty($entity->getWeeklyDays());
+    }
+    return TRUE;
   }
 
   /**
