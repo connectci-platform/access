@@ -40,6 +40,7 @@ class CoordinatorAccessTest extends KernelTestBase {
     'text',
     'filter',
     'taxonomy',
+    'access',
     'access_affinitygroup',
     'key',
   ];

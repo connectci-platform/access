@@ -19,7 +19,7 @@ class RpAccountServiceTest extends KernelTestBase {
   use ProphecyTrait;
 
   protected static $modules = [
-    'access_affinitygroup', 'user', 'system', 'node', 'field', 'text', 'filter', 'key',
+    'access', 'access_affinitygroup', 'user', 'system', 'node', 'field', 'text', 'filter', 'key',
   ];
 
   protected function setUp(): void {
