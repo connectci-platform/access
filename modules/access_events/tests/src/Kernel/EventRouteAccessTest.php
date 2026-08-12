@@ -22,7 +22,8 @@ use Symfony\Component\HttpFoundation\Request;
  *
  * It mirrors the authoritative precedent
  * `Drupal\Tests\access_affinitygroup\Kernel\ActingUserAccessTest`: a kernel test
- * that instantiates the gate directly (`new ActingUserAccess(entityTypeManager)`)
+ * that instantiates the gate directly (`new ActingUserAccess(entityTypeManager,
+ * database)`)
  * and calls `check($account, $request)` against synthetic `Request` objects
  * carrying the `X-Acting-User` header. There are ZERO Functional/BrowserTestBase
  * tests under `web/modules/custom/access`, and the gate has no HTTP header
@@ -48,9 +49,33 @@ use Symfony\Component\HttpFoundation\Request;
 class EventRouteAccessTest extends EventKernelTestBase {
 
   /**
+   * The ACCESS ID the owner is reachable by (their authmap `sub`).
+   */
+  private const OWNER_ACCESS_ID = 'event-owner@access-ci.org';
+
+  /**
    * The URL path of one of the guarded event routes, for the synthetic request.
    */
   private string $eventPath;
+
+  /**
+   * Creates the openid_connect_authmap table (contrib-owned; see the gate).
+   */
+  private function createAuthmapTable(): void {
+    $schema = \Drupal::database()->schema();
+    if ($schema->tableExists('openid_connect_authmap')) {
+      return;
+    }
+    $schema->createTable('openid_connect_authmap', [
+      'fields' => [
+        'aid' => ['type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE],
+        'uid' => ['type' => 'int', 'not null' => TRUE, 'default' => 0],
+        'client_name' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''],
+        'sub' => ['type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''],
+      ],
+      'primary key' => ['aid'],
+    ]);
+  }
 
   /**
    * {@inheritdoc}
@@ -60,6 +85,17 @@ class EventRouteAccessTest extends EventKernelTestBase {
 
     // The gate's mcp_service branch requires the role to exist.
     Role::create(['id' => 'mcp_service', 'label' => 'MCP Service'])->save();
+
+    // The gate resolves X-Acting-User against the openid_connect authmap only,
+    // so the table plus a row for the owner is what makes them addressable.
+    $this->createAuthmapTable();
+    \Drupal::database()->insert('openid_connect_authmap')
+      ->fields([
+        'uid' => (int) $this->owner->id(),
+        'client_name' => 'cilogon',
+        'sub' => self::OWNER_ACCESS_ID,
+      ])
+      ->execute();
 
     // A real registrable instance gives the guarded routes a concrete id to
     // target in the request path (the gate itself never loads the instance, but
@@ -71,11 +107,11 @@ class EventRouteAccessTest extends EventKernelTestBase {
   /**
    * Builds the gate the way its service definition wires it.
    *
-   * Mirrors ActingUserAccessTest::makeAccess() — the gate takes only
-   * `@entity_type.manager`.
+   * Mirrors ActingUserAccessTest::makeAccess() — `@entity_type.manager` plus
+   * `@database` (the latter for the authmap lookup).
    */
   private function makeAccess(): ActingUserAccess {
-    return new ActingUserAccess(\Drupal::entityTypeManager());
+    return new ActingUserAccess(new \Drupal\access\AccessIdResolver(\Drupal::entityTypeManager(), \Drupal::database()));
   }
 
   /**
@@ -97,7 +133,7 @@ class EventRouteAccessTest extends EventKernelTestBase {
 
     $request = Request::create($this->eventPath);
     // The acting user is the pre-seeded, active $this->owner.
-    $request->headers->set('X-Acting-User', $this->owner->getAccountName());
+    $request->headers->set('X-Acting-User', self::OWNER_ACCESS_ID);
 
     $result = $this->makeAccess()->check($service, $request);
 
@@ -126,7 +162,7 @@ class EventRouteAccessTest extends EventKernelTestBase {
     $plain->save();
 
     $request = Request::create($this->eventPath);
-    $request->headers->set('X-Acting-User', $this->owner->getAccountName());
+    $request->headers->set('X-Acting-User', self::OWNER_ACCESS_ID);
 
     $result = $this->makeAccess()->check($plain, $request);
 
@@ -162,7 +198,7 @@ class EventRouteAccessTest extends EventKernelTestBase {
    */
   public function testGateDeniesAnonymous(): void {
     $request = Request::create($this->eventPath);
-    $request->headers->set('X-Acting-User', $this->owner->getAccountName());
+    $request->headers->set('X-Acting-User', self::OWNER_ACCESS_ID);
 
     $result = $this->makeAccess()->check(User::getAnonymousUser(), $request);
 

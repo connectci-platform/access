@@ -845,3 +845,51 @@ function access_affinitygroup_update_10013(): string {
   ]);
   return 'Added sp_state column to access_user_rp_account.';
 }
+
+/**
+ * Adds a sub-only index to the openid_connect_authmap table.
+ *
+ * NOTE: this indexes a table owned by the CONTRIB openid_connect module, not
+ * one of ours. That is deliberate. ActingUserAccess resolves an ACCESS ID by
+ * looking up `sub` WITHOUT a client_name, because the gate has no way to know
+ * which OIDC client provisioned a given account. The contrib `identifier`
+ * index is (client_name, sub), so a sub-only predicate cannot use it and the
+ * query degrades to a full scan (~62k rows on production).
+ *
+ * The index is added defensively — it is skipped if openid_connect is not
+ * installed or if the index already exists — so the hook is safe on any site.
+ * If openid_connect ever ships its own sub index, this one becomes redundant
+ * and can be dropped.
+ *
+ * @see \Drupal\access_affinitygroup\Access\ActingUserAccess::loadActiveUserByAuthmapSub()
+ */
+function access_affinitygroup_update_10014(): string {
+  $schema = \Drupal::database()->schema();
+
+  if (!$schema->tableExists('openid_connect_authmap')) {
+    return 'openid_connect_authmap does not exist (openid_connect not installed); nothing to index.';
+  }
+  if ($schema->indexExists('openid_connect_authmap', 'access_sub')) {
+    return 'Index access_sub already exists on openid_connect_authmap; nothing to add.';
+  }
+
+  // Prefix-limited to 191 chars to stay within the utf8mb4 index-length limit,
+  // matching how the contrib module indexes the same column.
+  $schema->addIndex(
+    'openid_connect_authmap',
+    'access_sub',
+    [['sub', 191]],
+    [
+      'fields' => [
+        'sub' => [
+          'type' => 'varchar',
+          'length' => 255,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+      ],
+    ]
+  );
+
+  return 'Added access_sub index on openid_connect_authmap.sub for ACCESS-ID lookups.';
+}

@@ -6,9 +6,15 @@ services:
   access.jwt_key_provider:
     class: Drupal\access\AccessJwtKeyProvider
 
+  # Canonical ACCESS ID -> user resolution, shared by the MCP acting-user gate
+  # and the JSON:API subscribers so every surface resolves identity identically.
+  access.access_id_resolver:
+    class: Drupal\access\AccessIdResolver
+    arguments: ['@entity_type.manager', '@database']
+
   access.auth_cookie_subscriber:
     class: Drupal\access\EventSubscriber\AccessAuthCookieSubscriber
-    arguments: ['@access.jwt_key_provider', '@current_user', '@entity_type.manager', '@state', '@logger.channel.default']
+    arguments: ['@access.jwt_key_provider', '@current_user', '@entity_type.manager', '@state', '@logger.channel.default', '@database']
     tags:
       - { name: event_subscriber }
 

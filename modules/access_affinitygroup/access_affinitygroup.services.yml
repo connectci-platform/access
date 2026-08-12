@@ -32,7 +32,7 @@ services:
   access_affinitygroup.acting_user_access:
     class: Drupal\access_affinitygroup\Access\ActingUserAccess
     arguments:
-      - '@entity_type.manager'
+      - '@access.access_id_resolver'
   access_affinitygroup.acting_user_switch_subscriber:
     class: Drupal\access_affinitygroup\EventSubscriber\ActingUserSwitchSubscriber
     arguments:

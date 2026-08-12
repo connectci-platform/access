@@ -64,6 +64,9 @@ abstract class EventKernelTestBase extends KernelTestBase {
     'filter',
     'workflows',
     'content_moderation',
+    // 'access' provides access.access_id_resolver, which the acting-user gate
+    // and the JSON:API subscribers depend on.
+    'access',
     'access_affinitygroup',
     'key',
     'access_events',

@@ -2,33 +2,46 @@
 
 namespace Drupal\access_misc\EventSubscriber;
 
-use Drupal\Core\Entity\EntityTypeManagerInterface;
-use Drupal\jsonapi\Events\JsonApiEvents;
-use Drupal\jsonapi\Normalizer\Value\CacheableNormalization;
+use Drupal\access\AccessIdResolver;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
- * Resolves user email or username to UUID in JSON:API requests.
+ * Resolves the acting user's ACCESS ID to a UUID in JSON:API requests.
+ *
+ * Fills in the `uid` relationship on POST/PATCH bodies from the X-Acting-User
+ * header, so callers do not have to know the target's Drupal UUID.
+ *
+ * Resolution is ACCESS-ID-only, through the shared AccessIdResolver — the same
+ * resolver the MCP acting-user gate uses, so both surfaces resolve identity
+ * identically. The class name is historical: the email path it was named for
+ * is gone.
+ *
+ * Removed deliberately, all non-ACCESS-ID channels with no senders in our
+ * stack: the X-Acting-User-Email header, the username fallback on
+ * X-Acting-User, and the body shorthands `relationships.uid.data.mail` and
+ * `.name`. Emails are mutable and sometimes placeholders, usernames are not
+ * reliable identifiers on this site, and neither was ever part of the signed
+ * assertion chain.
  */
 class JsonApiEmailToUuidSubscriber implements EventSubscriberInterface {
 
   /**
-   * The entity type manager.
+   * The canonical ACCESS ID resolver.
    *
-   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   * @var \Drupal\access\AccessIdResolver
    */
-  protected $entityTypeManager;
+  protected AccessIdResolver $accessIdResolver;
 
   /**
    * Constructs a JsonApiEmailToUuidSubscriber object.
    *
-   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
-   *   The entity type manager.
+   * @param \Drupal\access\AccessIdResolver $access_id_resolver
+   *   The canonical ACCESS ID resolver.
    */
-  public function __construct(EntityTypeManagerInterface $entity_type_manager) {
-    $this->entityTypeManager = $entity_type_manager;
+  public function __construct(AccessIdResolver $access_id_resolver) {
+    $this->accessIdResolver = $access_id_resolver;
   }
 
   /**
@@ -41,7 +54,7 @@ class JsonApiEmailToUuidSubscriber implements EventSubscriberInterface {
   }
 
   /**
-   * Resolves email or username to UUID in JSON:API POST/PATCH requests.
+   * Resolves the acting user's ACCESS ID to a UUID on POST/PATCH requests.
    *
    * @param \Symfony\Component\HttpKernel\Event\RequestEvent $event
    *   The request event.
@@ -71,48 +84,18 @@ class JsonApiEmailToUuidSubscriber implements EventSubscriberInterface {
 
     $modified = FALSE;
 
-    // Check for uid relationship with email or username instead of UUID.
-    if (isset($data['data']['relationships']['uid']['data'])) {
-      $uid_data = &$data['data']['relationships']['uid']['data'];
-
-      // Check for email.
-      if (isset($uid_data['mail']) && !isset($uid_data['id'])) {
-        $uuid = $this->getUserUuidByEmail($uid_data['mail']);
-        if ($uuid) {
-          $uid_data['id'] = $uuid;
-          unset($uid_data['mail']);
-          $modified = TRUE;
-        }
-      }
-      // Check for username.
-      elseif (isset($uid_data['name']) && !isset($uid_data['id'])) {
-        $uuid = $this->getUserUuidByUsername($uid_data['name']);
-        if ($uuid) {
-          $uid_data['id'] = $uuid;
-          unset($uid_data['name']);
-          $modified = TRUE;
-        }
-      }
-    }
-
-    // Also check X-Acting-User-Email or X-Acting-User header as fallback.
+    // Fill in the uid relationship from the acting user's ACCESS ID. Only when
+    // the caller supplied no uid relationship at all — an explicit one (a real
+    // UUID, or a `mail`/`name` shorthand that is no longer honored) is left
+    // exactly as sent.
     if (!isset($data['data']['relationships']['uid'])) {
-      $acting_user_email = $request->headers->get('X-Acting-User-Email');
-      $acting_user_name = $request->headers->get('X-Acting-User');
+      $acting_user = $this->accessIdResolver->resolve($request->headers->get('X-Acting-User'));
 
-      $uuid = NULL;
-      if ($acting_user_email) {
-        $uuid = $this->getUserUuidByEmail($acting_user_email);
-      }
-      elseif ($acting_user_name) {
-        $uuid = $this->getUserUuidByUsername($acting_user_name);
-      }
-
-      if ($uuid) {
+      if ($acting_user) {
         $data['data']['relationships']['uid'] = [
           'data' => [
             'type' => 'user--user',
-            'id' => $uuid,
+            'id' => $acting_user->uuid(),
           ],
         ];
         $modified = TRUE;
@@ -131,60 +114,6 @@ class JsonApiEmailToUuidSubscriber implements EventSubscriberInterface {
         json_encode($data)
       );
     }
-  }
-
-  /**
-   * Gets user UUID by email address.
-   *
-   * @param string $email
-   *   The email address.
-   *
-   * @return string|null
-   *   The user UUID or NULL if not found.
-   */
-  protected function getUserUuidByEmail(string $email): ?string {
-    try {
-      $users = $this->entityTypeManager
-        ->getStorage('user')
-        ->loadByProperties(['mail' => $email]);
-
-      if (!empty($users)) {
-        $user = reset($users);
-        return $user->uuid();
-      }
-    }
-    catch (\Exception $e) {
-      // Log error silently.
-    }
-
-    return NULL;
-  }
-
-  /**
-   * Gets user UUID by username.
-   *
-   * @param string $username
-   *   The username.
-   *
-   * @return string|null
-   *   The user UUID or NULL if not found.
-   */
-  protected function getUserUuidByUsername(string $username): ?string {
-    try {
-      $users = $this->entityTypeManager
-        ->getStorage('user')
-        ->loadByProperties(['name' => $username]);
-
-      if (!empty($users)) {
-        $user = reset($users);
-        return $user->uuid();
-      }
-    }
-    catch (\Exception $e) {
-      // Log error silently.
-    }
-
-    return NULL;
   }
 
 }
