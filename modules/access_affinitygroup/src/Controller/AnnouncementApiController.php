@@ -2,10 +2,12 @@
 
 namespace Drupal\access_affinitygroup\Controller;
 
+use Drupal\access_affinitygroup\Access\CoordinatorAccess;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\node\Entity\Node;
 use Drupal\node\NodeInterface;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -39,6 +41,32 @@ class AnnouncementApiController extends ControllerBase {
     'field_news_external_link',
     'field_choose_where_to_share_this',
   ];
+
+  /**
+   * The shared coordinator-membership access check.
+   *
+   * @var \Drupal\access_affinitygroup\Access\CoordinatorAccess
+   */
+  protected CoordinatorAccess $coordinatorAccess;
+
+  /**
+   * Constructs the controller.
+   *
+   * @param \Drupal\access_affinitygroup\Access\CoordinatorAccess $coordinator_access
+   *   The shared coordinator-membership access check.
+   */
+  public function __construct(CoordinatorAccess $coordinator_access) {
+    $this->coordinatorAccess = $coordinator_access;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public static function create(ContainerInterface $container) {
+    return new static(
+      $container->get('access_affinitygroup.coordinator_access'),
+    );
+  }
 
   /**
    * POST /api/2.3/announcements — create a draft announcement.
@@ -230,22 +258,7 @@ class AnnouncementApiController extends ControllerBase {
     if (in_array('administrator', $roles, TRUE) || in_array('news_pm', $roles, TRUE)) {
       return TRUE;
     }
-    foreach ($groupNodes as $group) {
-      if (!$group || !$group->hasField('field_coordinator')) {
-        return FALSE;
-      }
-      $isCoordinator = FALSE;
-      foreach ($group->get('field_coordinator')->getValue() as $ref) {
-        if ((int) $ref['target_id'] === (int) $user->id()) {
-          $isCoordinator = TRUE;
-          break;
-        }
-      }
-      if (!$isCoordinator) {
-        return FALSE;
-      }
-    }
-    return TRUE;
+    return $this->coordinatorAccess->userCoordinatesAllGroups($user, $groupNodes);
   }
 
   /**

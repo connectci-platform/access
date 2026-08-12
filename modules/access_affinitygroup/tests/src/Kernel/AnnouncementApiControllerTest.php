@@ -3,6 +3,7 @@
 namespace Drupal\Tests\access_affinitygroup\Kernel;
 
 use Drupal\access_affinitygroup\Controller\AnnouncementApiController;
+use Drupal\Core\DependencyInjection\ContainerBuilder;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\KernelTests\KernelTestBase;
@@ -15,6 +16,7 @@ use Drupal\Tests\content_moderation\Traits\ContentModerationTestTrait;
 use Drupal\Tests\user\Traits\UserCreationTrait;
 use Drupal\user\Entity\Role;
 use Drupal\user\RoleInterface;
+use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
@@ -45,6 +47,23 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     'access_news',
     'key',
   ];
+
+  /**
+   * {@inheritdoc}
+   *
+   * access_affinitygroup.acting_user_access depends on access.access_id_resolver,
+   * which is defined in the base `access` module (access.services.yml). This kernel
+   * test does not enable `access` (info.yml dependencies are not auto-loaded for the
+   * service compile), so register just that one service — it needs only
+   * entity_type.manager + database, both present here — rather than pulling in the
+   * whole `access` module and its subscribers/access_llm cascade.
+   */
+  public function register(ContainerBuilder $container): void {
+    parent::register($container);
+    $container->register('access.access_id_resolver', 'Drupal\access\AccessIdResolver')
+      ->addArgument(new Reference('entity_type.manager'))
+      ->addArgument(new Reference('database'));
+  }
 
   /**
    * {@inheritdoc}

@@ -3,6 +3,7 @@
 namespace Drupal\access\EventSubscriber;
 
 use Drupal\access\AccessJwtKeyProvider;
+use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\State\StateInterface;
@@ -83,6 +84,25 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
   protected LoggerInterface $logger;
 
   /**
+   * The database connection.
+   *
+   * @var \Drupal\Core\Database\Connection
+   */
+  protected Connection $database;
+
+  /**
+   * The ACCESS ID domain. Compared against lowercased values.
+   */
+  const ACCESS_ID_DOMAIN = '@access-ci.org';
+
+  /**
+   * Cached openid_connect_authmap existence (NULL = not yet checked).
+   *
+   * @var bool|null
+   */
+  protected ?bool $authmapTableExists = NULL;
+
+  /**
    * Constructs the subscriber.
    *
    * @param \Drupal\access\AccessJwtKeyProvider $key_provider
@@ -95,6 +115,8 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
    *   The state service.
    * @param \Psr\Log\LoggerInterface $logger
    *   The logger.
+   * @param \Drupal\Core\Database\Connection $database
+   *   The database connection, for the openid_connect authmap lookup.
    */
   public function __construct(
     AccessJwtKeyProvider $key_provider,
@@ -102,12 +124,14 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
     EntityTypeManagerInterface $entity_type_manager,
     StateInterface $state,
     LoggerInterface $logger,
+    Connection $database,
   ) {
     $this->keyProvider = $key_provider;
     $this->currentUser = $current_user;
     $this->entityTypeManager = $entity_type_manager;
     $this->state = $state;
     $this->logger = $logger;
+    $this->database = $database;
   }
 
   /**
@@ -145,17 +169,24 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
    * mid-session.
    */
   protected function setAuthCookie(ResponseEvent $event) {
-    // Get the full account name (e.g. "jsmith@access-ci.org").
-    // This is used as the JWT "sub" claim and matches the format
-    // expected by MCP servers in the X-Acting-User header.
     $user_entity = $this->entityTypeManager->getStorage('user')->load($this->currentUser->id());
     if (!$user_entity) {
       return;
     }
 
-    $account_name = $user_entity->getAccountName();
-    if (empty($account_name) || !str_ends_with($account_name, '@access-ci.org')) {
-      // No valid ACCESS ID — don't set a cookie.
+    // The JWT "sub" claim is the user's ACCESS ID (e.g. "jsmith@access-ci.org"),
+    // the format MCP servers expect in the X-Acting-User header.
+    $access_id = $this->deriveAccessId($user_entity);
+    if ($access_id === NULL) {
+      // No derivable ACCESS ID — no cookie. Log it: this account holds an
+      // authenticated session yet has no ACCESS-ID authmap row, which should
+      // not happen for a CILogon login. It does happen for import-created
+      // placeholder-email accounts that can never be email-linked, and those
+      // would otherwise lose the identity cookie silently.
+      $this->logger->warning(
+        'No ACCESS ID derivable for authenticated uid @uid; SESSaccess_auth cookie not set. The account has no @access-ci.org openid_connect authmap sub.',
+        ['@uid' => (int) $user_entity->id()]
+      );
       return;
     }
 
@@ -181,7 +212,7 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
 
     $payload = [
       'iss' => $this->keyProvider->getIssuer(),
-      'sub' => $account_name,
+      'sub' => $access_id,
       'iat' => $now,
       'exp' => $exp,
     ];
@@ -216,6 +247,98 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
     );
 
     $event->getResponse()->headers->setCookie($cookie);
+  }
+
+  /**
+   * Derives a user's ACCESS ID for the JWT `sub` claim.
+   *
+   * The Drupal username is NOT reliably the ACCESS ID. The site has two
+   * user-creation paths with different naming conventions: the
+   * allocations-import cron names users by bare ACCESS ID ("apasquale"), while
+   * CILogon first-login provisioning generates a display-style username
+   * ("andrew-pasquale-4"). Assuming the username is the id left every
+   * login-provisioned user without an identity cookie.
+   *
+   * The id comes from the openid_connect authmap ONLY — the uid's `sub`, when
+   * that sub is ACCESS-ID shaped. There is no username-based derivation of any
+   * kind. No authmap row means no cookie.
+   *
+   * That is complete by construction rather than lossy: anyone holding an
+   * authenticated session on this site logged in through CILogon, which writes
+   * the authmap row, and connect_existing_users (TRUE here) links a legacy
+   * account to that same row on its first login. So every real session has a
+   * row. Deriving an id from the username instead would be actively unsafe —
+   * openid_connect's generateUsername() produces @-free tokens like "toto" and
+   * "Eric.Brown" that are not ACCESS IDs, and the site holds duplicate
+   * accounts per human, so a username-derived cookie could assert an identity
+   * the user does not own.
+   *
+   * Note on case: `openid_connect_authmap.sub` is utf8mb4_general_ci, so the
+   * lookup in getAuthmapSub() is case-INSENSITIVE at the DB even though the
+   * suffix check here is explicitly lowercased.
+   *
+   * @param \Drupal\user\UserInterface $user
+   *   The user account.
+   *
+   * @return string|null
+   *   The ACCESS ID, or NULL if none can be derived.
+   */
+  protected function deriveAccessId($user): ?string {
+    $sub = $this->getAuthmapSub((int) $user->id());
+    if ($sub !== NULL && str_ends_with(strtolower($sub), self::ACCESS_ID_DOMAIN)) {
+      return $sub;
+    }
+    return NULL;
+  }
+
+  /**
+   * Returns an openid_connect authmap `sub` for a uid, if any.
+   *
+   * Reads the table directly: OpenIDConnectAuthmap::getConnectedAccounts()
+   * keys its result by client name, which this subscriber has no way to know.
+   * Some rows hold opaque CILogon subs
+   * ("http://cilogon.org/serverA/users/NNN") rather than ACCESS IDs, so the
+   * caller checks the form before trusting it.
+   *
+   * @param int $uid
+   *   The user id.
+   *
+   * @return string|null
+   *   The sub, or NULL if there is no usable authmap row.
+   */
+  protected function getAuthmapSub(int $uid): ?string {
+    // The table belongs to the optional contrib openid_connect module.
+    if (!$this->authmapTableExists()) {
+      return NULL;
+    }
+
+    $subs = $this->database->select('openid_connect_authmap', 'a')
+      ->fields('a', ['sub'])
+      ->condition('uid', $uid)
+      ->execute()
+      ->fetchCol();
+
+    // Prefer an ACCESS-ID-shaped sub over an opaque one.
+    foreach ($subs as $sub) {
+      if (str_ends_with(strtolower((string) $sub), self::ACCESS_ID_DOMAIN)) {
+        return $sub;
+      }
+    }
+    return $subs ? (string) reset($subs) : NULL;
+  }
+
+  /**
+   * Whether the optional contrib authmap table is present (memoized).
+   *
+   * This subscriber runs on EVERY response, so the schema probe must not be
+   * re-issued per request.
+   */
+  protected function authmapTableExists(): bool {
+    if ($this->authmapTableExists === NULL) {
+      $this->authmapTableExists = $this->database->schema()
+        ->tableExists('openid_connect_authmap');
+    }
+    return $this->authmapTableExists;
   }
 
   /**

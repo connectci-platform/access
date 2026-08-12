@@ -11,7 +11,7 @@ use Drupal\KernelTests\KernelTestBase;
  */
 class RpAccountSchemaTest extends KernelTestBase {
 
-  protected static $modules = ['access_affinitygroup', 'user', 'system', 'key'];
+  protected static $modules = ['access', 'access_affinitygroup', 'user', 'system', 'key'];
 
   public function testSchemaCreatesTable(): void {
     $this->installSchema('access_affinitygroup', ['access_user_rp_account']);

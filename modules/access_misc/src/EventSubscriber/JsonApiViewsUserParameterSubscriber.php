@@ -2,31 +2,37 @@
 
 namespace Drupal\access_misc\EventSubscriber;
 
-use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\access\AccessIdResolver;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
- * Resolves X-Acting-User header to user ID for JSON:API views.
+ * Resolves the X-Acting-User ACCESS ID to a user ID for JSON:API views.
+ *
+ * Resolution is ACCESS-ID-only, through the shared AccessIdResolver — the same
+ * resolver the MCP acting-user gate uses, so both surfaces resolve identity
+ * identically. This previously matched the header against an email address
+ * first and then fell back to the username; both were non-ACCESS-ID channels
+ * with no senders in our stack and are gone.
  */
 class JsonApiViewsUserParameterSubscriber implements EventSubscriberInterface {
 
   /**
-   * The entity type manager.
+   * The canonical ACCESS ID resolver.
    *
-   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   * @var \Drupal\access\AccessIdResolver
    */
-  protected $entityTypeManager;
+  protected AccessIdResolver $accessIdResolver;
 
   /**
    * Constructs a JsonApiViewsUserParameterSubscriber object.
    *
-   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
-   *   The entity type manager.
+   * @param \Drupal\access\AccessIdResolver $access_id_resolver
+   *   The canonical ACCESS ID resolver.
    */
-  public function __construct(EntityTypeManagerInterface $entity_type_manager) {
-    $this->entityTypeManager = $entity_type_manager;
+  public function __construct(AccessIdResolver $access_id_resolver) {
+    $this->accessIdResolver = $access_id_resolver;
   }
 
   /**
@@ -57,58 +63,17 @@ class JsonApiViewsUserParameterSubscriber implements EventSubscriberInterface {
       return;
     }
 
-    // Check for X-Acting-User header.
-    $acting_user = $request->headers->get('X-Acting-User');
+    // Resolve the acting user's ACCESS ID.
+    $acting_user = $this->accessIdResolver->resolve($request->headers->get('X-Acting-User'));
     if (!$acting_user) {
-      return;
-    }
-
-    // Resolve to user ID.
-    $uid = $this->getUserIdByEmailOrUsername($acting_user);
-    if (!$uid) {
       return;
     }
 
     // Set views-argument[0] to override the default current_user argument.
     // We always set it even if already present, as the header takes precedence.
     $query = $request->query->all();
-    $query['views-argument'][0] = $uid;
+    $query['views-argument'][0] = (int) $acting_user->id();
     $request->query->replace($query);
-  }
-
-  /**
-   * Gets user ID by email address or username.
-   *
-   * @param string $identifier
-   *   The email address or username.
-   *
-   * @return int|null
-   *   The user ID or NULL if not found.
-   */
-  protected function getUserIdByEmailOrUsername(string $identifier): ?int {
-    try {
-      // Try email first.
-      $users = $this->entityTypeManager
-        ->getStorage('user')
-        ->loadByProperties(['mail' => $identifier]);
-
-      // Try username if email didn't match.
-      if (empty($users)) {
-        $users = $this->entityTypeManager
-          ->getStorage('user')
-          ->loadByProperties(['name' => $identifier]);
-      }
-
-      if (!empty($users)) {
-        $user = reset($users);
-        return (int) $user->id();
-      }
-    }
-    catch (\Exception $e) {
-      // Log error silently.
-    }
-
-    return NULL;
   }
 
 }

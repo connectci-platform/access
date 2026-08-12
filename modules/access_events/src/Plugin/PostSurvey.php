@@ -119,8 +119,25 @@ class PostSurvey {
     foreach ($result as $entity_id) {
       $event_instance = $this->entityTypeManager->getStorage('eventinstance')->load($entity_id);
 
-      $end_date = $event_instance->date->end_value;
-      $end_date = strtotime($end_date);
+      // A cancelled (archived) instance's registrants already got the
+      // cancellation notice; a post-survey for an event that was called off
+      // would be confusing at best. moderation_state is not reliably usable
+      // as an entity-query condition on this entity type, so filter here
+      // after load instead.
+      if ($event_instance->get('moderation_state')->value === 'archived') {
+        continue;
+      }
+
+      // An instance with no end date is not eligible for a post-survey: a
+      // null/empty/unparseable end_value makes strtotime() return false, and
+      // false - 1800 <= now is always TRUE, which would wrongly send the
+      // survey and stamp it sent. Skip such an instance entirely (no send, no
+      // stamp) rather than mis-fire on a date the instance does not have.
+      $end_value = $event_instance->date->end_value;
+      $end_date = $end_value ? strtotime($end_value) : FALSE;
+      if ($end_date === FALSE) {
+        continue;
+      }
       $before_end = $end_date - (30 * 60);
       $now = $this->time->getRequestTime();
 
@@ -206,8 +223,15 @@ class PostSurvey {
     foreach ($result as $entity_id) {
       $event_instance = $this->entityTypeManager->getStorage('eventinstance')->load($entity_id);
 
-      $end_date = $event_instance->date->end_value;
-      $end_date = strtotime($end_date);
+      // An instance with no end date is not eligible for a post-survey
+      // reminder: a null/empty/unparseable end_value makes strtotime() return
+      // false, so the reminder window would compute off a date the instance
+      // does not have. Skip such an instance (no send, no stamp).
+      $end_value = $event_instance->date->end_value;
+      $end_date = $end_value ? strtotime($end_value) : FALSE;
+      if ($end_date === FALSE) {
+        continue;
+      }
       // Send reminder 3 days after event end.
       $reminder_date = $end_date + (3 * 24 * 60 * 60);
       $now = $this->time->getRequestTime();

@@ -20,7 +20,7 @@ class RpAccountControllerTest extends KernelTestBase {
 
   use ProphecyTrait;
 
-  protected static $modules = ['access_affinitygroup', 'node', 'field', 'user', 'system', 'text', 'filter', 'key', 'link'];
+  protected static $modules = ['access', 'access_affinitygroup', 'node', 'field', 'user', 'system', 'text', 'filter', 'key', 'link'];
 
   protected function setUp(): void {
     parent::setUp();

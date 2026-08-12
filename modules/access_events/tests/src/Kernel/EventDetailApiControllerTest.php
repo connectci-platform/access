@@ -338,6 +338,28 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
   }
 
   /**
+   * An unpublished (draft) instance refuses registration; no registrant row.
+   *
+   * An event that was never announced (still in draft) must not accept
+   * registrations. createRegistrableInstance() leaves both the series and the
+   * instance published via publishModerated(); drive the instance back to
+   * draft to exercise the moderation gate directly.
+   */
+  public function testDraftInstanceReturns409NotRegistrableNoWrite(): void {
+    $instance = $this->createRegistrableInstance(capacity: 60, waitlist: FALSE);
+    $instance->set('moderation_state', 'draft')->save();
+    $before = $this->countRegistrants($instance);
+
+    $response = $this->doRegister($instance, $this->owner, ['confirmed' => TRUE]);
+    $this->assertSame(409, $response->getStatusCode());
+    $this->assertSame(
+      'not_registrable',
+      json_decode($response->getContent(), TRUE)['error'],
+    );
+    $this->assertSame($before, $this->countRegistrants($instance));
+  }
+
+  /**
    * A full-with-waitlist preview reports the waitlist outcome + count.
    */
   public function testFullWithWaitlistPreviewReportsWaitlistedCount(): void {

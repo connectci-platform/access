@@ -200,11 +200,18 @@ class EventWaitlist extends ControllerBase {
     $pre_survey_url = $event_instance->get('pre_survey_url')->uri;
     $email_template = $event_instance->get('pre_survey_email_text')->value;
     $location = $event_instance->get('location')->value ?: '';
-    $og_start_date = $event_instance->get('date')->start_date->__toString();
-    $end_date = $event_instance->get('date')->end_date->__toString();
-    $start_date = date('F j, Y', strtotime($og_start_date));
-    $event_start_time = date('g:iA', strtotime($og_start_date));
-    $event_end_time = date('g:iA T', strtotime($end_date));
+    // An occurrence can carry a partial date (the date widget allows an empty
+    // start or end), so the computed start_date/end_date can be null. A
+    // missing date leaves its interpolated fields blank rather than fataling
+    // the approval email — the registrant still gets confirmed, just without
+    // the date/time line.
+    $start_date_obj = $event_instance->get('date')->start_date;
+    $end_date_obj = $event_instance->get('date')->end_date;
+    $og_start_date = $start_date_obj ? $start_date_obj->__toString() : '';
+    $end_date = $end_date_obj ? $end_date_obj->__toString() : '';
+    $start_date = $og_start_date ? date('F j, Y', strtotime($og_start_date)) : '';
+    $event_start_time = $og_start_date ? date('g:iA', strtotime($og_start_date)) : '';
+    $event_end_time = $end_date ? date('g:iA T', strtotime($end_date)) : '';
 
     // Turn $series_title into a link to the event with correct domain.
     $event_url = _access_misc_get_event_domain_url($event_instance_id);

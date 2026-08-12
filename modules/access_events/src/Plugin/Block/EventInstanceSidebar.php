@@ -32,7 +32,14 @@ class EventInstanceSidebar extends BlockBase {
       return [];
     }
 
+    // An orphaned instance whose parent series was deleted has no series-
+    // derived fields (contact, skill level, event type, affinity groups, …)
+    // to render — every read below dereferences $series, so render no sidebar
+    // content rather than fatal on a missing parent.
     $series = $event_instance->getEventSeries();
+    if (!$series) {
+      return [];
+    }
     $current_user = \Drupal::currentUser();
 
     // Read via the inheritance computed field so per-instance overrides win,

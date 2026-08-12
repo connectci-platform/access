@@ -9,6 +9,7 @@ use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\field_inheritance\Entity\FieldInheritance;
 use Drupal\KernelTests\KernelTestBase;
+use Drupal\Tests\content_moderation\Traits\ContentModerationTestTrait;
 use Drupal\Tests\user\Traits\UserCreationTrait;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events\Entity\EventSeries;
@@ -29,6 +30,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 class RegistrationApiTest extends KernelTestBase {
 
   use UserCreationTrait;
+  use ContentModerationTestTrait;
 
   /**
    * {@inheritdoc}
@@ -45,6 +47,8 @@ class RegistrationApiTest extends KernelTestBase {
     'field_inheritance',
     'recurring_events',
     'recurring_events_registration',
+    'workflows',
+    'content_moderation',
   ];
 
   /**
@@ -122,6 +126,17 @@ class RegistrationApiTest extends KernelTestBase {
       'plugin' => 'default_inheritance',
     ])->save();
 
+    // Content moderation on the eventinstance bundle, so an instance can carry
+    // moderation_state = archived — the signal the controller derives its
+    // "cancelled" flag from. createEditorialWorkflow() ships draft/published/
+    // archived, which is all this test needs.
+    $this->installEntitySchema('content_moderation_state');
+    $instanceWorkflow = $this->createEditorialWorkflow();
+    $instanceWorkflow->getTypePlugin()->addEntityTypeAndBundle('eventinstance', 'default');
+    $instanceWorkflow->save();
+    // Rediscover moderation_state on eventinstance now the workflow is attached.
+    $this->container->get('entity_field.manager')->clearCachedFieldDefinitions();
+
     $this->user = User::create([
       'name' => 'acting',
       'mail' => 'acting@example.com',
@@ -174,6 +189,14 @@ class RegistrationApiTest extends KernelTestBase {
    * recurring_events_registration/tests/src/Kernel/RegistrantTest.php, with a
    * daterange added on the instance (the "date" base field) so the "when"
    * filter has something to sort/filter on.
+   *
+   * Published by default: this file's fixtures predate the registrant-
+   * presave publish gate (registerUser() below creates registrants directly,
+   * the same way a real registration does), and every existing case here is
+   * about the registrations list/cancel API, not moderation gating, so a
+   * freshly created instance here starts life registrable. The dedicated
+   * gate tests below use createDraftInstance() instead when they need an
+   * explicitly non-published target.
    */
   protected function createInstance(string $title, string $start, string $end, array $seriesValues = []): EventInstance {
     $series = EventSeries::create([
@@ -191,6 +214,7 @@ class RegistrationApiTest extends KernelTestBase {
         'end_value' => $end,
       ],
     ]);
+    $instance->set('moderation_state', 'published');
     $instance->save();
 
     // field_inheritance resolves each computed field's source entity from a
@@ -281,6 +305,35 @@ class RegistrationApiTest extends KernelTestBase {
     // virtual_meeting_link: must read the link field's ->uri, not ->value
     // (which would be NULL) — this is the fragile bit worth pinning.
     $this->assertSame('https://zoom.example/123', $r['virtual_meeting_link']);
+  }
+
+  /**
+   * A registration on an archived instance is reported as cancelled.
+   */
+  public function testCancelledFlagTrueForArchivedInstance(): void {
+    $instance = $this->createInstance('Cancelled Event', '2999-01-01T10:00:00', '2999-01-01T12:00:00');
+    $this->registerUser($this->user, $instance);
+    // Cancel the occurrence: archive the instance.
+    $instance->set('moderation_state', 'archived')->save();
+
+    $body = $this->listBody('upcoming');
+
+    $this->assertCount(1, $body['registrations']);
+    $this->assertTrue($body['registrations'][0]['cancelled']);
+  }
+
+  /**
+   * A registration on a live (non-archived) instance is not cancelled.
+   */
+  public function testCancelledFlagFalseForLiveInstance(): void {
+    $instance = $this->createInstance('Live Event', '2999-02-01T10:00:00', '2999-02-01T12:00:00');
+    $instance->set('moderation_state', 'published')->save();
+    $this->registerUser($this->user, $instance);
+
+    $body = $this->listBody('upcoming');
+
+    $this->assertCount(1, $body['registrations']);
+    $this->assertFalse($body['registrations'][0]['cancelled']);
   }
 
   /**
@@ -496,5 +549,14 @@ class RegistrationApiTest extends KernelTestBase {
     $this->assertSame('cancelled', json_decode($response->getContent(), TRUE)['status']);
     $this->assertEmpty($this->loadByUuid($uuid));
   }
+
+  // The registration-requires-published-occurrence gate (the registrant-presave publish gate) is NOT exercised in this file:
+  // this test class's $modules list deliberately omits access_events (it
+  // tests RegistrationApiController in isolation from the access_events
+  // hooks), so access_events_entity_presave() never runs here and a gate
+  // test placed in this file would pass or fail for the wrong reason. The registration-requires-published-occurrence gate's
+  // presave-gate and update-exemption cases live in ModificationEmailGateTest
+  // instead, which extends EventKernelTestBase and so has access_events
+  // genuinely installed.
 
 }

@@ -2,8 +2,8 @@
 
 namespace Drupal\access_affinitygroup\Access;
 
+use Drupal\access\AccessIdResolver;
 use Drupal\Core\Access\AccessResult;
-use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Session\AccountInterface;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -11,9 +11,19 @@ use Symfony\Component\HttpFoundation\Request;
  * Acting-user access check for MCP-service endpoints.
  *
  * A service account holding the `mcp_service` role may act on behalf of a user
- * by sending X-Acting-User (ACCESS ID) or X-Acting-User-Email. Resolves the
- * acting user and stashes their uid as the `acting_user_uid` request attribute.
- * With no acting header, falls back to the authenticated user's own uid.
+ * by sending X-Acting-User (an ACCESS ID). Resolves the acting user and stashes
+ * their uid as the `acting_user_uid` request attribute. With no acting header,
+ * falls back to the authenticated user's own uid.
+ *
+ * The ACCESS ID is the ONLY resolution channel. X-Acting-User-Email once
+ * resolved by `mail` address; that path is gone. It was a second, non-ACCESS-ID
+ * identity channel with no senders anywhere in the stack, and emails are
+ * mutable and sometimes placeholders, so it was never part of the signed
+ * assertion chain. The resolution space must equal the assertion space.
+ *
+ * X-Acting-User-Email is still recognized as an ACTING header for the
+ * privilege check, deliberately: a caller sending only it is refused rather
+ * than silently falling through to acting as itself.
  *
  * Generic (no rp-account logic): a tool-agnostic attribute name so any MCP
  * endpoint can reuse it.
@@ -23,7 +33,7 @@ class ActingUserAccess {
   private const SERVICE_ROLE = 'mcp_service';
 
   public function __construct(
-    private readonly EntityTypeManagerInterface $etm,
+    private readonly AccessIdResolver $accessIdResolver,
   ) {}
 
   public function check(AccountInterface $account, Request $request) {
@@ -91,23 +101,25 @@ class ActingUserAccess {
     return AccessResult::allowed();
   }
 
+  /**
+   * Resolves the acting user from the X-Acting-User header.
+   *
+   * Delegates to the canonical resolver so the MCP gate and the JSON:API
+   * surface resolve identity identically. See \Drupal\access\AccessIdResolver
+   * for the full rationale (ACCESS ID only, via the openid_connect authmap; no
+   * username and no email matching).
+   *
+   * CONSEQUENCE, intended: an account with no authmap row does not resolve at
+   * all. That includes import-created accounts that have never logged in to
+   * the support portal. They come into scope on first CILogon login (which
+   * writes the row, linking to the existing account because
+   * connect_existing_users is TRUE) or when merged.
+   *
+   * @return \Drupal\user\UserInterface|null
+   *   The active acting user, or NULL.
+   */
   private function resolveActingUser(Request $request) {
-    $store = $this->etm->getStorage('user');
-    $email = $request->headers->get('X-Acting-User-Email');
-    if ($email) {
-      $users = $store->loadByProperties(['mail' => $email, 'status' => 1]);
-      if ($u = reset($users)) {
-        return $u;
-      }
-    }
-    $name = $request->headers->get('X-Acting-User');
-    if ($name) {
-      $users = $store->loadByProperties(['name' => $name, 'status' => 1]);
-      if ($u = reset($users)) {
-        return $u;
-      }
-    }
-    return NULL;
+    return $this->accessIdResolver->resolve($request->headers->get('X-Acting-User'));
   }
 
 }
