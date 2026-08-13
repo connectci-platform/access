@@ -45,6 +45,10 @@ class FormWarningsTest extends EventKernelTestBase {
 
     $this->assertStringContainsString('2 registrants', $warning);
     $this->assertStringContainsString('cancels the event', $warning);
+    // Pin the send-confirmation clause: the gate-OPEN copy must tell the editor
+    // the cancellation email goes out. Without this, silently dropping "and
+    // emails them" would ship green.
+    $this->assertStringContainsString('emails them', $warning);
   }
 
   /**
@@ -105,8 +109,9 @@ class FormWarningsTest extends EventKernelTestBase {
 
     $warning = (string) $this->formWarnings->leavingPublishedWarning($instance);
 
-    $this->assertStringContainsString('will NOT be emailed', $warning);
-    $this->assertStringNotContainsString('registrants.', $warning);
+    $this->assertStringContainsString('1 registrant', $warning);
+    $this->assertStringContainsString('cancels the event', $warning);
+    $this->assertStringContainsString('will not be emailed', $warning);
   }
 
   /**
@@ -233,21 +238,41 @@ class FormWarningsTest extends EventKernelTestBase {
   }
 
   /**
-   * Arriving-published wording on a series with skipped-past dates surfaces
-   * the skipped count explicitly, not just the publishable count.
+   * Arriving-published on a series leads with the registrant count and says
+   * the event becomes active again — no occurrence-count or skipped-past
+   * language (past occurrences are preserved by design and not surfaced here).
    */
-  public function testArrivingPublishedSeriesWarningStringMentionsSkippedCount(): void {
+  public function testArrivingPublishedSeriesWarningLeadsWithRegistrants(): void {
     $this->enableEventNotifications();
 
-    $series = $this->makeUnpublishedCustomSeriesWithDates([
-      ['value' => '2000-01-01T10:00:00', 'end_value' => '2000-01-01T12:00:00'],
-      ['value' => '2999-01-01T10:00:00', 'end_value' => '2999-01-01T12:00:00'],
-    ]);
+    // Build a series recipient the SAME way the existing series tests do
+    // (testArrivingPublishedSeriesCountsRecipients, FormWarningsTest.php:160-177).
+    // registerUserOnDraftInstance() (EventKernelTestBase:1019), not plain
+    // registerUser(): a registrant cannot be created against a non-published
+    // instance (the registrant presave gate,
+    // EventStateReactions::instanceIsRegistrable, throws), so the helper
+    // publishes, registers, then restores via SYNCING saves — syncing saves
+    // are exempt from EventStateReactions::instancePresave()'s reaction
+    // (reacts() requires !isSyncing()), so they don't set
+    // individually_cancelled. A plain registerUser() + a normal (non-syncing)
+    // archive save on the SAME instance object leaves that object's syncing
+    // flag as set by an earlier syncing save, OR — if no such save ever ran
+    // — triggers the real individually_cancelled write on a genuine
+    // published-to-non-published transition, which a series restore then
+    // correctly excludes. Only registerUserOnDraftInstance's dance produces
+    // an archived, NOT individually-cancelled instance — the population an
+    // actual series restore sweep would republish and email.
+    $instance = $this->createRegistrableInstance();
+    $this->registerUserOnDraftInstance($this->createUser([], 'r1'), $instance);
+    $instance->set('moderation_state', 'archived')->save();
+    $series = $instance->getEventSeries();
 
     $warning = (string) $this->formWarnings->arrivingPublishedWarning($series);
 
-    $this->assertStringContainsString('republishes', $warning);
-    $this->assertStringContainsString('1 already elapsed', $warning);
+    $this->assertStringContainsString('1 registrant', $warning);
+    $this->assertStringContainsString('active again', $warning);
+    $this->assertStringNotContainsString('republishes', $warning);
+    $this->assertStringNotContainsString('elapsed', $warning);
   }
 
   /**
@@ -255,13 +280,53 @@ class FormWarningsTest extends EventKernelTestBase {
    * registrants will NOT be emailed, on both series and instance forms.
    */
   public function testArrivingPublishedWarningGatesOffStatesNoEmail(): void {
-    // No enableEventNotifications() call — gate stays closed.
+    // No enableEventNotifications() call — gate stays closed. The archived
+    // instance had a registrant from when it was published, so recipients > 0
+    // and the gate-off fallback (not NULL) is returned.
     $instance = $this->createRegistrableInstance();
+    $this->registerUser($this->createUser([], 'r1'), $instance);
     $instance->set('moderation_state', 'archived')->save();
 
     $warning = (string) $this->formWarnings->arrivingPublishedWarning($instance);
 
-    $this->assertStringContainsString('would NOT be emailed', $warning);
+    $this->assertStringContainsString('1 registrant', $warning);
+    $this->assertStringContainsString('will not email them', $warning);
+    $this->assertStringContainsString('notifications are turned off', $warning);
+  }
+
+  /**
+   * With no registrants there is nothing to disclose — both warning methods
+   * return NULL so callers render nothing (no empty warning box).
+   */
+  public function testWarningsReturnNullWhenNoRegistrants(): void {
+    $this->enableEventNotifications();
+
+    // A published instance with zero registrants → leaving-published is NULL.
+    $published = $this->createRegistrableInstance();
+    $this->assertNull($this->formWarnings->leavingPublishedWarning($published));
+
+    // An archived instance with zero registrants → arriving-published is NULL.
+    $archived = $this->createRegistrableInstance();
+    $archived->set('moderation_state', 'archived')->save();
+    $this->assertNull($this->formWarnings->arrivingPublishedWarning($archived));
+  }
+
+  public function testArrivingPublishedSeriesWarningGatesOffStatesNoEmail(): void {
+    // No enableEventNotifications() — gate stays closed. registerUserOnDraftInstance
+    // (not plain registerUser), same as testArrivingPublishedSeriesWarningLeadsWithRegistrants
+    // above: its syncing publish-register-restore dance is what leaves the
+    // instance NOT individually_cancelled after the archive save below, so
+    // it is still counted as a series-restore recipient.
+    $instance = $this->createRegistrableInstance();
+    $this->registerUserOnDraftInstance($this->createUser([], 'r1'), $instance);
+    $instance->set('moderation_state', 'archived')->save();
+    $series = $instance->getEventSeries();
+
+    $warning = (string) $this->formWarnings->arrivingPublishedWarning($series);
+
+    $this->assertStringContainsString('1 registrant', $warning);
+    $this->assertStringContainsString('will not email them', $warning);
+    $this->assertStringContainsString('notifications are turned off', $warning);
   }
 
   /**
