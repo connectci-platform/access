@@ -372,7 +372,11 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     // isn't known until submission, so this informs the editor of what each
     // direction would do rather than reacting to a live selection.
     if ($form_id !== 'eventinstance_default_clone_form') {
-      _access_events_attach_moderation_warnings($form, $form_state->getFormObject()->getEntity());
+      // Cast: FormState::$process_input is unset (NULL, not FALSE) at
+      // form_alter time — FormBuilder::doBuildForm() is the only place that
+      // calls setProcessInput(), and it runs after prepareForm()/the alter
+      // hooks. NULL correctly reads as "not processing input" (GET) here.
+      _access_events_attach_moderation_warnings($form, $form_state->getFormObject()->getEntity(), (bool) $form_state->isProcessingInput());
     }
 
     // The screen/pre/post-survey email accordions only matter when internal
@@ -471,7 +475,9 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     // has neither a saved state to leave nor a recurrence configuration to
     // compute an effective creation set from.
     if ($form_id !== 'eventseries_default_clone_form') {
-      _access_events_attach_moderation_warnings($form, $form_state->getFormObject()->getEntity());
+      // Cast: see the eventinstance call site above — $process_input is NULL
+      // (not FALSE) at form_alter time, and NULL correctly reads as "GET".
+      _access_events_attach_moderation_warnings($form, $form_state->getFormObject()->getEntity(), (bool) $form_state->isProcessingInput());
     }
 
     // Schedule-change disclosure — edit form only: the add form has no
@@ -2388,7 +2394,7 @@ function _access_events_attach_email_token_prefixes(array &$form) {
  * same way, so the counts computed here are safe to compute once per
  * request without an explicit cache-bust.
  */
-function _access_events_attach_moderation_warnings(array &$form, $entity): void {
+function _access_events_attach_moderation_warnings(array &$form, $entity, bool $isProcessingInput = FALSE): void {
   if (!$entity instanceof EventSeries && !$entity instanceof EventInstance) {
     return;
   }
@@ -2410,26 +2416,36 @@ function _access_events_attach_moderation_warnings(array &$form, $entity): void 
     ? $formWarnings->leavingPublishedWarning($entity)
     : $formWarnings->arrivingPublishedWarning($entity);
 
-  $markup = '<div class="messages messages--warning">' . Html::escape((string) $warningText) . '</div>';
-
-  // For a currently-archived (dark) occurrence whose widget still offers a
-  // draft target, carry the same choosing-Draft-on-dark disclosure the
-  // standalone moderation form shows: moving the occurrence to Draft takes it
-  // out of the archived state the series restore sweep queries for, so it will
-  // no longer be republished by that sweep. This only ever applied to the
-  // standalone form before; the entity edit form's widget offers the same
-  // draft target, so it needs the same disclosure.
-  if ($entity instanceof EventInstance
+  // Draft-on-dark is a separate, always-shown disclosure (out of scope for the
+  // registrant rework); it is NOT gated on registrant count.
+  $draftOnDark = ($entity instanceof EventInstance
     && $entity->get('moderation_state')->value === 'archived'
-    && isset($form['moderation_state']['widget'][0]['state']['#options']['draft'])) {
-    $markup .= '<div class="messages messages--warning">' . Html::escape((string) $formWarnings->draftOnDarkWarning()) . '</div>';
+    && isset($form['moderation_state']['widget'][0]['state']['#options']['draft']))
+    ? (string) $formWarnings->draftOnDarkWarning()
+    : NULL;
+
+  if ($warningText === NULL && $draftOnDark === NULL) {
+    return;
   }
 
-  $form['access_events_moderation_warning'] = [
-    '#type' => 'markup',
-    '#markup' => $markup,
-    '#weight' => isset($form['moderation_state']['#weight']) ? $form['moderation_state']['#weight'] - 1 : -100,
-  ];
+  // Nested-in-widget copy (B): renders right next to the "Change to" select,
+  // travelling with the widget wherever field_group/#after_build moves it.
+  $markup = '';
+  if ($warningText !== NULL) {
+    $markup .= '<div class="messages messages--warning">' . Html::escape((string) $warningText) . '</div>';
+  }
+  if ($draftOnDark !== NULL) {
+    $markup .= '<div class="messages messages--warning">' . Html::escape($draftOnDark) . '</div>';
+  }
+  $form['moderation_state']['widget'][0]['state']['#suffix'] =
+    ($form['moderation_state']['widget'][0]['state']['#suffix'] ?? '') . $markup;
+
+  // Top-of-page copy (A): the registrant warning only (not the draft-on-dark
+  // mechanics note). Added on GET render only — added on every build it would
+  // re-stack on AJAX rebuilds, since Messenger dedupes only within one request.
+  if ($warningText !== NULL && !$isProcessingInput) {
+    \Drupal::messenger()->addWarning($warningText);
+  }
 }
 
 /**
@@ -2602,7 +2618,10 @@ function _access_events_standalone_moderation_form_alter(array &$form, FormState
   $warningLines = [];
 
   if (isset($form['new_state']['#options']['published'])) {
-    $warningLines[] = (string) $formWarnings->arrivingPublishedWarning($entity);
+    $arriving = $formWarnings->arrivingPublishedWarning($entity);
+    if ($arriving !== NULL) {
+      $warningLines[] = (string) $arriving;
+    }
   }
 
   if ($entity instanceof EventInstance
