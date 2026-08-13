@@ -73,22 +73,30 @@ class FormWarnings {
    *   The series or instance currently being edited, in its LAST-SAVED
    *   (still-published) state.
    *
-   * @return \Drupal\Core\StringTranslation\TranslatableMarkup
+   * @return \Drupal\Core\StringTranslation\TranslatableMarkup|null
    *   The warning text.
    */
-  public function leavingPublishedWarning(EventSeries|EventInstance $entity): TranslatableMarkup {
+  public function leavingPublishedWarning(EventSeries|EventInstance $entity): ?TranslatableMarkup {
     $recipients = $entity instanceof EventSeries
       ? $this->countNotPastForPublishedInstancesInSeries((int) $entity->id())
       : $this->registrantCounter->countNotPastForInstance((int) $entity->id());
 
+    if ($recipients === 0) {
+      return NULL;
+    }
+
     if (!$this->notificationGateOpen(CancellationNotifier::KEY)) {
-      return $this->t('Leaving Published cancels the event. Registrants will NOT be emailed — notifications are currently turned off.');
+      return $this->formatPlural(
+        $recipients,
+        'This event has 1 registrant. Changing its status away from Published cancels the event. They will not be emailed — notifications are turned off.',
+        'This event has @count registrants. Changing its status away from Published cancels the event. They will not be emailed — notifications are turned off.',
+      );
     }
 
     return $this->formatPlural(
       $recipients,
-      'Leaving Published cancels the event and emails 1 registrant.',
-      'Leaving Published cancels the event and emails @count registrants.',
+      'This event has 1 registrant. Changing its status away from Published cancels the event and emails them.',
+      'This event has @count registrants. Changing its status away from Published cancels the event and emails them.',
     );
   }
 
@@ -100,10 +108,10 @@ class FormWarnings {
    *   be-published state) — used to compute the series' effective creation
    *   set when $entity is an EventSeries.
    *
-   * @return \Drupal\Core\StringTranslation\TranslatableMarkup
+   * @return \Drupal\Core\StringTranslation\TranslatableMarkup|null
    *   The warning text.
    */
-  public function arrivingPublishedWarning(EventSeries|EventInstance $entity): TranslatableMarkup {
+  public function arrivingPublishedWarning(EventSeries|EventInstance $entity): ?TranslatableMarkup {
     if ($entity instanceof EventInstance) {
       return $this->arrivingPublishedWarningForInstance($entity);
     }
@@ -117,87 +125,57 @@ class FormWarnings {
    * to a series' full computed date set (see arrivingPublishedWarningForSeries()).
    * Recipients are its own not-verifiably-past registrants.
    */
-  private function arrivingPublishedWarningForInstance(EventInstance $entity): TranslatableMarkup {
+  private function arrivingPublishedWarningForInstance(EventInstance $entity): ?TranslatableMarkup {
     $recipients = $this->registrantCounter->countNotPastForInstance((int) $entity->id());
 
-    // Conditional wording: on an edit form the editor has not chosen a target
-    // state yet, and only ARRIVING at published emails registrants. Choosing
-    // another non-published state (e.g. archived → draft) republishes nothing
-    // and emails no one, so this must not assert republish/email as certain.
+    if ($recipients === 0) {
+      return NULL;
+    }
+
     if (!$this->notificationGateOpen(CancellationNotifier::REINSTATE_KEY)) {
-      return $this->t('Publishing this occurrence would republish it. Registrants would NOT be emailed — notifications are currently turned off.');
+      return $this->formatPlural(
+        $recipients,
+        'This event has 1 registrant. Publishing it will not email them — notifications are turned off.',
+        'This event has @count registrants. Publishing it will not email them — notifications are turned off.',
+      );
     }
 
     return $this->formatPlural(
       $recipients,
-      'Publishing this occurrence will email 1 registrant.',
-      'Publishing this occurrence will email @count registrants.',
+      'This event has 1 registrant. Publishing it emails them that the event is active again.',
+      'This event has @count registrants. Publishing it emails them that the event is active again.',
     );
   }
 
   /**
    * Arriving-at-published wording for a series (including its first publish).
    *
-   * publishable = the effective creation set's future-only date count (what
-   * EffectiveCreationSet::compute() returns after its own not-verifiably-past
-   * filter) — the number of occurrences that will exist and be live once
-   * this save completes. skipped_past = how many of the series' CURRENTLY
-   * scheduled instances (its live event_instances field right now, before
-   * this save) will NOT be part of that set because their date has already
-   * elapsed while the series sat unpublished — those are never recreated,
-   * so an editor publishing a long-dormant series is told plainly that some
-   * of what they configured will not reappear. recipients = the union of
-   * not-verifiably-past registrants across only the instances the series
-   * restore sweep will actually republish and email — archived, not
-   * individually cancelled, not verifiably past (see
+   * recipients = the union of not-verifiably-past registrants across only
+   * the instances the series restore sweep will actually republish and
+   * email — archived, not individually cancelled, not verifiably past (see
    * countNotPastForRestorableInstancesInSeries() and
-   * EventStateReactions::sweepRestore()). This is narrower than
-   * RegistrantCounter::countNotPastForSeries(), which is state-blind and would
-   * overstate the count by including instances that are already published or
-   * individually cancelled and so get no reinstatement email.
+   * EventStateReactions::sweepRestore()). NULL is returned when that count is
+   * zero — there is nothing to disclose.
    */
-  private function arrivingPublishedWarningForSeries(EventSeries $entity): TranslatableMarkup {
-    $effectiveSet = $this->effectiveCreationSet->compute($entity);
-    $publishable = count($effectiveSet);
-
-    $currentlyScheduled = count($entity->event_instances->referencedEntities());
-    $skippedPast = max(0, $currentlyScheduled - $publishable);
-
+  private function arrivingPublishedWarningForSeries(EventSeries $entity): ?TranslatableMarkup {
     $recipients = $this->countNotPastForRestorableInstancesInSeries((int) $entity->id());
 
+    if ($recipients === 0) {
+      return NULL;
+    }
+
     if (!$this->notificationGateOpen(CancellationNotifier::REINSTATE_KEY)) {
-      if ($skippedPast > 0) {
-        return $this->formatPlural(
-          $publishable,
-          'This republishes 1 occurrence (@skipped already elapsed and will be skipped). Registrants will NOT be emailed — notifications are currently turned off.',
-          'This republishes @count occurrences (@skipped already elapsed and will be skipped). Registrants will NOT be emailed — notifications are currently turned off.',
-          ['@skipped' => $skippedPast],
-        );
-      }
       return $this->formatPlural(
-        $publishable,
-        'This republishes 1 occurrence. Registrants will NOT be emailed — notifications are currently turned off.',
-        'This republishes @count occurrences. Registrants will NOT be emailed — notifications are currently turned off.',
+        $recipients,
+        'This event has 1 registrant. Publishing it will not email them — notifications are turned off.',
+        'This event has @count registrants. Publishing it will not email them — notifications are turned off.',
       );
     }
 
-    if ($skippedPast > 0) {
-      return new TranslatableMarkup(
-        'This republishes @publishable occurrence(s) and emails @recipients registrant(s) (@skipped already elapsed and will be skipped).',
-        [
-          '@publishable' => $publishable,
-          '@recipients' => $recipients,
-          '@skipped' => $skippedPast,
-        ],
-      );
-    }
-
-    return new TranslatableMarkup(
-      'This republishes @publishable occurrence(s) and emails @recipients registrant(s).',
-      [
-        '@publishable' => $publishable,
-        '@recipients' => $recipients,
-      ],
+    return $this->formatPlural(
+      $recipients,
+      'This event has 1 registrant. Publishing it emails them that the event is active again.',
+      'This event has @count registrants. Publishing it emails them that the event is active again.',
     );
   }
 
