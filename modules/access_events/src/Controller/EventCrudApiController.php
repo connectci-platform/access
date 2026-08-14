@@ -185,11 +185,19 @@ class EventCrudApiController extends ControllerBase {
       return $this->refuse('validation_error', 'recur_type is required.', 422);
     }
 
-    // Resolve the requested affinity groups for the coordinator gate (create
-    // requires an AG).
-    $groupNodes = $this->resolveGroupNodes($body['field_affinity_group_node'] ?? []);
-    if (empty($groupNodes)) {
-      return $this->refuse('validation_error', 'field_affinity_group_node is required to create an event.', 422);
+    // Affinity group is OPTIONAL. A group is only supplied when the creator
+    // wants to publish the event to it, and coordinator status is required only
+    // for supplied groups. Distinguish "requested" from "resolved" so a bad
+    // UUID is rejected rather than silently creating a group-less event.
+    $rawGroups = $body['field_affinity_group_node'] ?? [];
+    if (!is_array($rawGroups)) {
+      $rawGroups = ($rawGroups === NULL || $rawGroups === '') ? [] : [$rawGroups];
+    }
+    // Same per-element predicate resolveGroupNodes uses.
+    $requested = array_filter($rawGroups, fn ($u) => is_string($u) && $u !== '');
+    $groupNodes = $this->resolveGroupNodes($rawGroups);
+    if (!empty($requested) && empty($groupNodes)) {
+      return $this->refuse('validation_error', 'One or more affinity groups could not be found.', 422);
     }
 
     $values = [
@@ -198,20 +206,24 @@ class EventCrudApiController extends ControllerBase {
       // Draft-only, hardcoded. Any caller moderation_state is ignored.
       'moderation_state' => 'draft',
       'title' => $body['title'],
-      'field_affinity_group_node' => array_map(fn (NodeInterface $n) => $n->id(), $groupNodes),
       'recur_type' => $body['recur_type'],
     ];
+    // Only write the group field when a group actually resolved; never an empty
+    // array.
+    if (!empty($groupNodes)) {
+      $values['field_affinity_group_node'] = array_map(fn (NodeInterface $n) => $n->id(), $groupNodes);
+    }
     // Maps the API custom_dates param to the entity custom_date field, or the
     // matching *_recurring_date field for a rule recur_type.
     $this->applyRecurDates($values, $body);
     // Copies the whitelisted content fields (body, field_summary, …).
     $this->applyContentFields($values, $body);
 
-    // Coordinator gate against the REQUESTED groups, before the series exists —
-    // a controller-level check against $groupNodes directly, not
-    // EventAccessHelper::userMayManageSeries (there is no saved series to call
-    // $series->access($op) on yet).
-    if (!$this->coordinatorAccess->userCoordinatesAllGroups($user, $groupNodes)) {
+    // Coordinator gate — ONLY when group(s) were supplied. No group means no
+    // group to coordinate, so no check (userCoordinatesAllGroups returns a
+    // vacuous TRUE on an empty array and must not be called unguarded). A
+    // supplied group still requires the caller coordinate all of them.
+    if (!empty($groupNodes) && !$this->coordinatorAccess->userCoordinatesAllGroups($user, $groupNodes)) {
       return $this->refuse('not_coordinator', 'You are not a coordinator of the selected affinity group(s).', 409);
     }
 

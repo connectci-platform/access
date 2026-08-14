@@ -168,6 +168,70 @@ class EventCrudCreateTest extends EventKernelTestBase {
   }
 
   /**
+   * An authenticated user may create an event with no affinity group.
+   *
+   * Depends on the prod field field_affinity_group_node being required: FALSE
+   * (field.field.eventseries.default.field_affinity_group_node.yml). If that
+   * ever flips to required, this kernel test stays green while prod browser
+   * POSTs start failing — this comment is the breadcrumb.
+   */
+  public function testCreateEventWithNoAffinityGroupSucceeds(): void {
+    $user = $this->createUser();
+    $body = [
+      'title' => 'Group-less Event',
+      'recur_type' => 'custom',
+      'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
+    ];
+    $response = $this->doCrud('create', NULL, $user, $body);
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($data['series_id']);
+    $this->assertSame('draft', $series->get('moderation_state')->value);
+    $this->assertCount(1, $data['instance_ids']);
+    // The field is written only when a group resolved; group-less => empty.
+    $this->assertTrue($series->get('field_affinity_group_node')->isEmpty());
+  }
+
+  /**
+   * A supplied affinity group that resolves to nothing is a validation error,
+   * not a silent group-less create.
+   */
+  public function testCreateEventRejectsUnresolvableAffinityGroup(): void {
+    $user = $this->createUser();
+    $body = [
+      'title' => 'Bad UUID Event',
+      'field_affinity_group_node' => ['not-a-real-uuid'],
+      'recur_type' => 'custom',
+      'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
+    ];
+    $response = $this->doCrud('create', NULL, $user, $body);
+    $this->assertSame(422, $response->getStatusCode());
+    $this->assertSame('validation_error', json_decode($response->getContent(), TRUE)['error']);
+  }
+
+  /**
+   * A mix of one good and one bad UUID proceeds with only the resolved group;
+   * the bad UUID is silently dropped (accepted footgun, locked here).
+   */
+  public function testCreateEventPartialResolveKeepsOnlyResolvedGroup(): void {
+    $coordinator = $this->createUser();
+    $group = $this->createAffinityGroupNode([$coordinator->id()]);
+    $body = [
+      'title' => 'Partial Resolve Event',
+      'field_affinity_group_node' => [$group->uuid(), 'not-a-real-uuid'],
+      'recur_type' => 'custom',
+      'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
+    ];
+    $response = $this->doCrud('create', NULL, $coordinator, $body);
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($data['series_id']);
+    $groupValue = $series->get('field_affinity_group_node')->getValue();
+    $this->assertCount(1, $groupValue);
+    $this->assertSame((string) $group->id(), (string) $groupValue[0]['target_id']);
+  }
+
+  /**
    * A missing title is a validation error.
    */
   public function testCreateEventValidationErrorOnMissingTitle(): void {
