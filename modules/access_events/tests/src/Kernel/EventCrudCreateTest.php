@@ -354,4 +354,105 @@ class EventCrudCreateTest extends EventKernelTestBase {
     $this->assertSame('Building 42', $series->get('field_location')->value);
   }
 
+  /**
+   * Creating without a required field refuses, names the field, saves nothing.
+   *
+   * create() used to skip entity validation entirely, so a minimal API create
+   * (title + recur_type only) birthed a draft violating the site's required
+   * fields (field_event_type, field_location) — a draft the browser form could
+   * never save, and one whose every subsequent content edit was refused by
+   * update()'s validation. The API must refuse at birth instead, with the
+   * field name in the message.
+   */
+  public function testCreateEventMissingRequiredFieldRefusedWithFieldName(): void {
+    $this->createEventTypeField(TRUE);
+
+    $user = $this->createUser();
+    $body = [
+      'title' => 'Incomplete Event',
+      'recur_type' => 'custom',
+      'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
+    ];
+    $response = $this->doCrud('create', NULL, $user, $body);
+    $this->assertSame(422, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertSame('validation_error', $data['error']);
+    $this->assertStringContainsString('field_event_type', $data['message']);
+
+    $ids = \Drupal::entityQuery('eventseries')->accessCheck(FALSE)->execute();
+    $this->assertSame([], $ids, 'No series may be persisted on a validation refusal.');
+  }
+
+  /**
+   * Creating with the option LABEL stores the KEY (zz_other stays internal).
+   */
+  public function testCreateEventAcceptsOptionLabelAndStoresKey(): void {
+    $this->createEventTypeField(TRUE);
+
+    $user = $this->createUser();
+    $body = [
+      'title' => 'Other-typed Event',
+      'recur_type' => 'custom',
+      'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
+      'field_event_type' => 'Other',
+    ];
+    $response = $this->doCrud('create', NULL, $user, $body);
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($data['series_id']);
+    $this->assertSame('zz_other', $series->get('field_event_type')->value);
+  }
+
+  /**
+   * A rule-recur create passes the validation gate.
+   *
+   * No recurring_events rule field is required, so validation must not refuse
+   * a rule-type create — the gate exists for field constraints, not to demand
+   * recurrence config the custom path doesn't need either.
+   */
+  public function testCreateEventWithRuleRecurTypePassesValidationGate(): void {
+    // The weekly spawn path parses times via core date-format config entities
+    // (html_date / html_time), which kernel tests don't get by default.
+    $this->installConfig(['system']);
+
+    $user = $this->createUser();
+    $body = [
+      'title' => 'Weekly Event',
+      'recur_type' => 'weekly_recurring_date',
+      'weekly_recurring_date' => [
+        [
+          'value' => '2099-06-01T00:00:00',
+          'end_value' => '2099-06-08T00:00:00',
+          'time' => '10:00 am',
+          'end_time' => '11:00 am',
+          'duration' => '60',
+          'duration_or_end_time' => 'duration',
+          'days' => 'monday',
+        ],
+      ],
+    ];
+    $response = $this->doCrud('create', NULL, $user, $body);
+    $this->assertSame(200, $response->getStatusCode());
+  }
+
+  /**
+   * Creating with the required field supplied still succeeds.
+   */
+  public function testCreateEventWithRequiredFieldSucceeds(): void {
+    $this->createEventTypeField(TRUE);
+
+    $user = $this->createUser();
+    $body = [
+      'title' => 'Complete Event',
+      'recur_type' => 'custom',
+      'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
+      'field_event_type' => 'Training',
+    ];
+    $response = $this->doCrud('create', NULL, $user, $body);
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($data['series_id']);
+    $this->assertSame('Training', $series->get('field_event_type')->value);
+  }
+
 }
