@@ -38,7 +38,11 @@
           <a href="/community-persona/{{ researcher.uid }}">{{ researcher.name }}</a>
         </div>
         {% if researcher.institution %}
-            <div class="tcs-researchers-block__institution">{{ researcher.role }}, {{ researcher.institution }}</div>
+            <div class="tcs-researchers-block__institution italic">
+              {{ researcher.role }}
+            </div>
+
+            <div class="tcs-researchers-block__institution">{{ researcher.institution }}</div>
         {% endif %}
       </div>
     {% endfor %}
