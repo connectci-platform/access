@@ -134,12 +134,20 @@ class TcsCaseStudyResearchersBlock extends BlockBase implements ContainerFactory
         }
       }
 
+      // Only link to the community profile when the user has not hidden it
+      // and has at least one program (region) assigned.
+      $hidden = $user->hasField('field_hide_community_profile')
+        && (bool) $user->get('field_hide_community_profile')->value === TRUE;
+      $has_region = $user->hasField('field_region')
+        && !$user->get('field_region')->isEmpty();
+
       $researchers[] = [
         'uid' => $user->id(),
         'name' => $user->getDisplayName(),
         'photo_url' => $photo_url,
         'role' => $role,
         'institution' => $institution,
+        'has_profile' => !$hidden && $has_region,
       ];
       $delta++;
     }
