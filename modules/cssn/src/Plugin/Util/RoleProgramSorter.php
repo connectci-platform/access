@@ -2,7 +2,10 @@
 
 namespace Drupal\cssn\Plugin\Util;
 
-use Drupal\user\Entity\User;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\Messenger\MessengerInterface;
+use Drupal\Core\Session\AccountInterface;
+use Drupal\Core\StringTranslation\StringTranslationTrait;
 
 /**
  * Sort Users.
@@ -14,24 +17,66 @@ use Drupal\user\Entity\User;
  * )
  */
 class RoleProgramSorter {
-  /**
-   * Store user object.
-   * $var object
-   */
-  private $storedUser;
+
+  use StringTranslationTrait;
 
   /**
-   * Function to return matching nodes.
+   * The account being sorted.
+   *
+   * @var \Drupal\Core\Session\AccountInterface
    */
-  public function __construct($user) {
+  private AccountInterface $storedUser;
+
+  /**
+   * The entity type manager.
+   *
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   */
+  private EntityTypeManagerInterface $entityTypeManager;
+
+  /**
+   * The messenger.
+   *
+   * @var \Drupal\Core\Messenger\MessengerInterface
+   */
+  private MessengerInterface $messenger;
+
+  /**
+   * Constructs a RoleProgramSorter.
+   *
+   * @param \Drupal\Core\Session\AccountInterface $user
+   *   The account whose roles and regions are sorted.
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
+   *   The entity type manager.
+   * @param \Drupal\Core\Messenger\MessengerInterface $messenger
+   *   The messenger.
+   */
+  public function __construct(AccountInterface $user, EntityTypeManagerInterface $entity_type_manager, MessengerInterface $messenger) {
     $this->storedUser = $user;
+    $this->entityTypeManager = $entity_type_manager;
+    $this->messenger = $messenger;
+  }
+
+  /**
+   * Loads the stored user account.
+   *
+   * @return \Drupal\user\UserInterface
+   *   The loaded user.
+   */
+  private function loadAccount() {
+    /** @var \Drupal\user\UserInterface $account */
+    $account = $this->entityTypeManager->getStorage('user')->load($this->storedUser->id());
+    return $account;
   }
 
   /**
    * Add role to user.
+   *
+   * @param string $role
+   *   The role id to add.
    */
-  public function addRole($role) {
-    $account = User::load($this->storedUser->id());
+  public function addRole(string $role): void {
+    $account = $this->loadAccount();
     if (!$account->hasRole($role)) {
       $account->addRole($role);
       $account->save();
@@ -40,9 +85,12 @@ class RoleProgramSorter {
 
   /**
    * Remove role from user.
+   *
+   * @param string $role
+   *   The role id to remove.
    */
-  public function removeRole($role) {
-    $account = User::load($this->storedUser->id());
+  public function removeRole(string $role): void {
+    $account = $this->loadAccount();
     if ($account->hasRole($role)) {
       $account->removeRole($role);
       $account->save();
@@ -51,50 +99,58 @@ class RoleProgramSorter {
 
   /**
    * Lookup if region is set.
+   *
+   * @param int|string $region
+   *   The taxonomy term id of the region.
+   *
+   * @return bool
+   *   TRUE when the user already references the region.
    */
-  public function lookupRegion($region) {
-    $account = User::load($this->storedUser->id());
+  public function lookupRegion($region): bool {
+    $account = $this->loadAccount();
     // Check if region already exists and if not add it.
-    $values = $account->field_region->getValue();
-    // While loop through values to check if target_id equals 780.
-    $i = 0;
-    $region_exists = FALSE;
-    while ($i < count($values)) {
-      if ($values[$i]['target_id'] == $region) {
-        $i = count($values);
-        $region_exists = TRUE;
+    $values = $account->get('field_region')->getValue();
+    foreach ($values as $value) {
+      if ($value['target_id'] == $region) {
+        return TRUE;
       }
-      $i++;
     }
-    return $region_exists;
+    return FALSE;
   }
 
   /**
    * Add item to field_region.
+   *
+   * @param int|string $region
+   *   The taxonomy term id of the region.
    */
-  public function addFieldRegion($region) {
-    $account = User::load($this->storedUser->id());
+  public function addFieldRegion($region): void {
+    $account = $this->loadAccount();
     $program_set = $this->lookupRegion($region);
     if (!$program_set) {
-      $account->field_region->appendItem($region);
+      $account->get('field_region')->appendItem($region);
       $account->save();
     }
-    \Drupal::messenger()->addMessage(t('Thanks for updating your CSSN membership.'));
+    $this->messenger->addMessage($this->t('Thanks for updating your CSSN membership.'));
   }
 
   /**
-   * Remove item to field_region.
+   * Remove item from field_region.
+   *
+   * @param int|string $region
+   *   The taxonomy term id of the region.
    */
-  public function removeFieldRegion($region) {
-    $account = User::load($this->storedUser->id());
-    $values = $account->field_region->getValue();
+  public function removeFieldRegion($region): void {
+    $account = $this->loadAccount();
+    $values = $account->get('field_region')->getValue();
     foreach ($values as $key => $value) {
       if ($value['target_id'] == $region) {
         unset($values[$key]);
-        \Drupal::messenger()->addMessage(t('Thanks for updating your CSSN membership.'));
+        $this->messenger->addMessage($this->t('Thanks for updating your CSSN membership.'));
       }
     }
-    $account->field_region->setValue($values);
+    $account->get('field_region')->setValue($values);
     $account->save();
   }
+
 }

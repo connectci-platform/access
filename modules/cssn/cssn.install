@@ -5,10 +5,12 @@
  * Post update functions for CSSN.
  */
 
+use Drupal\user\Entity\User;
+
 /**
  * Add 'ACCESS CSSN' to the region taxonomy.
  */
-function cssn_update_9000() {
+function cssn_update_9000(): void {
   $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->create([
     'vid' => 'region',
     'name' => 'ACCESS CSSN',
@@ -19,7 +21,7 @@ function cssn_update_9000() {
 /**
  * Rebuild role permissions.
  */
-function cssn_update_9001() {
+function cssn_update_9001(): void {
   $nids = [267, 224];
   foreach ($nids as $nid) {
     \Drupal::database()->insert('nodeaccess')
@@ -39,7 +41,7 @@ function cssn_update_9001() {
 /**
  * Flag cssn affinity group for all users with 'Access CSSN' region set.
  */
-function cssn_update_10000() {
+function cssn_update_10000(): void {
   // Entity query for all users with field_region set to 780.
   $query = \Drupal::entityQuery('user');
   $query->condition('field_region', 780);
@@ -56,7 +58,7 @@ function cssn_update_10000() {
   $i = 0;
   foreach ($uids as $uid) {
     $i++;
-    $user = \Drupal\user\Entity\User::load($uid);
+    $user = User::load($uid);
     $set_flag = $flag->setFlag($flag_id, $cssn_affinity_group, $user);
     \Drupal::logger('cssn')->notice("Affinity CSSN group flagged for user: $uid with result: $set_flag iteration: $i");
   }

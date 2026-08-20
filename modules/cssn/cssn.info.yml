@@ -4,6 +4,5 @@ type: module
 core_version_requirement: ^10 || ^11
 package: Custom
 dependencies:
-  - access
-  - expandable_text
-
+  - access:access
+  - expandable_text:expandable_text

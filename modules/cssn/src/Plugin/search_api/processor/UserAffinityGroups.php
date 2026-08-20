@@ -11,12 +11,12 @@ use Drupal\search_api\Processor\ProcessorProperty;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
- * Index selected user skills.
+ * Index selected user flagged affinity groups.
  *
  * @SearchApiProcessor(
- *   id = "user_skills",
- *   label = @Translation("User Skills"),
- *   description = @Translation("Index selected user skills."),
+ *   id = "user_affinity_groups",
+ *   label = @Translation("User Affinity Groups"),
+ *   description = @Translation("Index selected user flagged affinity groups."),
  *   stages = {
  *     "add_properties" = 0,
  *   },
@@ -24,7 +24,7 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  *   hidden = true,
  * )
  */
-class UserSkills extends ProcessorPluginBase {
+class UserAffinityGroups extends ProcessorPluginBase {
 
   /**
    * The database connection.
@@ -70,12 +70,12 @@ class UserSkills extends ProcessorPluginBase {
 
     if (!$datasource) {
       $definition = [
-        'label' => $this->t('User Skills'),
-        'description' => $this->t('The user skills.'),
+        'label' => $this->t('User Affinity Groups'),
+        'description' => $this->t('The affinity groups that the user has flagged.'),
         'type' => 'string',
         'processor_id' => $this->getPluginId(),
       ];
-      $properties['search_api_user_skills'] = new ProcessorProperty($definition);
+      $properties['search_api_user_affinity_groups'] = new ProcessorProperty($definition);
     }
 
     return $properties;
@@ -91,7 +91,7 @@ class UserSkills extends ProcessorPluginBase {
     $user = $item->getOriginalObject()->getValue();
     $query = $this->database->select('flagging', 'fl');
     $query->condition('fl.uid', $user->id());
-    $query->condition('fl.flag_id', 'skill');
+    $query->condition('fl.flag_id', 'affinity_group');
     $query->fields('fl', ['entity_id']);
     $flagged = $query->execute()->fetchCol();
 
@@ -101,14 +101,14 @@ class UserSkills extends ProcessorPluginBase {
 
     $term_storage = $this->entityTypeManager->getStorage('taxonomy_term');
     $fields = $this->getFieldsHelper()
-      ->filterForPropertyPath($item->getFields(), NULL, 'search_api_user_skills');
+      ->filterForPropertyPath($item->getFields(), NULL, 'search_api_user_affinity_groups');
     foreach ($fields as $field) {
       foreach ($flagged as $flagged_id) {
         $term = $term_storage->load($flagged_id);
         if (!$term) {
           continue;
         }
-        $field->addValue(str_replace(' ', '', $term->get('name')->value));
+        $field->addValue($term->get('name')->value);
       }
     }
   }

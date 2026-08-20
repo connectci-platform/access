@@ -3,13 +3,16 @@
 namespace Drupal\cssn\Plugin\Block;
 
 use Drupal\Core\Block\BlockBase;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\File\FileUrlGeneratorInterface;
 use Drupal\Core\Link;
+use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Render\Markup;
+use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\Url;
 use Drupal\access_misc\Plugin\Util\RolesLabelLookup;
 use Drupal\cssn\Plugin\Util\EndUrl;
-use Drupal\taxonomy\Entity\Term;
-use Drupal\user\Entity\User;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * Provides a 'Community Persona' Block.
@@ -18,11 +21,86 @@ use Drupal\user\Entity\User;
  *   id = "cssn_block",
  *   admin_label = "Community persona block",
  * )
+ *
+ * @phpstan-consistent-constructor
  */
-class PersonaBlock extends BlockBase {
+class PersonaBlock extends BlockBase implements ContainerFactoryPluginInterface {
+
+  /**
+   * The current user.
+   *
+   * @var \Drupal\Core\Session\AccountProxyInterface
+   */
+  protected AccountProxyInterface $currentUser;
+
+  /**
+   * The entity type manager.
+   *
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   */
+  protected EntityTypeManagerInterface $entityTypeManager;
+
+  /**
+   * The file URL generator.
+   *
+   * @var \Drupal\Core\File\FileUrlGeneratorInterface
+   */
+  protected FileUrlGeneratorInterface $fileUrlGenerator;
+
+  /**
+   * Constructs a PersonaBlock.
+   *
+   * @param array<string, mixed> $configuration
+   *   A configuration array containing information about the plugin instance.
+   * @param string $plugin_id
+   *   The plugin ID for the plugin instance.
+   * @param mixed $plugin_definition
+   *   The plugin implementation definition.
+   * @param \Drupal\Core\Session\AccountProxyInterface $current_user
+   *   The current user.
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
+   *   The entity type manager.
+   * @param \Drupal\Core\File\FileUrlGeneratorInterface $file_url_generator
+   *   The file URL generator.
+   */
+  public function __construct(array $configuration, $plugin_id, $plugin_definition, AccountProxyInterface $current_user, EntityTypeManagerInterface $entity_type_manager, FileUrlGeneratorInterface $file_url_generator) {
+    parent::__construct($configuration, $plugin_id, $plugin_definition);
+    $this->currentUser = $current_user;
+    $this->entityTypeManager = $entity_type_manager;
+    $this->fileUrlGenerator = $file_url_generator;
+  }
 
   /**
    * {@inheritdoc}
+   *
+   * @param \Symfony\Component\DependencyInjection\ContainerInterface $container
+   *   The service container.
+   * @param array<string, mixed> $configuration
+   *   A configuration array containing information about the plugin instance.
+   * @param string $plugin_id
+   *   The plugin ID for the plugin instance.
+   * @param mixed $plugin_definition
+   *   The plugin implementation definition.
+   *
+   * @return static
+   *   The instantiated block plugin.
+   */
+  public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition) {
+    return new static(
+      $configuration,
+      $plugin_id,
+      $plugin_definition,
+      $container->get('current_user'),
+      $container->get('entity_type.manager'),
+      $container->get('file_url_generator')
+    );
+  }
+
+  /**
+   * {@inheritdoc}
+   *
+   * @return array<string, mixed>
+   *   The block render array.
    */
   public function build() {
     // Get last item in url.
@@ -30,13 +108,15 @@ class PersonaBlock extends BlockBase {
     $url_end = $end_url->getUrlEnd();
     $public = TRUE;
     $should_user_load = FALSE;
+    $user = NULL;
+    $user_storage = $this->entityTypeManager->getStorage('user');
     if ($url_end == 'community-persona') {
       $public = FALSE;
       $should_user_load = TRUE;
     }
     if (is_numeric($url_end)) {
-      $user = User::load($url_end);
-      if ($user !== NULL && count($user->field_region->getValue()) > 0) {
+      $user = $user_storage->load($url_end);
+      if ($user !== NULL && count($user->get('field_region')->getValue()) > 0) {
         if ($user->hasField('field_hide_community_profile') &&
             (bool) $user->get('field_hide_community_profile')->value === TRUE) {
           $should_user_load = FALSE;
@@ -47,16 +127,18 @@ class PersonaBlock extends BlockBase {
       }
     }
     if ($should_user_load) {
-      $user = $public ? $user : \Drupal::currentUser();
-      $user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($user->id());
+      $user = $public ? $user : $this->currentUser;
+      /** @var \Drupal\user\UserInterface $user_entity */
+      $user_entity = $user_storage->load($user->id());
       $user_image = $user_entity->get('user_picture');
       $first_name = $user_entity->get('field_user_first_name')->value;
       $last_name = $user_entity->get('field_user_last_name')->value;
       $pronouns = $user_entity->get('field_user_preferred_pronouns')->value;
 
       if ($user_image->entity !== NULL) {
-        $user_image = $user_image->entity->getFileUri();
-        $user_image = \Drupal::service('file_url_generator')->generateAbsoluteString($user_image);
+        /** @var \Drupal\file\FileInterface $user_image_file */
+        $user_image_file = $user_image->entity;
+        $user_image = $this->fileUrlGenerator->generateAbsoluteString($user_image_file->getFileUri());
         $user_image = '<img src="' . $user_image . '" alt="" class="img-fluid mb-3 border border-black" />';
       }
       else {
@@ -75,7 +157,7 @@ class PersonaBlock extends BlockBase {
             </svg>
             ';
       }
-      // Create Drupal 9 link to edit user profile with ?destination=community-persona.
+      // Link to the user profile edit form, returning to this page.
       $edit_url = Url::fromUri('internal:/user/' . $user->id() . '/edit?destination=community-persona');
       $edit_link = Link::fromTextAndUrl('Edit Persona', $edit_url);
       $edit_link = $edit_link->toRenderable();
@@ -90,23 +172,21 @@ class PersonaBlock extends BlockBase {
       ];
       $edit_link = $public ? "" : $edit_link;
 
-      // Show access organization if set; use institution field if organization is "Other" (3695) or not set.
-      $orgArray = $user_entity->get('field_access_organization')->getValue();
+      // Show the access organization when set, and fall back to the
+      // institution field when the organization is "Other" (3695) or unset.
+      $org_array = $user_entity->get('field_access_organization')->getValue();
       $institution = $user_entity->get('field_institution')->value;
 
-      if (!empty($orgArray) && !empty($orgArray[0])) {
-        $nodeId = $orgArray[0]['target_id'];
-        // If organization is "Other" (node ID 3695), use institution field instead
-        if ($nodeId == 3695) {
-          $institution = $user_entity->get('field_institution')->value;
-        } else if (!empty($nodeId)) {
-          $orgNode = \Drupal::entityTypeManager()->getStorage('node')->load($nodeId);
-          if ($orgNode) {
-            $institution = $orgNode->getTitle();
+      if (!empty($org_array) && !empty($org_array[0])) {
+        $node_id = $org_array[0]['target_id'];
+        // Organization "Other" (node ID 3695) keeps the institution field.
+        if ($node_id != 3695 && !empty($node_id)) {
+          $org_node = $this->entityTypeManager->getStorage('node')->load($node_id);
+          if ($org_node) {
+            $institution = $org_node->label();
           }
         }
       }
-      // If no organization is set, use institution field (this is already handled above)
 
       $roles = $user_entity->getRoles();
       $is_student = array_search('student', $roles) !== FALSE;
@@ -122,7 +202,14 @@ class PersonaBlock extends BlockBase {
         $academic_status = '';
       }
       // Don't display these roles.
-      $roles_not_to_include = ['authenticated', 'administrator', 'Masquerade', 'exportpeople', 'site_developer', 'ccmnet'];
+      $roles_not_to_include = [
+        'authenticated',
+        'administrator',
+        'Masquerade',
+        'exportpeople',
+        'site_developer',
+        'ccmnet',
+      ];
       foreach ($roles_not_to_include as $role) {
         $key = array_search($role, $roles);
         if ($key !== FALSE) {
@@ -132,10 +219,12 @@ class PersonaBlock extends BlockBase {
       $role = new RolesLabelLookup($roles);
       $roles = $role->getRoleLabelsString();
       $regions = $user_entity->get('field_region')->getValue();
+      $term_storage = $this->entityTypeManager->getStorage('taxonomy_term');
       $terms = [];
       foreach ($regions as $region) {
         $region_tid = $region['target_id'];
-        $terms[$region_tid] = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($region_tid)->getName();
+        $region_term = $term_storage->load($region_tid);
+        $terms[$region_tid] = $region_term ? $region_term->label() : '';
       }
       if (!$public) {
         $cssn_role_url = Url::fromUri('internal:/form/edit-your-cssn-roles?destination=community-persona');
@@ -156,10 +245,6 @@ class PersonaBlock extends BlockBase {
       $program = implode(', ', $terms);
       // If $terms contains 'ACCESS CSSN', then the user is a CSSN member.
       $cssn_member = in_array('ACCESS CSSN', $terms) ? TRUE : FALSE;
-      // $ws_query = \Drupal::entityQuery('webform_submission')
-      //  ->condition('uid', $user->id())
-      //  ->condition('uri', '/form/join-the-cssn-network');
-      // $ws_results = $ws_query->execute();
       $cssn_indicator = "";
       if ($cssn_member) {
         $cssn_indicator = "<span class='text-primary'><i class='bi-square-fill text-orange' aria-hidden='true'></i></span>";
@@ -185,7 +270,7 @@ class PersonaBlock extends BlockBase {
         'text-md-teal',
         'no-underline',
       ];
-      $cssn_more['#attributes']['aria-label'] = t('Information about CSSN');
+      $cssn_more['#attributes']['aria-label'] = $this->t('Information about CSSN');
 
       // Get the user's email address.
       $user_id = $user->id();
@@ -193,7 +278,6 @@ class PersonaBlock extends BlockBase {
       $send_email = $public ? "<a href='/user/$user_id/contact?destination=community-persona/$user_id' class='w-100 btn btn-primary btn-sm py-1 px-2'><i class='bi-envelope' aria-hidden='true'></i> Send Email</a>" : "";
 
       // Get Job title.
-      $user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($user_id);
       $job_title = $user_entity->get('field_current_occupation')->value;
 
       $askci = $user_entity->get('field_askci_username')->value;
@@ -299,17 +383,17 @@ class PersonaBlock extends BlockBase {
           'cssn_indicator' => $cssn_indicator,
           'cssn_more' => $cssn_more,
           'user_badges' => $user_badges,
-          'ood_badges_title' => t('Open OnDemand Badges'),
+          'ood_badges_title' => $this->t('Open OnDemand Badges'),
           'ood_badges' => $ood_badges,
-          'profile_text' => t('Profiles'),
+          'profile_text' => $this->t('Profiles'),
           'askci' => $askci,
           'github' => $github,
           'discourse_ood' => $ood_discourse,
           'roles' => $roles,
-          'role_text' => t('Roles'),
+          'role_text' => $this->t('Roles'),
           'cssn_role' => $cssn_role,
           'program' => $program,
-          'program_text' => t('Programs'),
+          'program_text' => $this->t('Programs'),
           'send_email' => $send_email,
           'public' => $public,
         ],
@@ -322,25 +406,36 @@ class PersonaBlock extends BlockBase {
   }
 
   /**
+   * Builds the markup for the badges referenced by a user field.
+   *
+   * @param \Drupal\user\UserInterface $user_entity
+   *   The user whose badges are rendered.
+   * @param string $field
+   *   The name of the badge reference field.
+   *
    * @return string
+   *   The rendered badge list, or an empty string when there are no badges.
    */
-  private function taxBadges($user_entity, $field) {
+  private function taxBadges($user_entity, string $field): string {
     // Badges.
     $badges = $user_entity->get($field)->getValue();
-    $badge_name = [];
 
     if (empty($badges)) {
       return "";
     }
 
+    $term_storage = $this->entityTypeManager->getStorage('taxonomy_term');
     $user_badges = '<ul class="flex flex-wrap p-0 m-0">';
     foreach ($badges as $badge) {
-      $term_id = $badge['target_id'];
-      if (Term::load($term_id)->get('field_badge')->entity) {
-        $name = Term::load($term_id)->get('name')->value;
-        $image_alt = Term::load($term_id)->get('field_badge')->alt;
-        $image_url = Term::load($term_id)->get('field_badge')->entity->getFileUri();
-        $image = \Drupal::service('file_url_generator')->generateAbsoluteString($image_url);
+      $term = $term_storage->load($badge['target_id']);
+      /** @var \Drupal\file\FileInterface|null $badge_file */
+      $badge_file = $term && !$term->get('field_badge')->isEmpty()
+        ? $term->get('field_badge')->entity : NULL;
+      if ($badge_file) {
+        $name = $term->get('name')->value;
+        $badge_value = $term->get('field_badge')->getValue();
+        $image_alt = $badge_value[0]['alt'] ?? '';
+        $image = $this->fileUrlGenerator->generateAbsoluteString($badge_file->getFileUri());
         if ($image) {
           if ($name) {
             $user_badges .= "<li class='badge mt-0 ms-0 p-0' data-placement='top' data-toggle='tooltip' title='$name'>";
@@ -361,7 +456,7 @@ class PersonaBlock extends BlockBase {
   }
 
   /**
-   * @return int
+   * {@inheritdoc}
    */
   public function getCacheMaxAge() {
     return 0;

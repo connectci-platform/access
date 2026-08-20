@@ -15,20 +15,23 @@ use Drupal\Core\Url;
  * )
  */
 class EndUrl {
+
   /**
    * End of the url.
-   * $var string
+   *
+   * @var string
    */
-  private $urlEnd;
+  private string $urlEnd;
 
   /**
-   * Url Parts.
-   * $var array
+   * Url parts.
+   *
+   * @var string[]
    */
-  private $urlParts;
+  private array $urlParts;
 
   /**
-   * @inheritDoc
+   * Splits the current request path into its parts.
    */
   public function __construct() {
     $current_url = Url::fromRoute('<current>');
@@ -39,9 +42,15 @@ class EndUrl {
   }
 
   /**
-   * @inheritDoc
+   * Returns a single path part.
+   *
+   * @param int|string $arg
+   *   The zero-based index of the path part.
+   *
+   * @return string|false
+   *   The path part, or FALSE when the index does not exist.
    */
-  public function getUrlArg($arg) {
+  public function getUrlArg(int|string $arg): string|bool {
     if (isset($this->urlParts[$arg]) === FALSE) {
       return FALSE;
     }
@@ -49,9 +58,13 @@ class EndUrl {
   }
 
   /**
-   * @inheritDoc
+   * Returns the last part of the current path.
+   *
+   * @return string
+   *   The last path part.
    */
-  public function getUrlEnd() {
+  public function getUrlEnd(): string {
     return $this->urlEnd;
   }
+
 }
