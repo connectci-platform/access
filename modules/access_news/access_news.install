@@ -8,7 +8,7 @@
 /**
  * Implements hook_install().
  */
-function access_news_install() {
+function access_news_install(): void {
   // Index the announcements search API index when module is installed.
   _access_news_index_announcements();
 }
@@ -16,52 +16,54 @@ function access_news_install() {
 /**
  * Rebuild and index the announcements search API index.
  */
-function access_news_update_10000() {
+function access_news_update_10000(): void {
   _access_news_index_announcements();
 }
 
 /**
  * Reindex the announcements search API index for v2.2 API.
  */
-function access_news_update_10001() {
+function access_news_update_10001(): void {
   _access_news_index_announcements();
 }
 
 /**
  * Rebuild search API indexes after adding EventAffinityGroup processor.
  */
-function access_news_update_10002() {
-  // Clear caches to ensure new processor is recognized
+function access_news_update_10002(): void {
+  // Clear caches to ensure new processor is recognized.
   drupal_flush_all_caches();
-  
-  // Rebuild both events and announcements indexes
+
+  // Rebuild both events and announcements indexes.
   _access_news_index_announcements();
   _access_news_index_events();
 }
 
-
 /**
  * Helper function to rebuild and index the announcements search API index.
  */
-function _access_news_index_announcements() {
+function _access_news_index_announcements(): void {
   try {
     // Load the index using entity type manager (following Drupal patterns)
     $index = \Drupal::entityTypeManager()->getStorage('search_api_index')->load('announcements');
     if ($index) {
-      // Clear the index first to ensure clean rebuild
+      // Clear the index first to ensure clean rebuild.
       $index->clear();
-      
+
       // Reindex all items (queues them)
       $index->reindex();
-      
+
       // Process the indexing queue immediately (don't wait for cron)
-      $indexed = $index->indexItems(-1); // -1 means index all queued items
-      
+      // -1 means index all queued items.
+      $indexed = $index->indexItems(-1);
+
       \Drupal::logger('access_news')->info('Successfully rebuilt and indexed @count announcements in search API.', ['@count' => $indexed]);
-    } else {
+    }
+    else {
       \Drupal::logger('access_news')->warning('Announcements search API index not found.');
     }
-  } catch (Exception $e) {
+  }
+  catch (Exception $e) {
     \Drupal::logger('access_news')->error('Failed to index announcements search API: @error', ['@error' => $e->getMessage()]);
   }
 }
@@ -69,25 +71,28 @@ function _access_news_index_announcements() {
 /**
  * Helper function to rebuild and index the events search API index.
  */
-function _access_news_index_events() {
+function _access_news_index_events(): void {
   try {
     // Load the index using entity type manager (following Drupal patterns)
     $index = \Drupal::entityTypeManager()->getStorage('search_api_index')->load('events');
     if ($index) {
-      // Clear the index first to ensure clean rebuild
+      // Clear the index first to ensure clean rebuild.
       $index->clear();
-      
+
       // Reindex all items (queues them)
       $index->reindex();
-      
+
       // Process the indexing queue immediately (don't wait for cron)
-      $indexed = $index->indexItems(-1); // -1 means index all queued items
-      
+      // -1 means index all queued items.
+      $indexed = $index->indexItems(-1);
+
       \Drupal::logger('access_news')->info('Successfully rebuilt and indexed @count events in search API.', ['@count' => $indexed]);
-    } else {
+    }
+    else {
       \Drupal::logger('access_news')->warning('Events search API index not found.');
     }
-  } catch (Exception $e) {
+  }
+  catch (Exception $e) {
     \Drupal::logger('access_news')->error('Failed to index events search API: @error', ['@error' => $e->getMessage()]);
   }
 }

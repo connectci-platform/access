@@ -2,13 +2,15 @@
 
 namespace Drupal\access_news\Plugin\search_api\processor;
 
+use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\search_api\Datasource\DatasourceInterface;
 use Drupal\search_api\Item\ItemInterface;
 use Drupal\search_api\Processor\ProcessorPluginBase;
 use Drupal\search_api\Processor\ProcessorProperty;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
- * Search API Processor for indexing custom Affinity Group field for Announcement.
+ * Search API Processor for indexing custom Affinity Group field.
  *
  * @SearchApiProcessor(
  *   id = "custom_announcement_affinity_group",
@@ -24,9 +26,37 @@ use Drupal\search_api\Processor\ProcessorProperty;
 class AnnouncementAg extends ProcessorPluginBase {
 
   /**
+   * The entity type manager.
+   *
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   */
+  protected EntityTypeManagerInterface $entityTypeManager;
+
+  /**
+   * {@inheritdoc}
+   *
+   * @param \Symfony\Component\DependencyInjection\ContainerInterface $container
+   *   The service container.
+   * @param array<string, mixed> $configuration
+   *   A configuration array containing information about the plugin instance.
+   * @param string $plugin_id
+   *   The plugin ID for the plugin instance.
+   * @param array<string, mixed> $plugin_definition
+   *   The plugin implementation definition.
+   */
+  public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition) {
+    /** @var static $processor */
+    $processor = parent::create($container, $configuration, $plugin_id, $plugin_definition);
+
+    $processor->entityTypeManager = $container->get('entity_type.manager');
+
+    return $processor;
+  }
+
+  /**
    * {@inheritdoc}
    */
-  public function getPropertyDefinitions(DatasourceInterface $datasource = NULL) {
+  public function getPropertyDefinitions(?DatasourceInterface $datasource = NULL) {
     $properties = [];
 
     if (!$datasource) {
@@ -44,8 +74,11 @@ class AnnouncementAg extends ProcessorPluginBase {
 
   /**
    * {@inheritdoc}
+   *
+   * @param \Drupal\search_api\Item\ItemInterface<\Drupal\search_api\Item\FieldInterface> $item
+   *   The item whose fields should be added.
    */
-  public function addFieldValues(ItemInterface $item) {
+  public function addFieldValues(ItemInterface $item): void {
     $entity = $item->getOriginalObject()->getValue();
 
     $fields = $item->getFields();
@@ -57,7 +90,7 @@ class AnnouncementAg extends ProcessorPluginBase {
 
         foreach ($entity->get('field_affinity_group')->getValue() as $value) {
           if (isset($value['target_id'])) {
-            $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->load($value['target_id']);
+            $term = $this->entityTypeManager->getStorage('taxonomy_term')->load($value['target_id']);
             $field->addValue($term->getName());
           }
         }

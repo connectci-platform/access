@@ -463,7 +463,7 @@ class ConstantContact extends FormBase {
    * Generate the access_news weekly digest (normally run weekly via cron)
    */
   public function doGenerateDigest() {
-    weeklyNewsReport(TRUE);
+    access_news_weekly_news_report(TRUE);
   }
 
   /**

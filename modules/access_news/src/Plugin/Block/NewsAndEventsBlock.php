@@ -17,6 +17,9 @@ class NewsAndEventsBlock extends BlockBase {
 
   /**
    * {@inheritdoc}
+   *
+   * @return array<int, array<string, mixed>>
+   *   The render array.
    */
   public function build() {
 
