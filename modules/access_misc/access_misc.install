@@ -5,6 +5,7 @@
  */
 
 use Drupal\block_content\Entity\BlockContent;
+use Drupal\layout_builder\SectionComponent;
 use Drupal\menu_link_content\Entity\MenuLinkContent;
 use Drupal\node\Entity\Node;
 use Drupal\path_alias\Entity\PathAlias;
@@ -2428,4 +2429,74 @@ function access_misc_update_10040(&$sandbox) {
   }
 
   return t('Scoped @count documentation page(s) to the ACCESS support domain and unchecked "send to all affiliates".', ['@count' => $changed]);
+}
+
+/**
+ * Add the "Front - Appverse Reach" block to the Open OnDemand home page layout.
+ *
+ * The block (block_content 230) was placed by hand on node 10418 in production;
+ * this hook reproduces that placement in every other environment so the layout
+ * ships with a deployment instead of a manual edit. It goes at the bottom of the
+ * final ("Affinity Groups") section, matching where it sits today.
+ */
+function access_misc_update_10041() {
+  $block_uuid = 'd97d846b-fb56-4875-b4f9-ac7685bace32';
+  $plugin_id = 'block_content:' . $block_uuid;
+
+  $node = Node::load(10418);
+  if (!$node || !$node->hasField('layout_builder__layout')) {
+    return t('Node 10418 not found or has no layout override; nothing to do.');
+  }
+
+  // The block content must exist, otherwise the component renders as broken.
+  if (!\Drupal::service('entity.repository')->loadEntityByUuid('block_content', $block_uuid)) {
+    return t('Block content @uuid not found; skipped adding it to node 10418.', ['@uuid' => $block_uuid]);
+  }
+
+  $sections = $node->get('layout_builder__layout')->getSections();
+  if (!$sections) {
+    return t('Node 10418 has no layout sections; nothing to do.');
+  }
+
+  // Bail out if the block is already placed anywhere in the layout.
+  foreach ($sections as $section) {
+    foreach ($section->getComponents() as $component) {
+      if (($component->getPluginId() ?? '') === $plugin_id) {
+        return t('Block @uuid is already placed on node 10418; nothing to do.', ['@uuid' => $block_uuid]);
+      }
+    }
+  }
+
+  // getSections() hands back the live Section objects held by the field items,
+  // so appending to one below is enough for the change to be saved.
+  $delta = array_key_last($sections);
+  $section = $sections[$delta];
+
+  // Sit below everything already in the region.
+  $weight = 0;
+  foreach ($section->getComponents() as $component) {
+    if ($component->getRegion() === 'content') {
+      $weight = max($weight, $component->getWeight() + 1);
+    }
+  }
+
+  // Reuse the uuid the manual placement got in production so the component is
+  // identical across environments.
+  $component = new SectionComponent('c812b2e8-3c74-4a3c-b7d5-0945d0429796', 'content', [
+    'id' => $plugin_id,
+    'label' => 'Front - Appverse Reach',
+    'label_display' => 0,
+    'provider' => 'block_content',
+    'status' => TRUE,
+    'info' => '',
+    'view_mode' => 'full',
+    'context_mapping' => [],
+  ]);
+  $component->setWeight($weight);
+  $section->appendComponent($component);
+
+  $node->setNewRevision(FALSE);
+  $node->save();
+
+  return t('Added the "Front - Appverse Reach" block to the bottom of section @delta on node 10418.', ['@delta' => $delta]);
 }
