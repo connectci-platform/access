@@ -1451,4 +1451,34 @@ abstract class EventKernelTestBase extends KernelTestBase {
     return $id === NULL ? $controller->$method($request) : $controller->$method($id, $request);
   }
 
+  /**
+   * Creates field_event_type (list_string) on eventseries, optionally required.
+   *
+   * Mirrors the site's real field_event_type (allowed_values-restricted, and
+   * required: true in production config) so validation tests can exercise the
+   * allowed-values and NotNull constraints the live API enforces.
+   */
+  protected function createEventTypeField(bool $required): void {
+    FieldStorageConfig::create([
+      'field_name' => 'field_event_type',
+      'entity_type' => 'eventseries',
+      'type' => 'list_string',
+      'cardinality' => 1,
+      'settings' => [
+        'allowed_values' => [
+          'Conference' => 'Conference',
+          'Training' => 'Training',
+          'Office Hours' => 'Office Hours',
+          'zz_other' => 'Other',
+        ],
+      ],
+    ])->save();
+    FieldConfig::create([
+      'field_name' => 'field_event_type',
+      'entity_type' => 'eventseries',
+      'bundle' => 'default',
+      'required' => $required,
+    ])->save();
+  }
+
 }

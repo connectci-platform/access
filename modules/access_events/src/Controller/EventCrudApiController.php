@@ -8,6 +8,7 @@ use Drupal\access_events\EventDeleteGuard;
 use Drupal\access_events\RegistrantCounter;
 use Drupal\access_events\StateChangeCollector;
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Component\Render\PlainTextOutput;
 use Drupal\content_moderation\ModerationInformationInterface;
 use Drupal\content_moderation\StateTransitionValidationInterface;
 use Drupal\Core\Controller\ControllerBase;
@@ -219,6 +220,25 @@ class EventCrudApiController extends ControllerBase {
     // Copies the whitelisted content fields (body, field_summary, …).
     $this->applyContentFields($values, $body);
 
+    // Domain scoping. On this site an EMPTY domain_access means "affiliated
+    // to ALL domains". The browser form fills the field from the current
+    // domain via a form-submit handler (access_events_eventseries_domain_submit)
+    // that never runs on this API path, and applyContentFields() drops
+    // caller-supplied domain_access for non-admins — so without this an
+    // API-created series is born unscoped and surfaces on every affiliate
+    // site once published. Scope it to the domain that served the request:
+    // the MCP calls support.access-ci.org, so its events belong to ACCESS
+    // Support, and an MCP deployment for another affiliate pointed at that
+    // domain's hostname scopes automatically. Admin-supplied domain_access
+    // is kept. The negotiator can be absent (kernel tests) or domainless
+    // (CLI); both fall through to the unscoped default.
+    if (empty($values['domain_access']) && \Drupal::hasService('domain.negotiator')) {
+      $activeDomain = \Drupal::service('domain.negotiator')->getActiveDomain();
+      if ($activeDomain) {
+        $values['domain_access'] = [$activeDomain->id()];
+      }
+    }
+
     // Coordinator gate — ONLY when group(s) were supplied. No group means no
     // group to coordinate, so no check (userCoordinatesAllGroups returns a
     // vacuous TRUE on an empty array and must not be called unguarded). A
@@ -234,12 +254,29 @@ class EventCrudApiController extends ControllerBase {
     if (!$series->access('create', $user, TRUE)->isAllowed()) {
       return $this->refuse('forbidden', 'You may not create events.', 403);
     }
+
+    // Validate before save: the browser form enforces the site's field
+    // constraints (required field_event_type / field_location, allowed_values,
+    // link format) on every create, and skipping them here birthed drafts the
+    // form could never save — drafts whose every subsequent content edit was
+    // then refused by update()'s validation with no hint why. Refuse at birth,
+    // naming the field.
+    if ($refusal = $this->refuseIfInvalid($series)) {
+      return $refusal;
+    }
+
     // The insert hook auto-spawns instances from the recur dates.
     $series->save();
 
+    // event_instances is a COMPUTED field whose value caches on first access —
+    // and validate() above already computed it (empty, pre-save, no id). Read
+    // the spawned instances from a fresh load, not the stale in-memory copy.
+    // (loadUnchanged is non-null immediately post-save; the fallback to the
+    // stale $series only quiets static analysis.)
+    $fresh = $this->entityTypeManager->getStorage('eventseries')->loadUnchanged($series->id()) ?? $series;
     $instanceIds = array_map(
       fn ($i) => (int) $i->id(),
-      $series->get('event_instances')->referencedEntities(),
+      $fresh->get('event_instances')->referencedEntities(),
     );
 
     return $this->success([
@@ -306,15 +343,37 @@ class EventCrudApiController extends ControllerBase {
       $series->set($field, $value);
     }
 
-    // The browser edit form runs entity validation before saving, so core's
-    // moderation-state constraint refuses a content edit to a live published
-    // series from an author who lacks the publish transition. This endpoint
-    // must not offer a way around that gate: validate the series and, if any
-    // violation exists, refuse rather than save. Administrators hold the
-    // transition, so their edits produce no violation and pass through.
-    $violations = $series->validate();
-    if ($violations->count() > 0) {
-      return $this->refuse('invalid_state', (string) $violations[0]->getMessage(), 409);
+    // A bare $series->validate() cannot gate this endpoint: on a
+    // multi-occurrence series it raises a spurious core Count violation on the
+    // computed event_instances field (cardinality 1, populated with many via
+    // direct saves; recurring_events #3272361), so every content edit to a
+    // recurring series failed. Two gates replace it. First, the moderation
+    // transition-access check the browser edit form applies: a content edit to
+    // a published series by an author lacking the publish transition must be
+    // refused. A content-only update is a SAME-STATE save (from == to), so
+    // mirror the archive path's two-step guard.
+    $workflow = $this->moderationInformation->getWorkflowForEntity($series);
+    $fromState = $this->moderationInformation->getOriginalState($series);
+    // Existence guard first: hasTransitionFromStateToState() is non-throwing; a
+    // bare isTransitionValid() throws \InvalidArgumentException (-> HTTP 500)
+    // for a state with no self-transition (needs_adjustment, archived). Those
+    // states have no legal same-state edit here, so refuse cleanly, matching
+    // what validate() did before (minus the 500 risk).
+    if (!$workflow->getTypePlugin()->hasTransitionFromStateToState($fromState->id(), $fromState->id())) {
+      return $this->refuse('invalid_state', 'This event\'s current state does not allow content edits via this endpoint.', 409);
+    }
+    // Same-state: pass $fromState as BOTH from and to. isTransitionValid takes
+    // StateInterface OBJECTS (not string ids); $fromState from getOriginalState()
+    // is already the right type.
+    if (!$this->transitionValidation->isTransitionValid($workflow, $fromState, $fromState, $this->currentUser(), $series)) {
+      return $this->refuse('invalid_state', 'You may not edit this published event; it requires the publish transition.', 409);
+    }
+
+    // Second, field validation. Entity validation is the ONLY enforcement of
+    // per-field constraints (allowed_values, required, link format) — core
+    // never re-checks them at raw save() time.
+    if ($refusal = $this->refuseIfInvalid($series)) {
+      return $refusal;
     }
 
     $series->save();
@@ -1514,7 +1573,7 @@ class EventCrudApiController extends ControllerBase {
         if ($field === 'domain_access' && !$this->currentUser()->hasPermission('administer domains')) {
           continue;
         }
-        $values[$field] = $body[$field];
+        $values[$field] = $this->normalizeListOptions($field, $body[$field]);
       }
     }
     if (array_key_exists('body', $body)) {
@@ -1553,6 +1612,76 @@ class EventCrudApiController extends ControllerBase {
       }
     }
     return $nodes;
+  }
+
+  /**
+   * Maps option-list LABELS to their stored KEYS on list_string fields.
+   *
+   * field_event_type's "Other" option is stored as the internal key zz_other
+   * (a sort hack: the zz_ prefix pushes Other last in Drupal's alphabetized
+   * admin UI). The read path already emits labels, so the write path must
+   * accept them or the hack leaks into every API contract. Matching is
+   * case-insensitive ("office hours" → 'Office Hours') with KEYS taking
+   * precedence over labels (a valid key always passes through unchanged, so
+   * legacy callers sending zz_other keep working; on a duplicate label the
+   * first option wins). Arrays normalize element-wise for multi-value list
+   * fields. Non-list fields and non-string values pass through untouched; an
+   * unmatched string passes through for validation to refuse.
+   *
+   * @param string $field
+   *   The eventseries field name being written.
+   * @param mixed $value
+   *   The submitted value (scalar or array).
+   *
+   * @return mixed
+   *   The value with any option labels replaced by their stored keys.
+   */
+  private function normalizeListOptions(string $field, $value) {
+    $definitions = \Drupal::service('entity_field.manager')->getFieldStorageDefinitions('eventseries');
+    $definition = $definitions[$field] ?? NULL;
+    if (!$definition || $definition->getType() !== 'list_string') {
+      return $value;
+    }
+
+    $map = [];
+    foreach (options_allowed_values($definition) as $key => $label) {
+      $map[mb_strtolower((string) $key)] ??= (string) $key;
+    }
+    foreach (options_allowed_values($definition) as $key => $label) {
+      $map[mb_strtolower((string) $label)] ??= (string) $key;
+    }
+
+    $normalize = fn ($v) => is_string($v) ? ($map[mb_strtolower($v)] ?? $v) : $v;
+    return is_array($value) ? array_map($normalize, $value) : $normalize($value);
+  }
+
+  /**
+   * Validates a series and builds the refusal for the first real violation.
+   *
+   * Runs entity validation with the known-bad event_instances violation
+   * filtered out (on a multi-occurrence series core raises a spurious Count
+   * violation on that computed field — cardinality 1, populated with many via
+   * direct saves; recurring_events #3272361). Any surviving violation refuses
+   * with 422 validation_error. The message is prefixed with the property path:
+   * constraint messages alone can be useless ("This value should not be null."
+   * for a required field), and the caller needs to know which field to fix.
+   *
+   * filterByFields() unsets without reindexing, so offset 0 may be gone — the
+   * first surviving violation is taken via the iterator, not [0].
+   *
+   * @return \Symfony\Component\HttpFoundation\JsonResponse|null
+   *   The refusal response, or NULL when the series validates clean.
+   */
+  private function refuseIfInvalid(EventSeries $series): ?JsonResponse {
+    $violations = $series->validate()->filterByFields(['event_instances']);
+    foreach ($violations as $violation) {
+      $path = $violation->getPropertyPath();
+      // Some constraint messages render placeholders as HTML (<em> markup);
+      // strip to plain text so no markup reaches JSON consumers.
+      $text = PlainTextOutput::renderFromHtml((string) $violation->getMessage());
+      return $this->refuse('validation_error', ($path !== '' ? $path . ': ' : '') . $text, 422);
+    }
+    return NULL;
   }
 
   /**
