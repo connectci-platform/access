@@ -384,6 +384,59 @@ class EventCrudCreateTest extends EventKernelTestBase {
   }
 
   /**
+   * An API-created series is scoped to the request's active domain.
+   *
+   * On this site an EMPTY domain_access means "affiliated to ALL domains".
+   * The browser form fills the field from the current domain via a
+   * form-submit handler the API never runs, and the controller drops
+   * caller-supplied domain_access for non-admins — so API-created series were
+   * born unscoped and would surface on every affiliate site once published.
+   * The controller must fill an empty domain_access from the active domain
+   * (the MCP calls support.access-ci.org, so its events belong to ACCESS
+   * Support; an MCP deployment for another affiliate, pointed at that
+   * domain's hostname, scopes automatically). The kernel env has no domain
+   * module, so stub the negotiator the controller consults.
+   */
+  public function testCreateEventScopesDomainToActiveDomain(): void {
+    $domain = new class {
+
+      public function id(): string {
+        return 'amp_cyberinfrastructure_org';
+      }
+
+    };
+    $negotiator = new class($domain) {
+
+      public function __construct(private object $domain) {}
+
+      public function getActiveDomain(): object {
+        return $this->domain;
+      }
+
+    };
+    \Drupal::getContainer()->set('domain.negotiator', $negotiator);
+
+    $user = $this->createUser();
+    $body = [
+      'title' => 'Scoped Event',
+      'recur_type' => 'custom',
+      'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
+    ];
+    $response = $this->doCrud('create', NULL, $user, $body);
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+
+    $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($data['series_id']);
+    $seriesDomains = array_column($series->get('domain_access')->getValue(), 'value');
+    $this->assertSame(['amp_cyberinfrastructure_org'], $seriesDomains);
+
+    // The presave hook inherits the series domains onto the spawned instance.
+    $instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($data['instance_ids'][0]);
+    $instanceDomains = array_column($instance->get('domain_access')->getValue(), 'value');
+    $this->assertSame(['amp_cyberinfrastructure_org'], $instanceDomains);
+  }
+
+  /**
    * Creating with the option LABEL stores the KEY (zz_other stays internal).
    */
   public function testCreateEventAcceptsOptionLabelAndStoresKey(): void {
