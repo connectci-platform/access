@@ -42,7 +42,7 @@ class RpAccountController extends ControllerBase {
 
     $response = [
       'rp_nid' => $rp_nid,
-      'rp_display_name' => $node->getTitle(),
+      'rp_display_name' => operations_cider_resource_display_name($node),
       'state' => $state,
       'manage_url' => 'https://allocations.access-ci.org/',
       'account_setup' => $this->accountSetup($node),
