@@ -385,7 +385,10 @@ function access_affinitygroup_views_pre_render(ViewExecutable $view) {
       foreach ($cider_ids as $cider_id) {
         if (array_key_exists('target_id', $cider_id)) {
           $node = $node_storage->load($cider_id['target_id']);
-          $cider_text .= '<h3>' . $node->get('title')->value . '</h3><p>'
+          if (!$node) {
+            continue;
+          }
+          $cider_text .= '<h3>' . operations_cider_resource_display_name($node) . '</h3><p>'
             . $node->get('body')->value . '</p>';
         }
       }
