@@ -388,8 +388,14 @@ function access_affinitygroup_views_pre_render(ViewExecutable $view) {
           if (!$node) {
             continue;
           }
-          $cider_text .= '<h3>' . operations_cider_resource_display_name($node) . '</h3><p>'
-            . $node->get('body')->value . '</p>';
+          $name = Html::escape(operations_cider_resource_display_name($node));
+          $body = '';
+          if (!$node->get('body')->isEmpty()) {
+            // Render through the field's text format rather than the raw stored value.
+            $body_item = $node->get('body')->first();
+            $body = (string) check_markup($body_item->value, $body_item->format ?? 'basic_html');
+          }
+          $cider_text .= '<h3>' . $name . '</h3>' . $body;
         }
       }
 
