@@ -383,15 +383,22 @@ class RpAccountService {
     }
     $query = $this->db->select('node__field_access_global_resource_id', 'f');
     $query->innerJoin('node_field_data', 'n', 'n.nid = f.entity_id');
+    $query->leftJoin('node__field_rp_display_name', 'dn', 'dn.entity_id = n.nid AND dn.deleted = 0');
+    $query->leftJoin('node__field_cider_short_name', 'sn', 'sn.entity_id = n.nid AND sn.deleted = 0');
     $query->fields('f', ['entity_id', 'field_access_global_resource_id_value'])
       ->fields('n', ['title'])
       ->condition('n.type', 'access_active_resources_from_cid')
       ->condition('f.entity_id', $rpNids, 'IN');
+    $query->addField('dn', 'field_rp_display_name_value', 'display_name');
+    $query->addField('sn', 'field_cider_short_name_value', 'short_name');
     $out = [];
     foreach ($query->execute()->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+      $display = trim((string) ($r['display_name'] ?? ''));
+      $short = trim((string) ($r['short_name'] ?? ''));
+      $name = $display !== '' ? $display : ($short !== '' ? $short : $r['title']);
       $out[(int) $r['entity_id']] = [
         'resource_id' => $r['field_access_global_resource_id_value'],
-        'rp_display_name' => $r['title'],
+        'rp_display_name' => $name,
       ];
     }
     return $out;
