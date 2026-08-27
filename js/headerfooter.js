@@ -10,7 +10,7 @@ import {
   qaBot,
   siteMenus,
   universalMenus,
-} from "https://unpkg.com/@access-ci/ui@0.21.0/dist/access-ci-ui.js";
+} from "https://unpkg.com/@access-ci/ui@0.22.0/dist/access-ci-ui.js";
 
 (function (Drupal, drupalSettings) {
 
@@ -149,7 +149,9 @@ async function setMenu(menu, currentUri) {
       userEmail: email,
       userName: name,
       accessId: accessId,
-      resourceContext: embeddedTarget.dataset.resourceContext || undefined,
+      scopeSlug: embeddedTarget.dataset.scopeSlug || undefined,
+      headerTitle: embeddedTarget.dataset.headerTitle || undefined,
+      inputPlaceholder: embeddedTarget.dataset.inputPlaceholder || undefined,
       loginUrl: "/login?redirect=" + currentUri,
       onAnalyticsEvent: onAnalyticsEvent,
       ...(drupalSettings.access.qaEndpoint && { qaEndpoint: drupalSettings.access.qaEndpoint }),

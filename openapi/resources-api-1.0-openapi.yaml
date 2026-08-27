@@ -467,7 +467,7 @@ components:
           type: integer
         slug:
           type: string
-          description: URL-safe slug (e.g. `bridges-2`). Matches `data-resource-context` on the embedded QA bot.
+          description: URL-safe slug (e.g. `bridges-2`). Matches `data-scope-slug` on the embedded QA bot.
         title:
           type: string
         url:
