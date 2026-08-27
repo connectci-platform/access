@@ -20,7 +20,7 @@ class RpAccountControllerTest extends KernelTestBase {
 
   use ProphecyTrait;
 
-  protected static $modules = ['access', 'access_affinitygroup', 'node', 'field', 'user', 'system', 'text', 'filter', 'key', 'link'];
+  protected static $modules = ['access', 'access_affinitygroup', 'node', 'field', 'user', 'system', 'text', 'filter', 'key', 'link', 'operations_cider'];
 
   protected function setUp(): void {
     parent::setUp();
@@ -37,6 +37,22 @@ class RpAccountControllerTest extends KernelTestBase {
     \Drupal\field\Entity\FieldConfig::create([
       'field_name' => 'field_access_global_resource_id',
       'entity_type' => 'node', 'bundle' => 'access_active_resources_from_cid',
+    ])->save();
+
+    // operations_cider.resource_group_inheritance (invoked via accountSetup())
+    // looks up the Resource's parent Resource Group by querying
+    // field_cider_resources on the resource_group bundle. Only the field
+    // needs to exist for the empty-result query to run; no data is required.
+    NodeType::create(['type' => 'resource_group', 'name' => 'Resource Group'])->save();
+    \Drupal\field\Entity\FieldStorageConfig::create([
+      'field_name' => 'field_cider_resources',
+      'entity_type' => 'node', 'type' => 'entity_reference',
+      'settings' => ['target_type' => 'node'],
+      'cardinality' => -1,
+    ])->save();
+    \Drupal\field\Entity\FieldConfig::create([
+      'field_name' => 'field_cider_resources',
+      'entity_type' => 'node', 'bundle' => 'resource_group',
     ])->save();
     foreach (['field_xdusage_person_id' => 'integer', 'field_xdusage_person_synced' => 'timestamp'] as $f => $t) {
       \Drupal\field\Entity\FieldStorageConfig::create([

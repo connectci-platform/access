@@ -42,6 +42,19 @@ class RpAccountServiceTest extends KernelTestBase {
       'bundle' => 'access_active_resources_from_cid',
     ])->save();
 
+    foreach (['field_rp_display_name', 'field_cider_short_name'] as $name) {
+      \Drupal\field\Entity\FieldStorageConfig::create([
+        'field_name' => $name,
+        'entity_type' => 'node',
+        'type' => 'string',
+      ])->save();
+      \Drupal\field\Entity\FieldConfig::create([
+        'field_name' => $name,
+        'entity_type' => 'node',
+        'bundle' => 'access_active_resources_from_cid',
+      ])->save();
+    }
+
     foreach (['field_xdusage_person_id' => 'integer', 'field_xdusage_person_synced' => 'timestamp'] as $f => $t) {
       \Drupal\field\Entity\FieldStorageConfig::create([
         'field_name' => $f, 'entity_type' => 'user', 'type' => $t,
@@ -608,6 +621,60 @@ class RpAccountServiceTest extends KernelTestBase {
     $service = $this->makeService($alloc->reveal(), $xd->reveal());
     $info = $service->resolveRpNidsToResourceInfo([(int) $n->id()]);
     $this->assertSame('retired.ncsa.access-ci.org', $info[(int) $n->id()]['resource_id']);
+  }
+
+  public function testResolveRpNidsToResourceInfoUsesResolvedDisplayName(): void {
+    $node = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Descriptive Title',
+      'field_rp_display_name' => 'Disp',
+      'field_cider_short_name' => 'Short',
+      'field_access_global_resource_id' => 'rid-1',
+    ]);
+    $node->save();
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $xd = $this->prophesize(XdusageClient::class);
+    $service = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $info = $service->resolveRpNidsToResourceInfo([(int) $node->id()]);
+    $this->assertSame('Disp', $info[(int) $node->id()]['rp_display_name']);
+  }
+
+  public function testResolveRpNidsToResourceInfoFallsBackToShortNameWhenDisplayBlank(): void {
+    $node = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Descriptive Title',
+      'field_rp_display_name' => '',
+      'field_cider_short_name' => 'Short',
+      'field_access_global_resource_id' => 'rid-2',
+    ]);
+    $node->save();
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $xd = $this->prophesize(XdusageClient::class);
+    $service = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $info = $service->resolveRpNidsToResourceInfo([(int) $node->id()]);
+    $this->assertSame('Short', $info[(int) $node->id()]['rp_display_name']);
+  }
+
+  public function testResolveRpNidsToResourceInfoFallsBackToTitleWhenBothBlank(): void {
+    $node = Node::create([
+      'type' => 'access_active_resources_from_cid',
+      'title' => 'Descriptive Title',
+      'field_rp_display_name' => '',
+      'field_cider_short_name' => '',
+      'field_access_global_resource_id' => 'rid-3',
+    ]);
+    $node->save();
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $xd = $this->prophesize(XdusageClient::class);
+    $service = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $info = $service->resolveRpNidsToResourceInfo([(int) $node->id()]);
+    $this->assertSame('Descriptive Title', $info[(int) $node->id()]['rp_display_name']);
   }
 
   public function testResolveRpNidsToResourceInfoEmptyInput(): void {

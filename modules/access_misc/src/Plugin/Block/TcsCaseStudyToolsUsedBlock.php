@@ -102,12 +102,8 @@ class TcsCaseStudyToolsUsedBlock extends BlockBase implements ContainerFactoryPl
         if (!$resource_node) {
           continue;
         }
-        $name = NULL;
-        if (!$resource_node->get('field_cider_short_name')->isEmpty()) {
-          $name = $resource_node->get('field_cider_short_name')->value;
-        }
         $resources[] = [
-          'name' => $name ?? $resource_node->label(),
+          'name' => operations_cider_resource_display_name($resource_node),
           'url' => $resource_node->toUrl()->toString(),
         ];
       }

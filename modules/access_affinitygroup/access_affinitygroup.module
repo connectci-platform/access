@@ -385,8 +385,17 @@ function access_affinitygroup_views_pre_render(ViewExecutable $view) {
       foreach ($cider_ids as $cider_id) {
         if (array_key_exists('target_id', $cider_id)) {
           $node = $node_storage->load($cider_id['target_id']);
-          $cider_text .= '<h3>' . $node->get('title')->value . '</h3><p>'
-            . $node->get('body')->value . '</p>';
+          if (!$node) {
+            continue;
+          }
+          $name = Html::escape(operations_cider_resource_display_name($node));
+          $body = '';
+          if (!$node->get('body')->isEmpty()) {
+            // Render through the field's text format rather than the raw stored value.
+            $body_item = $node->get('body')->first();
+            $body = (string) check_markup($body_item->value, $body_item->format ?? 'basic_html');
+          }
+          $cider_text .= '<h3>' . $name . '</h3>' . $body;
         }
       }
 
