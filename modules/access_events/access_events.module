@@ -93,7 +93,6 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     }
   }
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
-    $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
 
     $form['field_registration']['widget'][0]['uri']['#description'] = "";
 
@@ -121,20 +120,17 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['event_registration']['widget'][0]['#title'] = Markup::create('<h2 class="fieldset-legend mb-0">' . $form['event_registration']['widget'][0]['#title'] . '</h2>');
 
 
-    // Hide the option to share in the ACCESS bi-weekly digest if not on Access.
-    if ($domain_id != 'amp_cyberinfrastructure_org') {
-      unset($form['field_choose_where_to_share_this']['widget']['#options']['in_the_access_support_bi_weekly_digest']);
-    }
-
-    // Get user role.
-    $current_user = \Drupal::currentUser();
-    $roles = $current_user->getRoles();
-
-    // Some affiliations can only be set by news_pms or administrators.
-    if (!in_array('administrator', $roles) && !in_array('news_pm', $roles)) {
-      unset($form['field_affiliation']['widget']['#options']['access_nairr_office_hours']);
-      unset($form['field_affiliation']['widget']['#options']['nairr_pilot_partner_series']);
-      unset($form['field_affiliation']['widget']['#options']['cu_rmacc_webinars']);
+    // Hide options this editor's context may not set (restricted affiliations
+    // for non-editors; the bi-weekly-digest share option off the ACCESS
+    // domain). The SAME map drives the presave strip guard, which restores
+    // stored values an editor could not see — a hidden checkbox is round-
+    // tripped unchecked by the form, and without the guard the save would
+    // silently strip the value (this is how series lost their NAIRR
+    // affiliations and digest flags). One map, two consumers, no drift.
+    foreach (_access_events_hidden_series_options() as $hiddenField => $hiddenValues) {
+      foreach ($hiddenValues as $hiddenValue) {
+        unset($form[$hiddenField]['widget']['#options'][$hiddenValue]);
+      }
     }
     $set_tz = $form['custom_date']['widget'][0]['value']['#date_timezone'];
     $suffix = '<div class="form-text">' . t('Your time zone is set to ') . "<strong>$set_tz</strong>. " . t('If your event is in a different time zone, calculate the time difference accordingly.') . '</div>';
@@ -176,9 +172,6 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     // Get current user.
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
-
-    // If domain doesn't get set, force current domain after submit.
-    array_unshift($form['actions']['submit']['#submit'], 'access_events_eventseries_domain_submit');
 
     $form['#validate'][] = 'access_events_ag_validate';
 
@@ -669,19 +662,6 @@ function access_events_preprocess_field_multiple_value_form(&$variables) {
 
   // Remove tabledrag JS attachment.
   unset($variables['table']['#tabledrag']);
-}
-
-/**
- * Custom submit handler to set domain access based on current domain.
- */
-function access_events_eventseries_domain_submit($form, FormStateInterface $form_state) {
-  $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
-  $set_domain = $form_state->getValue('domain_access');
-
-  if ($domain_id && empty($set_domain)) {
-    $set_domain[] = $domain_id;
-    $form_state->setValue('domain_access', $set_domain);
-  }
 }
 
 /**
@@ -1503,6 +1483,41 @@ function access_events_eventseries_update(EntityInterface $entity) {
 }
 
 /**
+ * Option values hidden from the current editor's eventseries form context.
+ *
+ * Keyed by field name; each entry lists option keys the series form REMOVES
+ * for this user/domain context. Shared by the form alter (which unsets the
+ * options) and the presave strip guard (which restores stored values in
+ * these sets that vanish from an editor's save — an invisible checkbox
+ * cannot have been deliberately unchecked). Programmatic contexts (cron,
+ * drush: anonymous user, no active domain) treat everything as hidden,
+ * which makes the guard maximally protective there.
+ *
+ * @return array<string, list<string>>
+ *   Hidden option values per field name.
+ */
+function _access_events_hidden_series_options(): array {
+  $hidden = [];
+  $roles = \Drupal::currentUser()->getRoles();
+  if (!in_array('administrator', $roles, TRUE) && !in_array('news_pm', $roles, TRUE)) {
+    $hidden['field_affiliation'] = [
+      'access_nairr_office_hours',
+      'nairr_pilot_partner_series',
+      'cu_rmacc_webinars',
+    ];
+  }
+  $domainId = NULL;
+  if (\Drupal::hasService('domain.negotiator')) {
+    $activeDomain = \Drupal::service('domain.negotiator')->getActiveDomain();
+    $domainId = $activeDomain ? $activeDomain->id() : NULL;
+  }
+  if ($domainId !== 'amp_cyberinfrastructure_org') {
+    $hidden['field_choose_where_to_share_this'] = ['in_the_access_support_bi_weekly_digest'];
+  }
+  return $hidden;
+}
+
+/**
  * Implements hook_ENTITY_TYPE_presave() for eventseries.
  *
  * Backstop for the EventSeriesRescheduleBlock constraint: the constraint only
@@ -1513,9 +1528,68 @@ function access_events_eventseries_update(EntityInterface $entity) {
  * abort the save instead. Also mirrors the request-adjustment refusal, so
  * a bare save that skips validate() cannot silently hide a live registered
  * event either. Uses $entity->original (populated during presave, unlike at
- * validate time) for both diffs.
+ * validate time) for both diffs. Also guards domain_access: an empty value
+ * on save is restored from the original (update) or filled from the active
+ * domain (create); see DomainGuardTest.
  */
 function access_events_eventseries_presave(EntityInterface $entity) {
+  // Domain guard. The edit form renders a hidden, zero-option domain_access
+  // widget for editors without domain permissions; the stored domain is
+  // filtered out of its default and the hidden element round-trips an empty
+  // value, which extraction happily saves — recurring_events' "Confirm Date
+  // Changes" button bypasses any form-level backfill (hard-coded #submit),
+  // so the guard lives here, at the entity layer, covering every save path.
+  // Rules: an update that arrives empty restores the original domains (a
+  // cross-domain series edited from another site keeps its home); a CREATE
+  // that arrives empty is scoped to the active domain (browser and API
+  // alike); an update whose original was also empty stays empty — a
+  // deliberately all-affiliates series is never silently narrowed. Deletion
+  // of domains by ANY user via an empty save is treated as the bug, not an
+  // intent: on this site the events search view treats empty as invisible,
+  // not as all-domains.
+  if ($entity->hasField('domain_access') && $entity->get('domain_access')->isEmpty()) {
+    $original = (!$entity->isNew() && $entity->original instanceof EventSeries)
+      ? $entity->original
+      : NULL;
+    if ($original && !$original->get('domain_access')->isEmpty()) {
+      $entity->set('domain_access', $original->get('domain_access')->getValue());
+    }
+    elseif ($entity->isNew() && \Drupal::hasService('domain.negotiator')) {
+      $activeDomain = \Drupal::service('domain.negotiator')->getActiveDomain();
+      if ($activeDomain) {
+        $entity->set('domain_access', [$activeDomain->id()]);
+      }
+    }
+  }
+
+  // Strip guard: restore stored option values this editor's form context
+  // hides. The form removes those options entirely, so the submission
+  // round-trips without them and the save would silently strip values the
+  // editor never saw (see _access_events_hidden_series_options()). Values
+  // outside the hidden sets — anything the editor COULD see — are untouched,
+  // so deliberate removals by privileged editors stick. Syncing saves are
+  // exempt: a programmatic caller that sets the syncing flag is declaring
+  // its values deliberate (CLI context would otherwise hide every option
+  // and make intentional removals impossible). The guarded fields are
+  // list_string ('value' column); an entity_reference entry in the map
+  // would silently no-op here and needs target_id handling first.
+  if (!$entity->isSyncing() && !$entity->isNew() && $entity->original instanceof EventSeries) {
+    foreach (_access_events_hidden_series_options() as $guardedField => $hiddenValues) {
+      if (!$entity->hasField($guardedField)) {
+        continue;
+      }
+      $currentValues = array_column($entity->get($guardedField)->getValue(), 'value');
+      $originalValues = array_column($entity->original->get($guardedField)->getValue(), 'value');
+      $lostHidden = array_values(array_intersect(array_diff($originalValues, $currentValues), $hiddenValues));
+      if ($lostHidden) {
+        $entity->set($guardedField, array_map(
+          static fn (string $value): array => ['value' => $value],
+          array_merge($currentValues, $lostHidden),
+        ));
+      }
+    }
+  }
+
   if ($entity->isNew() || !$entity->original instanceof EventSeries) {
     return;
   }

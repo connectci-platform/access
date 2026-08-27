@@ -2,7 +2,7 @@
 
 /**
  * @file
- * One-time deploy hooks for the event moderation-state migration.
+ * One-time deploy hooks for the access_events module.
  *
  * Before the instance workflow was split out (editorial_eventinstance), every
  * eventinstance's moderation history was written under the shared editorial
@@ -311,3 +311,123 @@ function access_events_deploy_0003_backfill_individually_cancelled() {
     '@flagged' => $flagged,
   ]);
 }
+
+/**
+ * Restores domain_access on series cleared by the hidden-widget save bug.
+ *
+ * The eventseries edit form round-tripped an empty domain_access for editors
+ * without domain permissions (see access_events_eventseries_presave's domain
+ * guard, which now prevents it). This walks every series whose domain_access
+ * is empty, finds the most recent revision that still carried domains, and
+ * restores that value — then saves each of the series' instances so the
+ * instance presave re-inherits the restored domains and search_api reindexes
+ * them: the ACCESS events page reads the INSTANCE index, so a series-only
+ * restore would change nothing visible. Series that never had domains are
+ * left alone (an empty value is deliberately all-affiliates for them).
+ *
+ * @param array<string, mixed> $sandbox
+ *   The deploy-hook batch sandbox.
+ *
+ * @return \Drupal\Core\StringTranslation\TranslatableMarkup
+ *   Progress/summary message.
+ */
+function access_events_deploy_restore_series_domains(array &$sandbox) {
+  $seriesStorage = \Drupal::entityTypeManager()->getStorage('eventseries');
+  $instanceStorage = \Drupal::entityTypeManager()->getStorage('eventinstance');
+
+  if (!isset($sandbox['ids'])) {
+    $all = $seriesStorage->getQuery()->accessCheck(FALSE)->execute();
+    $sandbox['ids'] = [];
+    foreach (array_chunk($all, 50) as $chunk) {
+      foreach ($seriesStorage->loadMultiple($chunk) as $series) {
+        if ($series->hasField('domain_access') && $series->get('domain_access')->isEmpty()) {
+          $sandbox['ids'][] = (int) $series->id();
+        }
+      }
+      $seriesStorage->resetCache($chunk);
+    }
+    $sandbox['total'] = count($sandbox['ids']);
+    $sandbox['restored'] = 0;
+    $sandbox['never_domained'] = 0;
+    $sandbox['instances_saved'] = 0;
+    if ($sandbox['total'] === 0) {
+      $sandbox['#finished'] = 1;
+      return t('No eventseries with empty domain_access found.');
+    }
+  }
+
+  $batch = array_splice($sandbox['ids'], 0, 10);
+  foreach ($batch as $sid) {
+    // Newest-first revision walk for the most recent non-empty domain value.
+    // Shape-agnostic (entity API, no raw column names), so it behaves the
+    // same for the production entity_reference field and test fixtures.
+    $revisionIds = $seriesStorage->getQuery()
+      ->accessCheck(FALSE)
+      ->allRevisions()
+      ->condition('id', $sid)
+      ->sort('vid', 'DESC')
+      ->execute();
+    $restoreValue = NULL;
+    foreach (array_keys($revisionIds) as $vid) {
+      $revision = $seriesStorage->loadRevision($vid);
+      if ($revision && !$revision->get('domain_access')->isEmpty()) {
+        $restoreValue = $revision->get('domain_access')->getValue();
+        break;
+      }
+    }
+    if ($restoreValue === NULL) {
+      $sandbox['never_domained']++;
+      \Drupal::logger('access_events')->notice('Series @sid has no domained revision; left empty (all-affiliates).', ['@sid' => $sid]);
+      continue;
+    }
+
+    $series = $seriesStorage->load($sid);
+    if (!$series instanceof \Drupal\recurring_events\Entity\EventSeries) {
+      continue;
+    }
+    // The save shape here (setSyncing + plain save, no manual revision
+    // machinery) is the one rehearsed on the test environment and executed
+    // on prod for the incident series: it preserves the moderation state,
+    // triggers the instance inherit + reindex, and — load-bearing —
+    // suppresses content_moderation_notifications, whose config fires
+    // "Your Event was published" author emails on EVERY publish transition,
+    // published-to-published saves included. Without the syncing flag this
+    // hook would email every restored series' author.
+    $series->set('domain_access', $restoreValue);
+    $series->setSyncing(TRUE);
+    $series->save();
+    $sandbox['restored']++;
+
+    // Re-save the series' instances so the instance presave inherits the
+    // restored domains and the search index (which the ACCESS events page
+    // reads) picks them up. Safe: no date or state change, so no
+    // registrant notifications fire.
+    $instances = $instanceStorage->loadByProperties(['eventseries_id' => $sid]);
+    foreach ($instances as $instance) {
+      if (!$instance instanceof \Drupal\recurring_events\Entity\EventInstance) {
+        continue;
+      }
+      $instance->setSyncing(TRUE);
+      $instance->save();
+      $sandbox['instances_saved']++;
+    }
+    \Drupal::logger('access_events')->notice('Series @sid: domain_access restored (@count instances re-saved).', ['@sid' => $sid, '@count' => count($instances)]);
+  }
+
+  $sandbox['#finished'] = empty($sandbox['ids'])
+    ? 1
+    : 1 - (count($sandbox['ids']) / max(1, $sandbox['total']));
+
+  if ($sandbox['#finished'] >= 1) {
+    return t('domain_access restored on @restored series (@instances instances re-saved); @never left empty (never had domains).', [
+      '@restored' => $sandbox['restored'],
+      '@instances' => $sandbox['instances_saved'],
+      '@never' => $sandbox['never_domained'],
+    ]);
+  }
+  return t('Processed @done of @total cleared series…', [
+    '@done' => $sandbox['total'] - count($sandbox['ids']),
+    '@total' => $sandbox['total'],
+  ]);
+}
+
