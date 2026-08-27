@@ -10,8 +10,8 @@
 #}
 
 <div class="tcs-tools-used-block">
-  <h2 class="h4 font-bold text-base px-2 leading-5 text-white m-0 bg-md-teal uppercase w-full mb-1 mt-4">Access Tools</h2>
-  <div class="tcs-tools-used-block__item  grid grid-cols-2 gap-4 my-3">
+  <h2 class="h4 font-bold text-lg py-1 px-2 leading-5 text-white m-0 bg-md-teal uppercase w-full mb-1 mt-4">Access Tools</h2>
+  <div class="tcs-tools-used-block__item  grid grid-cols-2 gap-2 my-3">
     {% for tool in tools %}
         {% if tool.link_url %}
           <a href="{{ tool.link_url }}" target="_blank" rel="noopener noreferrer" class="block">
@@ -30,7 +30,7 @@
         {% endif %}
     {% endfor %}
   </div>
-  <h2 class="h4 font-bold text-base px-2 leading-5 text-white m-0 bg-md-teal uppercase w-full mb-2 mt-4">Allocation Information</h2>
+  <h2 class="h4 font-bold text-lg py-1 px-2 leading-5 text-white m-0 bg-md-teal uppercase w-full mb-2 mt-4">Allocation Information</h2>
   {% if resources %}
   <div class="field field--name-field-tcs-access-resource field--type-entity-reference field--label-inline clearfix">
     <div class="field__label">ACCESS Resource</div>
