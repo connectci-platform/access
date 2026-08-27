@@ -220,24 +220,9 @@ class EventCrudApiController extends ControllerBase {
     // Copies the whitelisted content fields (body, field_summary, …).
     $this->applyContentFields($values, $body);
 
-    // Domain scoping. On this site an EMPTY domain_access means "affiliated
-    // to ALL domains". The browser form fills the field from the current
-    // domain via a form-submit handler (access_events_eventseries_domain_submit)
-    // that never runs on this API path, and applyContentFields() drops
-    // caller-supplied domain_access for non-admins — so without this an
-    // API-created series is born unscoped and surfaces on every affiliate
-    // site once published. Scope it to the domain that served the request:
-    // the MCP calls support.access-ci.org, so its events belong to ACCESS
-    // Support, and an MCP deployment for another affiliate pointed at that
-    // domain's hostname scopes automatically. Admin-supplied domain_access
-    // is kept. The negotiator can be absent (kernel tests) or domainless
-    // (CLI); both fall through to the unscoped default.
-    if (empty($values['domain_access']) && \Drupal::hasService('domain.negotiator')) {
-      $activeDomain = \Drupal::service('domain.negotiator')->getActiveDomain();
-      if ($activeDomain) {
-        $values['domain_access'] = [$activeDomain->id()];
-      }
-    }
+    // Domain scoping for an empty domain_access happens in the eventseries
+    // presave guard (access_events_eventseries_presave) — one implementation
+    // for browser, API, and programmatic saves alike.
 
     // Coordinator gate — ONLY when group(s) were supplied. No group means no
     // group to coordinate, so no check (userCoordinatesAllGroups returns a

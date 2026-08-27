@@ -386,16 +386,14 @@ class EventCrudCreateTest extends EventKernelTestBase {
   /**
    * An API-created series is scoped to the request's active domain.
    *
-   * On this site an EMPTY domain_access means "affiliated to ALL domains".
-   * The browser form fills the field from the current domain via a
-   * form-submit handler the API never runs, and the controller drops
-   * caller-supplied domain_access for non-admins — so API-created series were
-   * born unscoped and would surface on every affiliate site once published.
-   * The controller must fill an empty domain_access from the active domain
-   * (the MCP calls support.access-ci.org, so its events belong to ACCESS
-   * Support; an MCP deployment for another affiliate, pointed at that
-   * domain's hostname, scopes automatically). The kernel env has no domain
-   * module, so stub the negotiator the controller consults.
+   * On this site an EMPTY domain_access on the events views means the series
+   * is invisible on the ACCESS page. The eventseries presave guard
+   * (access_events_eventseries_presave) fills an empty domain_access on
+   * CREATE from the active domain — one implementation for browser, API,
+   * and programmatic saves. This test is the regression proof that the
+   * guard covers the API create path: it stubs the negotiator the guard
+   * consults and asserts both the series and its spawned instance carry the
+   * requesting domain.
    */
   public function testCreateEventScopesDomainToActiveDomain(): void {
     $domain = new class {
