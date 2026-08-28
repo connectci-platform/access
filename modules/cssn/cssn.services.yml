@@ -2,3 +2,6 @@ services:
   cssn.flag:
     class: Drupal\cssn\Plugin\Util\Flag
     arguments: ['@flag']
+  cssn.persona_sitemap_lookup:
+    class: Drupal\cssn\Plugin\Util\PersonaSitemapLookup
+    arguments: ['@entity_type.manager']
