@@ -3,6 +3,7 @@
 namespace Drupal\access_misc\Plugin\Block;
 
 use Drupal\Core\Block\BlockBase;
+use Drupal\Core\Cache\Cache;
 use Drupal\Core\File\FileUrlGeneratorInterface;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
@@ -99,6 +100,7 @@ class TcsCaseStudyResearchersBlock extends BlockBase implements ContainerFactory
     }
 
     $researchers = [];
+    $cache_tags = $node->getCacheTags();
     $delta = 0;
     foreach ($node->get('field_tcs_researcher_name') as $item) {
       /** @var \Drupal\user\UserInterface $user */
@@ -107,6 +109,10 @@ class TcsCaseStudyResearchersBlock extends BlockBase implements ContainerFactory
         $delta++;
         continue;
       }
+
+      // Vary on the user so that hiding a profile, or changing a name or
+      // picture, invalidates any page this block was rendered on.
+      $cache_tags = Cache::mergeTags($cache_tags, $user->getCacheTags());
 
       $photo_url = NULL;
       if ($user->hasField('user_picture') && !$user->get('user_picture')->isEmpty()) {
@@ -134,12 +140,20 @@ class TcsCaseStudyResearchersBlock extends BlockBase implements ContainerFactory
         }
       }
 
+      // Only link to the community profile when the user has not hidden it
+      // and has at least one program (region) assigned.
+      $hidden = $user->hasField('field_hide_community_profile')
+        && (bool) $user->get('field_hide_community_profile')->value === TRUE;
+      $has_region = $user->hasField('field_region')
+        && !$user->get('field_region')->isEmpty();
+
       $researchers[] = [
         'uid' => $user->id(),
         'name' => $user->getDisplayName(),
         'photo_url' => $photo_url,
         'role' => $role,
         'institution' => $institution,
+        'has_profile' => !$hidden && $has_region,
       ];
       $delta++;
     }
@@ -152,7 +166,7 @@ class TcsCaseStudyResearchersBlock extends BlockBase implements ContainerFactory
       '#theme' => 'tcs_case_study_researchers_block',
       '#researchers' => $researchers,
       '#cache' => [
-        'tags' => $node->getCacheTags(),
+        'tags' => $cache_tags,
         'contexts' => ['route'],
       ],
     ];
