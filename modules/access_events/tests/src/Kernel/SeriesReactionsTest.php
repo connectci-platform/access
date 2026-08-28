@@ -411,6 +411,7 @@ class SeriesReactionsTest extends EventKernelTestBase {
       \Drupal::service('datetime.time'),
       \Drupal::service('config.factory'),
       \Drupal::service('database'),
+      \Drupal::service('access_events.domain_context'),
     ) extends \Drupal\access_events\CancellationNotifier {
       public function __construct(
         private int $throwOnInstanceId,
@@ -419,8 +420,9 @@ class SeriesReactionsTest extends EventKernelTestBase {
         \Drupal\Component\Datetime\TimeInterface $time,
         \Drupal\Core\Config\ConfigFactoryInterface $configFactory,
         \Drupal\Core\Database\Connection $database,
+        \Drupal\access_events\EventDomainContext $domainContext,
       ) {
-        parent::__construct($entityTypeManager, $notificationService, $time, $configFactory, $database);
+        parent::__construct($entityTypeManager, $notificationService, $time, $configFactory, $database, $domainContext);
       }
 
       public function enqueueGated(\Drupal\recurring_events\Entity\EventInstance $instance, string $key): int {
