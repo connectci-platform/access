@@ -142,7 +142,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'recur_type' => 'custom',
       'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
     ];
-    $response = $this->doCrud('create', NULL, $coordinator, $body);
+    $response = $this->doCrud('create', NULL, $coordinator, $body, ['confirmed' => 'true']);
     $this->assertSame(200, $response->getStatusCode());
     $data = json_decode($response->getContent(), TRUE);
     $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($data['series_id']);
@@ -162,7 +162,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'recur_type' => 'custom',
       'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
     ];
-    $response = $this->doCrud('create', NULL, $stranger, $body);
+    $response = $this->doCrud('create', NULL, $stranger, $body, ['confirmed' => 'true']);
     $this->assertSame(409, $response->getStatusCode());
     $this->assertSame('not_coordinator', json_decode($response->getContent(), TRUE)['error']);
   }
@@ -182,7 +182,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'recur_type' => 'custom',
       'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
     ];
-    $response = $this->doCrud('create', NULL, $user, $body);
+    $response = $this->doCrud('create', NULL, $user, $body, ['confirmed' => 'true']);
     $this->assertSame(200, $response->getStatusCode());
     $data = json_decode($response->getContent(), TRUE);
     $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($data['series_id']);
@@ -204,7 +204,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'recur_type' => 'custom',
       'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
     ];
-    $response = $this->doCrud('create', NULL, $user, $body);
+    $response = $this->doCrud('create', NULL, $user, $body, ['confirmed' => 'true']);
     $this->assertSame(422, $response->getStatusCode());
     $this->assertSame('validation_error', json_decode($response->getContent(), TRUE)['error']);
   }
@@ -222,7 +222,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'recur_type' => 'custom',
       'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
     ];
-    $response = $this->doCrud('create', NULL, $coordinator, $body);
+    $response = $this->doCrud('create', NULL, $coordinator, $body, ['confirmed' => 'true']);
     $this->assertSame(200, $response->getStatusCode());
     $data = json_decode($response->getContent(), TRUE);
     $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($data['series_id']);
@@ -242,7 +242,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'recur_type' => 'custom',
       'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
     ];
-    $response = $this->doCrud('create', NULL, $coordinator, $body);
+    $response = $this->doCrud('create', NULL, $coordinator, $body, ['confirmed' => 'true']);
     $this->assertSame(422, $response->getStatusCode());
     $this->assertSame('validation_error', json_decode($response->getContent(), TRUE)['error']);
   }
@@ -260,7 +260,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'recur_type' => 'custom',
       'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
     ];
-    $response = $this->doCrud('create', NULL, $coordinator, $body);
+    $response = $this->doCrud('create', NULL, $coordinator, $body, ['confirmed' => 'true']);
     $data = json_decode($response->getContent(), TRUE);
     $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($data['series_id']);
     // NOT published.
@@ -279,7 +279,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'recur_type' => 'custom',
       'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
     ];
-    $response = $this->doCrud('create', NULL, $coordinator, $body);
+    $response = $this->doCrud('create', NULL, $coordinator, $body, ['confirmed' => 'true']);
     $data = json_decode($response->getContent(), TRUE);
     $this->assertSame('draft', $data['moderation']['state']);
     $this->assertFalse($data['moderation']['can_publish']);
@@ -298,7 +298,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'recur_type' => 'custom',
       'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
     ];
-    $response = $this->doCrud('create', NULL, $newsPm, $body);
+    $response = $this->doCrud('create', NULL, $newsPm, $body, ['confirmed' => 'true']);
     $data = json_decode($response->getContent(), TRUE);
     $this->assertTrue($data['moderation']['can_publish']);
     $this->assertNull($data['moderation']['next_action']);
@@ -319,7 +319,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
         ['start_date' => '2099-07-20T09:00:00', 'end_date' => '2099-07-20T11:00:00'],
       ],
     ];
-    $response = $this->doCrud('create', NULL, $coordinator, $body);
+    $response = $this->doCrud('create', NULL, $coordinator, $body, ['confirmed' => 'true']);
     $this->assertSame(200, $response->getStatusCode());
     $data = json_decode($response->getContent(), TRUE);
     $this->assertCount(2, $data['instance_ids']);
@@ -346,7 +346,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'field_summary' => 'A short summary.',
       'field_location' => 'Building 42',
     ];
-    $response = $this->doCrud('create', NULL, $coordinator, $body);
+    $response = $this->doCrud('create', NULL, $coordinator, $body, ['confirmed' => 'true']);
     $this->assertSame(200, $response->getStatusCode());
     $data = json_decode($response->getContent(), TRUE);
     $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($data['series_id']);
@@ -373,7 +373,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'recur_type' => 'custom',
       'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
     ];
-    $response = $this->doCrud('create', NULL, $user, $body);
+    $response = $this->doCrud('create', NULL, $user, $body, ['confirmed' => 'true']);
     $this->assertSame(422, $response->getStatusCode());
     $data = json_decode($response->getContent(), TRUE);
     $this->assertSame('validation_error', $data['error']);
@@ -420,7 +420,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'recur_type' => 'custom',
       'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
     ];
-    $response = $this->doCrud('create', NULL, $user, $body);
+    $response = $this->doCrud('create', NULL, $user, $body, ['confirmed' => 'true']);
     $this->assertSame(200, $response->getStatusCode());
     $data = json_decode($response->getContent(), TRUE);
 
@@ -447,7 +447,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
       'field_event_type' => 'Other',
     ];
-    $response = $this->doCrud('create', NULL, $user, $body);
+    $response = $this->doCrud('create', NULL, $user, $body, ['confirmed' => 'true']);
     $this->assertSame(200, $response->getStatusCode());
     $data = json_decode($response->getContent(), TRUE);
     $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($data['series_id']);
@@ -482,7 +482,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
         ],
       ],
     ];
-    $response = $this->doCrud('create', NULL, $user, $body);
+    $response = $this->doCrud('create', NULL, $user, $body, ['confirmed' => 'true']);
     $this->assertSame(200, $response->getStatusCode());
   }
 
@@ -499,7 +499,7 @@ class EventCrudCreateTest extends EventKernelTestBase {
       'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
       'field_event_type' => 'Training',
     ];
-    $response = $this->doCrud('create', NULL, $user, $body);
+    $response = $this->doCrud('create', NULL, $user, $body, ['confirmed' => 'true']);
     $this->assertSame(200, $response->getStatusCode());
     $data = json_decode($response->getContent(), TRUE);
     $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($data['series_id']);

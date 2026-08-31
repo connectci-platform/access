@@ -3,6 +3,7 @@
 namespace Drupal\access_events\Controller;
 
 use Drupal\access_affinitygroup\Access\CoordinatorAccess;
+use Drupal\access_events\EffectiveCreationSet;
 use Drupal\access_events\EventAccessHelper;
 use Drupal\access_events\EventDeleteGuard;
 use Drupal\access_events\RegistrantCounter;
@@ -53,6 +54,18 @@ class EventCrudApiController extends ControllerBase {
     'field_event_virtual_meeting_link',
     'domain_access',
   ];
+
+  /**
+   * The maximum occurrence rows a preview serializes into its response.
+   *
+   * This is an OUTPUT/serialization backstop only — the real DoS defense is
+   * EffectiveCreationSet::validateConfig()'s pre-compute bounds, which
+   * reject a config before compute() ever materializes a huge set. compute()
+   * has already built the full in-memory array by the time this cap applies, so
+   * this only bounds the returned/serialized array; a preview whose computed
+   * set exceeds it is sliced to the cap and flagged truncated.
+   */
+  private const PREVIEW_OCCURRENCE_CAP = 1000;
 
   /**
    * The events authz helper.
@@ -119,6 +132,13 @@ class EventCrudApiController extends ControllerBase {
   protected EventDeleteGuard $deleteGuard;
 
   /**
+   * The effective recurrence creation set service.
+   *
+   * @var \Drupal\access_events\EffectiveCreationSet
+   */
+  protected EffectiveCreationSet $effectiveCreationSet;
+
+  /**
    * Constructs the controller.
    */
   public function __construct(
@@ -131,6 +151,7 @@ class EventCrudApiController extends ControllerBase {
     StateChangeCollector $state_change_collector,
     TimeInterface $time,
     EventDeleteGuard $delete_guard,
+    EffectiveCreationSet $effective_creation_set,
   ) {
     $this->accessHelper = $access_helper;
     $this->coordinatorAccess = $coordinator_access;
@@ -141,6 +162,7 @@ class EventCrudApiController extends ControllerBase {
     $this->stateChangeCollector = $state_change_collector;
     $this->time = $time;
     $this->deleteGuard = $delete_guard;
+    $this->effectiveCreationSet = $effective_creation_set;
   }
 
   /**
@@ -157,6 +179,7 @@ class EventCrudApiController extends ControllerBase {
       $container->get('access_events.state_change_collector'),
       $container->get('datetime.time'),
       $container->get('access_events.event_delete_guard'),
+      $container->get('access_events.effective_creation_set'),
     );
   }
 
@@ -176,6 +199,16 @@ class EventCrudApiController extends ControllerBase {
     if ($uid < 1) {
       return $this->refuse('forbidden', 'No acting user.', 403);
     }
+
+    // An absent or falsey ?confirmed routes to a no-write occurrence preview.
+    // Read the flag the same way delete() does — filter_var(null, BOOLEAN) is
+    // FALSE, so an ABSENT param previews. Preview has its own gate order, so it
+    // branches BEFORE the commit path's title / recur_type / group gates below.
+    $confirmed = filter_var($request->query->get('confirmed'), FILTER_VALIDATE_BOOLEAN);
+    if (!$confirmed) {
+      return $this->previewOccurrences($request, $uid);
+    }
+
     $user = $this->currentUser();
     $body = json_decode($request->getContent(), TRUE) ?: [];
 
@@ -271,6 +304,118 @@ class EventCrudApiController extends ControllerBase {
       'title' => $series->label(),
       'moderation_state' => $series->get('moderation_state')->value,
       'moderation' => $this->buildModerationBlock($series),
+    ]);
+  }
+
+  /**
+   * No-write preview: the occurrence dates a recurrence would produce.
+   *
+   * Builds the SAME unsaved series the commit path would, but skips the
+   * persisted-write protections (they guard a write this path never performs)
+   * and adds the pre-compute validator + compute + an output cap. It writes
+   * NOTHING — it stops before save().
+   *
+   * KEPT from the commit path: the acting-user check (done by the caller), the
+   * recur_type required-gate, the validateConfig() call, and the entity
+   * create-permission gate ($series->access('create')). That create gate is
+   * load-bearing: a preview is a create-shaped capability, so skipping it would
+   * widen the compute (a repeatable expensive materialization even with the
+   * validator's bounds) to any authenticated user rather than only those who
+   * may actually create events.
+   *
+   * SKIPPED (each protects the persisted write, which preview never does): the
+   * title required-gate (preview needs no title), affinity-group resolution +
+   * the coordinator check, and refuseIfInvalid() (no entity is written to be
+   * invalid).
+   *
+   * @param \Symfony\Component\HttpFoundation\Request $request
+   *   The request; its JSON body carries the recurrence config.
+   * @param int $uid
+   *   The acting user's uid (already validated > 0 by the caller).
+   *
+   * @return \Symfony\Component\HttpFoundation\JsonResponse
+   *   The flat preview envelope, or a refusal.
+   */
+  private function previewOccurrences(Request $request, int $uid): JsonResponse {
+    $user = $this->currentUser();
+    $body = json_decode($request->getContent(), TRUE) ?: [];
+
+    if (empty($body['recur_type'])) {
+      return $this->refuse('validation_error', 'recur_type is required.', 422);
+    }
+
+    // Defense in depth: reject an over-large custom-date list from the RAW
+    // body, before storage->create()/convertEntityConfigToArray() materializes
+    // ~2N DrupalDateTime objects. validateConfig() also caps this (via
+    // validateCustom), but that check only fires AFTER the conversion has
+    // already built the objects — so gate on the cheap raw count first.
+    if (($body['recur_type'] ?? '') === 'custom'
+      && is_array($body['custom_dates'] ?? NULL)
+      && count($body['custom_dates']) > EffectiveCreationSet::MAX_ESTIMATED_OCCURRENCES) {
+      return $this->refuse('validation_error', sprintf('This event has more than %d dates; reduce the number of dates.', EffectiveCreationSet::MAX_ESTIMATED_OCCURRENCES), 422);
+    }
+
+    $values = [
+      'type' => 'default',
+      'uid' => $uid,
+      'moderation_state' => 'draft',
+      'title' => $body['title'] ?? '',
+      'recur_type' => $body['recur_type'],
+    ];
+    $this->applyRecurDates($values, $body);
+    $this->applyContentFields($values, $body);
+
+    $series = $this->entityTypeManager->getStorage('eventseries')->create($values);
+    assert($series instanceof EventSeries);
+
+    // Keep the entity create-permission gate on preview: a preview is a
+    // create-shaped capability, and skipping it would open the compute to any
+    // authenticated user rather than only those who may create events.
+    if (!$series->access('create', $user, TRUE)->isAllowed()) {
+      return $this->refuse('forbidden', 'You may not create events.', 403);
+    }
+
+    // Pre-compute validator — a malformed / DoS-bounded config is a 422
+    // BEFORE compute() ever materializes a set.
+    if ($error = $this->effectiveCreationSet->validateConfig($series)) {
+      return $this->refuse('validation_error', $error, 422);
+    }
+
+    $dates = $this->effectiveCreationSet->compute($series);
+
+    // The REAL total, captured from the full (sorted, complete) computed set
+    // BEFORE the slice — free, since compute() already materialized and
+    // ordered everything. This is the envelope's total_occurrence_count.
+    $total = count($dates);
+
+    // OUTPUT cap: the validator's pre-compute bounds already prevent a huge
+    // materialization; this only bounds the returned array. array_slice on an
+    // ordered assoc array preserves the chronological order compute() applied;
+    // the final array_values drops the format('r') string keys for a clean
+    // JSON array.
+    $truncated = $total > self::PREVIEW_OCCURRENCE_CAP;
+    $capped = $truncated ? array_slice($dates, 0, self::PREVIEW_OCCURRENCE_CAP) : $dates;
+
+    $occurrences = array_values(array_map(
+      fn (array $d) => [
+        'start_date' => $d['start_date']->format(\DateTime::ATOM),
+        'end_date' => $d['end_date']->format(\DateTime::ATOM),
+      ],
+      $capped,
+    ));
+
+    // occurrence_count is the SHOWN (post-cap) length, so it always equals
+    // count(occurrences) — the array stays self-consistent.
+    // total_occurrence_count is the separate real total: it equals
+    // occurrence_count when not truncated, and the larger true count when it
+    // is. truncated signals the two differ.
+    return $this->success([
+      'status' => 'preview',
+      'executed' => FALSE,
+      'occurrence_count' => count($occurrences),
+      'total_occurrence_count' => $total,
+      'truncated' => $truncated,
+      'occurrences' => $occurrences,
     ]);
   }
 
@@ -1531,7 +1676,22 @@ class EventCrudApiController extends ControllerBase {
     // field straight through when the caller supplies it.
     $ruleField = $recurType;
     if ($ruleField !== '' && array_key_exists($ruleField, $body)) {
-      $values[$ruleField] = $body[$ruleField];
+      $rule = $body[$ruleField];
+      // Normalize a consecutive rule's duration/buffer to plain ints.
+      // validateConsecutive()'s floor check runs on (int) values, but
+      // findSlotsBetweenTimes() concatenates the RAW value into
+      // DateTime::modify(); numeric-but-non-integer forms like "1e3" or "+15"
+      // pass the (int) floor yet make modify() throw (caught → empty compute),
+      // a validate/compute divergence. Cast here so both paths see the same
+      // integer.
+      if (is_array($rule)) {
+        foreach (['duration', 'buffer'] as $numericKey) {
+          if (isset($rule[$numericKey]) && is_numeric($rule[$numericKey])) {
+            $rule[$numericKey] = (int) $rule[$numericKey];
+          }
+        }
+      }
+      $values[$ruleField] = $rule;
     }
   }
 
