@@ -109,6 +109,40 @@ access.api_docs_announcements:
       openapi_generator:
         type: openapi_generator
 
+access.api_docs_announcements_v23:
+  path: '/api-docs/announcements-v23'
+  defaults:
+    _title: 'ACCESS Announcements API v2.3 Documentation'
+    _controller: '\Drupal\openapi\Controller\OpenApiUiController::generate'
+    openapi_ui: 'swagger'
+    openapi_generator: 'access_announcements_v23'
+  requirements:
+    _permission: 'access content'
+  options:
+    _admin_route: FALSE
+    parameters:
+      openapi_ui:
+        type: openapi_ui
+      openapi_generator:
+        type: openapi_generator
+
+access.api_docs_event_registration:
+  path: '/api-docs/event-registration'
+  defaults:
+    _title: 'ACCESS Event Registration API Documentation'
+    _controller: '\Drupal\openapi\Controller\OpenApiUiController::generate'
+    openapi_ui: 'swagger'
+    openapi_generator: 'access_event_registration'
+  requirements:
+    _permission: 'access content'
+  options:
+    _admin_route: FALSE
+    parameters:
+      openapi_ui:
+        type: openapi_ui
+      openapi_generator:
+        type: openapi_generator
+
 access.api_docs_content:
   path: '/api-docs/content'
   defaults:
