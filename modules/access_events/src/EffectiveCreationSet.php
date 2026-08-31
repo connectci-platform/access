@@ -53,6 +53,72 @@ use Drupal\recurring_events\EventCreationService;
  */
 class EffectiveCreationSet {
 
+  /**
+   * Maximum span (in days) between a recurrence's start and end date.
+   *
+   * calculateInstances() materializes EVERY occurrence in the window before
+   * any output cap can slice it (compute() builds the full array first), so an
+   * unbounded span over a dense recurrence is a memory-DoS vector. ~2 years.
+   */
+  public const MAX_SPAN_DAYS = 731;
+
+  /**
+   * Minimum net step (in minutes) for a consecutive recurrence's slot loop.
+   *
+   * ConsecutiveRecurringDate::findSlotsBetweenTimes() advances its cursor by
+   * duration + buffer each iteration; a non-positive net step never
+   * terminates. This floor is the load-bearing bound for the only
+   * minute-granular recur type.
+   */
+  public const MIN_CONSECUTIVE_SLOT_MINUTES = 15;
+
+  /**
+   * Maximum element count for a multiplier array (days / day_of_month / …).
+   *
+   * calculateInstances() multiplies the occurrence count by the size of these
+   * arrays; capping them bounds the materialized set alongside the span cap.
+   */
+  public const MAX_MULTIPLIER_ELEMENTS = 31;
+
+  /**
+   * Whitelist of duration/buffer unit phrases accepted by a consecutive rule.
+   *
+   * The units are concatenated RAW into DrupalDateTime::modify(); anything
+   * outside this positive-direction enum (notably signed forms like
+   * "second ago") can drive the slot loop non-terminating.
+   */
+  public const ALLOWED_UNITS = [
+    'second', 'seconds',
+    'minute', 'minutes',
+    'hour', 'hours',
+    'day', 'days',
+    'week', 'weeks',
+    'month', 'months',
+    'year', 'years',
+  ];
+
+  /**
+   * The number of seconds each whitelisted unit represents (for the floor).
+   */
+  private const UNIT_SECONDS = [
+    'second' => 1,
+    'seconds' => 1,
+    'minute' => 60,
+    'minutes' => 60,
+    'hour' => 3600,
+    'hours' => 3600,
+    'day' => 86400,
+    'days' => 86400,
+    'week' => 604800,
+    'weeks' => 604800,
+    // month/year are variable-length; use conservative lower bounds so the
+    // 15-minute floor can never be under-counted into a false pass.
+    'month' => 2419200,
+    'months' => 2419200,
+    'year' => 31536000,
+    'years' => 31536000,
+  ];
+
   public function __construct(
     protected EventCreationService $eventCreationService,
     protected FieldTypePluginManagerInterface $fieldTypePluginManager,
@@ -60,6 +126,320 @@ class EffectiveCreationSet {
     protected MessengerInterface $messenger,
     protected TimeInterface $time,
   ) {}
+
+  /**
+   * Pre-compute crash-guard for a series' recurrence config.
+   *
+   * compute() delegates each rule type to its contrib field plugin's
+   * calculateInstances(), which trusts its config to be fully populated: it
+   * dereferences a fixed set of keys unconditionally (an empty weekly `days`
+   * is a foreach-over-null fatal; a `monthday` branch with no `day_of_month`
+   * is an unguarded foreach fatal), it steps a consecutive recurrence's slot
+   * loop by duration + buffer with no sign/zero guard (a non-positive net step
+   * never terminates), and it materializes the ENTIRE occurrence set before
+   * any caller can slice it (a multi-year span over a dense recurrence is a
+   * memory DoS). This method runs BEFORE compute() and rejects those inputs
+   * with a human-readable string; the controller turns a non-null return into
+   * a 422.
+   *
+   * It validates the CONVERTED config (convertEntityConfigToArray) — the exact
+   * array compute() feeds calculateInstances() — not the raw request body, so
+   * it checks the round-tripped keys (monthly_type, day_of_month as an array,
+   * start_date/end_date as DrupalDateTime objects) rather than the widget's
+   * pre-conversion shape.
+   *
+   * It is a crash-guard, NOT a re-implementation of contrib's date semantics:
+   * a config that is merely legitimate-but-empty (all dates past) or fully
+   * valid returns NULL. Over-rejection is a bug.
+   *
+   * @param \Drupal\recurring_events\Entity\EventSeries $series
+   *   The (unsaved) series whose current recur config is validated.
+   *
+   * @return string|null
+   *   A human-readable error when the config would crash compute(); NULL when
+   *   it is well-formed enough to compute.
+   */
+  public function validateConfig(EventSeries $series): ?string {
+    $recurType = $series->getRecurType();
+    if (!$recurType) {
+      // No recurrence configured yet: nothing to compute, nothing to crash on.
+      return NULL;
+    }
+
+    // The authoritative recur-type validity gate: every rule type must resolve
+    // to a field-type plugin; 'custom' is the one type that bypasses the
+    // plugin manager. An unknown type would throw PluginNotFoundException from
+    // convertEntityConfigToArray() below, so reject it here with a clear
+    // message rather than let that surface as a fatal.
+    if ($recurType !== 'custom') {
+      try {
+        $this->fieldTypePluginManager->getDefinition($recurType);
+      }
+      catch (\Throwable $e) {
+        return sprintf('Unknown recur_type "%s".', $recurType);
+      }
+    }
+
+    // Validate the CONVERTED config — the same array compute() computes over.
+    $config = $this->eventCreationService->convertEntityConfigToArray($series);
+
+    if ($recurType === 'custom') {
+      return $this->validateCustom($config);
+    }
+
+    // Every rule type shares the same span bound.
+    $spanError = $this->validateSpan($config);
+    if ($spanError !== NULL) {
+      return $spanError;
+    }
+
+    return match ($recurType) {
+      'daily_recurring_date' => $this->validateDaily($config),
+      'weekly_recurring_date' => $this->validateWeekly($config),
+      // Yearly inherits monthly's entire crash surface (its
+      // calculateInstances() calls the monthly parent first).
+      'monthly_recurring_date', 'yearly_recurring_date' => $this->validateMonthly($config),
+      'consecutive_recurring_date' => $this->validateConsecutive($config),
+      // A recognized plugin whose validator is not enumerated above has no
+      // known unconditional-deref crash surface: fail open rather than
+      // over-reject.
+      default => NULL,
+    };
+  }
+
+  /**
+   * Validates a 'custom' recurrence: a non-empty list of parseable ranges.
+   *
+   * @param array<string, mixed> $config
+   *   The converted recurrence config.
+   */
+  private function validateCustom(array $config): ?string {
+    $dates = $config['custom_dates'] ?? [];
+    if (!is_array($dates) || $dates === []) {
+      return 'A custom recurrence needs at least one date.';
+    }
+    foreach ($dates as $range) {
+      if (!$this->isValidDate($range['start_date'] ?? NULL) || !$this->isValidDate($range['end_date'] ?? NULL)) {
+        return 'Every custom date needs a valid start and end.';
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Validates the keys DailyRecurringDate::calculateInstances() dereferences.
+   *
+   * @param array<string, mixed> $config
+   *   The converted recurrence config.
+   */
+  private function validateDaily(array $config): ?string {
+    $dateError = $this->validateStartEnd($config);
+    if ($dateError !== NULL) {
+      return $dateError;
+    }
+    if (empty($config['time'])) {
+      return 'A daily recurrence needs a start time.';
+    }
+    return $this->validateDurationOrEndTime($config);
+  }
+
+  /**
+   * Validates the keys WeeklyRecurringDate::calculateInstances() dereferences.
+   *
+   * @param array<string, mixed> $config
+   *   The converted recurrence config.
+   */
+  private function validateWeekly(array $config): ?string {
+    $dateError = $this->validateStartEnd($config);
+    if ($dateError !== NULL) {
+      return $dateError;
+    }
+    $daysError = $this->validateMultiplier($config['days'] ?? NULL, 'A weekly recurrence needs at least one day of the week.');
+    if ($daysError !== NULL) {
+      return $daysError;
+    }
+    if (empty($config['time'])) {
+      return 'A weekly recurrence needs a start time.';
+    }
+    return $this->validateDurationOrEndTime($config);
+  }
+
+  /**
+   * Validates the keys the monthly (and inherited yearly) branch dereferences.
+   *
+   * Branches on the CONVERTED `monthly_type` (not the raw body's `type`):
+   * `monthday` foreaches `day_of_month` unguarded, `weekday` needs
+   * `day_occurrence` + `days`.
+   *
+   * @param array<string, mixed> $config
+   *   The converted recurrence config.
+   */
+  private function validateMonthly(array $config): ?string {
+    $dateError = $this->validateStartEnd($config);
+    if ($dateError !== NULL) {
+      return $dateError;
+    }
+    if (empty($config['time'])) {
+      return 'A monthly recurrence needs a start time.';
+    }
+
+    $monthlyType = $config['monthly_type'] ?? NULL;
+    if ($monthlyType === 'monthday') {
+      $error = $this->validateMultiplier($config['day_of_month'] ?? NULL, 'A monthly (by day-of-month) recurrence needs at least one day of the month.');
+      if ($error !== NULL) {
+        return $error;
+      }
+      foreach ($config['day_of_month'] as $day) {
+        $day = (int) $day;
+        if ($day !== -1 && ($day < 1 || $day > 31)) {
+          return 'Each day of the month must be -1 or between 1 and 31.';
+        }
+      }
+    }
+    elseif ($monthlyType === 'weekday') {
+      $occError = $this->validateMultiplier($config['day_occurrence'] ?? NULL, 'A monthly (by weekday) recurrence needs at least one week occurrence.');
+      if ($occError !== NULL) {
+        return $occError;
+      }
+      $daysError = $this->validateMultiplier($config['days'] ?? NULL, 'A monthly (by weekday) recurrence needs at least one day of the week.');
+      if ($daysError !== NULL) {
+        return $daysError;
+      }
+    }
+    else {
+      return 'A monthly recurrence needs a monthly_type of "monthday" or "weekday".';
+    }
+
+    return $this->validateDurationOrEndTime($config);
+  }
+
+  /**
+   * Validates the consecutive keys, the unit whitelist, and the slot floor.
+   *
+   * @param array<string, mixed> $config
+   *   The converted recurrence config.
+   */
+  private function validateConsecutive(array $config): ?string {
+    $dateError = $this->validateStartEnd($config);
+    if ($dateError !== NULL) {
+      return $dateError;
+    }
+    if (empty($config['time']) || empty($config['end_time'])) {
+      return 'A consecutive recurrence needs a start and end time.';
+    }
+
+    foreach (['duration', 'buffer'] as $key) {
+      if (!array_key_exists($key, $config)) {
+        return sprintf('A consecutive recurrence needs a %s.', $key);
+      }
+      $value = $config[$key];
+      if (!is_numeric($value) || (int) $value != $value || (int) $value < 0) {
+        return sprintf('The consecutive %s must be a non-negative whole number.', $key);
+      }
+    }
+
+    foreach (['duration_units', 'buffer_units'] as $key) {
+      $unit = $config[$key] ?? NULL;
+      if (!is_string($unit) || !in_array($unit, self::ALLOWED_UNITS, TRUE)) {
+        return sprintf('The consecutive %s must be one of: %s.', $key, implode(', ', self::ALLOWED_UNITS));
+      }
+    }
+
+    // The net step (duration + buffer) must clear the floor, else the slot
+    // loop advances too little (or not at all) and never terminates.
+    $stepSeconds = ((int) $config['duration']) * self::UNIT_SECONDS[$config['duration_units']]
+      + ((int) $config['buffer']) * self::UNIT_SECONDS[$config['buffer_units']];
+    if ($stepSeconds < self::MIN_CONSECUTIVE_SLOT_MINUTES * 60) {
+      return sprintf('A consecutive recurrence must advance at least %d minutes each slot.', self::MIN_CONSECUTIVE_SLOT_MINUTES);
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Rejects a start/end span wider than MAX_SPAN_DAYS.
+   *
+   * @param array<string, mixed> $config
+   *   The converted recurrence config.
+   */
+  private function validateSpan(array $config): ?string {
+    $start = $config['start_date'] ?? NULL;
+    $end = $config['end_date'] ?? NULL;
+    if (!$this->isValidDate($start) || !$this->isValidDate($end)) {
+      // Presence/parse is enforced per-type; span only bounds a valid pair.
+      return NULL;
+    }
+    $spanDays = ($end->getTimestamp() - $start->getTimestamp()) / 86400;
+    if ($spanDays > self::MAX_SPAN_DAYS) {
+      return sprintf('The recurrence span may not exceed %d days.', self::MAX_SPAN_DAYS);
+    }
+    return NULL;
+  }
+
+  /**
+   * Requires a parseable start_date and end_date on the converted config.
+   *
+   * @param array<string, mixed> $config
+   *   The converted recurrence config.
+   */
+  private function validateStartEnd(array $config): ?string {
+    if (!$this->isValidDate($config['start_date'] ?? NULL) || !$this->isValidDate($config['end_date'] ?? NULL)) {
+      return 'The recurrence needs a valid start and end date.';
+    }
+    return NULL;
+  }
+
+  /**
+   * Requires duration or end_time per the duration_or_end_time switch.
+   *
+   * @param array<string, mixed> $config
+   *   The converted recurrence config.
+   */
+  private function validateDurationOrEndTime(array $config): ?string {
+    $mode = $config['duration_or_end_time'] ?? NULL;
+    if ($mode === 'duration') {
+      if (!isset($config['duration']) || !is_numeric($config['duration'])) {
+        return 'The recurrence needs a numeric duration.';
+      }
+      return NULL;
+    }
+    if ($mode === 'end_time') {
+      if (empty($config['end_time'])) {
+        return 'The recurrence needs an end time.';
+      }
+      return NULL;
+    }
+    return 'The recurrence needs a duration or an end time.';
+  }
+
+  /**
+   * A converted multiplier value must be a non-empty array within the cap.
+   *
+   * getWeeklyDays()/getMonthlyDayOfMonth() return an ARRAY when populated but
+   * the raw (empty string / NULL) field value when empty, so "non-empty array"
+   * is the correct presence test for the foreach-crash keys.
+   */
+  private function validateMultiplier(mixed $value, string $emptyMessage): ?string {
+    if (!is_array($value) || $value === []) {
+      return $emptyMessage;
+    }
+    if (count($value) > self::MAX_MULTIPLIER_ELEMENTS) {
+      return sprintf('A recurrence may not list more than %d values.', self::MAX_MULTIPLIER_ELEMENTS);
+    }
+    return NULL;
+  }
+
+  /**
+   * Whether a converted-config date is a usable DrupalDateTime.
+   *
+   * The converted config carries start/end as DrupalDateTime objects (or NULL
+   * on a missing/unparseable field). A DrupalDateTime built from bad input
+   * carries errors rather than throwing at construction, so check both that it
+   * is the right type and that it has no parse errors.
+   */
+  private function isValidDate(mixed $value): bool {
+    return $value instanceof DrupalDateTime && !$value->hasErrors();
+  }
 
   /**
    * Computes the series' effective (future-only) creation-set dates.
