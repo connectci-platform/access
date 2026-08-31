@@ -225,4 +225,84 @@ class PreviewValidatorTest extends EventKernelTestBase {
     $this->assertNull($error);
   }
 
+  /**
+   * Product cap: a full-day 15-minute consecutive over max span is rejected.
+   *
+   * Every per-dimension bound passes (span = max, net step = the 15-min floor,
+   * all keys present, units whitelisted), yet the PRODUCT is enormous:
+   * ceil(731) days x ceil(1440/15)=96 slots/day = ~70,176 occurrences. The
+   * estimate exceeds MAX_ESTIMATED_OCCURRENCES, so it gets a clean reject
+   * rather than a large materialization.
+   */
+  public function testConsecutiveProductBlowupRejected(): void {
+    $series = EventSeries::create([
+      'title' => 'Consecutive',
+      'type' => 'default',
+      'recur_type' => 'consecutive_recurring_date',
+      'consecutive_recurring_date' => [
+        'value' => '2999-01-01T00:00:00',
+        // Max span (~2 years).
+        'end_value' => '3000-12-31T00:00:00',
+        // Full day window.
+        'time' => '12:00 AM',
+        'end_time' => '11:59 PM',
+        // Net step exactly at the 15-min floor.
+        'duration' => 15,
+        'duration_units' => 'minutes',
+        'buffer' => 0,
+        'buffer_units' => 'minutes',
+      ],
+    ]);
+    $error = $this->validator()->validateConfig($series);
+    $this->assertIsString($error);
+    $this->assertStringContainsString('more than', $error);
+  }
+
+  /**
+   * A weekly maxed on tokens over max span stays UNDER the product cap.
+   *
+   * Per the specified estimate (ceil(spanDays/7) * count(days)) a weekly is
+   * bounded by the 31-element multiplier cap: at most ceil(731/7)=105 weeks x
+   * 31 tokens = ~3,255 occurrences, which is below MAX_ESTIMATED_OCCURRENCES
+   * (5000). So the multiplier-element cap already bounds a weekly's product;
+   * the estimate backstop's real teeth are on the consecutive type (the only
+   * minute-granular one). This pins that a maxed weekly is NOT over-rejected —
+   * D4's truncation handles the merely-large 1000-5000 band.
+   */
+  public function testWeeklyMaxTokensUnderProductCap(): void {
+    $config = $this->validWeeklyConfig();
+    $config['value'] = '2999-01-01T00:00:00';
+    $config['end_value'] = '3000-12-31T00:00:00';
+    // 31 day-tokens (the multiplier-element cap).
+    $config['days'] = implode(',', array_fill(0, 31, 'monday'));
+    $error = $this->validator()->validateConfig($this->weeklySeries($config));
+    $this->assertNull($error);
+  }
+
+  /**
+   * A large-but-under-5000 config (daily over ~2 years) is NOT rejected.
+   *
+   * Daily over the max span is ~731 occurrences — well past D4's 1000-row
+   * output cap is not even reached, and comfortably under the 5000 estimate
+   * cap, so the product backstop must let it preview. Over-rejecting
+   * merely-large data (which D4 truncates-with-a-flag) is a failure.
+   */
+  public function testLargeUnderCapDailyPasses(): void {
+    $series = EventSeries::create([
+      'title' => 'Daily',
+      'type' => 'default',
+      'recur_type' => 'daily_recurring_date',
+      'daily_recurring_date' => [
+        'value' => '2999-01-01T00:00:00',
+        'end_value' => '3000-12-31T00:00:00',
+        'time' => '10:00 AM',
+        'end_time' => '11:00 AM',
+        'duration' => 3600,
+        'duration_or_end_time' => 'end_time',
+      ],
+    ]);
+    $error = $this->validator()->validateConfig($series);
+    $this->assertNull($error);
+  }
+
 }

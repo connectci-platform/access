@@ -81,6 +81,24 @@ class EffectiveCreationSet {
   public const MAX_MULTIPLIER_ELEMENTS = 31;
 
   /**
+   * Maximum estimated occurrence count a config may preview.
+   *
+   * The per-dimension bounds (span, multiplier element count, the consecutive
+   * slot floor) each cap one factor but never their PRODUCT: a config that
+   * clears all of them can still describe a large-but-finite set (a full-day
+   * 15-minute consecutive over the max span is ~70,000 occurrences; a weekly
+   * with 31 day-tokens over the max span is ~3,200). That is no hang and no
+   * OOM, but a repeatable expensive materialization for any authenticated user
+   * and legitimate-looking data D4 would be forced to truncate. This is a
+   * small multiple (~5x) of D4's 1000-row OUTPUT cap: a config D4 would merely
+   * truncate-with-a-flag (up to a few thousand) still previews, while a
+   * pathological product-blowup gets a clean 422 instead of a large
+   * allocation. An abuse backstop, deliberately generous, NOT a
+   * real-workflow limit.
+   */
+  public const MAX_ESTIMATED_OCCURRENCES = 5000;
+
+  /**
    * Whitelist of duration/buffer unit phrases accepted by a consecutive rule.
    *
    * The units are concatenated RAW into DrupalDateTime::modify(); anything
@@ -193,7 +211,7 @@ class EffectiveCreationSet {
       return $spanError;
     }
 
-    return match ($recurType) {
+    $typeError = match ($recurType) {
       'daily_recurring_date' => $this->validateDaily($config),
       'weekly_recurring_date' => $this->validateWeekly($config),
       // Yearly inherits monthly's entire crash surface (its
@@ -205,6 +223,152 @@ class EffectiveCreationSet {
       // over-reject.
       default => NULL,
     };
+    if ($typeError !== NULL) {
+      return $typeError;
+    }
+
+    // Product backstop: the per-dimension bounds above each cap one factor
+    // (span, multiplier element count, the consecutive slot floor) but never
+    // their PRODUCT. A config that clears them all can still describe a
+    // large-but-finite set — cheaply upper-bound the occurrence count from the
+    // now-validated bounds (integer arithmetic only; never calls compute()/
+    // calculateInstances, the expensive step this guards) and reject a
+    // pathological product-blowup.
+    if ($this->estimateOccurrences($recurType, $config) > self::MAX_ESTIMATED_OCCURRENCES) {
+      return sprintf('This recurrence would produce more than %d occurrences; narrow the date range or interval.', self::MAX_ESTIMATED_OCCURRENCES);
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Cheap upper-bound estimate of a validated config's occurrence count.
+   *
+   * Deliberately over-estimates from the already-validated bounds using only
+   * integer arithmetic — no date iteration, no calculateInstances() call. Runs
+   * ONLY after the per-type validation has passed, so start_date/end_date are
+   * present DrupalDateTime values and the multiplier/consecutive fields are
+   * well-formed. An unrecognized type returns 0 (the fail-open default types
+   * have no known crash/blowup surface).
+   *
+   * @param string $recurType
+   *   The recur-type plugin id.
+   * @param array<string, mixed> $config
+   *   The converted, already-validated recurrence config.
+   */
+  private function estimateOccurrences(string $recurType, array $config): int {
+    $spanDays = $this->spanDays($config);
+
+    return match ($recurType) {
+      'daily_recurring_date' => (int) ceil($spanDays),
+      'weekly_recurring_date' => (int) ceil($spanDays / 7) * count($config['days']),
+      'monthly_recurring_date' => (int) ceil($spanDays / 30) * $this->monthlyMultiplier($config),
+      // Yearly reuses the monthly per-period multiplier, applied per year.
+      'yearly_recurring_date' => (int) ceil($spanDays / 365) * $this->monthlyMultiplier($config),
+      'consecutive_recurring_date' => (int) ceil($spanDays) * $this->consecutiveSlotsPerDay($config),
+      default => 0,
+    };
+  }
+
+  /**
+   * The span in days between the validated start and end dates.
+   *
+   * @param array<string, mixed> $config
+   *   The converted, already-validated recurrence config.
+   */
+  private function spanDays(array $config): float {
+    $start = $config['start_date'];
+    $end = $config['end_date'];
+    assert($start instanceof DrupalDateTime && $end instanceof DrupalDateTime);
+    return ($end->getTimestamp() - $start->getTimestamp()) / 86400;
+  }
+
+  /**
+   * The per-period occurrence multiplier for a monthly/yearly config.
+   *
+   * `monthday` multiplies by the day_of_month count; `weekday` by
+   * day_occurrence x days. Reads only fields the monthly validator has already
+   * confirmed present and non-empty for the active branch.
+   *
+   * @param array<string, mixed> $config
+   *   The converted, already-validated recurrence config.
+   */
+  private function monthlyMultiplier(array $config): int {
+    if (($config['monthly_type'] ?? NULL) === 'monthday') {
+      return count($config['day_of_month']);
+    }
+    if (($config['monthly_type'] ?? NULL) === 'weekday') {
+      return count($config['day_occurrence']) * count($config['days']);
+    }
+    return 1;
+  }
+
+  /**
+   * Upper-bound slots-per-day for a validated consecutive config.
+   *
+   * slotsPerDay = ceil(windowMinutes / netStepMinutes). The window is
+   * (end_time - time); a zero/negative or unparseable window is treated as a
+   * full day (1440 min) so the estimate stays an upper bound rather than
+   * collapsing to zero. netStepMinutes reuses the same duration+buffer sum the
+   * floor check validated (>= MIN_CONSECUTIVE_SLOT_MINUTES, so never zero).
+   *
+   * @param array<string, mixed> $config
+   *   The converted, already-validated recurrence config.
+   */
+  private function consecutiveSlotsPerDay(array $config): int {
+    $netStepMinutes = (
+      ((int) $config['duration']) * self::UNIT_SECONDS[$config['duration_units']]
+      + ((int) $config['buffer']) * self::UNIT_SECONDS[$config['buffer_units']]
+    ) / 60;
+
+    $windowMinutes = $this->timeWindowMinutes($config['time'] ?? NULL, $config['end_time'] ?? NULL);
+    if ($windowMinutes === NULL || $windowMinutes <= 0) {
+      // A full day is the widest a single day's slots can span.
+      $windowMinutes = 1440;
+    }
+
+    return (int) ceil($windowMinutes / $netStepMinutes);
+  }
+
+  /**
+   * Minutes between two `h:i a` / `H:i` time-of-day strings, or NULL.
+   *
+   * @param mixed $start
+   *   The start time-of-day string (converted config `time`).
+   * @param mixed $end
+   *   The end time-of-day string (converted config `end_time`).
+   */
+  private function timeWindowMinutes(mixed $start, mixed $end): ?int {
+    $startMinutes = $this->minutesOfDay($start);
+    $endMinutes = $this->minutesOfDay($end);
+    if ($startMinutes === NULL || $endMinutes === NULL) {
+      return NULL;
+    }
+    return $endMinutes - $startMinutes;
+  }
+
+  /**
+   * Parses a time-of-day string to minutes-since-midnight, or NULL.
+   *
+   * The converted config carries times as 12-hour `h:i a` (upper-cased, e.g.
+   * "10:00 AM"); strtotime() over a bare time on the current day yields a
+   * comparable minutes-of-day value. Failure returns NULL so the caller falls
+   * back to a full-day window rather than a wrong estimate.
+   *
+   * @param mixed $value
+   *   The time-of-day string.
+   */
+  private function minutesOfDay(mixed $value): ?int {
+    if (!is_string($value) || $value === '') {
+      return NULL;
+    }
+    $timestamp = strtotime($value . ' UTC', 0);
+    if ($timestamp === FALSE) {
+      return NULL;
+    }
+    // $timestamp is seconds since the epoch's midnight (base 0), so it already
+    // is seconds-of-day for a bare time.
+    return intdiv($timestamp % 86400, 60);
   }
 
   /**
