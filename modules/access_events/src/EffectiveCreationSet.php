@@ -382,6 +382,16 @@ class EffectiveCreationSet {
     if (!is_array($dates) || $dates === []) {
       return 'A custom recurrence needs at least one date.';
     }
+    // A 'custom' recurrence returns early from validateConfig(), before the
+    // span check and the estimate backstop — and its occurrence count is the
+    // custom_dates length directly, so those quantitative bounds never see it.
+    // Materializing ~2N DrupalDateTime objects is otherwise bounded only by
+    // post_max_size. Cap it by the same occurrence ceiling as every other
+    // type — a direct length compare, since custom is an exact count, not an
+    // estimate.
+    if (count($dates) > self::MAX_ESTIMATED_OCCURRENCES) {
+      return sprintf('This event has more than %d dates; reduce the number of dates.', self::MAX_ESTIMATED_OCCURRENCES);
+    }
     foreach ($dates as $range) {
       if (!$this->isValidDate($range['start_date'] ?? NULL) || !$this->isValidDate($range['end_date'] ?? NULL)) {
         return 'Every custom date needs a valid start and end.';

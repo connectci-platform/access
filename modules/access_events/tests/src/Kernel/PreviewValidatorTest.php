@@ -76,6 +76,34 @@ class PreviewValidatorTest extends EventKernelTestBase {
   }
 
   /**
+   * Builds an UNSAVED custom series carrying $count date rows.
+   *
+   * Each row is a distinct future daterange; the series is never saved, so
+   * validateConfig() reads the custom_date field directly via
+   * convertEntityConfigToArray() without contrib's save-time instance
+   * spawning (which would itself materialize one instance per row).
+   */
+  private function customSeries(int $count): EventSeries {
+    $rows = [];
+    for ($i = 0; $i < $count; $i++) {
+      // Space rows a day apart so each is a distinct, valid range.
+      $day = 1 + ($i % 27);
+      $month = 1 + intdiv($i, 27);
+      $year = 2999 + intdiv($month, 12);
+      $month = 1 + ($month % 12);
+      $date = sprintf('%04d-%02d-%02dT10:00:00', $year, $month, $day);
+      $end = sprintf('%04d-%02d-%02dT11:00:00', $year, $month, $day);
+      $rows[] = ['value' => $date, 'end_value' => $end];
+    }
+    return EventSeries::create([
+      'title' => 'Custom',
+      'type' => 'default',
+      'recur_type' => 'custom',
+      'custom_date' => $rows,
+    ]);
+  }
+
+  /**
    * Case 1: a weekly config with an empty days list is rejected.
    *
    * WeeklyRecurringDate::calculateInstances() does `foreach
@@ -303,6 +331,40 @@ class PreviewValidatorTest extends EventKernelTestBase {
     ]);
     $error = $this->validator()->validateConfig($series);
     $this->assertNull($error);
+  }
+
+  /**
+   * Custom count cap: more than MAX_ESTIMATED_OCCURRENCES dates is rejected.
+   *
+   * A 'custom' recurrence returns early from validateConfig(), bypassing the
+   * span check and the estimate backstop, so without its own count cap N
+   * custom dates materialize ~2N DrupalDateTime objects bounded only by
+   * post_max_size. The direct length compare closes that hole.
+   */
+  public function testCustomDatesOverCapRejected(): void {
+    $series = $this->customSeries(self::occurrenceCap() + 1);
+    $error = $this->validator()->validateConfig($series);
+    $this->assertIsString($error);
+    $this->assertStringContainsString('more than', $error);
+  }
+
+  /**
+   * A normal handful of custom dates is NOT rejected.
+   *
+   * The count cap is an abuse backstop, not a workflow limit — an ordinary
+   * multi-date custom event previews cleanly.
+   */
+  public function testCustomDatesNormalCountPasses(): void {
+    $series = $this->customSeries(5);
+    $error = $this->validator()->validateConfig($series);
+    $this->assertNull($error);
+  }
+
+  /**
+   * The occurrence cap constant, read off the class under test.
+   */
+  private static function occurrenceCap(): int {
+    return \Drupal\access_events\EffectiveCreationSet::MAX_ESTIMATED_OCCURRENCES;
   }
 
 }

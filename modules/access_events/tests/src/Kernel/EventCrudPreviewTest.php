@@ -244,6 +244,35 @@ class EventCrudPreviewTest extends EventKernelTestBase {
   }
 
   /**
+   * A3 — an acting user lacking 'add eventseries entity' is refused 403.
+   *
+   * setUp() grants the create permission to the authenticated role (as
+   * production does), so every fixture user normally passes the
+   * $series->access('create') gate. Revoke it for this test to model a user
+   * who may act but may NOT create events: the preview must refuse 403
+   * forbidden, NOT run compute(). This pins the load-bearing A3 gate so a
+   * regression that drops the access check ships red — the gate is what keeps
+   * the (bounded but still repeatable) preview compute off any authenticated
+   * user who lacks create rights.
+   */
+  public function testPreviewWithoutCreatePermissionIs403(): void {
+    user_role_revoke_permissions(AccountInterface::AUTHENTICATED_ROLE, ['add eventseries entity']);
+
+    $user = $this->createUser();
+    $before = $this->seriesCount();
+
+    $body = [
+      'recur_type' => 'weekly_recurring_date',
+      'weekly_recurring_date' => $this->validWeeklyConfig(),
+    ];
+    $response = $this->previewRequest($body, $user);
+
+    $this->assertSame(403, $response->getStatusCode());
+    $this->assertSame('forbidden', json_decode($response->getContent(), TRUE)['error']);
+    $this->assertSame($before, $this->seriesCount(), 'A forbidden preview must not persist an eventseries.');
+  }
+
+  /**
    * Case 4 — the invariant, isolated: two previews in a row persist nothing.
    *
    * Beyond the per-case before/after checks, this pins the invariant on its own:
