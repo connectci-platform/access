@@ -254,14 +254,19 @@ class EffectiveCreationSet {
   }
 
   /**
-   * Cheap upper-bound estimate of a validated config's occurrence count.
+   * Cheap APPROXIMATE upper-bound estimate of a config's occurrence count.
    *
-   * Deliberately over-estimates from the already-validated bounds using only
-   * integer arithmetic — no date iteration, no calculateInstances() call. Runs
-   * ONLY after the per-type validation has passed, so start_date/end_date are
-   * present DrupalDateTime values and the multiplier/consecutive fields are
-   * well-formed. An unrecognized type returns 0 (the fail-open default types
-   * have no known crash/blowup surface).
+   * A deliberate over-estimate from the already-validated bounds using only
+   * integer arithmetic — no date iteration, no calculateInstances() call. It is
+   * approximate, not exact: the per-type divisors (spanDays/30 for months,
+   * /365 for years) and inclusive-endpoint rounding introduce small per-type
+   * off-by-ones (a Feb-boundary month, an inclusive last day), immaterial
+   * against the 5000-occurrence slack this feeds — the estimate is only used to
+   * reject a pathological product-blowup, so being loose by a small constant
+   * per type is fine. Runs ONLY after the per-type validation has passed, so
+   * start_date/end_date are present DrupalDateTime values and the multiplier/
+   * consecutive fields are well-formed. An unrecognized type returns 0 (the
+   * fail-open default types have no known crash/blowup surface).
    *
    * @param string $recurType
    *   The recur-type plugin id.

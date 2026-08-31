@@ -367,4 +367,65 @@ class PreviewValidatorTest extends EventKernelTestBase {
     return \Drupal\access_events\EffectiveCreationSet::MAX_ESTIMATED_OCCURRENCES;
   }
 
+  /**
+   * A multiplier array over MAX_MULTIPLIER_ELEMENTS (31) is rejected.
+   *
+   * validateMultiplier caps days / day_of_month / day_occurrence element count;
+   * 32 weekly day-tokens is over the cap. Pins the reject (only the pass-at-cap
+   * case existed).
+   */
+  public function testWeeklyDaysOverElementCapRejected(): void {
+    $config = $this->validWeeklyConfig();
+    // 32 tokens — one past MAX_MULTIPLIER_ELEMENTS = 31.
+    $config['days'] = implode(',', array_fill(0, 32, 'monday'));
+    $error = $this->validator()->validateConfig($this->weeklySeries($config));
+    $this->assertIsString($error);
+  }
+
+  /**
+   * A monthday config with an out-of-range day_of_month is rejected.
+   *
+   * Each day_of_month element must be -1 or in 1..31; a 0 or 32 (here 32) is
+   * neither, so validateMonthly rejects it. Pins the range guard.
+   */
+  public function testMonthlyDayOfMonthOutOfRangeRejected(): void {
+    $series = EventSeries::create([
+      'title' => 'Monthly',
+      'type' => 'default',
+      'recur_type' => 'monthly_recurring_date',
+      'monthly_recurring_date' => [
+        'value' => '2999-01-01T00:00:00',
+        'end_value' => '2999-06-01T00:00:00',
+        'time' => '10:00 AM',
+        'end_time' => '11:00 AM',
+        'duration' => 3600,
+        'duration_or_end_time' => 'end_time',
+        'type' => 'monthday',
+        // 32 is out of range (not -1, not 1..31).
+        'day_of_month' => '32',
+      ],
+    ]);
+    $error = $this->validator()->validateConfig($series);
+    $this->assertIsString($error);
+  }
+
+  /**
+   * An unknown recur_type is rejected via the getDefinition gate.
+   *
+   * A recur_type with no field-type plugin (quarterly_recurring_date) makes
+   * getDefinition() throw PluginNotFoundException; validateConfig catches it
+   * and returns "Unknown recur_type", so it never reaches
+   * convertEntityConfigToArray(). Pins that gate.
+   */
+  public function testUnknownRecurTypeRejected(): void {
+    $series = EventSeries::create([
+      'title' => 'Quarterly',
+      'type' => 'default',
+      'recur_type' => 'quarterly_recurring_date',
+    ]);
+    $error = $this->validator()->validateConfig($series);
+    $this->assertIsString($error);
+    $this->assertStringContainsString('Unknown recur_type', $error);
+  }
+
 }
