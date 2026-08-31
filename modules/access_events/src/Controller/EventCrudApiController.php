@@ -59,7 +59,7 @@ class EventCrudApiController extends ControllerBase {
    * The maximum occurrence rows a preview serializes into its response.
    *
    * This is an OUTPUT/serialization backstop only — the real DoS defense is
-   * EffectiveCreationSet::validateConfig()'s pre-compute bounds (D3), which
+   * EffectiveCreationSet::validateConfig()'s pre-compute bounds, which
    * reject a config before compute() ever materializes a huge set. compute()
    * has already built the full in-memory array by the time this cap applies, so
    * this only bounds the returned/serialized array; a preview whose computed
@@ -312,15 +312,16 @@ class EventCrudApiController extends ControllerBase {
    *
    * Builds the SAME unsaved series the commit path would, but skips the
    * persisted-write protections (they guard a write this path never performs)
-   * and adds the D3 pre-compute validator + compute + an output cap. It writes
+   * and adds the pre-compute validator + compute + an output cap. It writes
    * NOTHING — it stops before save().
    *
    * KEPT from the commit path: the acting-user check (done by the caller), the
-   * recur_type required-gate, the D3 validateConfig() call, and — per Amendment
-   * A3 — the entity create-permission gate ($series->access('create')). A3 is
-   * load-bearing: skipping it would widen the compute (a repeatable expensive
-   * materialization even with the D3 bounds) to any authenticated user rather
-   * than only those who may actually create events.
+   * recur_type required-gate, the validateConfig() call, and the entity
+   * create-permission gate ($series->access('create')). That create gate is
+   * load-bearing: a preview is a create-shaped capability, so skipping it would
+   * widen the compute (a repeatable expensive materialization even with the
+   * validator's bounds) to any authenticated user rather than only those who
+   * may actually create events.
    *
    * SKIPPED (each protects the persisted write, which preview never does): the
    * title required-gate (preview needs no title), affinity-group resolution +
@@ -343,7 +344,7 @@ class EventCrudApiController extends ControllerBase {
       return $this->refuse('validation_error', 'recur_type is required.', 422);
     }
 
-    // F1 defense-in-depth: reject an over-large custom-date list from the RAW
+    // Defense in depth: reject an over-large custom-date list from the RAW
     // body, before storage->create()/convertEntityConfigToArray() materializes
     // ~2N DrupalDateTime objects. validateConfig() also caps this (via
     // validateCustom), but that check only fires AFTER the conversion has
@@ -367,12 +368,14 @@ class EventCrudApiController extends ControllerBase {
     $series = $this->entityTypeManager->getStorage('eventseries')->create($values);
     assert($series instanceof EventSeries);
 
-    // A3 — keep the entity create-permission gate on preview.
+    // Keep the entity create-permission gate on preview: a preview is a
+    // create-shaped capability, and skipping it would open the compute to any
+    // authenticated user rather than only those who may create events.
     if (!$series->access('create', $user, TRUE)->isAllowed()) {
       return $this->refuse('forbidden', 'You may not create events.', 403);
     }
 
-    // D3 pre-compute validator — a malformed / DoS-bounded config is a 422
+    // Pre-compute validator — a malformed / DoS-bounded config is a 422
     // BEFORE compute() ever materializes a set.
     if ($error = $this->effectiveCreationSet->validateConfig($series)) {
       return $this->refuse('validation_error', $error, 422);
@@ -385,10 +388,11 @@ class EventCrudApiController extends ControllerBase {
     // ordered everything. This is the envelope's total_occurrence_count.
     $total = count($dates);
 
-    // OUTPUT cap: the D3 bounds already prevent a huge materialization; this
-    // only bounds the returned array. array_slice on an ordered assoc array
-    // preserves the chronological order compute() applied; the final
-    // array_values drops the format('r') string keys for a clean JSON array.
+    // OUTPUT cap: the validator's pre-compute bounds already prevent a huge
+    // materialization; this only bounds the returned array. array_slice on an
+    // ordered assoc array preserves the chronological order compute() applied;
+    // the final array_values drops the format('r') string keys for a clean
+    // JSON array.
     $truncated = $total > self::PREVIEW_OCCURRENCE_CAP;
     $capped = $truncated ? array_slice($dates, 0, self::PREVIEW_OCCURRENCE_CAP) : $dates;
 
@@ -1673,7 +1677,7 @@ class EventCrudApiController extends ControllerBase {
     $ruleField = $recurType;
     if ($ruleField !== '' && array_key_exists($ruleField, $body)) {
       $rule = $body[$ruleField];
-      // F2: normalize a consecutive rule's duration/buffer to plain ints.
+      // Normalize a consecutive rule's duration/buffer to plain ints.
       // validateConsecutive()'s floor check runs on (int) values, but
       // findSlotsBetweenTimes() concatenates the RAW value into
       // DateTime::modify(); numeric-but-non-integer forms like "1e3" or "+15"

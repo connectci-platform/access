@@ -289,13 +289,14 @@ class PreviewValidatorTest extends EventKernelTestBase {
   /**
    * A weekly maxed on tokens over max span stays UNDER the product cap.
    *
-   * Per the specified estimate (ceil(spanDays/7) * count(days)) a weekly is
+   * Under the occurrence estimate (ceil(spanDays/7) * count(days)) a weekly is
    * bounded by the 31-element multiplier cap: at most ceil(731/7)=105 weeks x
    * 31 tokens = ~3,255 occurrences, which is below MAX_ESTIMATED_OCCURRENCES
    * (5000). So the multiplier-element cap already bounds a weekly's product;
    * the estimate backstop's real teeth are on the consecutive type (the only
    * minute-granular one). This pins that a maxed weekly is NOT over-rejected —
-   * D4's truncation handles the merely-large 1000-5000 band.
+   * the preview's output-cap truncation handles the merely-large 1000-5000
+   * band.
    */
   public function testWeeklyMaxTokensUnderProductCap(): void {
     $config = $this->validWeeklyConfig();
@@ -310,10 +311,11 @@ class PreviewValidatorTest extends EventKernelTestBase {
   /**
    * A large-but-under-5000 config (daily over ~2 years) is NOT rejected.
    *
-   * Daily over the max span is ~731 occurrences — well past D4's 1000-row
-   * output cap is not even reached, and comfortably under the 5000 estimate
-   * cap, so the product backstop must let it preview. Over-rejecting
-   * merely-large data (which D4 truncates-with-a-flag) is a failure.
+   * Daily over the max span is ~731 occurrences — the 1000-row output cap
+   * (PREVIEW_OCCURRENCE_CAP) is not even reached, and it is comfortably under
+   * the 5000 estimated-occurrence reject threshold (MAX_ESTIMATED_OCCURRENCES),
+   * so the product backstop must let it preview. Over-rejecting merely-large
+   * data (which the preview truncates-with-a-flag) is a failure.
    */
   public function testLargeUnderCapDailyPasses(): void {
     $series = EventSeries::create([

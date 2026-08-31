@@ -18,10 +18,11 @@ use Symfony\Component\HttpFoundation\Request;
  *
  * An absent or falsey `confirmed` query param routes createEvent() to a
  * no-write preview: it builds the SAME unsaved series the commit path would,
- * gates on the acting user + the entity create permission (A3), runs the D3
+ * gates on the acting user + the entity create permission, runs the
  * pre-compute validator, computes the occurrence dates, and returns them WITHOUT
  * saving. The envelope is exactly {status:"preview", executed:false,
- * occurrence_count, truncated, occurrences:[{start_date,end_date ISO}]}.
+ * occurrence_count, total_occurrence_count, truncated,
+ * occurrences:[{start_date,end_date ISO}]}.
  *
  * The critical invariant these tests pin: a preview writes NOTHING — the
  * eventseries storage count is identical before and after every preview.
@@ -63,7 +64,7 @@ class EventCrudPreviewTest extends EventKernelTestBase {
 
     // In production every authenticated user holds 'add eventseries entity'
     // (user.role.authenticated.yml), which governs the entity-type create
-    // permission the preview's $series->access('create') check enforces (A3).
+    // permission the preview's $series->access('create') check enforces.
     $this->grantPermissions(
       Role::load(AccountInterface::AUTHENTICATED_ROLE),
       ['add eventseries entity'],
@@ -193,7 +194,7 @@ class EventCrudPreviewTest extends EventKernelTestBase {
   /**
    * Case 3 — malformed: an empty weekly days list is a 422 validation_error.
    *
-   * The D3 validator fires BEFORE compute(): a weekly with no days would fatal
+   * validateConfig() fires BEFORE compute(): a weekly with no days would fatal
    * WeeklyRecurringDate::calculateInstances(), so validateConfig() returns a
    * string the preview turns into a 422 — and nothing is saved.
    */
@@ -248,13 +249,13 @@ class EventCrudPreviewTest extends EventKernelTestBase {
   }
 
   /**
-   * A3 — an acting user lacking 'add eventseries entity' is refused 403.
+   * An acting user lacking 'add eventseries entity' is refused 403.
    *
    * setUp() grants the create permission to the authenticated role (as
    * production does), so every fixture user normally passes the
    * $series->access('create') gate. Revoke it for this test to model a user
    * who may act but may NOT create events: the preview must refuse 403
-   * forbidden, NOT run compute(). This pins the load-bearing A3 gate so a
+   * forbidden, NOT run compute(). This pins the load-bearing create gate so a
    * regression that drops the access check ships red — the gate is what keeps
    * the (bounded but still repeatable) preview compute off any authenticated
    * user who lacks create rights.
@@ -301,9 +302,10 @@ class EventCrudPreviewTest extends EventKernelTestBase {
    * Case 5 — truncation: a >1000-occurrence compute is capped and flagged.
    *
    * A full-day 15-minute consecutive over a ~20-day window computes ~1,920 real
-   * slots (20 days x 96 slots/day) — comfortably above D4's 1000-row output cap
-   * yet below D3's 5000 estimate cap (so validateConfig() lets it through). The
-   * preview slices to exactly 1000 rows, reports occurrence_count 1000, and
+   * slots (20 days x 96 slots/day) — above the 1000-row output cap
+   * (PREVIEW_OCCURRENCE_CAP) yet below the 5000 estimated-occurrence reject
+   * threshold (MAX_ESTIMATED_OCCURRENCES), so validateConfig() lets it through.
+   * The preview slices to exactly 1000 rows, reports occurrence_count 1000, and
    * flags truncated:true. This is a genuine >1000 compute (not a mock), kept
    * cheap by a bounded window so the kernel run stays fast — still nothing is
    * persisted.
@@ -320,7 +322,8 @@ class EventCrudPreviewTest extends EventKernelTestBase {
         'end_value' => '2999-01-21T00:00:00',
         'time' => '12:00 AM',
         'end_time' => '11:59 PM',
-        // 15-minute net step (the D3 floor) — 96 slots per full day.
+        // 15-minute net step (the minimum consecutive slot floor) — 96 slots
+        // per full day.
         'duration' => 15,
         'duration_units' => 'minutes',
         'buffer' => 0,
@@ -367,7 +370,7 @@ class EventCrudPreviewTest extends EventKernelTestBase {
   }
 
   /**
-   * FIX 1 — preview occurrences come back in strictly chronological order.
+   * Preview occurrences come back in strictly chronological order.
    *
    * Contrib builds the set per-token (all Mondays, then all Wednesdays, then
    * all Fridays), so without a sort the preview would be token-grouped and a
@@ -405,7 +408,7 @@ class EventCrudPreviewTest extends EventKernelTestBase {
   }
 
   /**
-   * FIX 1 (F2 defense-in-depth) — a >5000 raw custom-date list is 422 early.
+   * A >5000 raw custom-date list is rejected 422 before materialization.
    *
    * The raw-body count check in previewOccurrences() rejects before
    * storage->create()/convert materializes ~2N DrupalDateTime objects.
@@ -435,7 +438,7 @@ class EventCrudPreviewTest extends EventKernelTestBase {
   }
 
   /**
-   * FIX 2 — a numeric-but-non-integer duration ("1e3") previews, not diverges.
+   * A numeric-but-non-integer duration ("1e3") previews, not diverges.
    *
    * "1e3" passes validateConsecutive's (int) floor check but real
    * DateTime::modify('+1e3 seconds') throws (caught → empty compute), a
@@ -471,7 +474,7 @@ class EventCrudPreviewTest extends EventKernelTestBase {
   }
 
   /**
-   * FIX 4 — weekly `days` sent as a JSON array is a clean 422, not a 500.
+   * Weekly `days` sent as a JSON array is a clean 422, not a 500.
    *
    * A caller sending days as an array instead of a comma-string makes
    * contrib's explode(',', $array) throw a TypeError inside

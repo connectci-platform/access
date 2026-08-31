@@ -89,8 +89,9 @@ class EffectiveCreationSet {
    * 15-minute consecutive over the max span is ~70,000 occurrences; a weekly
    * with 31 day-tokens over the max span is ~3,200). That is no hang and no
    * OOM, but a repeatable expensive materialization for any authenticated user
-   * and legitimate-looking data D4 would be forced to truncate. This is a
-   * small multiple (~5x) of D4's 1000-row OUTPUT cap: a config D4 would merely
+   * and legitimate-looking data the preview would be forced to truncate. This
+   * is a small multiple (~5x) of the preview's 1000-row output cap
+   * (PREVIEW_OCCURRENCE_CAP): a config the preview would merely
    * truncate-with-a-flag (up to a few thousand) still previews, while a
    * pathological product-blowup gets a clean 422 instead of a large
    * allocation. An abuse backstop, deliberately generous, NOT a
