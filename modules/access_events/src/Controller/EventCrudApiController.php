@@ -56,6 +56,18 @@ class EventCrudApiController extends ControllerBase {
   ];
 
   /**
+   * The maximum occurrence rows a preview serializes into its response.
+   *
+   * This is an OUTPUT/serialization backstop only — the real DoS defense is
+   * EffectiveCreationSet::validateConfig()'s pre-compute bounds (D3), which
+   * reject a config before compute() ever materializes a huge set. compute()
+   * has already built the full in-memory array by the time this cap applies, so
+   * this only bounds the returned/serialized array; a preview whose computed
+   * set exceeds it is sliced to the cap and flagged truncated.
+   */
+  private const PREVIEW_OCCURRENCE_CAP = 1000;
+
+  /**
    * The events authz helper.
    *
    * @var \Drupal\access_events\EventAccessHelper
@@ -187,6 +199,16 @@ class EventCrudApiController extends ControllerBase {
     if ($uid < 1) {
       return $this->refuse('forbidden', 'No acting user.', 403);
     }
+
+    // An absent or falsey ?confirmed routes to a no-write occurrence preview.
+    // Read the flag the same way delete() does — filter_var(null, BOOLEAN) is
+    // FALSE, so an ABSENT param previews. Preview has its own gate order, so it
+    // branches BEFORE the commit path's title / recur_type / group gates below.
+    $confirmed = filter_var($request->query->get('confirmed'), FILTER_VALIDATE_BOOLEAN);
+    if (!$confirmed) {
+      return $this->previewOccurrences($request, $uid);
+    }
+
     $user = $this->currentUser();
     $body = json_decode($request->getContent(), TRUE) ?: [];
 
@@ -282,6 +304,94 @@ class EventCrudApiController extends ControllerBase {
       'title' => $series->label(),
       'moderation_state' => $series->get('moderation_state')->value,
       'moderation' => $this->buildModerationBlock($series),
+    ]);
+  }
+
+  /**
+   * No-write preview: the occurrence dates a recurrence would produce.
+   *
+   * Builds the SAME unsaved series the commit path would, but skips the
+   * persisted-write protections (they guard a write this path never performs)
+   * and adds the D3 pre-compute validator + compute + an output cap. It writes
+   * NOTHING — it stops before save().
+   *
+   * KEPT from the commit path: the acting-user check (done by the caller), the
+   * recur_type required-gate, the D3 validateConfig() call, and — per Amendment
+   * A3 — the entity create-permission gate ($series->access('create')). A3 is
+   * load-bearing: skipping it would widen the compute (a repeatable expensive
+   * materialization even with the D3 bounds) to any authenticated user rather
+   * than only those who may actually create events.
+   *
+   * SKIPPED (each protects the persisted write, which preview never does): the
+   * title required-gate (preview needs no title), affinity-group resolution +
+   * the coordinator check, and refuseIfInvalid() (no entity is written to be
+   * invalid).
+   *
+   * @param \Symfony\Component\HttpFoundation\Request $request
+   *   The request; its JSON body carries the recurrence config.
+   * @param int $uid
+   *   The acting user's uid (already validated > 0 by the caller).
+   *
+   * @return \Symfony\Component\HttpFoundation\JsonResponse
+   *   The flat preview envelope, or a refusal.
+   */
+  private function previewOccurrences(Request $request, int $uid): JsonResponse {
+    $user = $this->currentUser();
+    $body = json_decode($request->getContent(), TRUE) ?: [];
+
+    if (empty($body['recur_type'])) {
+      return $this->refuse('validation_error', 'recur_type is required.', 422);
+    }
+
+    $values = [
+      'type' => 'default',
+      'uid' => $uid,
+      'moderation_state' => 'draft',
+      'title' => $body['title'] ?? '',
+      'recur_type' => $body['recur_type'],
+    ];
+    $this->applyRecurDates($values, $body);
+    $this->applyContentFields($values, $body);
+
+    $series = $this->entityTypeManager->getStorage('eventseries')->create($values);
+    assert($series instanceof EventSeries);
+
+    // A3 — keep the entity create-permission gate on preview.
+    if (!$series->access('create', $user, TRUE)->isAllowed()) {
+      return $this->refuse('forbidden', 'You may not create events.', 403);
+    }
+
+    // D3 pre-compute validator — a malformed / DoS-bounded config is a 422
+    // BEFORE compute() ever materializes a set.
+    if ($error = $this->effectiveCreationSet->validateConfig($series)) {
+      return $this->refuse('validation_error', $error, 422);
+    }
+
+    $dates = $this->effectiveCreationSet->compute($series);
+
+    // OUTPUT cap: the D3 bounds already prevent a huge materialization; this
+    // only bounds the returned array. array_slice on an ordered assoc array
+    // preserves insertion order; the final array_values drops the format('r')
+    // string keys for a clean JSON array.
+    $truncated = count($dates) > self::PREVIEW_OCCURRENCE_CAP;
+    $capped = $truncated ? array_slice($dates, 0, self::PREVIEW_OCCURRENCE_CAP) : $dates;
+
+    $occurrences = array_values(array_map(
+      fn (array $d) => [
+        'start_date' => $d['start_date']->format(\DateTime::ATOM),
+        'end_date' => $d['end_date']->format(\DateTime::ATOM),
+      ],
+      $capped,
+    ));
+
+    // occurrence_count reports the post-cap length, so it always equals
+    // count(occurrences); truncated signals more existed.
+    return $this->success([
+      'status' => 'preview',
+      'executed' => FALSE,
+      'occurrence_count' => count($occurrences),
+      'truncated' => $truncated,
+      'occurrences' => $occurrences,
     ]);
   }
 
