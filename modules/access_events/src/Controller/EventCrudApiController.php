@@ -3,6 +3,7 @@
 namespace Drupal\access_events\Controller;
 
 use Drupal\access_affinitygroup\Access\CoordinatorAccess;
+use Drupal\access_events\EffectiveCreationSet;
 use Drupal\access_events\EventAccessHelper;
 use Drupal\access_events\EventDeleteGuard;
 use Drupal\access_events\RegistrantCounter;
@@ -119,6 +120,13 @@ class EventCrudApiController extends ControllerBase {
   protected EventDeleteGuard $deleteGuard;
 
   /**
+   * The effective recurrence creation set service.
+   *
+   * @var \Drupal\access_events\EffectiveCreationSet
+   */
+  protected EffectiveCreationSet $effectiveCreationSet;
+
+  /**
    * Constructs the controller.
    */
   public function __construct(
@@ -131,6 +139,7 @@ class EventCrudApiController extends ControllerBase {
     StateChangeCollector $state_change_collector,
     TimeInterface $time,
     EventDeleteGuard $delete_guard,
+    EffectiveCreationSet $effective_creation_set,
   ) {
     $this->accessHelper = $access_helper;
     $this->coordinatorAccess = $coordinator_access;
@@ -141,6 +150,7 @@ class EventCrudApiController extends ControllerBase {
     $this->stateChangeCollector = $state_change_collector;
     $this->time = $time;
     $this->deleteGuard = $delete_guard;
+    $this->effectiveCreationSet = $effective_creation_set;
   }
 
   /**
@@ -157,6 +167,7 @@ class EventCrudApiController extends ControllerBase {
       $container->get('access_events.state_change_collector'),
       $container->get('datetime.time'),
       $container->get('access_events.event_delete_guard'),
+      $container->get('access_events.effective_creation_set'),
     );
   }
 
