@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\access_events\Kernel;
 
+use Drupal\access_events\EffectiveCreationSet;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
@@ -147,6 +148,9 @@ class EventCrudPreviewTest extends EventKernelTestBase {
     $this->assertFalse($data['truncated']);
     $this->assertNotEmpty($data['occurrences']);
     $this->assertSame(count($data['occurrences']), $data['occurrence_count']);
+    // Not truncated: total_occurrence_count is always present and equals the
+    // shown count.
+    $this->assertSame($data['occurrence_count'], $data['total_occurrence_count']);
     foreach ($data['occurrences'] as $occurrence) {
       $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T/', $occurrence['start_date']);
       $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T/', $occurrence['end_date']);
@@ -331,8 +335,165 @@ class EventCrudPreviewTest extends EventKernelTestBase {
     $this->assertTrue($data['truncated']);
     $this->assertSame(1000, $data['occurrence_count']);
     $this->assertCount(1000, $data['occurrences']);
+    // total_occurrence_count is the REAL total (~1,920 for this 20-day
+    // full-day 15-min consecutive), NOT the post-cap 1000.
+    $this->assertGreaterThan(1000, $data['total_occurrence_count']);
+    $this->assertSame($this->computeCount($body, $user), $data['total_occurrence_count']);
 
     $this->assertSame($before, $this->seriesCount(), 'A truncated preview must not persist an eventseries.');
+  }
+
+  /**
+   * The true occurrence count a body computes, via a direct compute() call.
+   *
+   * Recomputes the same unsaved series previewOccurrences() builds so the test
+   * asserts total_occurrence_count against the actual full set rather than a
+   * hard-coded magic number that a contrib edge could drift from.
+   */
+  private function computeCount(array $body, User $actingUser): int {
+    return $this->asActingUser($actingUser, function () use ($body): int {
+      $values = [
+        'type' => 'default',
+        'uid' => (int) \Drupal::currentUser()->id(),
+        'moderation_state' => 'draft',
+        'recur_type' => $body['recur_type'],
+      ];
+      if (array_key_exists($body['recur_type'], $body)) {
+        $values[$body['recur_type']] = $body[$body['recur_type']];
+      }
+      $series = \Drupal::entityTypeManager()->getStorage('eventseries')->create($values);
+      return count(\Drupal::service('access_events.effective_creation_set')->compute($series));
+    });
+  }
+
+  /**
+   * FIX 1 — preview occurrences come back in strictly chronological order.
+   *
+   * Contrib builds the set per-token (all Mondays, then all Wednesdays, then
+   * all Fridays), so without a sort the preview would be token-grouped and a
+   * head-slice would keep whole early weekdays and drop later ones. compute()
+   * now sorts ascending by start_date; assert the returned occurrences are
+   * strictly increasing.
+   */
+  public function testPreviewOccurrencesAreChronological(): void {
+    $user = $this->createUser();
+
+    $config = $this->validWeeklyConfig();
+    // Several weeks, three interleaved weekdays — the per-token grouping that
+    // exposes an unsorted set.
+    $config['value'] = '2999-01-04T00:00:00';
+    $config['end_value'] = '2999-02-28T00:00:00';
+    $config['days'] = 'monday,wednesday,friday';
+    $body = [
+      'recur_type' => 'weekly_recurring_date',
+      'weekly_recurring_date' => $config,
+    ];
+    $response = $this->previewRequest($body, $user);
+
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertGreaterThan(3, count($data['occurrences']), 'Need enough occurrences to expose token grouping.');
+
+    $previous = NULL;
+    foreach ($data['occurrences'] as $occurrence) {
+      $timestamp = strtotime($occurrence['start_date']);
+      if ($previous !== NULL) {
+        $this->assertGreaterThan($previous, $timestamp, 'Occurrences must be strictly increasing by start_date.');
+      }
+      $previous = $timestamp;
+    }
+  }
+
+  /**
+   * FIX 1 (F2 defense-in-depth) — a >5000 raw custom-date list is 422 early.
+   *
+   * The raw-body count check in previewOccurrences() rejects before
+   * storage->create()/convert materializes ~2N DrupalDateTime objects.
+   */
+  public function testPreviewRawCustomDatesOverCapIs422(): void {
+    $user = $this->createUser();
+    $before = $this->seriesCount();
+
+    $dates = [];
+    for ($i = 0; $i < EffectiveCreationSet::MAX_ESTIMATED_OCCURRENCES + 1; $i++) {
+      $day = 1 + ($i % 27);
+      $month = 1 + intdiv($i, 27);
+      $year = 2999 + intdiv($month, 12);
+      $month = 1 + ($month % 12);
+      $dates[] = [
+        'start_date' => sprintf('%04d-%02d-%02dT10:00:00', $year, $month, $day),
+        'end_date' => sprintf('%04d-%02d-%02dT11:00:00', $year, $month, $day),
+      ];
+    }
+    $response = $this->previewRequest(['recur_type' => 'custom', 'custom_dates' => $dates], $user);
+
+    $this->assertSame(422, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertSame('validation_error', $data['error']);
+    $this->assertStringContainsString('more than', $data['message']);
+    $this->assertSame($before, $this->seriesCount());
+  }
+
+  /**
+   * FIX 2 — a numeric-but-non-integer duration ("1e3") previews, not diverges.
+   *
+   * "1e3" passes validateConsecutive's (int) floor check but real
+   * DateTime::modify('+1e3 seconds') throws (caught → empty compute), a
+   * validate/compute divergence. applyRecurDates now casts duration/buffer to
+   * a plain int, so validate and compute agree: the preview succeeds with a
+   * non-empty occurrence set rather than passing validation then computing
+   * empty.
+   */
+  public function testPreviewConsecutiveScientificDurationNormalized(): void {
+    $user = $this->createUser();
+
+    $body = [
+      'recur_type' => 'consecutive_recurring_date',
+      'consecutive_recurring_date' => [
+        'value' => '2999-01-01T00:00:00',
+        'end_value' => '2999-01-03T00:00:00',
+        'time' => '09:00 AM',
+        'end_time' => '05:00 PM',
+        // Scientific-notation form: (int) "1e3" === 1000 seconds; raw "1e3"
+        // into modify() would throw.
+        'duration' => '1e3',
+        'duration_units' => 'seconds',
+        'buffer' => 0,
+        'buffer_units' => 'seconds',
+      ],
+    ];
+    $response = $this->previewRequest($body, $user);
+
+    $this->assertSame(200, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertSame('preview', $data['status']);
+    $this->assertNotEmpty($data['occurrences'], 'Normalized duration must compute a non-empty set, not diverge to empty.');
+  }
+
+  /**
+   * FIX 4 — weekly `days` sent as a JSON array is a clean 422, not a 500.
+   *
+   * A caller sending days as an array instead of a comma-string makes
+   * contrib's explode(',', $array) throw a TypeError inside
+   * convertEntityConfigToArray(), which validateConfig() calls. The wrapped
+   * try/catch turns that into a validation_error 422 rather than an uncaught
+   * framework 500.
+   */
+  public function testPreviewDaysAsArrayIs422NotError(): void {
+    $user = $this->createUser();
+    $before = $this->seriesCount();
+
+    $config = $this->validWeeklyConfig();
+    $config['days'] = ['monday', 'wednesday'];
+    $body = [
+      'recur_type' => 'weekly_recurring_date',
+      'weekly_recurring_date' => $config,
+    ];
+    $response = $this->previewRequest($body, $user);
+
+    $this->assertSame(422, $response->getStatusCode());
+    $this->assertSame('validation_error', json_decode($response->getContent(), TRUE)['error']);
+    $this->assertSame($before, $this->seriesCount());
   }
 
 }

@@ -343,6 +343,17 @@ class EventCrudApiController extends ControllerBase {
       return $this->refuse('validation_error', 'recur_type is required.', 422);
     }
 
+    // F1 defense-in-depth: reject an over-large custom-date list from the RAW
+    // body, before storage->create()/convertEntityConfigToArray() materializes
+    // ~2N DrupalDateTime objects. validateConfig() also caps this (via
+    // validateCustom), but that check only fires AFTER the conversion has
+    // already built the objects — so gate on the cheap raw count first.
+    if (($body['recur_type'] ?? '') === 'custom'
+      && is_array($body['custom_dates'] ?? NULL)
+      && count($body['custom_dates']) > EffectiveCreationSet::MAX_ESTIMATED_OCCURRENCES) {
+      return $this->refuse('validation_error', sprintf('This event has more than %d dates; reduce the number of dates.', EffectiveCreationSet::MAX_ESTIMATED_OCCURRENCES), 422);
+    }
+
     $values = [
       'type' => 'default',
       'uid' => $uid,
@@ -369,11 +380,16 @@ class EventCrudApiController extends ControllerBase {
 
     $dates = $this->effectiveCreationSet->compute($series);
 
+    // The REAL total, captured from the full (sorted, complete) computed set
+    // BEFORE the slice — free, since compute() already materialized and
+    // ordered everything. This is the envelope's total_occurrence_count.
+    $total = count($dates);
+
     // OUTPUT cap: the D3 bounds already prevent a huge materialization; this
     // only bounds the returned array. array_slice on an ordered assoc array
-    // preserves insertion order; the final array_values drops the format('r')
-    // string keys for a clean JSON array.
-    $truncated = count($dates) > self::PREVIEW_OCCURRENCE_CAP;
+    // preserves the chronological order compute() applied; the final
+    // array_values drops the format('r') string keys for a clean JSON array.
+    $truncated = $total > self::PREVIEW_OCCURRENCE_CAP;
     $capped = $truncated ? array_slice($dates, 0, self::PREVIEW_OCCURRENCE_CAP) : $dates;
 
     $occurrences = array_values(array_map(
@@ -384,12 +400,16 @@ class EventCrudApiController extends ControllerBase {
       $capped,
     ));
 
-    // occurrence_count reports the post-cap length, so it always equals
-    // count(occurrences); truncated signals more existed.
+    // occurrence_count is the SHOWN (post-cap) length, so it always equals
+    // count(occurrences) — the array stays self-consistent.
+    // total_occurrence_count is the separate real total: it equals
+    // occurrence_count when not truncated, and the larger true count when it
+    // is. truncated signals the two differ.
     return $this->success([
       'status' => 'preview',
       'executed' => FALSE,
       'occurrence_count' => count($occurrences),
+      'total_occurrence_count' => $total,
       'truncated' => $truncated,
       'occurrences' => $occurrences,
     ]);
@@ -1652,7 +1672,22 @@ class EventCrudApiController extends ControllerBase {
     // field straight through when the caller supplies it.
     $ruleField = $recurType;
     if ($ruleField !== '' && array_key_exists($ruleField, $body)) {
-      $values[$ruleField] = $body[$ruleField];
+      $rule = $body[$ruleField];
+      // F2: normalize a consecutive rule's duration/buffer to plain ints.
+      // validateConsecutive()'s floor check runs on (int) values, but
+      // findSlotsBetweenTimes() concatenates the RAW value into
+      // DateTime::modify(); numeric-but-non-integer forms like "1e3" or "+15"
+      // pass the (int) floor yet make modify() throw (caught → empty compute),
+      // a validate/compute divergence. Cast here so both paths see the same
+      // integer.
+      if (is_array($rule)) {
+        foreach (['duration', 'buffer'] as $numericKey) {
+          if (isset($rule[$numericKey]) && is_numeric($rule[$numericKey])) {
+            $rule[$numericKey] = (int) $rule[$numericKey];
+          }
+        }
+      }
+      $values[$ruleField] = $rule;
     }
   }
 

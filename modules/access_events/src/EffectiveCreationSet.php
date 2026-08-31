@@ -199,7 +199,19 @@ class EffectiveCreationSet {
     }
 
     // Validate the CONVERTED config — the same array compute() computes over.
-    $config = $this->eventCreationService->convertEntityConfigToArray($series);
+    // convertEntityConfigToArray() trusts its field shapes: a caller sending a
+    // multiplier (weekly `days`, monthly `day_of_month`/`day_occurrence`) as a
+    // JSON ARRAY rather than the expected comma-string makes contrib's
+    // explode(',', $array) throw a TypeError inside the convert. That would be
+    // an uncaught 500 (a bare framework error), so treat any conversion throw
+    // as a malformed-config rejection — the same fail-safe calculateDates()
+    // applies around its own contrib call.
+    try {
+      $config = $this->eventCreationService->convertEntityConfigToArray($series);
+    }
+    catch (\Throwable $e) {
+      return 'The recurrence configuration is malformed.';
+    }
 
     if ($recurType === 'custom') {
       return $this->validateCustom($config);
@@ -677,7 +689,19 @@ class EffectiveCreationSet {
     // SAME shared method directly here instead of re-deriving the collision
     // logic, so a caller of compute() sees the identical exclusion the
     // rebuild plugin's own alter enforces during a real rebuild.
-    return self::filterFlaggedDates($this->filterFuture($eventsToCreate), $series);
+    $effective = self::filterFlaggedDates($this->filterFuture($eventsToCreate), $series);
+
+    // Contrib's calculateInstances() builds the set PER-TOKEN, not
+    // chronologically: a weekly days:'monday,wednesday' yields every Monday
+    // then every Wednesday (WeeklyRecurringDate), and the monthly branches do
+    // the same per day-of-month / weekday. So the raw set is grouped, not
+    // ordered. A caller that slices the head (a preview's output cap) would
+    // otherwise keep whole early tokens and drop later ones entirely rather
+    // than the earliest N occurrences. Sort ascending by start timestamp here
+    // so BOTH the count and any downstream slice see chronological order.
+    uasort($effective, static fn (array $a, array $b): int => $a['start_date']->getTimestamp() <=> $b['start_date']->getTimestamp());
+
+    return $effective;
   }
 
   /**
