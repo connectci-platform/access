@@ -1346,7 +1346,19 @@ abstract class EventKernelTestBase extends KernelTestBase {
   protected function doCrud(string $op, ?int $id, User $actingUser, array $body, array $query = []): JsonResponse {
     $path = '/api/1.0/events' . ($id !== NULL ? '/' . $id : '');
     $method = $body || $op === 'create' ? 'POST' : 'GET';
-    $request = Request::create($path, $method, $query, [], [], [], $body ? json_encode($body) : NULL);
+    // For POST methods, bake query params into the URL via http_build_query so
+    // $request->query sees them, rather than passing as Request::create()'s
+    // $parameters: for POST that arg lands in the request bag, not ->query,
+    // so the controller's $request->query->get() would MISS it. For GET the
+    // query is equivalent in the URL or the arg, so baking always is correct.
+    if ($method === 'POST' && $query) {
+      $path .= '?' . http_build_query($query);
+      $queryArg = [];
+    }
+    else {
+      $queryArg = $query;
+    }
+    $request = Request::create($path, $method, $queryArg, [], [], [], $body ? json_encode($body) : NULL);
     $request->attributes->set('acting_user_uid', (int) $actingUser->id());
     if ($id !== NULL) {
       $request->attributes->set('eventseries', EventSeries::load($id));
