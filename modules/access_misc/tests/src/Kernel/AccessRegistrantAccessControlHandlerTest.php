@@ -36,6 +36,9 @@ class AccessRegistrantAccessControlHandlerTest extends KernelTestBase {
     'field_inheritance',
     'recurring_events',
     'recurring_events_registration',
+    'key',
+    'access',
+    'access_affinitygroup',
     'access_misc',
   ];
 
