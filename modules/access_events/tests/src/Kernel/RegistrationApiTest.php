@@ -13,6 +13,7 @@ use Drupal\Tests\content_moderation\Traits\ContentModerationTestTrait;
 use Drupal\Tests\user\Traits\UserCreationTrait;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events\Entity\EventSeries;
+use Drupal\recurring_events\Entity\EventSeriesType;
 use Drupal\recurring_events_registration\Entity\Registrant;
 use Drupal\user\Entity\Role;
 use Drupal\user\Entity\User;
@@ -71,7 +72,27 @@ class RegistrationApiTest extends KernelTestBase {
     $this->installEntitySchema('eventseries');
     $this->installEntitySchema('eventinstance');
     $this->installEntitySchema('registrant');
-    $this->installConfig(['field_inheritance', 'recurring_events']);
+    // field_inheritance 3.x installs a `field_inheritance` base field on every
+    // entity type named in field_inheritance.config, via its ConfigSubscriber.
+    // The module's install default names node/taxonomy_term/block_content/file,
+    // whose entity schemas this kernel env does not install — and the site only
+    // inherits into eventinstance anyway. Set the site's value directly rather
+    // than importing the module default.
+    $this->config('field_inheritance.config')
+      ->set('included_entities', ['eventinstance'])
+      ->save();
+    $this->installConfig(['recurring_events']);
+    // recurring_events 3.0 added a RecurringDateConstraint that refuses to save
+    // a series whose recurrence yields no dates, gated per bundle on
+    // validate_recurring_date. The module's install default turns it ON, but
+    // the site's eventseries_type does NOT (recurring_events_update_103001
+    // preserved existing behaviour), so leaving the contrib default in place
+    // here would test a configuration we do not run — and its violation
+    // pre-empts access_events' own EventSeriesRescheduleBlockConstraint
+    // message. Match the site.
+    $seriesType = EventSeriesType::load('default');
+    $seriesType->setValidateRecurringDate(FALSE);
+    $seriesType->save();
 
     // recurring_events ships the "title" inheritance config, so the computed
     // "title" field on the eventinstance (what the controller reads for
@@ -215,22 +236,20 @@ class RegistrationApiTest extends KernelTestBase {
       ],
     ]);
     $instance->set('moderation_state', 'published');
-    $instance->save();
 
-    // field_inheritance resolves each computed field's source entity from a
-    // keyvalue "field_inheritance" state, not from eventseries_id. That state
-    // is normally written by the eventinstance form-submit handler, which does
-    // not run here. Write it directly so the inherited event_type / location /
-    // virtual_meeting_link fields resolve back to this instance's series.
-    // (See FieldInheritancePluginBase::getSourceEntity() and
-    // field_inheritance_entity_form_submit().)
-    $state = \Drupal::keyValue('field_inheritance');
-    $state->set('eventinstance:' . $instance->uuid(), [
-      'enabled' => TRUE,
-      'event_type' => ['entity' => $series->id()],
-      'location' => ['entity' => $series->id()],
-      'virtual_meeting_link' => ['entity' => $series->id()],
-    ]);
+    // field_inheritance resolves each computed field's source entity from
+    // per-instance inheritance state, not from eventseries_id. That state is
+    // normally written during instance creation by the EventCreationService,
+    // which does not run on this hand-built instance — so wire it here, or the
+    // inherited event_type / location / virtual_meeting_link fields resolve to
+    // null. Up to field_inheritance 2.x this state lived in a keyvalue
+    // collection; 3.x moved it to a `field_inheritance` base field on the
+    // entity. Call the service rather than writing the structure by hand, so
+    // this stays correct if the storage shape changes again.
+    \Drupal::service('recurring_events.event_creation_service')
+      ->configureDefaultInheritances($instance, (int) $series->id());
+
+    $instance->save();
 
     return $instance;
   }

@@ -16,12 +16,19 @@ use Drupal\recurring_events\EventCreationService;
 /**
  * Computes the set of dates a series' CURRENT recur config would produce.
  *
- * EventCreationService::createInstances() is the only place recurring_events
- * itself computes a series' full date set (for both the 'custom' branch and
- * every rule-based recur type), but it does so as one inseparable step with
- * actually CREATING AND SAVING eventinstance entities — there is no
- * dates-only read path in contrib. This class replays just the
- * date-computation half: convertEntityConfigToArray() + the recur type's
+ * This class replays contrib's date computation without persisting anything.
+ *
+ * Historical note: through recurring_events 2.x,
+ * EventCreationService::createInstances() computed a series' full date set as
+ * one inseparable step with CREATING AND SAVING eventinstance entities, and
+ * there was no dates-only read path in contrib at all. 3.0 split that out into
+ * EventCreationService::calculateEventSeriesDates() /
+ * calculateDatesFromConfigArray(), which are equivalent to the replay below —
+ * so the duplication here is now optional and this class could delegate to
+ * contrib and keep only the two additions listed further down. Left as a
+ * deliberate follow-up rather than folded into the 3.0 upgrade.
+ *
+ * The replay: convertEntityConfigToArray() + the recur type's
  * field-plugin calculateInstances() (or the raw custom_dates list for a
  * 'custom' series), fires the same recurring_events_event_instances_pre_create
  * alter contrib fires (so any module reacting to that alter — including this

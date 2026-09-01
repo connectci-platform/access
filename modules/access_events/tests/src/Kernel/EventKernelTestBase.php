@@ -16,6 +16,7 @@ use Drupal\node\Entity\NodeType;
 use Drupal\node\NodeInterface;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events\Entity\EventSeries;
+use Drupal\recurring_events\Entity\EventSeriesType;
 use Drupal\recurring_events_registration\Entity\Registrant;
 use Drupal\recurring_events_registration\Entity\RegistrantType;
 use Drupal\taxonomy\Entity\Term;
@@ -104,7 +105,27 @@ abstract class EventKernelTestBase extends KernelTestBase {
     // tags/registration) inherit from CONFIGURED eventseries fields that are
     // site-level (not shipped by the contrib module), so they are absent here
     // and the controller degrades them to null — asserted in A2.
-    $this->installConfig(['field_inheritance', 'recurring_events']);
+    // field_inheritance 3.x installs a `field_inheritance` base field on every
+    // entity type named in field_inheritance.config, via its ConfigSubscriber.
+    // The module's install default names node/taxonomy_term/block_content/file,
+    // whose entity schemas this kernel env does not install — and the site only
+    // inherits into eventinstance anyway. Set the site's value directly rather
+    // than importing the module default.
+    $this->config('field_inheritance.config')
+      ->set('included_entities', ['eventinstance'])
+      ->save();
+    $this->installConfig(['recurring_events']);
+    // recurring_events 3.0 added a RecurringDateConstraint that refuses to save
+    // a series whose recurrence yields no dates, gated per bundle on
+    // validate_recurring_date. The module's install default turns it ON, but
+    // the site's eventseries_type does NOT (recurring_events_update_103001
+    // preserved existing behaviour), so leaving the contrib default in place
+    // here would test a configuration we do not run — and its violation
+    // pre-empts access_events' own EventSeriesRescheduleBlockConstraint
+    // message. Match the site.
+    $seriesType = EventSeriesType::load('default');
+    $seriesType->setValidateRecurringDate(FALSE);
+    $seriesType->save();
 
     // The computed inherited fields (title, description, …) are attached in
     // field_inheritance_entity_bundle_field_info_alter(), which reads the
