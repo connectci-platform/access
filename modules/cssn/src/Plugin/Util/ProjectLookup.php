@@ -52,14 +52,15 @@ class ProjectLookup {
    *   Submission field names mapped to the label to display.
    * @param int|string $project_user_id
    *   The user id to look projects up for.
-   * @param string $project_user_email
-   *   The email address to look projects up for.
+   * @param string|null $project_user_email
+   *   The email address to look projects up for, or NULL when the account has
+   *   no email address.
    * @param \Drupal\Core\Database\Connection $database
    *   The database connection.
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
    *   The entity type manager.
    */
-  public function __construct(array $project_fields, $project_user_id, string $project_user_email, Connection $database, EntityTypeManagerInterface $entity_type_manager) {
+  public function __construct(array $project_fields, $project_user_id, ?string $project_user_email, Connection $database, EntityTypeManagerInterface $entity_type_manager) {
     $this->database = $database;
     $this->entityTypeManager = $entity_type_manager;
     $this->runQuery($project_fields, $project_user_id, $project_user_email);
@@ -72,14 +73,17 @@ class ProjectLookup {
    *   Submission field names mapped to the label to display.
    * @param int|string $project_user_id
    *   The user id to look projects up for.
-   * @param string $project_user_email
-   *   The email address to look projects up for.
+   * @param string|null $project_user_email
+   *   The email address to look projects up for, or NULL when the account has
+   *   no email address.
    */
-  public function runQuery(array $project_fields, $project_user_id, string $project_user_email): void {
+  public function runQuery(array $project_fields, $project_user_id, ?string $project_user_email): void {
     $query = $this->database->select('webform_submission_data', 'wsd');
     $or_group = $query->orConditionGroup()
-      ->condition('wsd.value', $project_user_id)
-      ->condition('wsd.value', $project_user_email);
+      ->condition('wsd.value', $project_user_id);
+    if ($project_user_email !== NULL && $project_user_email !== '') {
+      $or_group->condition('wsd.value', $project_user_email);
+    }
     $or_name = $query->orConditionGroup()
       ->condition('wsd.name', 'mentor')
       ->condition('wsd.name', 'mentors')
