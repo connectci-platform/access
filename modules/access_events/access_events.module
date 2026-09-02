@@ -17,6 +17,16 @@ use Drupal\views\ViewExecutable;
 use Drupal\views\Plugin\views\query\QueryPluginBase;
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Entity\EntityTypeInterface;
+use Drupal\access_events\EffectiveCreationSet;
+use Drupal\access_events\Plugin\EventInstanceCreator\PastPreservingEventInstanceCreator;
+use Drupal\access_events\Plugin\Validation\Constraint\EventInstancePublishGuardConstraint;
+use Drupal\access_events\Plugin\Validation\Constraint\EventInstancePublishGuardConstraintValidator;
+use Drupal\access_events\Plugin\Validation\Constraint\EventSeriesRescheduleBlockConstraint;
+use Drupal\access_events\Plugin\Validation\Constraint\EventSeriesRescheduleBlockConstraintValidator;
+use Drupal\recurring_events\Entity\EventInstance;
+use Drupal\recurring_events\Entity\EventSeries;
+use Drupal\recurring_events\EventInstanceCreatorInterface;
+use Drupal\recurring_events\EventInstanceCreatorPluginManager;
 
 /**
  * Implements hook_form_alter().
@@ -28,8 +38,61 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
   if ($form_id == 'registrant_default_delete_form') {
     $form['actions']['submit']['#submit'][] = 'access_events_user_delete_submit';
   }
+  if ($form_id == 'eventseries_default_delete_form' || $form_id == 'eventinstance_default_delete_form') {
+    access_events_disable_delete_when_registered($form, $form_state);
+  }
+  if ($form_id == 'content_moderation_entity_moderation_form') {
+    _access_events_standalone_moderation_form_alter($form, $form_state);
+  }
+  if ($form_id == 'eventseries_revision_revert_confirm'
+    || $form_id == 'eventinstance_revision_revert_confirm'
+    || $form_id == 'eventseries_revision_revert_translation_confirm'
+    || $form_id == 'eventinstance_revision_revert_translation_confirm') {
+    $form['#validate'][] = 'access_events_revision_revert_validate';
+  }
+  if ($form_id == 'eventseries_default_clone_form' || $form_id == 'eventinstance_default_clone_form') {
+    // This form is the guaranteed born-draft surface for a hand-authored
+    // clone. A duplicate cannot be forced to draft at presave instead: a
+    // duplicate arrives at presave as a new eventinstance carrying an
+    // eventseries_id and a source-copied moderation_state, which is the same
+    // shape a machinery-created occurrence has (the birth alter stamps its
+    // published/archived state into the create() data before the entity
+    // exists), so presave cannot tell a duplicate from a machinery insert and
+    // must not force either to draft. Pinning the widget default here is what
+    // makes a UI clone born draft; a purely programmatic createDuplicate()
+    // that skips this form would keep the source's state, but no such
+    // clone-and-save path exists for eventinstances in this codebase.
+    //
+    // createDuplicate() copies the source entity's moderation_state field
+    // value onto the (new, unsaved) duplicate; the ModerationStateWidget's
+    // own default-value computation happens to land on the workflow's
+    // initial state (draft) for a new entity given today's transition graph,
+    // but that is an emergent property of the workflow config, not a
+    // guarantee — a duplicate must always be born in a non-publishing state
+    // regardless of the source's state, so pin the widget default explicitly
+    // rather than relying on transition-graph shape. Roles without the
+    // create-new-draft permission on the instance workflow do not get 'draft'
+    // in the widget's option list at all (their options are
+    // [published, ready_for_review]) and the widget would otherwise preselect
+    // published, so only pin 'draft' when it is actually offered; when it is
+    // not, fall back to the first non-publishing option the widget offers
+    // (options are weight-ordered, so this is the lowest-weight non-publishing
+    // target) so the clone is still never born published.
+    if (isset($form['moderation_state']['widget'][0]['state']['#options'])) {
+      $stateOptions = $form['moderation_state']['widget'][0]['state']['#options'];
+      if (isset($stateOptions['draft'])) {
+        $form['moderation_state']['widget'][0]['state']['#default_value'] = 'draft';
+      }
+      else {
+        $nonPublishing = array_diff_key($stateOptions, ['published' => TRUE]);
+        $fallback = array_key_first($nonPublishing);
+        if ($fallback !== NULL) {
+          $form['moderation_state']['widget'][0]['state']['#default_value'] = $fallback;
+        }
+      }
+    }
+  }
   if ($form_id == 'eventseries_default_add_form' || $form_id == 'eventseries_default_edit_form' || $form_id == 'eventseries_default_clone_form') {
-    $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
 
     $form['field_registration']['widget'][0]['uri']['#description'] = "";
 
@@ -57,20 +120,17 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['event_registration']['widget'][0]['#title'] = Markup::create('<h2 class="fieldset-legend mb-0">' . $form['event_registration']['widget'][0]['#title'] . '</h2>');
 
 
-    // Hide the option to share in the ACCESS bi-weekly digest if not on Access.
-    if ($domain_id != 'amp_cyberinfrastructure_org') {
-      unset($form['field_choose_where_to_share_this']['widget']['#options']['in_the_access_support_bi_weekly_digest']);
-    }
-
-    // Get user role.
-    $current_user = \Drupal::currentUser();
-    $roles = $current_user->getRoles();
-
-    // Some affiliations can only be set by news_pms or administrators.
-    if (!in_array('administrator', $roles) && !in_array('news_pm', $roles)) {
-      unset($form['field_affiliation']['widget']['#options']['access_nairr_office_hours']);
-      unset($form['field_affiliation']['widget']['#options']['nairr_pilot_partner_series']);
-      unset($form['field_affiliation']['widget']['#options']['cu_rmacc_webinars']);
+    // Hide options this editor's context may not set (restricted affiliations
+    // for non-editors; the bi-weekly-digest share option off the ACCESS
+    // domain). The SAME map drives the presave strip guard, which restores
+    // stored values an editor could not see — a hidden checkbox is round-
+    // tripped unchecked by the form, and without the guard the save would
+    // silently strip the value (this is how series lost their NAIRR
+    // affiliations and digest flags). One map, two consumers, no drift.
+    foreach (_access_events_hidden_series_options() as $hiddenField => $hiddenValues) {
+      foreach ($hiddenValues as $hiddenValue) {
+        unset($form[$hiddenField]['widget']['#options'][$hiddenValue]);
+      }
     }
     $set_tz = $form['custom_date']['widget'][0]['value']['#date_timezone'];
     $suffix = '<div class="form-text">' . t('Your time zone is set to ') . "<strong>$set_tz</strong>. " . t('If your event is in a different time zone, calculate the time difference accordingly.') . '</div>';
@@ -112,9 +172,6 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     // Get current user.
     $current_user = \Drupal::currentUser();
     $roles = $current_user->getRoles();
-
-    // If domain doesn't get set, force current domain after submit.
-    array_unshift($form['actions']['submit']['#submit'], 'access_events_eventseries_domain_submit');
 
     $form['#validate'][] = 'access_events_ag_validate';
 
@@ -219,6 +276,18 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['#validate'][] = 'access_events_registrant_eligibility_validate';
   }
 
+  if ($form_id == 'registrant_default_add_form') {
+    // Registration-requires-published-occurrence gate mirror: the same "is
+    // the target occurrence currently published" check
+    // access_events_entity_presave() enforces on a bare/programmatic save,
+    // re-run here so a form submission fails with a field-level form error
+    // instead of an uncaught RuntimeException. Only the ADD form needs this —
+    // the gate exempts updates (e.g. the edit form's waitlist-promotion path)
+    // entirely, so no equivalent is attached to registrant_default_
+    // edit_form.
+    $form['#validate'][] = 'access_events_registrant_publish_gate_validate';
+  }
+
   if ( ($form_id == 'registrant_default_add_form' || $form_id == 'registrant_default_edit_form') && in_array('administrator', $roles)) {
     $form['field_first_name']['widget'][0]['value']['#access'] = TRUE;
     $form['field_last_name']['widget'][0]['value']['#access'] = TRUE;
@@ -281,6 +350,26 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
       // Move domain_access to the very end for admins. Use #after_build so
       // the weight wins against any later alter (domain_entity, field_group).
       $form['#after_build'][] = '_access_events_eventinstance_after_build';
+    }
+
+    // Moderation-state warnings — not on the clone form: createDuplicate()
+    // pins a fresh clone to draft (see the clone-form block above), so it
+    // never carries a "currently published" state to leave and, unlike a
+    // series, a machinery-created instance's first publish is not something
+    // an editor drives through the clone form. An occurrence currently
+    // published carries the leaving-published warning (any transition away
+    // from published cancels it and notifies registrants); one NOT currently
+    // published carries the arriving-published warning (choosing Published
+    // republishes it and notifies registrants). Static text keyed off the
+    // CURRENT state, not the submitted target — the widget's selected value
+    // isn't known until submission, so this informs the editor of what each
+    // direction would do rather than reacting to a live selection.
+    if ($form_id !== 'eventinstance_default_clone_form') {
+      // Cast: FormState::$process_input is unset (NULL, not FALSE) at
+      // form_alter time — FormBuilder::doBuildForm() is the only place that
+      // calls setProcessInput(), and it runs after prepareForm()/the alter
+      // hooks. NULL correctly reads as "not processing input" (GET) here.
+      _access_events_attach_moderation_warnings($form, $form_state->getFormObject()->getEntity(), (bool) $form_state->isProcessingInput());
     }
 
     // The screen/pre/post-survey email accordions only matter when internal
@@ -369,6 +458,28 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $roles = $current_user->getRoles();
     if (!in_array('administrator', $roles)) {
       $form['domain_access']['#access'] = FALSE;
+    }
+
+    // Moderation-state warnings — not on the clone form: createDuplicate()
+    // pins a fresh clone to draft (see the clone-form block above), so a
+    // clone never carries a "currently published" state to leave. The add
+    // form is likewise a no-op here: _access_events_attach_moderation_
+    // warnings() itself skips any $entity->isNew() case — a brand-new series
+    // has neither a saved state to leave nor a recurrence configuration to
+    // compute an effective creation set from.
+    if ($form_id !== 'eventseries_default_clone_form') {
+      // Cast: see the eventinstance call site above — $process_input is NULL
+      // (not FALSE) at form_alter time, and NULL correctly reads as "GET".
+      _access_events_attach_moderation_warnings($form, $form_state->getFormObject()->getEntity(), (bool) $form_state->isProcessingInput());
+    }
+
+    // Schedule-change disclosure — edit form only: the add form has no
+    // existing occurrences yet to diverge from (whatever recur config is
+    // submitted IS the schedule, nothing to regenerate away from), and the
+    // clone form's duplicate is a brand-new, unsaved entity for the same
+    // reason.
+    if ($form_id === 'eventseries_default_edit_form') {
+      _access_events_attach_schedule_change_warning($form, $form_state->getFormObject()->getEntity());
     }
 
     $form['body']['widget'][0]['#required'] = TRUE;
@@ -554,19 +665,6 @@ function access_events_preprocess_field_multiple_value_form(&$variables) {
 }
 
 /**
- * Custom submit handler to set domain access based on current domain.
- */
-function access_events_eventseries_domain_submit($form, FormStateInterface $form_state) {
-  $domain_id = \Drupal::service('access_misc.sitetools')->getDomainId();
-  $set_domain = $form_state->getValue('domain_access');
-
-  if ($domain_id && empty($set_domain)) {
-    $set_domain[] = $domain_id;
-    $form_state->setValue('domain_access', $set_domain);
-  }
-}
-
-/**
  * Custom validation handler for webform_submission_resource_add_form.
  */
 function access_events_eventseries_validate($form, FormStateInterface $form_state) {
@@ -599,6 +697,21 @@ function access_events_eventseries_validate($form, FormStateInterface $form_stat
         $form_state->setErrorByName($date_field, t('Please select a date.'));
       }
     }
+  }
+
+  // Enforce the 150-character summary limit server-side. The custom textarea
+  // carries an HTML #maxlength, but that is only a client-side hint and is
+  // bypassed by paste and the AI-suggestion path, so a hand-entered or
+  // suggested summary can still exceed the documented limit. Read it from the
+  // raw input the same way access_events_save_summary() does, since this
+  // replacement element is not a real entity field value. Measure as plain
+  // text with mb_strlen so multibyte characters are counted correctly.
+  $raw_input = $form_state->getUserInput();
+  $summary_text = $raw_input['summary_text'] ?? '';
+  if (is_string($summary_text) && mb_strlen(trim($summary_text)) > 150) {
+    $form_state->setErrorByName('summary_text', t('The summary must be 150 characters or fewer (currently @count).', [
+      '@count' => mb_strlen(trim($summary_text)),
+    ]));
   }
 
 }
@@ -1296,7 +1409,449 @@ function access_events_entity_presave(EntityInterface $entity) {
         }
       }
     }
+
+    if ($entity->getEntityTypeId() === 'eventinstance'
+      && $entity->hasField('individually_cancelled')
+      && $entity->hasField('moderation_state')
+      && $entity->get('moderation_state')->value === 'published'
+      && (bool) $entity->get('individually_cancelled')->value) {
+      // A live occurrence is by definition not cancelled.
+      $entity->set('individually_cancelled', FALSE);
+    }
+
+    if ($eventinstance instanceof EventInstance) {
+      // The cancellation-email reaction's flag write + the occurrence-
+      // publish-under-unpublished-event refusal — see
+      // EventStateReactions::instancePresave().
+      \Drupal::service('access_events.state_reactions')->instancePresave($eventinstance);
+    }
   }
+  elseif ($type === 'registrant') {
+    // The registration-requires-published-occurrence gate: registration is
+    // only open against a LIVE occurrence. This only gates NEW registrants —
+    // an update save on an existing registrant row
+    // (e.g. a waitlist promotion flipping the `waitlist` field) is a status
+    // change on someone already registered, not a new signup, and is exempt
+    // regardless of the instance's current state.
+    if ($entity->isNew() && $entity->hasField('eventinstance_id')) {
+      $instanceId = (int) $entity->get('eventinstance_id')->target_id;
+      $registrable = $instanceId > 0
+        && \Drupal::service('access_events.state_reactions')->instanceIsRegistrable($instanceId);
+      if (!$registrable) {
+        throw new \RuntimeException('Registration is closed — this occurrence is not currently published.');
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_update() for eventinstance.
+ *
+ * The cancellation-email and reinstatement notifications + the
+ * reschedule-notice reaction (a live occurrence's date moving) + outcome
+ * recording, run after the row is saved — see
+ * EventStateReactions::instanceUpdate(). This ENTITY_TYPE-specific hook is
+ * also where the reschedule notice now lives instead of a separate generic
+ * hook_entity_update() implementation — recurring_events_registration's own
+ * hook_entity_update() (which fired this notice with no state gates at all)
+ * is unimplemented for eventinstance saves in
+ * access_events_module_implements_alter(), so this is the ONLY place that
+ * notice fires from.
+ */
+function access_events_eventinstance_update(EntityInterface $entity) {
+  if ($entity instanceof EventInstance) {
+    \Drupal::service('access_events.state_reactions')->instanceUpdate($entity);
+  }
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_update() for eventseries.
+ *
+ * The non-published rebuild trigger + the cancel sweep / restore sweep — see
+ * EventStateReactions::seriesUpdate(). Must run AFTER recurring_events'
+ * own eventseries_update() (which rebuilds instances for a published/
+ * unmoderated series and syncs each instance's status to the series') — see
+ * access_events_module_implements_alter(). Our rebuild trigger only fires for
+ * a NOT-published series, so the two never both fire for the same save; our
+ * sweeps read the instance set fresh from storage, so running after contrib's
+ * own status-sync loop is safe either way.
+ */
+function access_events_eventseries_update(EntityInterface $entity) {
+  if ($entity instanceof EventSeries) {
+    \Drupal::service('access_events.state_reactions')->seriesUpdate($entity);
+  }
+}
+
+/**
+ * Option values hidden from the current editor's eventseries form context.
+ *
+ * Keyed by field name; each entry lists option keys the series form REMOVES
+ * for this user/domain context. Shared by the form alter (which unsets the
+ * options) and the presave strip guard (which restores stored values in
+ * these sets that vanish from an editor's save — an invisible checkbox
+ * cannot have been deliberately unchecked). Programmatic contexts (cron,
+ * drush: anonymous user, no active domain) treat everything as hidden,
+ * which makes the guard maximally protective there.
+ *
+ * @return array<string, list<string>>
+ *   Hidden option values per field name.
+ */
+function _access_events_hidden_series_options(): array {
+  $hidden = [];
+  $roles = \Drupal::currentUser()->getRoles();
+  if (!in_array('administrator', $roles, TRUE) && !in_array('news_pm', $roles, TRUE)) {
+    $hidden['field_affiliation'] = [
+      'access_nairr_office_hours',
+      'nairr_pilot_partner_series',
+      'cu_rmacc_webinars',
+    ];
+  }
+  $domainId = NULL;
+  if (\Drupal::hasService('domain.negotiator')) {
+    $activeDomain = \Drupal::service('domain.negotiator')->getActiveDomain();
+    $domainId = $activeDomain ? $activeDomain->id() : NULL;
+  }
+  if ($domainId !== 'amp_cyberinfrastructure_org') {
+    $hidden['field_choose_where_to_share_this'] = ['in_the_access_support_bi_weekly_digest'];
+  }
+  return $hidden;
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_presave() for eventseries.
+ *
+ * Backstop for the EventSeriesRescheduleBlock constraint: the constraint only
+ * runs where validate() runs, but some save paths (the content-moderation
+ * widget, revision reverts) call save() directly. A recurrence/date change on
+ * a series with registrations not verifiably past would let recurring_events
+ * destructively rebuild every instance and hard-delete their registrants —
+ * abort the save instead. Also mirrors the request-adjustment refusal, so
+ * a bare save that skips validate() cannot silently hide a live registered
+ * event either. Uses $entity->original (populated during presave, unlike at
+ * validate time) for both diffs. Also guards domain_access: an empty value
+ * on save is restored from the original (update) or filled from the active
+ * domain (create); see DomainGuardTest.
+ */
+function access_events_eventseries_presave(EntityInterface $entity) {
+  // Domain guard. The edit form renders a hidden, zero-option domain_access
+  // widget for editors without domain permissions; the stored domain is
+  // filtered out of its default and the hidden element round-trips an empty
+  // value, which extraction happily saves — recurring_events' "Confirm Date
+  // Changes" button bypasses any form-level backfill (hard-coded #submit),
+  // so the guard lives here, at the entity layer, covering every save path.
+  // Rules: an update that arrives empty restores the original domains (a
+  // cross-domain series edited from another site keeps its home); a CREATE
+  // that arrives empty is scoped to the active domain (browser and API
+  // alike); an update whose original was also empty stays empty — a
+  // deliberately all-affiliates series is never silently narrowed. Deletion
+  // of domains by ANY user via an empty save is treated as the bug, not an
+  // intent: on this site the events search view treats empty as invisible,
+  // not as all-domains.
+  if ($entity->hasField('domain_access') && $entity->get('domain_access')->isEmpty()) {
+    $original = (!$entity->isNew() && $entity->original instanceof EventSeries)
+      ? $entity->original
+      : NULL;
+    if ($original && !$original->get('domain_access')->isEmpty()) {
+      $entity->set('domain_access', $original->get('domain_access')->getValue());
+    }
+    elseif ($entity->isNew() && \Drupal::hasService('domain.negotiator')) {
+      $activeDomain = \Drupal::service('domain.negotiator')->getActiveDomain();
+      if ($activeDomain) {
+        $entity->set('domain_access', [$activeDomain->id()]);
+      }
+    }
+  }
+
+  // Strip guard: restore stored option values this editor's form context
+  // hides. The form removes those options entirely, so the submission
+  // round-trips without them and the save would silently strip values the
+  // editor never saw (see _access_events_hidden_series_options()). Values
+  // outside the hidden sets — anything the editor COULD see — are untouched,
+  // so deliberate removals by privileged editors stick. Syncing saves are
+  // exempt: a programmatic caller that sets the syncing flag is declaring
+  // its values deliberate (CLI context would otherwise hide every option
+  // and make intentional removals impossible). The guarded fields are
+  // list_string ('value' column); an entity_reference entry in the map
+  // would silently no-op here and needs target_id handling first.
+  if (!$entity->isSyncing() && !$entity->isNew() && $entity->original instanceof EventSeries) {
+    foreach (_access_events_hidden_series_options() as $guardedField => $hiddenValues) {
+      if (!$entity->hasField($guardedField)) {
+        continue;
+      }
+      $currentValues = array_column($entity->get($guardedField)->getValue(), 'value');
+      $originalValues = array_column($entity->original->get($guardedField)->getValue(), 'value');
+      $lostHidden = array_values(array_intersect(array_diff($originalValues, $currentValues), $hiddenValues));
+      if ($lostHidden) {
+        $entity->set($guardedField, array_map(
+          static fn (string $value): array => ['value' => $value],
+          array_merge($currentValues, $lostHidden),
+        ));
+      }
+    }
+  }
+
+  if ($entity->isNew() || !$entity->original instanceof EventSeries) {
+    return;
+  }
+  $counter = \Drupal::service('access_events.registrant_counter');
+
+  // Request-adjustment refusal mirror: Request Adjustment (published ->
+  // needs_adjustment) on a series that still has live registrations must not
+  // silently hide it. Matches EventSeriesRescheduleBlockConstraintValidator's
+  // request-adjustment refusal condition.
+  if ($entity->original->isPublished()
+    && $entity->get('moderation_state')->value === 'needs_adjustment'
+    && $counter->countNotPastForSeries((int) $entity->id()) > 0) {
+    throw new \RuntimeException('Request Adjustment would hide a live event that has registrations. Cancel (Archive) it instead — registrants will be notified.');
+  }
+
+  /** @var \Drupal\recurring_events\EventCreationService $creation */
+  $creation = \Drupal::service('recurring_events.event_creation_service');
+  if (!$creation->checkForOriginalRecurConfigChanges($entity, $entity->original)) {
+    return;
+  }
+  $count = $counter->countNotPastForSeries((int) $entity->id());
+  if ($count > 0) {
+    throw new \RuntimeException("This event has registrations, so its schedule cannot be rebuilt. To reschedule: cancel the event (registrants are notified), change each occurrence's date, then restore the event. To adjust dates, edit the occurrences individually; to add or remove a date, add an occurrence or cancel one.");
+  }
+}
+
+/**
+ * Disables the confirm button on a contrib entity-delete form when blocked.
+ *
+ * The eventseries/eventinstance being deleted has registrations. Editors
+ * should never actually reach the exception page the predelete
+ * hooks throw (see access_events_eventseries_predelete(),
+ * access_events_eventinstance_predelete(),
+ * access_events_recurring_events_pre_delete_instance()) in normal browser
+ * use — this is the UX layer that stops them before they submit. The throws
+ * remain the backstop for anything that skips this form (API, direct code,
+ * a resubmit with JS disabled).
+ */
+function access_events_disable_delete_when_registered(array &$form, FormStateInterface $form_state) {
+  $entity = $form_state->getFormObject()->getEntity();
+  // deletionBlockedReason() is strictly typed to EventSeries|EventInstance.
+  // getEntity() is untyped on the interface, so a NULL (an AJAX partial
+  // rebuild, or any form object whose entity is not yet set) or an entity of
+  // an unrelated type (a future form id added to the two conditions above by
+  // mistake) would otherwise reach it and throw a TypeError from inside
+  // hook_form_alter — breaking the WHOLE form's render, not just this guard.
+  // No-op cleanly instead; the predelete/pre_delete_instance hook throws
+  // remain the real backstop regardless.
+  if (!$entity instanceof EventSeries && !$entity instanceof EventInstance) {
+    return;
+  }
+  $reason = \Drupal::service('access_events.event_delete_guard')->deletionBlockedReason($entity);
+  if ($reason === NULL) {
+    return;
+  }
+  $form['actions']['submit']['#disabled'] = TRUE;
+  $form['access_events_delete_guard_message'] = [
+    '#type' => 'markup',
+    '#markup' => '<div class="messages messages--warning">' . Html::escape($reason) . '</div>',
+    '#weight' => -10,
+  ];
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_predelete() for eventseries.
+ *
+ * Guards FIRST: a series with any registrations (past or future — attendance
+ * history is protected data) can never be hard-deleted from any path. This
+ * fires for every module-order-agnostic route to $series->delete()
+ * (including the recurring_events series delete form, which calls
+ * $entity->delete() directly with no pre-delete invokeAll of its own — the
+ * cascade to instances happens INSIDE recurring_events' own predelete hook,
+ * recurring_events_eventseries_predelete()). access_events_module_
+ * implements_alter() below forces access_events to run BEFORE recurring_
+ * events/recurring_events_registration on this hook (natural module-list
+ * order alone does not guarantee it — verified directly in
+ * EventDeleteGuardHooksTest), so this throw runs before contrib's predelete
+ * ever fires, aborting inside the storage transaction — full rollback,
+ * nothing deleted.
+ */
+function access_events_eventseries_predelete(EntityInterface $entity) {
+  \Drupal::service('access_events.event_delete_guard')->assertDeletable($entity);
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_predelete() for eventinstance.
+ *
+ * Same guard as access_events_eventseries_predelete(), scoped to a single
+ * instance. Covers any code path that entity-deletes an eventinstance
+ * directly (the past-preserving rebuild plugin's own belt-and-braces check
+ * already guarantees its future-instance deletes are registrant-free, so
+ * this never fires there — see PastPreservingEventInstanceCreator).
+ *
+ * This predelete alone is NOT sufficient for the two contrib delete forms
+ * (EventInstanceDeleteForm, OrphanedEventInstanceForm): both invoke
+ * hook_recurring_events_pre_delete_instance BEFORE calling $instance->
+ * delete(), and recurring_events_registration's implementation of that hook
+ * notifies-then-DELETES the registrants right there — so by the time THIS
+ * predelete runs on those paths, the registrant count is already 0. See
+ * access_events_recurring_events_pre_delete_instance() below, which is the
+ * layer that actually protects those forms.
+ */
+function access_events_eventinstance_predelete(EntityInterface $entity) {
+  \Drupal::service('access_events.event_delete_guard')->assertDeletable($entity);
+}
+
+/**
+ * Implements hook_recurring_events_pre_delete_instance().
+ *
+ * The registrant guard for the two contrib delete forms
+ * (EventInstanceDeleteForm::submitForm(), OrphanedEventInstanceForm::
+ * submitForm()): both call moduleHandler->invokeAll('recurring_events_pre_
+ * delete_instance', [$instance]) BEFORE $instance->delete(), and
+ * recurring_events_registration's own implementation of this exact hook
+ * (recurring_events_registration_recurring_events_pre_delete_instance())
+ * notifies the registrants and then unconditionally deletes them — so an
+ * eventinstance predelete guard alone is too late on these paths; the
+ * registrants are already gone by the time predelete sees the instance.
+ * access_events_module_implements_alter() below forces access_events to run
+ * BEFORE recurring_events_registration on this hook (natural module-list
+ * order alone does not guarantee it — verified directly in
+ * EventDeleteGuardHooksTest), so this implementation's throw aborts
+ * invokeAll() before the registration module's implementation runs, and no
+ * registrant is ever touched.
+ */
+function access_events_recurring_events_pre_delete_instance(EventInstance $instance) {
+  \Drupal::service('access_events.event_delete_guard')->assertDeletable($instance);
+}
+
+/**
+ * Implements hook_recurring_events_registration_message_params_alter().
+ *
+ * Stamps the registrant's occurrence (and series) id onto the queued
+ * notification's params. Registration notices are fully rendered and queued
+ * at enqueue time and the queue table carries no column identifying which
+ * occurrence a queued item belongs to. CancellationNotifier's supersede sweep
+ * needs that id to scope its "remove the now-stale earlier notice" deletion to
+ * a single occurrence, so it never removes a queued notice for a DIFFERENT
+ * event to the same person. Stamping it here — the one place contrib exposes
+ * for adding scalar params to a queued item — is what makes that safe scoping
+ * possible. The id is read from the registrant's own eventinstance_id/
+ * eventseries_id references, so it is correct regardless of which notification
+ * key the item carries.
+ */
+function access_events_recurring_events_registration_message_params_alter(array &$params, $registrant): void {
+  if (!is_object($registrant) || !method_exists($registrant, 'get')) {
+    return;
+  }
+  $instanceId = $registrant->get('eventinstance_id')->target_id ?? NULL;
+  if ($instanceId !== NULL) {
+    $params[\Drupal\access_events\CancellationNotifier::INSTANCE_PARAM] = (int) $instanceId;
+  }
+  $seriesId = $registrant->get('eventseries_id')->target_id ?? NULL;
+  if ($seriesId !== NULL) {
+    $params['access_events_series_id'] = (int) $seriesId;
+  }
+}
+
+/**
+ * Implements hook_recurring_events_event_instance_creator_plugin_alter().
+ *
+ * recurring_events fires the active EventInstanceCreator plugin whenever a
+ * published series' recurrence/date config changes. This site's
+ * recurring_events.eventseries.config sets creator_plugin: null, and
+ * EventInstanceCreatorPluginManager::createInstance() falls back to the
+ * default plugin id (recurring_events_eventinstance_recreator, contrib's
+ * destructive Recreate plugin) whenever the requested id is empty — so
+ * today every such rebuild goes through the plugin that deletes and
+ * recreates ALL instances, including ones whose date has already passed and
+ * which may carry attendance history. Swap in the module's own
+ * past-preserving plugin here instead, unconditionally: this only fires on
+ * eventseries, and the invariant (never touch an ended instance) is safe for
+ * every series regardless of recur type.
+ *
+ * This unconditionally overrides whatever choice contrib's
+ * EventSeriesSettingsForm presents for the "Event instance creator" setting
+ * — that admin form's value has no effect on this site as long as this hook
+ * is enabled, since the alter always wins over whatever
+ * EventInstanceCreatorPluginManager::createInstance() resolved.
+ */
+function access_events_recurring_events_event_instance_creator_plugin_alter(EventInstanceCreatorInterface &$active_plugin, EventInstanceCreatorPluginManager $plugin_manager, EventSeries $series) {
+  $active_plugin = $plugin_manager->createInstance('access_events_past_preserving_recreator', []);
+}
+
+/**
+ * Implements hook_recurring_events_event_instances_pre_create_alter().
+ *
+ * EventCreationService::createInstances() computes the full set of dates a
+ * series' CURRENT recur config would produce (for both the 'custom' branch
+ * and every rule-based recur type) and fires this alter on that computed set
+ * immediately before creating any eventinstance entities. createInstances()
+ * has THREE callers: PastPreservingEventInstanceCreator's own rebuild (where
+ * past dates must be dropped so an ended, already-preserved instance is
+ * never duplicated), and recurring_events_eventseries_insert()/
+ * _translation_insert() (a brand-new series, where a past date is a
+ * legitimate thing to create — nothing exists yet to preserve). This alter
+ * has no way to see which of the three called it, so it only filters while
+ * PastPreservingEventInstanceCreator::isRebuilding($event) is TRUE for THIS
+ * series — that plugin sets its rebuilding-series-id for the exact duration
+ * of its own createInstances() call and nowhere else, and only for the one
+ * series it is rebuilding. $events_to_create is keyed by
+ * DrupalDateTime::format('r') => ['start_date' => DrupalDateTime, 'end_date'
+ * => DrupalDateTime]. The `?? NULL` below fails OPEN (an entry with no
+ * end_date key is KEPT, not dropped) — if contrib's shape ever changes so
+ * end_date is absent/renamed, this filter silently stops filtering rather
+ * than erroring, which would let the rebuild duplicate a preserved past
+ * instance. PastPreservingRebuildTest is the tripwire for that drift.
+ *
+ * A SECOND exclusion runs after the past-date filter: any computed date whose
+ * start exactly matches a preserved FLAGGED (individually_cancelled)
+ * instance's start is also dropped, via
+ * EffectiveCreationSet::filterFlaggedDates() — the SAME method
+ * EffectiveCreationSet::compute() calls, so this alter and that read-only
+ * preview path can never derive "does this date collide with a flagged
+ * instance" differently. By the time this alter fires mid-rebuild, a flagged
+ * instance has already been skipped by PastPreservingEventInstanceCreator's
+ * delete loop (see isFlagged() there) and so is still present in $event's
+ * event_instances — there is no live twin left to create at its date.
+ */
+function access_events_recurring_events_event_instances_pre_create_alter(array &$events_to_create, EventSeries $event) {
+  if (!PastPreservingEventInstanceCreator::isRebuilding($event)) {
+    return;
+  }
+  $now = \Drupal::time()->getRequestTime();
+  foreach ($events_to_create as $key => $dates) {
+    $end = $dates['end_date'] ?? NULL;
+    if ($end && $end->getTimestamp() <= $now) {
+      unset($events_to_create[$key]);
+    }
+  }
+  $events_to_create = EffectiveCreationSet::filterFlaggedDates($events_to_create, $event);
+}
+
+/**
+ * Implements hook_recurring_events_event_instance_alter().
+ *
+ * This alter fires from two callers, and only one of them carries a series.
+ *
+ * The machinery path (EventCreationService::createEventInstance(), patched to
+ * pass the series as the alter's second argument — the contrib patch at
+ * EventCreationService.php:553) stamps the new occurrence's birth state to
+ * follow its series: a live series bears live occurrences; a dark (draft or
+ * cancelled) series' occurrences are born archived so a later series restore
+ * or first publish sweep brings them along.
+ *
+ * The hand-authored path (EventSeriesController::addInstance(), the
+ * /events/series/{eventseries}/add "Add Instance" form) invokes the same alter
+ * with only $data and no series, so $event arrives NULL. That is the correct
+ * signal to leave the moderation_state untouched: an occurrence a person
+ * authors directly must be born in the workflow's own default state (draft),
+ * never swept by a series-level transition. So when no series is present we
+ * return early and stamp nothing. The nullable parameter is what keeps that
+ * caller from throwing a TypeError and white-screening the Add Instance form.
+ */
+function access_events_recurring_events_event_instance_alter(array &$data, ?EventSeries $event = NULL): void {
+  // No series context: the hand-authored Add Instance path. Leave the
+  // workflow default (draft) in place — a person-authored occurrence is born
+  // draft and is never carried by a series restore sweep.
+  if ($event === NULL) {
+    return;
+  }
+  $data['moderation_state'] = $event->isPublished() ? 'published' : 'archived';
 }
 
 /**
@@ -1465,10 +2020,42 @@ function access_events_entity_access(EntityInterface $entity, $operation, Accoun
  *
  * Disable the recurring_events_reminders cron hook to replace it with our own
  * implementation that includes a check for events that have already started.
+ *
+ * Also FORCES access_events to run FIRST (not merely "before" by install
+ * order, which is not a guarantee module_implements() honors — verified: in
+ * a plain module list this site's actual order puts
+ * recurring_events/recurring_events_registration BEFORE access_events on
+ * eventseries_predelete and recurring_events_pre_delete_instance) on the
+ * three hooks the delete-registrant guard depends on running first:
+ *  - eventseries_predelete — our guard must run before
+ *    recurring_events_eventseries_predelete()'s instance-delete cascade;
+ *  - eventinstance_predelete — access_events is currently the only
+ *    implementation, but pin it defensively so a future contrib
+ *    implementation can never land ahead of the guard unnoticed;
+ *  - recurring_events_pre_delete_instance — our guard must run before
+ *    recurring_events_registration_recurring_events_pre_delete_instance(),
+ *    which notifies-then-deletes the registrant, inside the SAME invokeAll()
+ *    call the two contrib delete forms make.
+ * Without this, a hard delete on a registered event would silently succeed
+ * on any environment where module install order happens to differ.
  */
 function access_events_module_implements_alter(&$implementations, $hook) {
   if ($hook === 'cron' && isset($implementations['recurring_events_reminders'])) {
     unset($implementations['recurring_events_reminders']);
+  }
+  // recurring_events_registration_entity_update() enqueues a reschedule
+  // notice off ANY eventinstance date change, checked ONLY against the
+  // post-save new end date — no published check, no default-revision check.
+  // A date edit on a still-drafting or already-archived occurrence would
+  // silently notify registrants of a "reschedule" on an event nobody can see.
+  // access_events_eventinstance_update() (via EventStateReactions::
+  // instanceUpdate() -> reactToInstanceModified()) replaces it with the same
+  // notice, state-gated: default revision, published both before and after
+  // the save, and the date actually changed. Removing the implementation
+  // entirely (not reordering it) means this is the only place the notice can
+  // fire from — there is nothing left to run before or after.
+  if ($hook === 'entity_update' && isset($implementations['recurring_events_registration'])) {
+    unset($implementations['recurring_events_registration']);
   }
   if ($hook === 'entity_base_field_info_alter' && isset($implementations['access_events'])) {
     $group = $implementations['access_events'];
@@ -1481,6 +2068,34 @@ function access_events_module_implements_alter(&$implementations, $hook) {
     $group = $implementations['access_events'];
     unset($implementations['access_events']);
     $implementations['access_events'] = $group;
+  }
+  // Run our eventseries_update AFTER recurring_events' — the opposite
+  // direction from the delete-guard "must run FIRST" pins below.
+  // EventStateReactions::seriesUpdate()'s rebuild trigger and cancel/restore
+  // sweeps need the series' instance set as
+  // recurring_events_eventseries_update()
+  // left it (its own rebuild for a published/unmoderated series, and its
+  // per-instance status sync) — reading a fresh entity query, not the
+  // computed event_instances field, is what actually makes this correct even
+  // when order is uncertain, but pinning it removes the uncertainty rather
+  // than relying on incidental module-list order.
+  if ($hook === 'eventseries_update' && isset($implementations['access_events'])) {
+    $group = $implementations['access_events'];
+    unset($implementations['access_events']);
+    $implementations['access_events'] = $group;
+  }
+  $mustRunFirst = ['eventseries_predelete', 'eventinstance_predelete', 'recurring_events_pre_delete_instance'];
+  // isset() guards against access_events having no implementation of $hook at
+  // all — e.g. if a future refactor removes
+  // access_events_eventinstance_predelete() while leaving the other two, this
+  // stays a no-op for that hook instead of writing a bogus
+  // ['access_events' => NULL] entry into $implementations that would corrupt
+  // the array (module_implements() expects every value to be a real include-
+  // group string or FALSE, never an absent key coerced to NULL).
+  if (in_array($hook, $mustRunFirst, TRUE) && isset($implementations['access_events'])) {
+    $group = $implementations['access_events'];
+    unset($implementations['access_events']);
+    $implementations = ['access_events' => $group] + $implementations;
   }
 }
 
@@ -1569,8 +2184,25 @@ function _access_events_send_registration_reminders() {
 
   /** @var \Drupal\recurring_events\Entity\EventInstance $instance */
   foreach ($instances as $instance) {
+    // A cancelled (archived) instance's registrants already got the
+    // cancellation notice; a reminder to attend an event that has been
+    // called off would contradict it. moderation_state is not queryable as an
+    // entity-query condition here (it 500s — "'moderation_state' not found"),
+    // so filter after load instead.
+    if ($instance->get('moderation_state')->value === 'archived') {
+      continue;
+    }
+
+    // An instance with no start date has no "already started" moment to
+    // reason about — skip it rather than let a null start_date fatal the whole
+    // cron reminder loop and abort every remaining instance's reminder.
+    $start_date = $instance->date->start_date;
+    if ($start_date === NULL) {
+      continue;
+    }
+
     // Skip sending reminder if the event has already started.
-    if ($instance->date->start_date->getTimestamp() <= time()) {
+    if ($start_date->getTimestamp() <= time()) {
       // Mark as sent to prevent future attempts.
       $instance->set('reminder_sent', time());
       $instance->setNewRevision(FALSE);
@@ -1702,6 +2334,73 @@ function access_events_registrant_eligibility_validate($form, FormStateInterface
 }
 
 /**
+ * Form-level mirror of access_events_entity_presave()'s
+ * registration-requires-published-occurrence gate.
+ *
+ * A bare/programmatic Registrant::create()->save() is refused with an
+ * uncaught RuntimeException by the presave hook; a form submission needs the
+ * same refusal to surface as a normal field-level validation error instead.
+ * Only ever attached to the ADD form (see access_events_form_alter()) and
+ * only checks NEW entities — the gate exempts updates entirely, so this
+ * re-checks isNew() as a second guard even though the form it's attached to
+ * is add-only, in case a future change ever reuses this callback elsewhere.
+ */
+function access_events_registrant_publish_gate_validate($form, FormStateInterface $form_state) {
+  /** @var \Drupal\recurring_events_registration\Entity\Registrant $entity */
+  $entity = $form_state->getFormObject()->getEntity();
+  if (!$entity->isNew() || !$entity->hasField('eventinstance_id')) {
+    return;
+  }
+
+  $instanceId = _access_events_registrant_gate_instance_id($entity);
+  $registrable = $instanceId > 0
+    && \Drupal::service('access_events.state_reactions')->instanceIsRegistrable($instanceId);
+  if (!$registrable) {
+    $form_state->setErrorByName('', t('Registration is closed — this occurrence is not currently published.'));
+  }
+}
+
+/**
+ * Resolves the eventinstance id a NEW registrant is being created against.
+ *
+ * Contrib's RegistrantForm only calls setEventInstance() (populating the
+ * entity's eventinstance_id field) inside save(), AFTER form validation
+ * runs — so at validate time the unsaved entity's field is always empty.
+ * The route the add form is served on (entity.registrant.add_form,
+ * /events/{eventinstance}/registrations/add) carries the target instance in
+ * its {eventinstance} parameter, upcast to an EventInstance object by the
+ * route's entity:eventinstance parameter converter, so fall back to reading
+ * it from there when the entity field is unset.
+ *
+ * @param \Drupal\recurring_events_registration\Entity\Registrant $entity
+ *   The new (unsaved) registrant.
+ * @param \Drupal\Core\Routing\RouteMatchInterface|null $routeMatch
+ *   The route match to consult; defaults to the current request's.
+ *
+ * @return int
+ *   The resolved instance id, or 0 if neither source yields one.
+ */
+function _access_events_registrant_gate_instance_id($entity, ?\Drupal\Core\Routing\RouteMatchInterface $routeMatch = NULL): int {
+  if ($entity->hasField('eventinstance_id')) {
+    $fieldInstanceId = (int) $entity->get('eventinstance_id')->target_id;
+    if ($fieldInstanceId > 0) {
+      return $fieldInstanceId;
+    }
+  }
+
+  $routeMatch = $routeMatch ?? \Drupal::routeMatch();
+  $routeInstance = $routeMatch->getParameter('eventinstance');
+  if ($routeInstance instanceof EventInstance) {
+    return (int) $routeInstance->id();
+  }
+  if (is_numeric($routeInstance)) {
+    return (int) $routeInstance;
+  }
+
+  return 0;
+}
+
+/**
  * #after_build callback for the eventinstance form (admin only). Reorders
  * the form so admin-only tracking fields land in sensible places: the
  * post-survey-sent indicators move next to the post-survey email body, and
@@ -1744,6 +2443,406 @@ function _access_events_attach_email_token_prefixes(array &$form) {
   $post_survey_tokens = '<p class="text-sm mt-2"><strong>Available tokens:</strong> <code>{{ name }}</code>, <code>{{ title }}</code>, <code>{{ post_survey_url }}</code></p>';
   if (isset($form['field_post_survey_email_text'])) {
     $form['field_post_survey_email_text']['#prefix'] = t('This is the full email body sent near the end of the event with a post-survey link. A reminder is sent 3 days later if unused. You can customize the entire email using the tokens below.') . $post_survey_tokens;
+  }
+}
+
+/**
+ * Attaches the leaving-published/arriving-published moderation warning to an
+ * eventseries/eventinstance entity-edit form, ahead of the moderation_state
+ * widget.
+ *
+ * Shown unconditionally based on the entity's CURRENT (last-saved) state —
+ * not the value the editor eventually picks, which is not known until the
+ * form is submitted: a currently-published entity always carries the
+ * leaving-published warning (any transition away from published is a
+ * cancel), and a currently-NOT-published entity always carries the
+ * arriving-published warning (choosing Published is what would republish
+ * it). A brand-new entity (add form) gets neither: isNew() has no saved
+ * state to leave, and — for a series — no recurrence configuration yet to
+ * compute an effective creation set from, so this is a no-op there; see the
+ * isNew() guard below.
+ *
+ * No '#cache' max-age override here: unlike the standalone moderation form
+ * (see _access_events_attach_standalone_moderation_warnings()), a full
+ * entity-edit form is already per-user/per-entity and not render-cached the
+ * same way, so the counts computed here are safe to compute once per
+ * request without an explicit cache-bust.
+ */
+function _access_events_attach_moderation_warnings(array &$form, $entity, bool $isProcessingInput = FALSE): void {
+  if (!$entity instanceof EventSeries && !$entity instanceof EventInstance) {
+    return;
+  }
+  if (!isset($form['moderation_state'])) {
+    return;
+  }
+  // A brand-new entity (add form) has no saved state to leave (the leaving-
+  // published branch never applies) and, for a series, no recurrence
+  // configuration yet to compute an effective creation set from (the
+  // arriving-published branch would call EffectiveCreationSet::compute()
+  // against a series with no recur type). Nothing meaningful to warn about
+  // either way — skip entirely.
+  if ($entity->isNew()) {
+    return;
+  }
+
+  $formWarnings = \Drupal::service('access_events.form_warnings');
+  $warningText = $entity->isPublished()
+    ? $formWarnings->leavingPublishedWarning($entity)
+    : $formWarnings->arrivingPublishedWarning($entity);
+
+  // Draft-on-dark is a separate, always-shown disclosure (out of scope for the
+  // registrant rework); it is NOT gated on registrant count.
+  $draftOnDark = ($entity instanceof EventInstance
+    && $entity->get('moderation_state')->value === 'archived'
+    && isset($form['moderation_state']['widget'][0]['state']['#options']['draft']))
+    ? (string) $formWarnings->draftOnDarkWarning()
+    : NULL;
+
+  if ($warningText === NULL && $draftOnDark === NULL) {
+    return;
+  }
+
+  // Nested-in-widget copy (B): renders right next to the "Change to" select,
+  // travelling with the widget wherever field_group/#after_build moves it.
+  $markup = '';
+  if ($warningText !== NULL) {
+    $markup .= '<div class="messages messages--warning">' . Html::escape((string) $warningText) . '</div>';
+  }
+  if ($draftOnDark !== NULL) {
+    $markup .= '<div class="messages messages--warning">' . Html::escape($draftOnDark) . '</div>';
+  }
+  $form['moderation_state']['widget'][0]['state']['#suffix'] =
+    ($form['moderation_state']['widget'][0]['state']['#suffix'] ?? '') . $markup;
+
+  // Top-of-page copy (A): the registrant warning only (not the draft-on-dark
+  // mechanics note). Added on GET render only — added on every build it would
+  // re-stack on AJAX rebuilds, since Messenger dedupes only within one request.
+  if ($warningText !== NULL && !$isProcessingInput) {
+    \Drupal::messenger()->addWarning($warningText);
+  }
+}
+
+/**
+ * Attaches the schedule-change disclosure to a series EDIT form, up front
+ * near the recurrence fields.
+ *
+ * A schedule (recurrence pattern or dates) change on an existing series
+ * regenerates its occurrences from the recur config — see
+ * access_events_recurring_events_event_instances_pre_create_alter() for the
+ * rebuild itself and EventSeriesRescheduleBlockConstraint for the refusal
+ * that applies when the series has registrations. Neither of those fires
+ * until the form is actually submitted, so an editor opening the edit form
+ * has no way to know any of this is coming — this disclosure states it up
+ * front, before they touch the recurrence fields, using
+ * FormWarnings::scheduleChangeWarning() to decide whether anything on this
+ * series is actually at risk (a NULL return means nothing qualifies, and no
+ * warning is attached).
+ *
+ * Static render (no AJAX): the warning reflects the series' CURRENT (last-
+ * saved) occurrences and recur config, not whatever the editor has not yet
+ * typed into the form — recomputing it live as fields change would need
+ * AJAX wiring this task does not add, and would anyway not know a fully
+ * hypothetical, not-yet-submitted recur config's effective set without
+ * running the same compute() against unsaved values. '#cache' =>
+ * ['max-age' => 0]: this reads the series' live occurrences and registrant
+ * count, both of which can change between one render and the next for the
+ * same route.
+ */
+function _access_events_attach_schedule_change_warning(array &$form, $entity): void {
+  if (!$entity instanceof EventSeries || $entity->isNew()) {
+    return;
+  }
+  if (!isset($form['recur_type'])) {
+    return;
+  }
+
+  $formWarnings = \Drupal::service('access_events.form_warnings');
+  $warningText = $formWarnings->scheduleChangeWarning($entity);
+  if ($warningText === NULL) {
+    return;
+  }
+
+  $form['access_events_schedule_change_warning'] = [
+    '#type' => 'markup',
+    '#markup' => '<div class="messages messages--warning">' . Html::escape((string) $warningText) . '</div>',
+    '#weight' => isset($form['recur_type']['#weight']) ? $form['recur_type']['#weight'] - 1 : -90,
+    '#cache' => ['max-age' => 0],
+  ];
+}
+
+/**
+ * Alters the standalone content_moderation_entity_moderation_form
+ * (core's \Drupal\content_moderation\Form\EntityModerationForm) for
+ * eventseries/eventinstance.
+ *
+ * This form is a bare state-change picker — a select of valid target states
+ * plus a log-message field — reached from an entity's "moderation" local
+ * task. It never carries the full entity-edit form's fields, so none of the
+ * entity-edit-form treatments above apply here; this function is the
+ * complete, self-contained treatment for this one form.
+ *
+ * NO leaving-published warning is attached here: core's EntityModerationForm
+ * EXCLUDES self-transitions and hides entirely when the current state has no
+ * valid outbound transition at all (see buildForm()'s early return), but it
+ * still renders on a PUBLISHED default entity whenever any transition away
+ * from published is valid — so in principle a "leaving published" warning
+ * COULD apply. It is intentionally omitted anyway, per this task's brief:
+ * this form is reached from a moderation-focused workflow where the
+ * transition's own label (Archive, Request Adjustment, ...) already signals
+ * what is about to happen, and covering every one of core's dynamically-
+ * generated target-state options with bespoke per-transition wording is out
+ * of scope here.
+ *
+ * validate() is NEVER called on this form's entity: EntityModerationForm::
+ * submitForm() calls $entity->save() directly (see core's source), and
+ * ContentEntityInterface::save() does not itself run validate() — only
+ * \Drupal\Core\Entity\ContentEntityForm::validateForm() does that, and this
+ * form does not extend ContentEntityForm. So the schedule-rebuild refusal,
+ * the request-adjustment refusal, and the occurrence-publish-under-
+ * unpublished-event refusal never see a submission through this form at
+ * all; the presave backstops (access_events_eventseries_presave(),
+ * EventStateReactions::instancePresave()) are the only thing that would
+ * refuse a bad save here, and they throw an uncaught exception rather than
+ * a clean form error. The
+ * validate handlers this function attaches close that gap: they run the
+ * SAME checks the constraints run (via the validators' own checkViolations()/
+ * checkViolation() methods, never a re-typed copy of the message strings)
+ * and report failures as ordinary $form_state->setErrorByName() messages.
+ */
+function _access_events_standalone_moderation_form_alter(array &$form, FormStateInterface $form_state): void {
+  // No-op guard: a future core change, or any other entity type this form
+  // ends up reused for, might not carry a new_state element at all (core's
+  // own buildForm() returns the bare $form with no new_state key when there
+  // are zero valid target states) — every treatment below assumes new_state
+  // exists, so bail out cleanly rather than let an isset()-less array access
+  // fatal the whole form's render.
+  if (!isset($form['new_state'])) {
+    return;
+  }
+
+  $entity = $form_state->get('entity');
+  if (!$entity instanceof EventSeries && !$entity instanceof EventInstance) {
+    return;
+  }
+
+  $currentState = $entity->get('moderation_state')->value;
+
+  if ($entity instanceof EventInstance && $currentState === 'archived') {
+    // Re-add the current (archived) state, preselected. Core's
+    // getValidTransitions() excludes self-transitions (transition->to() ===
+    // current_state) from $target_states entirely, so an archived
+    // occurrence's picker never offers "stay Archived" as an option — every
+    // other option is some kind of move. Re-adding it here as the FIRST,
+    // preselected option means an operator who opens this form just to look
+    // (or to set a log message without actually changing state) submits
+    // Apply and gets back exactly what they had, instead of being forced to
+    // pick SOME other state. This works because core's submitForm() applies
+    // whatever value FormAPI accepted for the SELECT element unvalidated
+    // against "is this actually a legal transition" — Select's own
+    // validation only checks the value is a KEY PRESENT in #options (see
+    // \Drupal\Core\Render\Element\Select), which re-adding it here
+    // satisfies; submitForm() then just does $entity->set('moderation_state',
+    // $new_state) and saves, with no separate transition-validity check.
+    $form['new_state']['#options'] = [$currentState => $form['current']['#markup'] ?? t('Archived')] + $form['new_state']['#options'];
+    $form['new_state']['#default_value'] = $currentState;
+  }
+
+  if ($entity instanceof EventInstance && $currentState === 'needs_adjustment') {
+    // Reorder a non-publishing option first. Transitions are weight-sorted
+    // (see \Drupal\workflows\Plugin\WorkflowTypeBase::labelWeightMultisort())
+    // and, in this workflow, the publish transition (weight 1) is the
+    // lowest-weight transition valid FROM needs_adjustment whenever an
+    // operator holds the publish permission — so without intervention it is
+    // always #options' first entry, and a plain <select> with no explicit
+    // #default_value preselects its first option. An operator who opens this
+    // form, glances at the log-message field, and clicks Apply without
+    // deliberately choosing a state would silently republish a needs-
+    // adjustment occurrence. Promote the FIRST non-'published' option (by
+    // #options' existing order — whatever core's weight-sort already put
+    // there) ahead of 'published' instead, so the accidental-default lands
+    // on something that is not a publish.
+    $options = $form['new_state']['#options'];
+    $firstKey = array_key_first($options);
+    if ($firstKey === 'published') {
+      $nonPublishingOptions = array_diff_key($options, ['published' => TRUE]);
+      $firstNonPublishingKey = array_key_first($nonPublishingOptions);
+      if ($firstNonPublishingKey !== NULL) {
+        $form['new_state']['#options'] = [$firstNonPublishingKey => $options[$firstNonPublishingKey]] + $options;
+      }
+    }
+  }
+
+  // Inline warnings: arriving-at-published (the currently-selectable
+  // 'published' option's implication), and the choosing-Draft-on-dark
+  // warning — shown for ANY currently-archived occurrence whose select
+  // offers a draft option, regardless of individually_cancelled. The series
+  // restore sweep (EventStateReactions::sweepRestore()) only republishes
+  // instances it finds still in the archived state, and it already skips
+  // flagged (individually_cancelled) ones on its own — so a flagged
+  // occurrence was never going to return via that sweep either way, but an
+  // UNFLAGGED archived occurrence would have. Moving either kind to Draft
+  // takes it out of the archived state the sweep queries for, stranding it
+  // from that mechanism regardless of the flag. '#cache' => ['max-age' => 0]
+  // on the wrapping element: this form (and the counts it shows) is specific
+  // to the CURRENT state of the entity and the notification-gate config,
+  // both of which can change between one render and the next for the same
+  // route — render caching this element would risk showing a stale
+  // count/gate-state to a subsequent viewer of the same page.
+  $formWarnings = \Drupal::service('access_events.form_warnings');
+  $warningLines = [];
+
+  if (isset($form['new_state']['#options']['published'])) {
+    $arriving = $formWarnings->arrivingPublishedWarning($entity);
+    if ($arriving !== NULL) {
+      $warningLines[] = (string) $arriving;
+    }
+  }
+
+  if ($entity instanceof EventInstance
+    && $currentState === 'archived'
+    && isset($form['new_state']['#options']['draft'])) {
+    $warningLines[] = (string) $formWarnings->draftOnDarkWarning();
+  }
+
+  if ($warningLines) {
+    $markup = '';
+    foreach ($warningLines as $line) {
+      $markup .= '<div class="messages messages--warning">' . Html::escape($line) . '</div>';
+    }
+    $form['access_events_moderation_warnings'] = [
+      '#type' => 'markup',
+      '#markup' => $markup,
+      '#weight' => -100,
+      '#cache' => ['max-age' => 0],
+    ];
+  }
+
+  $form['#validate'][] = 'access_events_standalone_moderation_validate';
+}
+
+/**
+ * Validate handler for content_moderation_entity_moderation_form.
+ *
+ * Runs the SAME checks the EventSeriesRescheduleBlock constraint (the
+ * schedule-rebuild refusal and the request-adjustment refusal) and the
+ * EventInstancePublishGuard constraint (the occurrence-publish-under-
+ * unpublished-event refusal) run — via each validator's own
+ * checkViolations()/checkViolation() method, never a re-typed copy of the
+ * message strings — against a candidate entity built from the entity core's
+ * EntityModerationForm will actually save: the one it stashed on form_state
+ * ($form_state->get('entity')), which is the LATEST revision and may carry
+ * pending field changes (e.g. a rescheduled date on a pending draft) that
+ * loadUnchanged() (the default revision) would not see. Applying the
+ * submitted new_state to a clone of that entity is what lets the constraint
+ * checks read the real config the save will present. This
+ * _access_events_standalone_moderation_form_alter()'s docblock for why), so
+ * without this handler the ONLY thing catching a disallowed transition here
+ * would be a presave hook throwing an uncaught exception instead of a clean
+ * form error.
+ */
+function access_events_standalone_moderation_validate(array &$form, FormStateInterface $form_state): void {
+  $entity = $form_state->get('entity');
+  if (!$entity instanceof EventSeries && !$entity instanceof EventInstance) {
+    return;
+  }
+
+  $newState = $form_state->getValue('new_state');
+  if (!$newState) {
+    return;
+  }
+
+  // Clone the entity core will save (the latest revision on form_state, which
+  // may carry pending field changes) and apply the submitted new_state, so the
+  // constraint checks see the config the save will actually present rather than
+  // the default revision's.
+  $candidate = clone $entity;
+  $candidate->set('moderation_state', $newState);
+
+  if ($candidate instanceof EventSeries) {
+    $constraint = new EventSeriesRescheduleBlockConstraint();
+    $validator = EventSeriesRescheduleBlockConstraintValidator::create(\Drupal::getContainer());
+    foreach ($validator->checkViolations($candidate, $constraint) as $message) {
+      $form_state->setErrorByName('new_state', $message);
+    }
+  }
+  elseif ($candidate instanceof EventInstance) {
+    $validator = EventInstancePublishGuardConstraintValidator::create(\Drupal::getContainer());
+    if ($validator->checkViolation($candidate)) {
+      $constraint = new EventInstancePublishGuardConstraint();
+      $form_state->setErrorByName('new_state', $constraint->message);
+    }
+  }
+}
+
+/**
+ * Validate handler for the eventseries/eventinstance revision revert confirm
+ * forms (recurring_events' own EventSeriesRevisionRevertForm /
+ * EventInstanceRevisionRevertForm — form ids eventseries_revision_revert_
+ * confirm / eventinstance_revision_revert_confirm), and their per-translation
+ * variants (EventSeriesRevisionRevertTranslationForm /
+ * EventInstanceRevisionRevertTranslationForm — form ids
+ * eventseries_revision_revert_translation_confirm /
+ * eventinstance_revision_revert_translation_confirm). The translation forms
+ * extend the plain revert forms and pass the same raw revision id as
+ * buildForm()'s first argument, so args[0] carries the revision id for all
+ * four.
+ *
+ * Appended (not prepended): FormBuilder seeds a form's #validate array
+ * (from the form object's own getFormId()-based defaults, i.e. core's
+ * ConfirmFormBase::validateForm() chain) BEFORE hook_form_alter() runs, so a
+ * handler pushed onto #validate here always runs AFTER whatever core's own
+ * revert form already validates.
+ *
+ * Reverting to an old revision makes THAT revision's moderation_state the
+ * new default — an old revision can carry a moderation_state that, applied
+ * today, would trip the exact same schedule-rebuild, request-adjustment, or
+ * occurrence-publish-under-unpublished-event refusals a live edit would.
+ * Neither recurring_events' revert form nor core's ConfirmFormBase runs
+ * $entity->validate() (a plain ConfirmFormBase, like the standalone
+ * moderation form above), so without this handler a disallowed revert would
+ * only be caught by a presave hook throwing an uncaught exception.
+ *
+ * The reverted-to revision is not exposed via $form_state->getFormObject()->
+ * getEntity() (recurring_events' revert form classes are plain
+ * ConfirmFormBase, not ContentEntityForm — they hold the revision on a
+ * protected $revision property with no getter). It IS available from
+ * $form_state->getBuildInfo()['args'][0] — the raw revision id passed as
+ * buildForm()'s own $eventseries_revision/$eventinstance_revision parameter,
+ * which FormBuilder records into build-info args before invoking buildForm()
+ * — mirroring exactly what the revert form's own buildForm() does with it
+ * (loadRevision()).
+ */
+function access_events_revision_revert_validate(array &$form, FormStateInterface $form_state): void {
+  $args = $form_state->getBuildInfo()['args'] ?? [];
+  $revisionId = $args[0] ?? NULL;
+  if (!$revisionId) {
+    return;
+  }
+
+  $formId = $form_state->getFormObject()->getFormId();
+  $entityType = str_starts_with($formId, 'eventseries') ? 'eventseries' : 'eventinstance';
+  $storage = \Drupal::entityTypeManager()->getStorage($entityType);
+  if (!method_exists($storage, 'loadRevision')) {
+    return;
+  }
+  $revision = $storage->loadRevision($revisionId);
+  if (!$revision instanceof EventSeries && !$revision instanceof EventInstance) {
+    return;
+  }
+
+  if ($revision instanceof EventSeries) {
+    $constraint = new EventSeriesRescheduleBlockConstraint();
+    $validator = EventSeriesRescheduleBlockConstraintValidator::create(\Drupal::getContainer());
+    foreach ($validator->checkViolations($revision, $constraint) as $message) {
+      $form_state->setErrorByName('', $message);
+    }
+  }
+  else {
+    $validator = EventInstancePublishGuardConstraintValidator::create(\Drupal::getContainer());
+    if ($validator->checkViolation($revision)) {
+      $constraint = new EventInstancePublishGuardConstraint();
+      $form_state->setErrorByName('', $constraint->message);
+    }
   }
 }
 
@@ -1805,12 +2904,45 @@ function _access_events_render_email_template($template_text, array $variables) 
 
 
 /**
+ * Implements hook_entity_base_field_info().
+ */
+function access_events_entity_base_field_info(EntityTypeInterface $entity_type) {
+  if ($entity_type->id() !== 'eventinstance') {
+    return [];
+  }
+  $fields['individually_cancelled'] = \Drupal\Core\Field\BaseFieldDefinition::create('boolean')
+    ->setLabel(t('Individually cancelled'))
+    ->setDescription(t('This occurrence was cancelled on purpose, independent of the series. It stays archived when the series is restored.'))
+    ->setDefaultValue(0)
+    ->setRevisionable(FALSE)
+    ->setDisplayConfigurable('form', FALSE)
+    ->setDisplayConfigurable('view', FALSE);
+  return $fields;
+}
+
+/**
  * Implements hook_entity_base_field_info_alter().
  */
 function access_events_entity_base_field_info_alter(&$fields, EntityTypeInterface $entity_type) {
   if ($entity_type->id() === 'eventseries' && isset($fields['event_registration'])) {
     $fields['event_registration']->setDescription('');
   }
+}
+
+/**
+ * Implements hook_entity_type_alter().
+ */
+function access_events_entity_type_alter(array &$entity_types) {
+  // Blocks a recurrence/date change on an eventseries that still has future
+  // registrants — recurring_events rebuilds ALL instances on such a change,
+  // hard-deleting the existing instances and their registrants.
+  $entity_types['eventseries']->addConstraint('EventSeriesRescheduleBlock');
+
+  // Blocks publishing an occurrence while its parent series is not
+  // published. Mirrors the presave throw in
+  // EventStateReactions::instancePresave() for save paths that run
+  // validate() (editor forms, the CRUD API).
+  $entity_types['eventinstance']->addConstraint('EventInstancePublishGuard');
 }
 
 /**
@@ -1870,5 +3002,18 @@ function access_events_replace_mv_conditions(array &$conditions, array $alias_to
   // Remove replaced conditions.
   foreach ($keys_to_remove as $key) {
     unset($conditions[$key]);
+  }
+}
+
+/**
+ * Implements hook_views_data_alter().
+ *
+ * Use a plain-text handler for event_summary so the events REST API returns
+ * decoded text rather than HTML-escaped values.
+ */
+function access_events_views_data_alter(array &$data) {
+  $table = 'search_api_datasource_events_entity_eventinstance';
+  if (isset($data[$table]['event_summary']['field']['id']) && $data[$table]['event_summary']['field']['id'] === 'search_api') {
+    $data[$table]['event_summary']['field']['id'] = 'access_events_search_api_plain_text';
   }
 }

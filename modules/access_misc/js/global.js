@@ -1,13 +1,16 @@
 // Heading for filters on mobile.
-(function ($, Drupal, once) {
+(function (Drupal, once) {
   'use strict';
 
   Drupal.behaviors.accessMiscFiltersHeading = {
     attach: function (context, settings) {
       // Add "Filters" heading before the first facet block
-      var $firstBlock = $('.block-facet--checkbox', context).first();
-      if ($firstBlock.length && !$firstBlock.prev('h2.md--hidden').length) {
-        $firstBlock.before('<h2 class="md--hidden d-block d-lg-none">Filters</h2>');
+      var firstBlock = context.querySelector('.block-facet--checkbox');
+      if (firstBlock) {
+        var prev = firstBlock.previousElementSibling;
+        if (!prev || !prev.matches('h2.md--hidden')) {
+          firstBlock.insertAdjacentHTML('beforebegin', '<h2 class="md--hidden d-block d-lg-none">Filters</h2>');
+        }
       }
     }
   };
@@ -16,21 +19,23 @@
   Drupal.behaviors.accessMiscFacetFocus = {
     attach: function (context) {
       // Store the clicked checkbox ID before the page reloads or AJAX refreshes.
-      $(once('facet-focus-track', 'input.facets-checkbox', context)).on('change.facetFocus', function () {
-        var $checkbox = $(this);
-        var isReset = $checkbox.closest('.facets-reset').length > 0;
+      once('facet-focus-track', 'input.facets-checkbox', context).forEach(function (checkbox) {
+        checkbox.addEventListener('change', function () {
+          var isReset = this.closest('.facets-reset') !== null;
 
-        if (isReset) {
-          // "All" reset checkbox: store the parent facet ID so we can focus
-          // the first real checkbox in that facet after it reloads.
-          var facetId = $checkbox.closest('[data-drupal-facet-id]').attr('data-drupal-facet-id');
-          sessionStorage.setItem('accessFacetFocusFacet', facetId);
-          sessionStorage.removeItem('accessFacetFocusId');
-        }
-        else {
-          sessionStorage.setItem('accessFacetFocusId', this.id);
-          sessionStorage.removeItem('accessFacetFocusFacet');
-        }
+          if (isReset) {
+            // "All" reset checkbox: store the parent facet ID so we can focus
+            // the first real checkbox in that facet after it reloads.
+            var facet = this.closest('[data-drupal-facet-id]');
+            var facetId = facet ? facet.getAttribute('data-drupal-facet-id') : '';
+            sessionStorage.setItem('accessFacetFocusFacet', facetId);
+            sessionStorage.removeItem('accessFacetFocusId');
+          }
+          else {
+            sessionStorage.setItem('accessFacetFocusId', this.id);
+            sessionStorage.removeItem('accessFacetFocusFacet');
+          }
+        });
       });
 
       // Restore focus after reload.
@@ -38,23 +43,23 @@
       var focusFacet = sessionStorage.getItem('accessFacetFocusFacet');
 
       if (focusId) {
-        var $target = $('#' + CSS.escape(focusId), context);
-        if ($target.length) {
+        var target = context.querySelector('#' + CSS.escape(focusId));
+        if (target) {
           sessionStorage.removeItem('accessFacetFocusId');
           setTimeout(function () {
-            $target.trigger('focus');
+            target.focus();
           }, 100);
         }
       }
       else if (focusFacet) {
         // After an "All" reset, focus the first non-reset, non-honeypot checkbox.
-        var $facet = $('[data-drupal-facet-id="' + focusFacet + '"]', context);
-        if ($facet.length) {
-          var $firstCheckbox = $facet.find('li:not(.facets-reset):not(.honey) > input.facets-checkbox').first();
-          if ($firstCheckbox.length) {
+        var facet = context.querySelector('[data-drupal-facet-id="' + focusFacet + '"]');
+        if (facet) {
+          var firstCheckbox = facet.querySelector('li:not(.facets-reset):not(.honey) > input.facets-checkbox');
+          if (firstCheckbox) {
             sessionStorage.removeItem('accessFacetFocusFacet');
             setTimeout(function () {
-              $firstCheckbox.trigger('focus');
+              firstCheckbox.focus();
             }, 100);
           }
         }
@@ -67,8 +72,10 @@
   // focus on back, stranding keyboard / screen-reader users.
   Drupal.behaviors.accessMiscJumpLinkFocus = {
     attach: function (context) {
-      $(once('jump-link-focus', 'a[href^="#"]', context)).on('click.jumpLinkFocus', function () {
-        window._accessJumpLinkSource = this;
+      once('jump-link-focus', 'a[href^="#"]', context).forEach(function (link) {
+        link.addEventListener('click', function () {
+          window._accessJumpLinkSource = this;
+        });
       });
 
       if (!window._accessJumpLinkHashChange) {
@@ -94,9 +101,19 @@
   };
 
   // #a11y fixes.
-  $('#toolbar-administration').attr('role', 'navigation');
-  $('.messages').attr('role', 'status');
-  $('.messages').attr('role', 'status');
-  $('.access-support .form-type-vertical-tabs label.visually-hidden').remove();
+  Drupal.behaviors.accessMiscA11yFixes = {
+    attach: function (context) {
+      var toolbar = context.querySelector('#toolbar-administration');
+      if (toolbar) {
+        toolbar.setAttribute('role', 'navigation');
+      }
+      context.querySelectorAll('.messages').forEach(function (el) {
+        el.setAttribute('role', 'status');
+      });
+      context.querySelectorAll('.access-support .form-type-vertical-tabs label.visually-hidden').forEach(function (el) {
+        el.remove();
+      });
+    }
+  };
 
-})(jQuery, Drupal, once);
+})(Drupal, once);

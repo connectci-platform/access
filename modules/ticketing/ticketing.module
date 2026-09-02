@@ -2,13 +2,15 @@
 
 /**
  * @file
- *
+ * Contains hook implementations for the Ticketing module.
  */
 
 /**
- * Implements hook_theme.
+ * Implements hook_theme().
+ *
+ * @phpstan-return array<string, mixed>
  */
-function ticketing_theme() {
+function ticketing_theme(): array {
   return [
     'ticketing_block' => [
       'variables' => [
@@ -20,10 +22,11 @@ function ticketing_theme() {
 
 /**
  * Implements hook_mail().
- * Mail hook for the ticketing module
- * setting the message headers, from, subject, body, and cc values.
+ *
+ * @phpstan-param array<string, mixed> $message
+ * @phpstan-param array<string, mixed> $params
  */
-function ticketing_mail($key, &$message, $params) {
+function ticketing_mail(string $key, array &$message, array $params): void {
   switch ($key) {
     case 'ticketing':
       // Send using submitter's email so the responder can be set in JSM.
@@ -39,12 +42,6 @@ function ticketing_mail($key, &$message, $params) {
       // Add any cc's.
       if (array_key_exists('headers', $params) && array_key_exists('cc', $params['headers'])) {
         $message['headers']['cc'] = $params['headers']['cc'];
-      }
-
-      $debug = FALSE;
-      if ($debug) {
-        $msg = basename(__FILE__) . ':' . __LINE__ . ' -- ' . 'mail $message = ' . print_r($message, TRUE);
-        \Drupal::messenger()->addStatus($msg);
       }
 
       break;

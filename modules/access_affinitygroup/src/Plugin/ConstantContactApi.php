@@ -2,6 +2,8 @@
 
 namespace Drupal\access_affinitygroup\Plugin;
 
+use Drupal\access_affinitygroup\CcLogic;
+
 /**
  * Make Constant Contact api call.
  */
@@ -85,34 +87,38 @@ class ConstantContactApi {
       $this->supressErrDisplay = FALSE;
 
       if (empty($this->clientSecret) || empty($this->clientId)) {
-        $policy = 'affinitygroup';
-        $policy_subtype = 'cc_error';
-        $role = 'site_developer';
-        $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-        if (!empty($site_dev_emails)) {
-          $message = t('Constant Contact: client id or secret not set.');
-          $variables = [
-            'message' => $message,
-          ];
+        if (CcLogic::isLiveEnv(getenv('PANTHEON_ENVIRONMENT') ?: NULL)) {
+          $policy = 'affinitygroup';
+          $policy_subtype = 'cc_error';
+          $role = 'site_developer';
+          $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
+          if (!empty($site_dev_emails)) {
+            $message = t('Constant Contact: client id or secret not set.');
+            $variables = [
+              'message' => $message,
+            ];
 
-          \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+            \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+          }
         }
       }
     }
     catch (\Exception $e) {
-      $policy = 'affinitygroup';
-      $policy_subtype = 'cc_error';
-      $role = 'site_developer';
-      $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
-
       \Drupal::logger('access_affinitygroup')->notice('Exception in constantContactApi constructor: ' . $e->getMessage());
 
-      if (!empty($site_dev_emails)) {
-        $message = t('Exception in constantContactApi constructor: ') . $e->getMessage();
-        $variables = [
-          'message' => $message,
-        ];
-        \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+      if (CcLogic::isLiveEnv(getenv('PANTHEON_ENVIRONMENT') ?: NULL)) {
+        $policy = 'affinitygroup';
+        $policy_subtype = 'cc_error';
+        $role = 'site_developer';
+        $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
+
+        if (!empty($site_dev_emails)) {
+          $message = t('Exception in constantContactApi constructor: ') . $e->getMessage();
+          $variables = [
+            'message' => $message,
+          ];
+          \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+        }
       }
     }
   }
@@ -122,6 +128,13 @@ class ConstantContactApi {
    */
   public function setSupressErrDisplay($v) {
     $this->supressErrDisplay = $v;
+  }
+
+  /**
+   * The HTTP status code from the most recent apiCall().
+   */
+  public function getHttpResponseCode() {
+    return $this->httpResponseCode;
   }
 
   /**
@@ -184,24 +197,15 @@ class ConstantContactApi {
    * Get the current environment.
    */
   public function getEnvironment() {
-    $env = getenv('PANTHEON_ENVIRONMENT');
-    $forcedToken = \Drupal::state()->get('access_affinitygroup.forcedTokenSettings');
+    $pantheonEnv = getenv('PANTHEON_ENVIRONMENT');
+    $forced = \Drupal::state()->get('access_affinitygroup.forcedTokenSettings');
+    $domainClass = \Drupal::service('access_misc.sitetools')->getDomain();
 
-    if ($env == 'local') {
-      $env = 'test';
-    }
-    else {
-      $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
-
-      if ($current_domain_name == 'open-ondemand') {
-        $env = 'openondemand';
-      }
-      else {
-        $env = 'support';
-      }
-    }
-
-    $env = $forcedToken ? $forcedToken : $env;
+    $env = CcLogic::resolveCcEnvironment(
+      $pantheonEnv === FALSE ? NULL : $pantheonEnv,
+      $domainClass,
+      $forced ?: NULL
+    );
 
     $this->environment = $env;
 
@@ -281,8 +285,59 @@ class ConstantContactApi {
    * Refresh Constant Contact Token and set new ones.
    */
   public function newToken() {
+    $env = $this->environment;
+    // Capture the refresh token from a FRESH read before contending for the
+    // lock. Use getRefreshToken() (the per-env string) rather than
+    // $this->refreshToken, whose format historically differed between get/set.
+    // The same value is compared in shouldSkipRefresh() AND sent in the POST
+    // body, so the comparison operand and the refresh payload are identical.
+    $usedRefresh = $this->getRefreshToken();
+    $lockName = 'access_affinitygroup.cc_token_refresh.' . $env;
+    $lock = \Drupal::lock();
+
+    // Fail-closed acquire. A caller may only rotate while holding the lock; the
+    // 60s lifetime is the stale-lock self-heal (DatabaseLockBackend has no
+    // lock-age API) — a crashed holder cannot block sends for over a minute.
+    $haveLock = $lock->acquire($lockName, 60);
+    if (!$haveLock) {
+      // Holder is mid-refresh. If they already rotated, adopt and go (no wait).
+      if (CcLogic::shouldSkipRefresh($usedRefresh, $this->getRefreshToken())) {
+        $this->accessToken = $this->getAppToken();
+        \Drupal::logger('access_affinitygroup')->notice(
+          'CC token already refreshed by another process for env @env; skipping redundant refresh.',
+          ['@env' => $env]
+        );
+        return;
+      }
+      // Wait once for the holder to finish, then try to take the lock.
+      $lock->wait($lockName, 5);
+      $haveLock = $lock->acquire($lockName, 60);
+      if (!$haveLock) {
+        // Still contended. Do NOT rotate without the lock — a second concurrent
+        // rotation would invalidate the other process's freshly-stored token.
+        // Fall through to the caller's honest-failure path instead.
+        \Drupal::logger('access_affinitygroup')->warning(
+          'CC token refresh contended for env @env; another process holds the refresh lock, not refreshing this call.',
+          ['@env' => $env]
+        );
+        return;
+      }
+    }
+
     try {
-      $refreshToken = $this->refreshToken;
+      // We hold the lock. Re-read: a changed refresh token means another
+      // process rotated while we waited. It is written AFTER the access token
+      // in the success path below, so a changed refresh token guarantees the
+      // new access token is already stored — adopt it and skip a redundant
+      // rotation. The finally below releases the lock on this return too.
+      if (CcLogic::shouldSkipRefresh($usedRefresh, $this->getRefreshToken())) {
+        $this->accessToken = $this->getAppToken();
+        \Drupal::logger('access_affinitygroup')->notice(
+          'CC token already refreshed by another process for env @env; skipping redundant refresh.',
+          ['@env' => $env]
+        );
+        return;
+      }
 
       $clientId = $this->clientId;
       $clientSecret = $this->clientSecret;
@@ -292,9 +347,15 @@ class ConstantContactApi {
       // Define base URL.
       $base = 'https://authz.constantcontact.com/oauth2/default/v1/token';
 
-      // Create full request URL.
-      $url = $base . '?refresh_token=' . $refreshToken . '&grant_type=refresh_token';
-      curl_setopt($ch, CURLOPT_URL, $url);
+      // Send the refresh token in the POST body, not the URL query string —
+      // query strings are logged by web servers, proxies, and CDNs far more
+      // readily than POST bodies. http_build_query() also url-encodes the
+      // token, which the old string concatenation never did.
+      curl_setopt($ch, CURLOPT_URL, $base);
+      curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
+        'refresh_token' => $usedRefresh,
+        'grant_type' => 'refresh_token',
+      ]));
 
       // Set authorization header
       // Make string of "API_KEY:SECRET".
@@ -317,9 +378,10 @@ class ConstantContactApi {
       $httpCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
       curl_close($ch);
 
-      $env = $this->environment;
-
       if (!isset($result->error)) {
+        // Write-ordering invariant: access token BEFORE refresh token, so a
+        // changed refresh token in state guarantees the new access token is
+        // already stored (the skip path above relies on this). Do not reorder.
         $this->setAccessToken($result->access_token);
         $this->setRefreshToken($result->refresh_token);
         \Drupal::logger('access_affinitygroup')->notice("Constant Contact: new access_token and refresh_token stored $env");
@@ -330,23 +392,29 @@ class ConstantContactApi {
         \Drupal::logger('access_affinitygroup')->error("Token Error: env $env");
         $this->apiError($result->error, $result->error_description);
 
-        $policy = 'affinitygroup';
-        $policy_subtype = 'cc_error';
-        $role = 'site_developer';
-        $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
+        if (CcLogic::isLiveEnv(getenv('PANTHEON_ENVIRONMENT') ?: NULL)) {
+          $policy = 'affinitygroup';
+          $policy_subtype = 'cc_error';
+          $role = 'site_developer';
+          $site_dev_emails = \Drupal::service('access_misc.usertools')->getEmails([$role], []);
 
-        if (!empty($site_dev_emails)) {
-          $host = \Drupal::request()->getSchemeAndHttpHost();
-          $message = 'New token error at host ' . $host . '. See logs for access_affinitygroup.';
-          $variables = [
-            'message' => $message,
-          ];
-          \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+          if (!empty($site_dev_emails)) {
+            $host = \Drupal::request()->getSchemeAndHttpHost();
+            $message = 'New token error at host ' . $host . '. See logs for access_affinitygroup.';
+            $variables = [
+              'message' => $message,
+            ];
+            \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $site_dev_emails, $variables);
+          }
         }
       }
     }
     catch (\Exception $e) {
       \Drupal::logger('access_affinitygroup')->notice('Exception in new token: ' . $e->getMessage());
+    }
+    finally {
+      // Release on every exit path (success, CC error, exception).
+      $lock->release($lockName);
     }
   }
 
@@ -446,6 +514,38 @@ class ConstantContactApi {
       return $this->apiCall($endpoint, $post_data, $type, $retryCount + 1);
     }
 
+    // A 401 means the access token expired. Refresh once using the stored
+    // refresh token, then retry the original call a single time. Guard with
+    // $retryCount so a persistently-bad token cannot loop.
+    //
+    // LIVE ONLY (CcLogic::isLiveEnv): refreshing rotates the shared refresh
+    // token and would invalidate live's tokens if done from a non-live env
+    // (same root-cause guard as the cron refresh in access_affinitygroup_cron).
+    // On non-live a 401 falls through to the normal error path and surfaces the
+    // honest failure message rather than silently rotating a live token slot.
+    // NOTE: this guards on the Pantheon env, not the resolved CC env — so when
+    // the forced-override escape hatch points a multidev at a live account, a
+    // 401 there will NOT auto-refresh. That is intentional (see the testing
+    // section): only live may rotate live tokens.
+    $pantheonEnv = getenv('PANTHEON_ENVIRONMENT');
+    if ($this->httpResponseCode == 401 && $retryCount < 1 && CcLogic::isLiveEnv($pantheonEnv === FALSE ? NULL : $pantheonEnv)) {
+      \Drupal::logger('access_affinitygroup')->notice(
+        'Constant Contact 401 on @endpoint; attempting token refresh and one retry.',
+        ['@endpoint' => $endpoint]
+      );
+      // Suppress raw CC error display during the refresh so a failed refresh
+      // does not dump a technical error on top of the caller's user-facing
+      // message (e.g. the honest "could not confirm" send message). Restore
+      // the prior setting afterward.
+      $prevSupress = $this->supressErrDisplay;
+      $this->setSupressErrDisplay(TRUE);
+      $this->newToken();
+      $this->setSupressErrDisplay($prevSupress);
+      // newToken() persists and sets $this->accessToken on success; pick it up.
+      $this->accessToken = $this->getAppToken();
+      return $this->apiCall($endpoint, $post_data, $type, $retryCount + 1);
+    }
+
     // Skip error logging for 409 Conflict — callers like addContact() handle
     // this by extracting the existing contact ID from the error response.
     if ($this->httpResponseCode != 409) {
@@ -453,11 +553,10 @@ class ConstantContactApi {
       if (!empty($errMsg)) {
         $this->apiError($errMsg, "");
       }
-      else {
-        if (empty($returned_result)) {
-          $this->apiError("Error from Constant Contact: no result", "");
-          return NULL;
-        }
+      elseif (!CcLogic::httpSucceeded($this->httpResponseCode) && empty($returned_result)) {
+        // Non-2xx with no body: a genuine failure with no parseable detail.
+        $this->apiError("Error from Constant Contact: no result", "");
+        return NULL;
       }
     }
 
@@ -581,6 +680,15 @@ class ConstantContactApi {
   }
 
   /**
+   * Returns the HTTP response code from the most recent apiCall().
+   *
+   * @return int|null
+   */
+  public function getResponseCode() {
+    return $this->httpResponseCode;
+  }
+
+  /**
    * Check if a valid connection can be made to constant contact.
    *
    * @return bool
@@ -603,10 +711,9 @@ class ConstantContactApi {
 
     $token_array = $tokenjson ? json_decode($tokenjson, TRUE) : [];
     $token_array[$env] = $access_token;
-    $access_token = json_encode($token_array);
-
+    \Drupal::state()->set('access_affinitygroup.access_token', json_encode($token_array));
+    // Store the per-env value (symmetric with getAppToken()), not the JSON blob.
     $this->accessToken = $access_token;
-    \Drupal::state()->set('access_affinitygroup.access_token', $access_token);
   }
 
   /**
@@ -661,10 +768,9 @@ class ConstantContactApi {
 
     $token_array = $tokenjson ? json_decode($tokenjson, TRUE) : [];
     $token_array[$env] = $refresh_token;
-    $refresh_token = json_encode($token_array);
-
+    \Drupal::state()->set('access_affinitygroup.refresh_token', json_encode($token_array));
+    // Store the per-env value (symmetric with getRefreshToken()), not the JSON blob.
     $this->refreshToken = $refresh_token;
-    \Drupal::state()->set('access_affinitygroup.refresh_token', $refresh_token);
   }
 
   /*

@@ -5,6 +5,9 @@ extra_styles:
 ag_node_form:
   js:
     js/ag_node_form.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
 ag_view:
   css:
     theme:

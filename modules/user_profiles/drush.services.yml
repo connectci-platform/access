@@ -1,5 +1,6 @@
 services:
   user_profile.commands:
     class: \Drupal\user_profiles\Commands\UserProfilesCommands
+    arguments: ['@user_profiles.user_merger']
     tags:
       - { name: drush.command }

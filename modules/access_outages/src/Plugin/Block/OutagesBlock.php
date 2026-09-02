@@ -17,8 +17,11 @@ class OutagesBlock extends BlockBase {
 
   /**
    * {@inheritdoc}
+   *
+   * @return array<string, mixed>
+   *   The block render array.
    */
-  public function build() {
+  public function build(): array {
     return [
       '#theme' => 'outages_block',
       '#data' => [],

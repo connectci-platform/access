@@ -1,0 +1,13 @@
+services:
+  logger.channel.user_profiles:
+    parent: logger.channel_base
+    arguments: ['user_profiles']
+
+  user_profiles.user_merger:
+    class: Drupal\user_profiles\UserMerger
+    arguments:
+      - '@entity_type.manager'
+      - '@module_handler'
+      - '@database'
+      - '@flag'
+      - '@logger.channel.user_profiles'

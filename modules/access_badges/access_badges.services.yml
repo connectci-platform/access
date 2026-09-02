@@ -1,6 +1,10 @@
 services:
   access_badges.badgeTools:
     class: Drupal\access_badges\Plugin\BadgeTools
+    arguments:
+      - '@entity_type.manager'
+      - '@database'
+      - '@datetime.time'
 
   access_badges.badge_sorter:
     class: Drupal\access_badges\Service\BadgeSorter
@@ -17,3 +21,4 @@ services:
       - '@database'
       - '@entity_type.manager'
       - '@access_badges.badgeTools'
+      - '@datetime.time'

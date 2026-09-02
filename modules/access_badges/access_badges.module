@@ -2,18 +2,23 @@
 
 /**
  * @file
+ * Access Badges hooks.
  */
 
+use Drupal\Core\Url;
+use Drupal\user\Entity\User;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\user\UserInterface;
 
 /**
  * Implements hook_form_alter().
+ *
+ * @phpstan-param array<string, mixed> $form
  */
-function access_badges_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+function access_badges_form_alter(array &$form, FormStateInterface $form_state, string $form_id): void {
   if ($form_id == 'user_form' || $form_id == 'user_register_form') {
     // Check if user is an administator.
-    $user = \Drupal\user\Entity\User::load(\Drupal::currentUser()->id());
+    $user = User::load(\Drupal::currentUser()->id());
     $roles = $user->getRoles();
     if (!in_array('administrator', $roles)) {
       $form['#attached']['library'][] = 'access_badges/hide_ief_button';
@@ -26,20 +31,20 @@ function access_badges_form_alter(&$form, FormStateInterface $form_state, $form_
 /**
  * Implements hook_user_presave().
  */
-function access_badges_user_presave(UserInterface $user) {
+function access_badges_user_presave(UserInterface $user): void {
   \Drupal::service('access_badges.badge_sorter')->sortUserBadges($user);
 }
 
 /**
  * Implements hook_cron().
  */
-function access_badges_cron() {
+function access_badges_cron(): void {
   // Run this cron job every day at 4am.
   $currentTime = \Drupal::time()->getCurrentTime();
   $hour = date('H', $currentTime);
   $min = date('i', $currentTime);
 
-  // Cron runs every 10 minutes
+  // Cron runs every 10 minutes.
   if ($hour == 4 && $min < 20) {
     $badge_tools = \Drupal::service('access_badges.badgeTools');
     // Get 'New to ACCESS' term id.
@@ -79,7 +84,7 @@ function access_badges_cron() {
  * Auto-assigns badges from pending queue when a new user registers
  * with a matching email address (exact match, case-insensitive via collation).
  */
-function access_badges_user_insert(UserInterface $account) {
+function access_badges_user_insert(UserInterface $account): void {
   $email = $account->getEmail();
   if (empty($email)) {
     return;
@@ -121,8 +126,11 @@ function access_badges_user_insert(UserInterface $account) {
 
 /**
  * Implements hook_mail().
+ *
+ * @phpstan-param array<string, mixed> $message
+ * @phpstan-param array<string, mixed> $params
  */
-function access_badges_mail($key, &$message, $params) {
+function access_badges_mail(string $key, array &$message, array $params): void {
   if ($key === 'pending_match_digest') {
     $message['subject'] = t('Badge Assignments: New matches need review');
 
@@ -140,7 +148,7 @@ function access_badges_mail($key, &$message, $params) {
     }
 
     $lines[] = '';
-    $review_url = \Drupal\Core\Url::fromRoute('access_badges.review', [], ['absolute' => TRUE])->toString();
+    $review_url = Url::fromRoute('access_badges.review', [], ['absolute' => TRUE])->toString();
     $lines[] = t('Review these matches at: @url', ['@url' => $review_url]);
 
     $message['body'] = $lines;

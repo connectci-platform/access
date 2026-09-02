@@ -8,9 +8,9 @@
 use Drupal\taxonomy\Entity\Term;
 
 /**
- *
+ * Implements hook_install().
  */
-function ccmnet_install() {
+function ccmnet_install(): void {
   \Drupal::state()->set('access_mentorship_interested', 0);
   // Add the tag 'Recruiting' to the 'State' Taxonomy.
   $states = [
@@ -40,7 +40,7 @@ function ccmnet_install() {
 /**
  * Update to reset the access_mentorship_interested state.
  */
-function ccmnet_update_10000() {
+function ccmnet_update_10000(): void {
   \Drupal::state()->set('access_mentorship_interested', 0);
 
 }
@@ -48,7 +48,7 @@ function ccmnet_update_10000() {
 /**
  * Add state.
  */
-function ccmnet_update_10002() {
+function ccmnet_update_10002(): void {
   $term = Term::create([
     'name' => 'In Progress and Recruiting',
     'vid' => 'state',
@@ -58,9 +58,9 @@ function ccmnet_update_10002() {
 }
 
 /**
- * Add "Campus Champions AI Mentorship" term to the Mentorship Programs taxonomy.
+ * Add "Campus Champions AI Mentorship" term to Mentorship Programs vocab.
  */
-function ccmnet_update_10003() {
+function ccmnet_update_10003(): void {
   // Load the vocabulary by its machine name.
   $vocabulary = 'mentorship_programs';
 
@@ -90,7 +90,7 @@ function ccmnet_update_10003() {
 /**
  * Set domain source on mentorship.
  */
-function ccmnet_update_10004() {
+function ccmnet_update_10004(): void {
   $query = \Drupal::database()->select('node', 'n');
   $query->fields('n', ['nid', 'vid']);
   $query->condition('n.type', 'mentorship_engagement');
@@ -100,40 +100,39 @@ function ccmnet_update_10004() {
     $nid = $node->nid;
     $vid = $node->vid;
 
-    $insert = \Drupal::database()->insert('node__field_domain_source')
-    ->fields([
-      'bundle',
-      'deleted',
-      'entity_id',
-      'revision_id',
-      'langcode',
-      'delta',
-      'field_domain_source_target_id',
-    ])
-    ->values([
-      'mentorship_engagement',
-      0,
-      $nid,
-      $vid,
-      'en',
-      0,
-      'ccmnet_org',
-    ])
-    ->execute();
+    \Drupal::database()->insert('node__field_domain_source')
+      ->fields([
+        'bundle',
+        'deleted',
+        'entity_id',
+        'revision_id',
+        'langcode',
+        'delta',
+        'field_domain_source_target_id',
+      ])
+      ->values([
+        'mentorship_engagement',
+        0,
+        $nid,
+        $vid,
+        'en',
+        0,
+        'ccmnet_org',
+      ])
+      ->execute();
   }
 }
 
 /**
  * Rebuild mentorship engagement search index to ensure proper display.
  */
-function ccmnet_update_10005() {
+function ccmnet_update_10005(): void {
   $index_storage = \Drupal::entityTypeManager()->getStorage('search_api_index');
   $index = $index_storage->load('mentorship_engagement');
-  
+
   if ($index) {
     $index->clear();
     $index->indexItems();
     \Drupal::logger('ccmnet')->info('Rebuilt mentorship engagement search index.');
   }
 }
-

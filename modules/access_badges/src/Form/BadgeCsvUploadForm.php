@@ -3,15 +3,18 @@
 namespace Drupal\access_badges\Form;
 
 use Drupal\access_badges\Service\CsvProcessor;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\File\FileSystemInterface;
+use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Url;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * CSV upload form for bulk badge assignment.
  */
-class BadgeCsvUploadForm extends FormBase {
+final class BadgeCsvUploadForm extends FormBase {
 
   /**
    * The CSV processor service.
@@ -21,18 +24,47 @@ class BadgeCsvUploadForm extends FormBase {
   protected $csvProcessor;
 
   /**
+   * The entity type manager.
+   *
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   */
+  protected $entityTypeManager;
+
+  /**
+   * The file system service.
+   *
+   * @var \Drupal\Core\File\FileSystemInterface
+   */
+  protected $fileSystem;
+
+  /**
+   * The messenger service.
+   *
+   * @var \Drupal\Core\Messenger\MessengerInterface
+   */
+  protected $messenger;
+
+  /**
    * Constructs a BadgeCsvUploadForm.
    */
-  public function __construct(CsvProcessor $csv_processor) {
+  public function __construct(CsvProcessor $csv_processor, EntityTypeManagerInterface $entity_type_manager, FileSystemInterface $file_system, MessengerInterface $messenger) {
     $this->csvProcessor = $csv_processor;
+    $this->entityTypeManager = $entity_type_manager;
+    $this->fileSystem = $file_system;
+    $this->messenger = $messenger;
   }
 
   /**
    * {@inheritdoc}
+   *
+   * @return static
    */
-  public static function create(ContainerInterface $container) {
+  public static function create(ContainerInterface $container): static {
     return new static(
-      $container->get('access_badges.csv_processor')
+      $container->get('access_badges.csv_processor'),
+      $container->get('entity_type.manager'),
+      $container->get('file_system'),
+      $container->get('messenger')
     );
   }
 
@@ -45,8 +77,16 @@ class BadgeCsvUploadForm extends FormBase {
 
   /**
    * {@inheritdoc}
+   *
+   * @param array<string, mixed> $form
+   *   The form.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   *
+   * @return array<string, mixed>
+   *   The form.
    */
-  public function buildForm(array $form, FormStateInterface $form_state) {
+  public function buildForm(array $form, FormStateInterface $form_state): array {
     $form['vocabulary'] = [
       '#type' => 'select',
       '#title' => $this->t('Vocabulary'),
@@ -93,17 +133,31 @@ class BadgeCsvUploadForm extends FormBase {
 
   /**
    * AJAX callback to update badge options.
+   *
+   * @param array<string, mixed> $form
+   *   The form.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   *
+   * @return array<string, mixed>
+   *   The badge_tid form element.
    */
-  public function updateBadgeOptions(array &$form, FormStateInterface $form_state) {
+  public function updateBadgeOptions(array &$form, FormStateInterface $form_state): array {
     return $form['badge_tid'];
   }
 
   /**
    * Gets badge term options for a vocabulary.
+   *
+   * @param string $vocabulary
+   *   The vocabulary machine name.
+   *
+   * @return array<int|string, string>
+   *   The badge term options, keyed by term ID.
    */
-  protected function getBadgeOptions($vocabulary) {
+  protected function getBadgeOptions(string $vocabulary): array {
     $options = [];
-    $terms = \Drupal::entityTypeManager()
+    $terms = $this->entityTypeManager
       ->getStorage('taxonomy_term')
       ->loadByProperties(['vid' => $vocabulary]);
     foreach ($terms as $term) {
@@ -115,8 +169,13 @@ class BadgeCsvUploadForm extends FormBase {
 
   /**
    * {@inheritdoc}
+   *
+   * @param array<string, mixed> $form
+   *   The form.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
    */
-  public function validateForm(array &$form, FormStateInterface $form_state) {
+  public function validateForm(array &$form, FormStateInterface $form_state): void {
     $files = $this->getRequest()->files->get('files');
     $file = $files['csv_file'] ?? NULL;
 
@@ -155,8 +214,13 @@ class BadgeCsvUploadForm extends FormBase {
 
   /**
    * {@inheritdoc}
+   *
+   * @param array<string, mixed> $form
+   *   The form.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
    */
-  public function submitForm(array &$form, FormStateInterface $form_state) {
+  public function submitForm(array &$form, FormStateInterface $form_state): void {
     $file_path = $form_state->get('csv_file_path');
     $header_map = $form_state->get('csv_header_map');
     $badge_tid = $form_state->getValue('badge_tid');
@@ -185,8 +249,20 @@ class BadgeCsvUploadForm extends FormBase {
 
   /**
    * Processes CSV rows synchronously.
+   *
+   * @param string $file_path
+   *   Path to the CSV file.
+   * @param array<string, int> $header_map
+   *   Mapping of column index to header name.
+   * @param int|string $badge_tid
+   *   The badge term ID.
+   * @param string $vocabulary
+   *   The vocabulary machine name.
+   *
+   * @return array<string, array<int, array<string, mixed>>>
+   *   The processing results, keyed by result type.
    */
-  protected function processSync($file_path, $header_map, $badge_tid, $vocabulary) {
+  protected function processSync($file_path, array $header_map, $badge_tid, $vocabulary): array {
     $results = [
       'assigned' => [],
       'already_assigned' => [],
@@ -213,9 +289,20 @@ class BadgeCsvUploadForm extends FormBase {
 
   /**
    * Launches batch processing for large CSVs.
+   *
+   * @param string $file_path
+   *   Path to the CSV file.
+   * @param array<string, int> $header_map
+   *   Mapping of column index to header name.
+   * @param int|string $badge_tid
+   *   The badge term ID.
+   * @param string $vocabulary
+   *   The vocabulary machine name.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
    */
-  protected function processBatch($file_path, $header_map, $badge_tid, $vocabulary, FormStateInterface $form_state) {
-    $temp_path = \Drupal::service('file_system')->getTempDirectory() . '/badge_csv_' . time() . '.csv';
+  protected function processBatch($file_path, array $header_map, $badge_tid, $vocabulary, FormStateInterface $form_state): void {
+    $temp_path = $this->fileSystem->getTempDirectory() . '/badge_csv_' . time() . '.csv';
     copy($file_path, $temp_path);
 
     $batch = [
@@ -234,8 +321,19 @@ class BadgeCsvUploadForm extends FormBase {
 
   /**
    * Batch operation callback.
+   *
+   * @param string $file_path
+   *   Path to the CSV file.
+   * @param array<string, int> $header_map
+   *   Mapping of column index to header name.
+   * @param int|string $badge_tid
+   *   The badge term ID.
+   * @param string $vocabulary
+   *   The vocabulary machine name.
+   * @param array<string, mixed> $context
+   *   The batch context.
    */
-  public static function batchProcess($file_path, $header_map, $badge_tid, $vocabulary, &$context) {
+  public static function batchProcess($file_path, array $header_map, $badge_tid, $vocabulary, array &$context): void {
     $csv_processor = \Drupal::service('access_badges.csv_processor');
 
     if (!isset($context['sandbox']['progress'])) {
@@ -290,8 +388,15 @@ class BadgeCsvUploadForm extends FormBase {
 
   /**
    * Batch finished callback.
+   *
+   * @param bool $success
+   *   Whether the batch completed successfully.
+   * @param array<string, mixed> $results
+   *   The batch results.
+   * @param array<int, mixed> $operations
+   *   The batch operations.
    */
-  public static function batchFinished($success, $results, $operations) {
+  public static function batchFinished($success, array $results, array $operations): void {
     if ($success) {
       $assigned_count = count($results['assigned'] ?? []);
       $pending_count = count($results['pending'] ?? []);
@@ -314,8 +419,14 @@ class BadgeCsvUploadForm extends FormBase {
 
   /**
    * Builds the results display render array.
+   *
+   * @param array<string, mixed> $results
+   *   The processing results.
+   *
+   * @return array<string, mixed>
+   *   The results render array.
    */
-  protected function buildResultsDisplay(array $results) {
+  protected function buildResultsDisplay(array $results): array {
     $build = [
       '#type' => 'container',
       '#attributes' => ['class' => ['badge-csv-results']],
@@ -412,8 +523,18 @@ class BadgeCsvUploadForm extends FormBase {
 
   /**
    * Builds table for possible matches with action buttons.
+   *
+   * @param array<int, array<string, mixed>> $possible_matches
+   *   The possible match rows.
+   * @param int|string $badge_tid
+   *   The badge term ID.
+   * @param string $vocabulary
+   *   The vocabulary machine name.
+   *
+   * @return array<string, mixed>
+   *   The table render array.
    */
-  protected function buildPossibleMatchesTable(array $possible_matches, $badge_tid = 0, $vocabulary = 'badges') {
+  protected function buildPossibleMatchesTable(array $possible_matches, $badge_tid = 0, $vocabulary = 'badges'): array {
     $header = [
       $this->t('CSV Email'),
       $this->t('CSV Name'),

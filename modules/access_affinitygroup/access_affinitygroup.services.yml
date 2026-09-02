@@ -26,7 +26,17 @@ services:
       - '@cache.default'
       - '@logger.factory'
       - '@datetime.time'
-  access_affinitygroup.rp_account_access:
-    class: Drupal\access_affinitygroup\Access\RpAccountAccess
+      - '@lock'
+  access_affinitygroup.coordinator_access:
+    class: Drupal\access_affinitygroup\Access\CoordinatorAccess
+  access_affinitygroup.acting_user_access:
+    class: Drupal\access_affinitygroup\Access\ActingUserAccess
     arguments:
+      - '@access.access_id_resolver'
+  access_affinitygroup.acting_user_switch_subscriber:
+    class: Drupal\access_affinitygroup\EventSubscriber\ActingUserSwitchSubscriber
+    arguments:
+      - '@account_switcher'
       - '@entity_type.manager'
+    tags:
+      - { name: event_subscriber }

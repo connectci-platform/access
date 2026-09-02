@@ -380,3 +380,15 @@ function access_events_update_10006() {
     '@populated' => $populated,
   ]);
 }
+
+/**
+ * Adds the individually_cancelled base field to event instances.
+ */
+function access_events_update_10007() {
+  $definition = \Drupal\Core\Field\BaseFieldDefinition::create('boolean')
+    ->setLabel(t('Individually cancelled'))
+    ->setDefaultValue(0)
+    ->setRevisionable(FALSE);
+  \Drupal::entityDefinitionUpdateManager()
+    ->installFieldStorageDefinition('individually_cancelled', 'eventinstance', 'access_events', $definition);
+}

@@ -5,6 +5,7 @@
  */
 
 use Drupal\block_content\Entity\BlockContent;
+use Drupal\layout_builder\SectionComponent;
 use Drupal\menu_link_content\Entity\MenuLinkContent;
 use Drupal\node\Entity\Node;
 use Drupal\path_alias\Entity\PathAlias;
@@ -2255,3 +2256,266 @@ function access_misc_update_10035() {
   return t('field_rp_description already correct type or does not exist.');
 }
 
+/**
+ * Backfill field_hide_community_profile = 0 for all users missing the record.
+ */
+function access_misc_update_10036() {
+  // Single-query backfill: looping inserts at scale (~50k users) risks
+  // exceeding Pantheon's deploy step time budget. INSERT..SELECT runs in
+  // sub-second time regardless of row count.
+  \Drupal::database()->query("
+    INSERT INTO {user__field_hide_community_profile}
+      (bundle, deleted, entity_id, revision_id, langcode, delta, field_hide_community_profile_value)
+    SELECT 'user', 0, u.uid, u.uid, 'en', 0, 0
+    FROM {users} u
+    LEFT JOIN {user__field_hide_community_profile} f ON f.entity_id = u.uid
+    WHERE f.entity_id IS NULL
+  ");
+}
+
+/**
+ * Move resource-documentation text fields to the spamspan-free resource_docs format.
+ */
+function access_misc_update_10037(&$sandbox) {
+  $map = [
+    'access_active_resources_from_cid' => [
+      'field_rp_description',
+      'field_rp_external_storage',
+      'field_rp_file_transfer_text',
+      'field_rp_jobs_info',
+      'field_rp_login_text',
+    ],
+    'resource_group' => [
+      'field_rp_description',
+      'field_rp_external_storage',
+      'field_rp_file_transfer_text',
+      'field_rp_login_text',
+    ],
+  ];
+  $storage = \Drupal::entityTypeManager()->getStorage('node');
+  $changed = 0;
+  foreach ($map as $bundle => $fields) {
+    $nids = $storage->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('type', $bundle)
+      ->execute();
+    foreach ($storage->loadMultiple($nids) as $node) {
+      $dirty = FALSE;
+      foreach ($fields as $field) {
+        if (!$node->hasField($field) || $node->get($field)->isEmpty()) {
+          continue;
+        }
+        foreach ($node->get($field) as $item) {
+          if (in_array($item->format, ['basic_html', 'full_html'], TRUE)) {
+            $item->format = 'resource_docs';
+            $dirty = TRUE;
+          }
+        }
+      }
+      if ($dirty) {
+        $node->setNewRevision(FALSE);
+        $node->save();
+        $changed++;
+      }
+    }
+  }
+  return t('Re-pointed @count resource-doc nodes to the resource_docs text format.', ['@count' => $changed]);
+}
+
+/**
+ * Remove webform sub-modules dropped/deprecated in webform 6.3.0.
+ *
+ * webform_location_places + webform_shortcuts were removed from disk in 6.3.0 and
+ * remain enabled in existing databases, which blocks config import. Their code is
+ * gone, so uninstall hooks can't run — purge them directly. webform_bootstrap
+ * (Bootstrap 3.x) is deprecated and unused (site theme is Bootstrap 4) but still
+ * on disk, so uninstall it via the module installer so its own uninstall logic runs.
+ */
+function access_misc_update_10038() {
+  // 1. Purge the two removed-from-disk modules first, so the module installer's
+  //    container rebuild (below) doesn't choke on modules missing from core.extension.
+  $missing = [
+    'webform_location_places',
+    'webform_shortcuts',
+  ];
+
+  $extension = \Drupal::configFactory()->getEditable('core.extension');
+  $modules = $extension->get('module') ?? [];
+  foreach ($missing as $name) {
+    unset($modules[$name]);
+  }
+  $extension->set('module', $modules)->save();
+
+  \Drupal::keyValue('system.schema')->deleteMultiple($missing);
+
+  // 2. Uninstall the still-on-disk, deprecated bootstrap module the proper way so
+  //    its own uninstall hooks / schema cleanup run. Guarded for idempotency.
+  if (\Drupal::moduleHandler()->moduleExists('webform_bootstrap')) {
+    \Drupal::service('module_installer')->uninstall(['webform_bootstrap']);
+  }
+
+  // 3. Cheap insurance after the hand-edited core.extension above.
+  drupal_flush_all_caches();
+}
+
+/**
+ * Update blocks 222 and 225 body text with new markup.
+ */
+function access_misc_update_10039() {
+  $body_222 = <<<'EOT'
+<h2 class="h4 text-base px-2 font-bold leading-5 text-dark-teal m-0 bg-light-teal uppercase w-full mt-1">
+    Software
+</h2>
+EOT;
+  update_block_body(222, $body_222, 'full_no_editor');
+
+  $body_225 = <<<'EOT'
+<div class="text-2xl text-dark-teal mb-5">
+    See how researchers use ACCESS tools like Open OnDemand, Pegasus, XDMoD, and Globus.
+</div>
+EOT;
+  update_block_body(225, $body_225, 'full_no_editor');
+}
+
+/**
+ * Put ACCESS documentation pages on the support domain, not "all affiliates".
+ *
+ * Documentation pages are the `page` nodes linked from the access-documentation
+ * menu. They should be scoped to the ACCESS support domain only; leaving
+ * field_domain_all_affiliates checked publishes them site-wide to every
+ * affiliate. Assign the support domain and uncheck "send to all affiliates".
+ */
+function access_misc_update_10040(&$sandbox) {
+  $node_storage = \Drupal::entityTypeManager()->getStorage('node');
+
+  // Collect the node ids referenced by links in the access-documentation menu.
+  $link_ids = \Drupal::entityTypeManager()
+    ->getStorage('menu_link_content')
+    ->getQuery()
+    ->accessCheck(FALSE)
+    ->condition('menu_name', 'access-documentation')
+    ->execute();
+
+  $nids = [];
+  foreach (MenuLinkContent::loadMultiple($link_ids) as $link) {
+    $url = $link->getUrlObject();
+    if (!$url->isRouted() || $url->getRouteName() !== 'entity.node.canonical') {
+      continue;
+    }
+    $params = $url->getRouteParameters();
+    if (!empty($params['node'])) {
+      $nids[$params['node']] = $params['node'];
+    }
+  }
+
+  // The /documentation section landing page is the parent of these links, not a
+  // link within the menu itself, so pull it in explicitly by resolving its
+  // alias to a node id.
+  $landing_path = \Drupal::service('path_alias.manager')->getPathByAlias('/documentation');
+  if (preg_match('#^/node/(\d+)$#', $landing_path, $matches)) {
+    $nids[$matches[1]] = $matches[1];
+  }
+
+  $changed = 0;
+  foreach ($node_storage->loadMultiple($nids) as $node) {
+    if ($node->bundle() !== 'page') {
+      continue;
+    }
+    $node->set('field_domain_access', [SiteTools::DOMAIN_ACCESS_SUPPORT]);
+    $node->set('field_domain_all_affiliates', 0);
+    $node->setNewRevision(FALSE);
+    $node->save();
+    $changed++;
+  }
+
+  return t('Scoped @count documentation page(s) to the ACCESS support domain and unchecked "send to all affiliates".', ['@count' => $changed]);
+}
+
+/**
+ * Add the "Front - Appverse Reach" block to the Open OnDemand home page layout.
+ *
+ * The block (block_content 230) was placed by hand on node 10418 in production;
+ * this hook reproduces that placement in every other environment so the layout
+ * ships with a deployment instead of a manual edit. It goes at the bottom of the
+ * final ("Affinity Groups") section, matching where it sits today.
+ */
+function access_misc_update_10041() {
+  $block_uuid = 'd97d846b-fb56-4875-b4f9-ac7685bace32';
+  $plugin_id = 'block_content:' . $block_uuid;
+
+  $node = Node::load(10418);
+  if (!$node || !$node->hasField('layout_builder__layout')) {
+    return t('Node 10418 not found or has no layout override; nothing to do.');
+  }
+
+  // The block content must exist, otherwise the component renders as broken.
+  if (!\Drupal::service('entity.repository')->loadEntityByUuid('block_content', $block_uuid)) {
+    return t('Block content @uuid not found; skipped adding it to node 10418.', ['@uuid' => $block_uuid]);
+  }
+
+  $sections = $node->get('layout_builder__layout')->getSections();
+  if (!$sections) {
+    return t('Node 10418 has no layout sections; nothing to do.');
+  }
+
+  // Bail out if the block is already placed anywhere in the layout.
+  foreach ($sections as $section) {
+    foreach ($section->getComponents() as $component) {
+      if (($component->getPluginId() ?? '') === $plugin_id) {
+        return t('Block @uuid is already placed on node 10418; nothing to do.', ['@uuid' => $block_uuid]);
+      }
+    }
+  }
+
+  // getSections() hands back the live Section objects held by the field items,
+  // so appending to one below is enough for the change to be saved.
+  $delta = array_key_last($sections);
+  $section = $sections[$delta];
+
+  // Sit below everything already in the region.
+  $weight = 0;
+  foreach ($section->getComponents() as $component) {
+    if ($component->getRegion() === 'content') {
+      $weight = max($weight, $component->getWeight() + 1);
+    }
+  }
+
+  // Reuse the uuid the manual placement got in production so the component is
+  // identical across environments.
+  $component = new SectionComponent('c812b2e8-3c74-4a3c-b7d5-0945d0429796', 'content', [
+    'id' => $plugin_id,
+    'label' => 'Front - Appverse Reach',
+    'label_display' => 0,
+    'provider' => 'block_content',
+    'status' => TRUE,
+    'info' => '',
+    'view_mode' => 'full',
+    'context_mapping' => [],
+  ]);
+  $component->setWeight($weight);
+  $section->appendComponent($component);
+
+  $node->setNewRevision(FALSE);
+  $node->save();
+
+  return t('Added the "Front - Appverse Reach" block to the bottom of section @delta on node 10418.', ['@delta' => $delta]);
+}
+
+/**
+ * Remove blocks 220 and 221, update blocks 222 and 225 body text.
+ */
+function access_misc_update_10042() {
+  foreach ([220, 221] as $bid) {
+    $block = BlockContent::load($bid);
+    if ($block) {
+      $block->delete();
+    }
+  }
+
+  $body_222 = <<<'EOT'
+<h2 class="h4 text-sm py-1 px-2 font-bold leading-5 text-white m-0 bg-md-teal uppercase w-full mb-2 mt-4">
+    Software
+</h2>
+EOT;
+  update_block_body(222, $body_222, 'full_no_editor');
+}

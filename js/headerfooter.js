@@ -10,7 +10,7 @@ import {
   qaBot,
   siteMenus,
   universalMenus,
-} from "https://unpkg.com/@access-ci/ui@0.20.8/dist/access-ci-ui.js";
+} from "https://unpkg.com/@access-ci/ui@0.22.0/dist/access-ci-ui.js";
 
 (function (Drupal, drupalSettings) {
 
@@ -112,7 +112,7 @@ async function setMenu(menu, currentUri) {
   });
 
   const { email = '', name = '', accessId = '' } = drupalSettings.access.user || {};
-  const apiKey = "4nn5l4T4TnkMdzsK0AwAtnGRcheBDnjawuAT42LaOLc";
+  const apiKey = drupalSettings.access.qaApiKey || '';
 
   // GTM dataLayer event handler for QA bot analytics
   const chatbotEnv = drupalSettings.access.environment || 'unknown';
@@ -153,7 +153,9 @@ async function setMenu(menu, currentUri) {
       userEmail: email,
       userName: name,
       accessId: accessId,
-      resourceContext: embeddedTarget.dataset.resourceContext || undefined,
+      scopeSlug: embeddedTarget.dataset.scopeSlug || undefined,
+      headerTitle: embeddedTarget.dataset.headerTitle || undefined,
+      inputPlaceholder: embeddedTarget.dataset.inputPlaceholder || undefined,
       loginUrl: "/login?redirect=" + currentUri,
       onAnalyticsEvent: onAnalyticsEvent,
       qaEndpoint: qaEndpoint,

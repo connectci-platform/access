@@ -22,7 +22,74 @@ access_affinitygroup.rp_account:
   requirements:
     rp_nid: '\d+'
     _user_is_logged_in: 'TRUE'
-    _custom_access: 'access_affinitygroup.rp_account_access:check'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+  options:
+    no_cache: TRUE
+
+access_affinitygroup.rp_account_by_resource:
+  path: '/api/1.0/rp-account/by-resource/{global_resource_id}'
+  defaults:
+    _controller: '\Drupal\access_affinitygroup\Controller\RpAccountController::getByResourceId'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+  options:
+    no_cache: TRUE
+
+access_affinitygroup.rp_accounts_list:
+  path: '/api/1.0/rp-accounts'
+  defaults:
+    _controller: '\Drupal\access_affinitygroup\Controller\RpAccountController::listAccounts'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+  options:
+    no_cache: TRUE
+
+access_affinitygroup.announcement_create:
+  path: '/api/2.3/announcements'
+  methods: [POST]
+  defaults:
+    _controller: '\Drupal\access_affinitygroup\Controller\AnnouncementApiController::createAnnouncement'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+    _csrf_request_header_token: 'TRUE'
+  options:
+    no_cache: TRUE
+
+access_affinitygroup.announcement_mine:
+  path: '/api/2.3/announcements/mine'
+  methods: [GET]
+  defaults:
+    _controller: '\Drupal\access_affinitygroup\Controller\AnnouncementApiController::mine'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+  options:
+    no_cache: TRUE
+
+access_affinitygroup.announcement_update:
+  path: '/api/2.3/announcements/{uuid}'
+  methods: [PATCH]
+  defaults:
+    _controller: '\Drupal\access_affinitygroup\Controller\AnnouncementApiController::update'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+    _csrf_request_header_token: 'TRUE'
+  options:
+    no_cache: TRUE
+
+access_affinitygroup.announcement_delete:
+  path: '/api/2.3/announcements/{uuid}'
+  methods: [DELETE]
+  defaults:
+    _controller: '\Drupal\access_affinitygroup\Controller\AnnouncementApiController::delete'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+    _csrf_request_header_token: 'TRUE'
   options:
     no_cache: TRUE
 

@@ -7,11 +7,9 @@ use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
-use Drupal\file\Entity\File;
 use Drupal\Core\File\FileUrlGeneratorInterface;
-use Drupal\Core\Url;
-use Drupal\image\Entity\ImageStyle;
 use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\Cache\Cache;
 
 /**
@@ -22,7 +20,7 @@ use Drupal\Core\Cache\Cache;
  *   admin_label = @Translation("Access Match Node Block")
  * )
  */
-class MatchNodeBlock extends BlockBase implements
+final class MatchNodeBlock extends BlockBase implements
   ContainerFactoryPluginInterface {
 
   /**
@@ -47,11 +45,18 @@ class MatchNodeBlock extends BlockBase implements
   protected $routMatchInterface;
 
   /**
+   * The current user.
+   *
+   * @var \Drupal\Core\Session\AccountProxyInterface
+   */
+  protected $currentUser;
+
+  /**
    * {@inheritdoc}
    *
    * @param \Symfony\Component\DependencyInjection\ContainerInterface $container
    *   Container pulled in.
-   * @param array $configuration
+   * @param array<string, mixed> $configuration
    *   Configuration added.
    * @param string $plugin_id
    *   Plugin_id added.
@@ -68,13 +73,14 @@ class MatchNodeBlock extends BlockBase implements
       $container->get('entity_type.manager'),
       $container->get('current_route_match'),
       $container->get('file_url_generator'),
+      $container->get('current_user'),
     );
   }
 
   /**
    * {@inheritdoc}
    *
-   * @param array $configuration
+   * @param array<string, mixed> $configuration
    *   Configuration array.
    * @param string $plugin_id
    *   Plugin id string.
@@ -82,26 +88,34 @@ class MatchNodeBlock extends BlockBase implements
    *   Plugin Definition mixed.
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_interface
    *   Invokes renderer.
+   * @param \Drupal\Core\Routing\RouteMatchInterface $route_match_interface
+   *   The current route match.
    * @param \Drupal\Core\File\FileUrlGeneratorInterface $file_url_generator
    *   File url generator.
+   * @param \Drupal\Core\Session\AccountProxyInterface $current_user
+   *   The current user.
    */
   public function __construct(
     array $configuration,
     $plugin_id,
     $plugin_definition,
-    EntityTypeManagerInterface
-    $entity_interface,
+    EntityTypeManagerInterface $entity_interface,
     RouteMatchInterface $route_match_interface,
-    FileUrlGeneratorInterface $file_url_generator
+    FileUrlGeneratorInterface $file_url_generator,
+    AccountProxyInterface $current_user,
   ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityInterface = $entity_interface;
     $this->routMatchInterface = $route_match_interface;
     $this->fileUrlGenerator = $file_url_generator;
+    $this->currentUser = $current_user;
   }
 
   /**
    * {@inheritdoc}
+   *
+   * @return array<string, mixed>
+   *   A render array.
    */
   public function build() {
     $thisNode = $this->routMatchInterface->getParameter('node');
@@ -109,6 +123,7 @@ class MatchNodeBlock extends BlockBase implements
       $nid = $thisNode->id();
       $node = $this->entityInterface->getStorage('node')->load($nid);
       $status = $node->get('field_status')->getValue();
+      $is_recruiting = FALSE;
       if ($status) {
         $status = $status[0]['value'];
         $is_recruiting = strcasecmp($status, 'recruiting') == 0 ? TRUE : FALSE;
@@ -119,18 +134,17 @@ class MatchNodeBlock extends BlockBase implements
       $interested_users = $node->get('field_match_interested_users')->getValue();
       // Lookup user names from uid.
       $interested_users = $this->getInterestedUsers($interested_users);
-      $status = $node->get('field_status')->getValue() ?? $node->get('field_status')->getValue()[0]['value'];
       $interested_button = '';
       if ($is_recruiting) {
         $interested_list = $node->get('field_match_interested_users')->getValue();
-        $user = \Drupal::currentUser()->id();
+        $user = $this->currentUser->id();
         if (array_search($user, array_column($interested_list, 'target_id')) !== FALSE) {
           $uninterested_text = $this->t("I'm no longer Interested");
           $interested_button = "<a class='btn btn-primary' href='/node/$nid/interested'>$uninterested_text</a>";
         }
         else {
           $interested_text = $this->t("I'm Interested");
-          $interested_button = $is_recruiting ? "<a class='btn btn-primary' href='/node/$nid/interested'>$interested_text</a>" : '';
+          $interested_button = "<a class='btn btn-primary' href='/node/$nid/interested'>$interested_text</a>";
         }
       }
       $match_node_block['string'] = [
@@ -158,7 +172,7 @@ class MatchNodeBlock extends BlockBase implements
     }
     else {
       return [
-        '#markup' => $this->t('Match Node Block - not a match node')
+        '#markup' => $this->t('Match Node Block - not a match node'),
       ];
 
     }
@@ -166,15 +180,21 @@ class MatchNodeBlock extends BlockBase implements
 
   /**
    * Get interested users.
+   *
+   * @param array<int, array<string, mixed>> $interested_users
+   *   The interested users field values.
+   *
+   * @return array<int, string>
+   *   The interested users' full names.
    */
-  public function getInterestedUsers($interested_users) {
+  public function getInterestedUsers(array $interested_users): array {
     // Only show interested users to match_sc, match_pm, and admin.
     $accepted_roles = ['administrator', 'match_sc', 'match_pm'];
-    $current_user = \Drupal::currentUser();
+    $current_user = $this->currentUser;
     $roles = $current_user->getRoles();
     if (empty(in_array($accepted_roles, $roles))) {
       return [];
-    };
+    }
 
     $interested_users = array_column($interested_users, 'target_id');
     $users = $this->entityInterface->getStorage('user')->loadMultiple($interested_users);
@@ -193,7 +213,8 @@ class MatchNodeBlock extends BlockBase implements
     if ($node = $this->routMatchInterface->getParameter('node')) {
       // If there is node add its cachetag.
       return Cache::mergeTags(parent::getCacheTags(), ['node:' . $node->id()]);
-    } else {
+    }
+    else {
       // Return default tags instead.
       return parent::getCacheTags();
     }
@@ -208,4 +229,5 @@ class MatchNodeBlock extends BlockBase implements
     // Every new route this block will rebuild.
     return Cache::mergeContexts(parent::getCacheContexts(), ['route']);
   }
+
 }

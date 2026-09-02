@@ -4,41 +4,56 @@
  * Template for the TCS Case Study Researchers block.
  *
  * Available variables:
- * - researchers: Array of researcher data with uid, name, photo_url, and institution.
+ * - researchers: Array of researcher data with uid, name, photo_url, institution,
+ *   and has_profile (whether the community profile is publicly linkable).
  */
 #}
 
 <div class="tcs-researchers-block flex gap-3">
     {% for researcher in researchers %}
+      {% set photo %}
+        {% if researcher.photo_url %}
+          <img
+            src="{{ researcher.photo_url }}"
+            alt="{{ researcher.name }} photo"
+            class="rounded-full"
+            width="60"
+            height="60"
+            style="object-fit: cover;"
+          />
+        {% else %}
+          <img
+            src="/modules/custom/access/modules/cssn/images/profile.gif"
+            alt="{{ researcher.name }} default photo"
+            class="rounded-full"
+            width="60"
+            height="60"
+            style="object-fit: cover;"
+          />
+        {% endif %}
+      {% endset %}
+
       <div class="tcs-researchers-block__photo flex-shrink-0">
-        <a href="/community-persona/{{ researcher.uid }}">
-          {% if researcher.photo_url %}
-            <img
-              src="{{ researcher.photo_url }}"
-              alt="{{ researcher.name }} photo"
-              class="rounded-full"
-              width="60"
-              height="60"
-              style="object-fit: cover;"
-            />
-          {% else %}
-            <img
-              src="/modules/custom/access/modules/cssn/images/profile.gif"
-              alt="{{ researcher.name }} default photo"
-              class="rounded-full"
-              width="60"
-              height="60"
-              style="object-fit: cover;"
-            />
-          {% endif %}
-        </a>
+        {% if researcher.has_profile %}
+          <a href="/community-persona/{{ researcher.uid }}">{{ photo }}</a>
+        {% else %}
+          {{ photo }}
+        {% endif %}
       </div>
       <div class="tcs-researchers-block__info">
-        <div class="tcs-researchers-block__name">
-          <a href="/community-persona/{{ researcher.uid }}">{{ researcher.name }}</a>
+        <div class="tcs-researchers-block__name font-bold">
+          {% if researcher.has_profile %}
+            <a href="/community-persona/{{ researcher.uid }}">{{ researcher.name }}</a>
+          {% else %}
+            {{ researcher.name }}
+          {% endif %}
         </div>
         {% if researcher.institution %}
-            <div class="tcs-researchers-block__institution text-muted small">{{ researcher.role }}, {{ researcher.institution }}</div>
+            <div class="tcs-researchers-block__institution italic">
+              {{ researcher.role }}
+            </div>
+
+            <div class="tcs-researchers-block__institution">{{ researcher.institution }}</div>
         {% endif %}
       </div>
     {% endfor %}

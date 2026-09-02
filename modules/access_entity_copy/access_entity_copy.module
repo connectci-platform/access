@@ -1,0 +1,47 @@
+<?php
+
+/**
+ * @file
+ * Module for Entity Copy.
+ */
+
+use Drupal\Core\Form\FormStateInterface;
+
+/**
+ * Implements hook_form_alter().
+ *
+ * @phpstan-ignore missingType.iterableValue
+ */
+function access_entity_copy_form_alter(array &$form, FormStateInterface $form_state, string $form_id): void {
+  if ($form_id !== 'node_mentorship_engagement_form') {
+    return;
+  }
+
+  $copy_param = \Drupal::request()->get('copy');
+  if ($copy_param === NULL) {
+    return;
+  }
+
+  if (!is_numeric($copy_param)) {
+    \Drupal::messenger()->addMessage('Not a valid mentorship id to copy');
+    return;
+  }
+
+  $entity = \Drupal::entityTypeManager()->getStorage('node')->load($copy_param);
+  if ($entity === NULL) {
+    \Drupal::messenger()->addMessage('Entity does not exist');
+    return;
+  }
+
+  if ($entity->bundle() !== 'mentorship_engagement') {
+    \Drupal::messenger()->addMessage('Entity not a mentorship');
+    return;
+  }
+
+  $form['title']['widget'][0]['value']['#default_value'] = $entity->get('title')->value;
+  $form['field_me_looking_for']['widget']['#default_value'] = $entity->get('field_me_looking_for')->value;
+  $form['field_me_preferred_attributes']['widget'][0]['#default_value'] = $entity->get('field_me_preferred_attributes')->value;
+  $form['body']['widget'][0]['summary']['#default_value'] = $entity->get('body')->getValue()[0]['summary'] ?? NULL;
+  $form['body']['widget'][0]['#default_value'] = $entity->get('body')->value;
+  $form['field_mentorship_program']['widget']['#default_value'] = $entity->get('field_mentorship_program')->target_id;
+}

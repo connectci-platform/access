@@ -9,18 +9,18 @@ use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 
 /**
- * Hook_update.
+ * Sets the default 'interested' setting.
  */
-function access_match_engagement_update_8001() {
+function access_match_engagement_update_8001(): void {
   $config = \Drupal::configFactory()->getEditable('access_match_engagement.settings');
   $config->set('interested', 0);
   $config->save();
 }
 
 /**
- *
+ * Migrates field_status values to match moderation_state values.
  */
-function access_match_engagement_update_9001() {
+function access_match_engagement_update_9001(): void {
   // Change status field values to match moderation_state values.
   $new_status_values = [
     'Draft' => 'draft',
@@ -71,14 +71,14 @@ function access_match_engagement_update_9001() {
   }
 
   // Restore existing data in fields & revision tables.
-  if (!is_null($rows)) {
+  if (!empty($rows)) {
     foreach ($rows as $row) {
       $row = (array) $row;
       $row['field_status_value'] = $new_status_values[$row['field_status_value']];
       $database->insert($table)->fields($row)->execute();
     }
   }
-  if (!is_null($revision_rows)) {
+  if (!empty($revision_rows)) {
     foreach ($revision_rows as $row) {
       $row = (array) $row;
       $row['field_status_value'] = $new_status_values[$row['field_status_value']];
@@ -91,9 +91,9 @@ function access_match_engagement_update_9001() {
 /**
  * Change the match_engagement field_status values of 'accepted' to 'prelaunch'.
  */
-function access_match_engagement_update_9002() {
+function access_match_engagement_update_9002(): void {
   $database = \Drupal::database();
-  $query = $database->update('node__field_status')
+  $database->update('node__field_status')
     ->fields(['field_status_value' => 'prelaunch'])
     ->condition('field_status_value', 'accepted')
     ->execute();

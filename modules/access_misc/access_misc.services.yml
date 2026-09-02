@@ -3,6 +3,10 @@ services:
     class: '\Drupal\access_misc\EventSubscriber\Subscriber'
     tags:
       - { name: "event_subscriber" }
+  access_misc.junk_query_param_redirect:
+    class: '\Drupal\access_misc\EventSubscriber\JunkQueryParamRedirectSubscriber'
+    tags:
+      - { name: "event_subscriber" }
   access_misc.addtags:
     class: Drupal\access_misc\Plugin\NodeAddTags
     arguments: ["@renderer"]
@@ -43,14 +47,14 @@ services:
   access_misc.jsonapi_email_to_uuid_subscriber:
     class: Drupal\access_misc\EventSubscriber\JsonApiEmailToUuidSubscriber
     arguments:
-      - "@entity_type.manager"
+      - "@access.access_id_resolver"
     tags:
       - { name: event_subscriber }
 
   access_misc.jsonapi_views_user_parameter_subscriber:
     class: Drupal\access_misc\EventSubscriber\JsonApiViewsUserParameterSubscriber
     arguments:
-      - "@entity_type.manager"
+      - "@access.access_id_resolver"
     tags:
       - { name: event_subscriber }
 

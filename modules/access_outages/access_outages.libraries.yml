@@ -9,3 +9,4 @@ outages_library:
     js/affinity_group_outages.js: {}
   dependencies:
     - core/jquery
+    - core/drupalSettings

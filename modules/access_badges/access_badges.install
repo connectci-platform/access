@@ -5,10 +5,12 @@
  * Access Badges updates.
  */
 
+use Drupal\user\Entity\User;
+
 /**
  * Add Badges to taxonomy.
  */
-function access_badges_install() {
+function access_badges_install(): void {
   $terms = [
     'New to CSSN',
     'New to ACCESS',
@@ -79,7 +81,6 @@ function access_badges_install() {
   // Set badges for users.
   $badge_tools->setBadges($scipe, $users);
 
-
   // Set Knowledge Base Resource Contributor badges.
   $query = \Drupal::database()->select('webform_submission', 'ws');
   $query->fields('ws', ['sid', 'uid']);
@@ -91,7 +92,8 @@ function access_badges_install() {
   foreach ($wf_submissions as $submission) {
     if (!isset($authors[$submission->uid])) {
       $authors[$submission->uid] = 1;
-    } else {
+    }
+    else {
       $authors[$submission->uid]++;
     }
   }
@@ -101,18 +103,20 @@ function access_badges_install() {
   $kb_ten = \Drupal::service('access_badges.badgeTools')->getBadgeTid('KB Resource Contributor (10)');
 
   foreach ($authors as $uid => $count) {
-    $user = \Drupal\user\Entity\User::load($uid);
+    $user = User::load($uid);
     $badgetid = $user->get('field_user_badges')->getValue();
 
     if ($count < 4) {
       $badgetid[] = ['target_id' => $kb_one];
       $user->set('field_user_badges', $badgetid);
       $user->save();
-    } elseif ($count > 5 && $count < 10) {
+    }
+    elseif ($count > 5 && $count < 10) {
       $badgetid[] = ['target_id' => $kb_five];
       $user->set('field_user_badges', $badgetid);
       $user->save();
-    } elseif ($count >= 10) {
+    }
+    elseif ($count >= 10) {
       $badgetid[] = ['target_id' => $kb_ten];
       $user->set('field_user_badges', $badgetid);
       $user->save();
@@ -129,7 +133,6 @@ function access_badges_install() {
   $badge_tools->fieldToBadge('field_mentor', 'CCMNet Engagement Participant', 'mentorship_engagement');
 }
 
-
 /**
  * Sort all user badges to match taxonomy term weight/name order.
  */
@@ -141,7 +144,7 @@ function access_badges_update_10001(): string {
 /**
  * Create access_badges_pending table for CSV badge assignment queue.
  */
-function access_badges_update_10002() {
+function access_badges_update_10002(): void {
   $schema = \Drupal::database()->schema();
   if (!$schema->tableExists('access_badges_pending')) {
     $schema->createTable('access_badges_pending', _access_badges_pending_schema());
@@ -150,8 +153,11 @@ function access_badges_update_10002() {
 
 /**
  * Returns the schema definition for the access_badges_pending table.
+ *
+ * @return array<string, mixed>
+ *   The schema definition.
  */
-function _access_badges_pending_schema() {
+function _access_badges_pending_schema(): array {
   return [
     'description' => 'Pending badge assignments from CSV uploads.',
     'fields' => [
@@ -234,12 +240,11 @@ function _access_badges_pending_schema() {
 /**
  * Remove Badges from taxonomy.
  */
-function access_badges_uninstall() {
+function access_badges_uninstall(): void {
   // Drop the pending badges table.
   \Drupal::database()->schema()->dropTable('access_badges_pending');
 
   \Drupal::database()->truncate('user__field_user_badges')->execute();
-
 
   $tids = \Drupal::entityQuery('taxonomy_term')
     ->condition('vid', 'badges')

@@ -6,6 +6,7 @@ package: Custom
 dependencies:
   - access
   - access_events
+  - operations_cider
 
 libraries:
   - access_misc/misc_library

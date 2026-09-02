@@ -1,0 +1,503 @@
+openapi: 3.0.3
+info:
+  title: ACCESS Event Registration API (v1.0, authenticated)
+  description: |
+    The ACCESS Event Registration API v1.0 provides authenticated, acting-user endpoints for
+    event registration in the ACCESS community.
+
+    Unlike the public read-only events listings and detail (the Events READ API v2.3), these are
+    custom-controller endpoints that accept and return plain JSON bodies. They let an authenticated
+    acting user self-register for an event (with a preview step before committing), list their own
+    registrations, and cancel a registration they own.
+
+    ## Endpoints
+    - **Self-registration**: Register for an event. Without a truthy `confirmed` in the request
+      body the call is a **preview** (nothing is written); with `confirmed: true` it **commits**.
+    - **Your registrations**: List the acting user's own registrations and cancel one they own.
+
+    ## Preview then commit
+    `POST /events/{eventinstance}/register` runs a guard chain (native registration enabled, the
+    registration window open, role restrictions, per-user dedup, and seat/waitlist availability).
+    When `confirmed` is absent or false the guards run read-only and the response reports the
+    outcome that *would* result. Call again with `confirmed: true` to actually register. A
+    committed registration returns a status of `registered` or `waitlisted`.
+
+    ## Authentication
+    These endpoints require acting-user authentication. Requests are made by a service account
+    (authenticated as `mcp_service`) that passes an `X-Acting-User` header identifying the ACCESS
+    user on whose behalf the operation is performed. Every endpoint runs **as** that acting user
+    (per-user permissions): self-registration, listing, and cancellation are all authorized against
+    the acting user. Requests with no valid acting user are rejected with `403`. State-changing
+    requests (`DELETE /registrations/{registrant_id}`) additionally require a valid `X-CSRF-Token`
+    header obtained from `/session/token`.
+
+  version: 1.0.0
+  termsOfService: https://access-ci.org/terms
+  contact:
+    name: ACCESS Support
+    url: https://support.access-ci.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://support.access-ci.org/api/1.0
+    description: Production server
+
+paths:
+  /events/{eventinstance}/register:
+    post:
+      summary: Register for an event (preview or commit)
+      description: |
+        Register the acting user for an event instance.
+
+        When `confirmed` is absent or `false`, the call is a **preview**: the registration guard
+        chain runs read-only, nothing is written, and the response reports the outcome that would
+        result (a seat or the waitlist). Call again with `confirmed: true` to **commit** the
+        registration.
+
+        The acting user's identity is bound from the `X-Acting-User` gate, never from the request
+        body. A committed registration returns a `status` of `registered` or `waitlisted`.
+
+        **Write-contract envelope (as surfaced to consumers).** The ACCESS MCP `register_for_event`
+        tool remaps these raw responses onto the standard write envelope
+        `{action: "register", status, executed, data?}` (no `changed` field):
+        the `200` preview → `{status: "preview", executed: false}`; a committed `registered`/
+        `waitlisted` → `{status: "registered"|"waitlisted", executed: true, data.registrant_id}`;
+        and the `409` `already_registered` refusal → the terminal, non-error status
+        `{status: "already_registered", executed: false}`. All other `409` codes
+        (`event_full`, `registration_closed`, `not_registrable`, `not_permitted`), the `403`
+        (as `auth_required`), and `404` (`not_found`) surface as errors `{error, hint?, code}`.
+      operationId: registerForEvent
+      tags:
+        - Registrations
+      parameters:
+        - name: eventinstance
+          in: path
+          required: true
+          description: The event instance ID.
+          schema:
+            type: integer
+          example: 4567
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              preview:
+                summary: Preview (no body, or confirmed omitted/false)
+                value: {}
+              commit:
+                summary: Commit the registration
+                value:
+                  confirmed: true
+      responses:
+        '200':
+          description: |
+            A registration preview (when `confirmed` is absent/false) or a successful commit
+            (when `confirmed` is true).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/RegisterPreview'
+                  - $ref: '#/components/schemas/RegisterCommit'
+              examples:
+                preview_seat:
+                  summary: Preview — a seat is available
+                  value:
+                    preview: true
+                    outcome_if_confirmed: "seat"
+                    seats_remaining: 58
+                    registration_open: true
+                    already_registered: false
+                    message: "A seat is available. Call again with confirmed:true to register."
+                preview_waitlist:
+                  summary: Preview — the event is full, waitlist available
+                  value:
+                    preview: true
+                    outcome_if_confirmed: "waitlist"
+                    seats_remaining: 0
+                    registration_open: true
+                    already_registered: false
+                    message: "This event is full; you would join the waitlist. Call again with confirmed:true."
+                    waitlisted_count: 5
+                committed_registered:
+                  summary: Commit — registered to a seat
+                  value:
+                    success: true
+                    status: "registered"
+                    registrant_id: "550e8400-e29b-41d4-a716-446655440000"
+                    eventinstance_id: "4567"
+                    message: "You are registered."
+                committed_waitlisted:
+                  summary: Commit — added to the waitlist
+                  value:
+                    success: true
+                    status: "waitlisted"
+                    registrant_id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+                    eventinstance_id: "4567"
+                    message: "You have been added to the waitlist."
+        '403':
+          description: No authenticated acting user for this registration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                unauthenticated:
+                  summary: No acting user resolved
+                  value:
+                    error: "unauthenticated"
+                    message: "No authenticated acting user for this registration."
+        '409':
+          description: |
+            The registration was refused on a state guard. The `error` field is one of
+            `not_registrable`, `registration_closed`, `not_permitted`, `already_registered`, or
+            `event_full`.
+
+            In the consumer-facing write envelope these split two ways: `already_registered` is a
+            terminal, non-error write status (`{status: "already_registered", executed: false}` —
+            the acting user already holds a seat, nothing changes), while `event_full`,
+            `registration_closed`, `not_registrable`, and `not_permitted` are errors whose `error`
+            value becomes the envelope error `code`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_registrable:
+                  summary: Native registration is not enabled for this event
+                  value:
+                    error: "not_registrable"
+                    message: "Native ACCESS registration is not enabled for this event."
+                registration_closed:
+                  summary: Registration window is not open
+                  value:
+                    error: "registration_closed"
+                    message: "Registration for this event is not currently open."
+                not_permitted:
+                  summary: Account is not permitted to register for this event
+                  value:
+                    error: "not_permitted"
+                    message: "Your account is not permitted to register for this event."
+                already_registered:
+                  summary: The acting user is already registered
+                  value:
+                    error: "already_registered"
+                    message: "You are already registered for this event."
+                event_full:
+                  summary: The event is full and has no waitlist
+                  value:
+                    error: "event_full"
+                    message: "This event is full and has no waitlist."
+
+  /registrations:
+    get:
+      summary: List the acting user's registrations
+      description: |
+        Retrieve a flat, self-sufficient list of the acting user's own event registrations.
+
+        The optional `when` filter selects upcoming, past, or all registrations. Any value other
+        than `upcoming`, `past`, or `all` is rejected with `400`.
+      operationId: listMyRegistrations
+      tags:
+        - Registrations
+      parameters:
+        - name: when
+          in: query
+          required: false
+          description: |
+            Which registrations to return. One of `upcoming` (default), `past`, or `all`. Any
+            other value is rejected with `400`.
+          schema:
+            type: string
+            enum: [upcoming, past, all]
+            default: upcoming
+          example: upcoming
+      responses:
+        '200':
+          description: The acting user's registrations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistrationsResponse'
+              examples:
+                mine:
+                  summary: Example listing of the acting user's registrations
+                  value:
+                    registrations:
+                      - registrant_id: "550e8400-e29b-41d4-a716-446655440000"
+                        eventinstance_id: "4567"
+                        event_title: "Introduction to Anvil"
+                        start_date: "2026-09-10T15:00:00Z"
+                        end_date: "2026-09-10T17:00:00Z"
+                        location: "Online"
+                        virtual_meeting_link: "https://example.zoom.us/j/123456789"
+                        event_type: "Workshop"
+                        waitlist: false
+                        registered_at: "2026-08-02T14:30:00Z"
+        '400':
+          description: An invalid `when` query value was supplied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                bad_when:
+                  summary: Invalid when value
+                  value:
+                    error: "Invalid 'when' value. Use upcoming, past, or all."
+
+  /registrations/{registrant_id}:
+    delete:
+      summary: Cancel a registration
+      description: |
+        Cancel a registration the acting user owns. The registration is identified by its
+        registrant UUID. The acting user may cancel **only** their own registration; cancelling a
+        registration owned by someone else is refused with `403`.
+      operationId: cancelRegistration
+      tags:
+        - Registrations
+      parameters:
+        - name: registrant_id
+          in: path
+          required: true
+          description: The UUID of the registrant record to cancel.
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Registration cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelResponse'
+              examples:
+                cancelled:
+                  summary: Successful cancellation
+                  value:
+                    status: "cancelled"
+                    registrant_id: "550e8400-e29b-41d4-a716-446655440000"
+        '403':
+          description: >-
+            The acting user is not the owner of the registration (or no acting
+            user resolved). This route raises a framework AccessDeniedHttpException,
+            which Drupal serializes as a bare `{message}` (no `error` key) — unlike
+            the register route, which returns the controller's `{error, message}`
+            refusal shape.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExceptionError'
+              examples:
+                not_owner:
+                  summary: Acting user does not own this registration
+                  value:
+                    message: "You may only cancel your own registration."
+        '404':
+          description: >-
+            No registration exists with the given registrant UUID. Raised as a
+            framework NotFoundHttpException, serialized as a bare `{message}`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExceptionError'
+              examples:
+                not_found:
+                  summary: Registration not found
+                  value:
+                    message: "Registration not found."
+
+components:
+  schemas:
+    RegisterRequest:
+      type: object
+      description: |
+        Registration request body. Optional. When `confirmed` is absent or `false` the call is a
+        preview; when `true` it commits the registration.
+      properties:
+        confirmed:
+          type: boolean
+          description: Set to `true` to commit the registration; otherwise the call is a preview.
+          default: false
+          example: true
+
+    RegisterPreview:
+      type: object
+      description: |
+        A registration preview. Nothing has been written; call again with `confirmed: true` to
+        commit.
+      properties:
+        preview:
+          type: boolean
+          enum: [true]
+          example: true
+        outcome_if_confirmed:
+          type: string
+          description: The outcome that would result on commit.
+          enum: [seat, waitlist]
+          example: "seat"
+        seats_remaining:
+          type: integer
+          nullable: true
+          description: Seats remaining, or null when capacity is unlimited.
+          example: 58
+        registration_open:
+          type: boolean
+          example: true
+        already_registered:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: "A seat is available. Call again with confirmed:true to register."
+        waitlisted_count:
+          type: integer
+          description: |
+            Present only when the outcome would be the waitlist — the current number of waitlisted
+            registrants.
+          example: 5
+
+    RegisterCommit:
+      type: object
+      description: A committed registration.
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+          example: true
+        status:
+          type: string
+          description: The resulting registration status.
+          enum: [registered, waitlisted]
+          example: "registered"
+        registrant_id:
+          type: string
+          format: uuid
+          description: The UUID of the created registrant record.
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        eventinstance_id:
+          type: string
+          description: The event instance ID (as a string).
+          example: "4567"
+        message:
+          type: string
+          example: "You are registered."
+
+    Registration:
+      type: object
+      description: A single registration in the acting user's listing.
+      properties:
+        registrant_id:
+          type: string
+          format: uuid
+          description: The UUID of the registrant record.
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        eventinstance_id:
+          type: string
+          description: The event instance ID (as a string).
+          example: "4567"
+        event_title:
+          type: string
+          nullable: true
+          example: "Introduction to Anvil"
+        start_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: Start date-time, ISO-8601 with a trailing Z.
+          example: "2026-09-10T15:00:00Z"
+        end_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: End date-time, ISO-8601 with a trailing Z.
+          example: "2026-09-10T17:00:00Z"
+        location:
+          type: string
+          nullable: true
+          description: Plain-text location.
+          example: "Online"
+        virtual_meeting_link:
+          type: string
+          format: uri
+          nullable: true
+          description: Virtual meeting URL, if any.
+          example: "https://example.zoom.us/j/123456789"
+        event_type:
+          type: string
+          nullable: true
+          description: Human-readable event type label.
+          example: "Workshop"
+        waitlist:
+          type: boolean
+          description: Whether this registration is on the waitlist.
+          example: false
+        registered_at:
+          type: string
+          format: date-time
+          description: When the registration was created, ISO-8601 with a trailing Z.
+          example: "2026-08-02T14:30:00Z"
+
+    RegistrationsResponse:
+      type: object
+      description: Listing of the acting user's own registrations.
+      properties:
+        registrations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Registration'
+
+    CancelResponse:
+      type: object
+      description: Response returned after successfully cancelling a registration.
+      properties:
+        status:
+          type: string
+          enum: [cancelled]
+          example: "cancelled"
+        registrant_id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: |
+            Error type (e.g. `unauthenticated`, `forbidden`, `not_registrable`,
+            `registration_closed`, `not_permitted`, `already_registered`, `event_full`). For the
+            invalid-`when` case this field carries the human-readable message instead.
+        message:
+          type: string
+          description: Human-readable error message.
+        code:
+          type: integer
+          description: HTTP status code.
+
+    ExceptionError:
+      type: object
+      description: >-
+        The body produced by framework exceptions (AccessDeniedHttpException /
+        NotFoundHttpException) on the registrations routes — a bare `message`,
+        with no `error` discriminator. Distinct from the controller's `Error`
+        shape used by the register refusals.
+      properties:
+        message:
+          type: string
+          description: Human-readable error message.
+
+tags:
+  - name: Registrations
+    description: Acting-user self-registration and the acting user's own registrations (list and cancel)
+
+externalDocs:
+  description: Find out more about ACCESS
+  url: https://access-ci.org

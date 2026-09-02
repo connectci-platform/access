@@ -58,7 +58,13 @@ function access_affinitygroup_schema() {
         'type' => 'varchar',
         'length' => 32,
         'not null' => FALSE,
-        'description' => 'active / inactive (per-user account state).',
+        'description' => 'active / inactive (per-user account state, ACCESS view).',
+      ],
+      'sp_state' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => FALSE,
+        'description' => "Resource-provider's view of the account: active / inactive / pending-active / pending-inactive. A pending- value means the account is not yet provisioned on the RP side, even if account_state is active.",
       ],
       'project_balance' => [
         'type' => 'numeric',
@@ -406,4 +412,484 @@ function access_affinitygroup_update_10010() {
   }
   $schema->createTable('access_user_rp_account', $schemas['access_user_rp_account']);
   return 'Created table access_user_rp_account.';
+}
+
+/**
+ * Delete duplicate CiDeR resource nodes, keeping the canonical one per resource.
+ *
+ * Duplicates are matched by field_cider_resource_id on the
+ * access_active_resources_from_cid bundle and re-derived at run time, so the
+ * set always reflects current state (CiDeR renames keep creating new dupes
+ * until the unique-key feeds fix lands).
+ *
+ * Canonical selection is computed, not hardcoded: the kept node is the one with
+ * the MOST incoming references (so the 1000s of user/content references to the
+ * original CiDeR import stay put instead of being rewritten), tie-broken by
+ * lowest nid. Any curated field_rp_* documentation that lives only on a deleted
+ * clone is copied onto the kept node first (filling empty fields only), so a
+ * hand-edited clone's docs are preserved without moving thousands of refs to
+ * it. No brittle per-nid skip list.
+ *
+ * Entity-reference fields that point at the duplicates are discovered
+ * dynamically from field config (every entity_reference field targeting node),
+ * so new referencing fields are covered automatically. Each deleted clone's
+ * (few) references are repointed to the kept node and de-duplicated.
+ *
+ * For each duplicate removed this also cleans up related data: default and
+ * revision field tables, node_access, path aliases (+ revisions), redirects,
+ * core search and Search API index entries, and statistics. Because this works
+ * at the database layer (to avoid entity-API timeouts on a large batch), all
+ * caches are flushed at the end so deleted nodes don't linger in render/entity
+ * cache or the Search API tracker.
+ */
+function access_affinitygroup_update_10011(array &$sandbox): string {
+  $db = \Drupal::database();
+  $logger = \Drupal::logger('access_affinitygroup');
+  $batch_size = 50;
+
+  if (!isset($sandbox['nids'])) {
+    // Discover, dynamically, every entity_reference field (any entity type)
+    // whose stored target_id could point at a node. Static lists rot as new
+    // fields are added; this stays correct. Map [table => target_id column]
+    // for both default and revision data tables.
+    $ref_fields = _access_affinitygroup_node_reference_tables();
+    $sandbox['ref_fields'] = $ref_fields;
+
+    $duplicate_ids = $db->query("
+      SELECT field_cider_resource_id_value
+      FROM node__field_cider_resource_id
+      GROUP BY field_cider_resource_id_value
+      HAVING COUNT(*) > 1
+    ")->fetchCol();
+
+    // For each duplicate set choose the canonical (keep) node as the one with
+    // the most incoming references (tie-broken by lowest nid), copy any
+    // curated field_rp_* docs from the clones onto the keep where it is empty,
+    // then map the rest for deletion + reference repointing.
+    $to_delete = [];
+    $keep_map = [];
+    foreach ($duplicate_ids as $cider_id) {
+      $nids = array_map('intval', $db->query("
+        SELECT entity_id
+        FROM node__field_cider_resource_id
+        WHERE field_cider_resource_id_value = :cider_id
+        ORDER BY entity_id ASC
+      ", [':cider_id' => $cider_id])->fetchCol());
+
+      $keep = _access_affinitygroup_pick_canonical_nid($nids, $ref_fields);
+      $delete = array_values(array_filter($nids, fn($n) => $n !== $keep));
+
+      // Preserve curated documentation: copy populated field_rp_* values from
+      // the to-be-deleted clones onto the keep, filling empty fields only.
+      $copied = _access_affinitygroup_copy_rp_content($keep, $delete);
+      if ($copied) {
+        $logger->notice(
+          'access_affinitygroup_update_10011: cider_resource_id @cid — copied @n field_rp_* value(s) onto kept node @keep before deleting clone(s).',
+          ['@cid' => $cider_id, '@n' => $copied, '@keep' => $keep]
+        );
+      }
+
+      foreach ($delete as $nid) {
+        $to_delete[] = $nid;
+        $keep_map[$nid] = $keep;
+        $logger->notice(
+          'access_affinitygroup_update_10011: cider_resource_id @cid — keeping node @keep, deleting node @del.',
+          ['@cid' => $cider_id, '@keep' => $keep, '@del' => $nid]
+        );
+      }
+    }
+
+    $sandbox['nids'] = array_values($to_delete);
+    $sandbox['keep_map'] = $keep_map;
+    $sandbox['total'] = count($to_delete);
+    $sandbox['deleted'] = 0;
+    $sandbox['repointed'] = 0;
+    $sandbox['offset'] = 0;
+  }
+
+  $ref_fields = $sandbox['ref_fields'];
+
+  if (empty($sandbox['nids'])) {
+    $sandbox['#finished'] = 1;
+    return 'No duplicate CiDeR resource nodes found; nothing to delete.';
+  }
+
+  $batch = array_slice($sandbox['nids'], $sandbox['offset'], $batch_size);
+
+  if (!empty($batch)) {
+    // Repoint references from each duplicate to its retained node, and log
+    // every repoint to watchdog.
+    foreach ($batch as $deleted_nid) {
+      $keep_nid = $sandbox['keep_map'][$deleted_nid];
+      foreach ($ref_fields as $table => $column) {
+        if (!$db->schema()->tableExists($table)) {
+          continue;
+        }
+        $affected = $db->update($table)
+          ->fields([$column => $keep_nid])
+          ->condition($column, $deleted_nid)
+          ->execute();
+        if ($affected) {
+          $sandbox['repointed'] += $affected;
+          $logger->notice(
+            'access_affinitygroup_update_10011: repointed @count reference(s) in @table.@column from deleted node @from to retained node @to.',
+            [
+              '@count' => $affected,
+              '@table' => $table,
+              '@column' => $column,
+              '@from' => $deleted_nid,
+              '@to' => $keep_nid,
+            ]
+          );
+        }
+      }
+    }
+
+    // Repointing can leave an entity referencing the retained node twice (once
+    // originally, once from a repointed duplicate). Remove those duplicate
+    // rows, keeping the lowest delta per (entity, langcode, target), scoped to
+    // the retained nids touched in this batch.
+    $keep_nids = array_values(array_unique(array_map(
+      fn($nid) => $sandbox['keep_map'][$nid],
+      $batch
+    )));
+    // Build named placeholders for the IN list (array placeholders are only
+    // expanded by the query builder, not by prepareStatement()).
+    $keep_args = [];
+    foreach ($keep_nids as $i => $keep_nid) {
+      $keep_args[':keep' . $i] = $keep_nid;
+    }
+    $keep_in = implode(', ', array_keys($keep_args));
+    foreach ($ref_fields as $table => $column) {
+      if (!$db->schema()->tableExists($table)) {
+        continue;
+      }
+      $is_revision = str_contains($table, '_revision__');
+      $join = "t1.entity_id = t2.entity_id
+        AND t1.langcode = t2.langcode
+        AND t1.deleted = t2.deleted
+        AND t1.{$column} = t2.{$column}
+        AND t1.delta > t2.delta";
+      if ($is_revision) {
+        $join .= "\n        AND t1.revision_id = t2.revision_id";
+      }
+      // rowCount() on a modification query requires a prepared statement with
+      // $allow_row_count = TRUE; raw query() does not permit it.
+      $statement = $db->prepareStatement(
+        "DELETE t1 FROM {{$table}} t1
+          INNER JOIN {{$table}} t2 ON {$join}
+          WHERE t1.{$column} IN ({$keep_in})",
+        [],
+        TRUE
+      );
+      $statement->execute($keep_args);
+      $removed = $statement->rowCount();
+      if ($removed) {
+        $logger->notice(
+          'access_affinitygroup_update_10011: removed @count duplicate reference row(s) in @table after repointing.',
+          ['@count' => $removed, '@table' => $table]
+        );
+      }
+    }
+
+    // Delete from all node field tables: default (node__*) AND revision
+    // (node_revision__*). The original LIKE 'node__%' pattern matched only the
+    // default field tables, orphaning every node_revision__* field row.
+    $field_tables = $db->query("SHOW TABLES LIKE 'node\\_\\_%'")->fetchCol();
+    $rev_field_tables = $db->query("SHOW TABLES LIKE 'node\\_revision\\_\\_%'")->fetchCol();
+    foreach (array_merge($field_tables, $rev_field_tables) as $table) {
+      $db->delete($table)->condition('entity_id', $batch, 'IN')->execute();
+    }
+
+    // Delete from node_access.
+    $db->delete('node_access')->condition('nid', $batch, 'IN')->execute();
+
+    // Path aliases (pathauto/path_alias) for /node/{nid}, incl. revisions.
+    if ($db->schema()->tableExists('path_alias')) {
+      $paths = array_map(fn($nid) => '/node/' . $nid, $batch);
+      $alias_ids = $db->query(
+        "SELECT id FROM {path_alias} WHERE path IN (:paths[])",
+        [':paths[]' => $paths]
+      )->fetchCol();
+      $db->delete('path_alias')->condition('path', $paths, 'IN')->execute();
+      if (!empty($alias_ids) && $db->schema()->tableExists('path_alias_revision')) {
+        $db->delete('path_alias_revision')->condition('id', $alias_ids, 'IN')->execute();
+      }
+    }
+
+    // Redirects (redirect module) pointing at internal:/node/{nid}.
+    if ($db->schema()->tableExists('redirect')) {
+      $uris = array_map(fn($nid) => 'internal:/node/' . $nid, $batch);
+      $db->delete('redirect')->condition('redirect_redirect__uri', $uris, 'IN')->execute();
+    }
+
+    // Core search index entries (search module).
+    foreach (['search_index', 'search_dataset'] as $search_table) {
+      if ($db->schema()->tableExists($search_table)) {
+        $db->delete($search_table)
+          ->condition('sid', $batch, 'IN')
+          ->condition('type', 'node_search')
+          ->execute();
+      }
+    }
+
+    // Search API tracked items (item_id like entity:node/{nid}:{langcode}).
+    if ($db->schema()->tableExists('search_api_item')) {
+      foreach ($batch as $nid) {
+        $db->delete('search_api_item')
+          ->condition('item_id', 'entity:node/' . $nid . ':%', 'LIKE')
+          ->execute();
+      }
+    }
+
+    // Statistics: view counters and per-user read history.
+    foreach (['node_counter', 'history'] as $stats_table) {
+      if ($db->schema()->tableExists($stats_table)) {
+        $db->delete($stats_table)->condition('nid', $batch, 'IN')->execute();
+      }
+    }
+
+    // Delete revision base/data rows (keyed by nid).
+    $db->delete('node_field_revision')->condition('nid', $batch, 'IN')->execute();
+    $db->delete('node_revision')->condition('nid', $batch, 'IN')->execute();
+
+    // Delete core node rows last.
+    $db->delete('node_field_data')->condition('nid', $batch, 'IN')->execute();
+    $db->delete('node')->condition('nid', $batch, 'IN')->execute();
+
+    $sandbox['deleted'] += count($batch);
+    $sandbox['offset'] += $batch_size;
+  }
+
+  $sandbox['#finished'] = $sandbox['offset'] >= $sandbox['total'] ? 1 : $sandbox['offset'] / $sandbox['total'];
+
+  if ($sandbox['#finished'] >= 1) {
+    // These deletes bypass the entity API, so render/entity caches and the
+    // Search API tracker still reference the removed nodes. Flush caches and
+    // mark the deleted items unindexed so nothing serves stale content.
+    drupal_flush_all_caches();
+    return "Deleted {$sandbox['deleted']} duplicate CiDeR resource node(s) ({$sandbox['total']} total); repointed {$sandbox['repointed']} reference(s).";
+  }
+
+  return "Deleted {$sandbox['deleted']} of {$sandbox['total']} duplicate CiDeR resource node(s); repointed {$sandbox['repointed']} reference(s) so far...";
+}
+
+/**
+ * Re-run the duplicate CiDeR resource cleanup.
+ *
+ * update_10011 is a run-once hook: it ran on each environment and is marked
+ * complete, so it cannot re-process duplicates created afterward. A CiDeR feed
+ * import on 2026-06-10 (~22:44, after 10011 had run and before the unique-key
+ * feeds fix in D8-2730 landed) created a fresh batch of ~23 duplicate resource
+ * nodes. The bare clones win the allocation→node resolution map (highest nid),
+ * so the RP account panel renders blank on the canonical, content-bearing pages
+ * users actually visit (e.g. Delta CPU node 400 serves the page, but the
+ * allocation resolves to clone node 12104).
+ *
+ * 10011's logic re-derives the duplicate set at run time and is idempotent, so
+ * this hook simply re-invokes it to clean the post-import residue. The unique-
+ * key feeds fix now prevents recurrence; this clears what already exists.
+ */
+function access_affinitygroup_update_10012(array &$sandbox): string {
+  return access_affinitygroup_update_10011($sandbox);
+}
+
+/**
+ * Picks the canonical (keep) node from a duplicate set.
+ *
+ * The canonical is the node with the MOST incoming entity references, so the
+ * many user/content references to the original CiDeR import are preserved in
+ * place rather than rewritten to a clone. Tie-broken by lowest nid (the
+ * original import). Computed at run time so it stays correct as CiDeR keeps
+ * creating new duplicates.
+ *
+ * @param int[] $nids
+ *   The node IDs sharing one cider_resource_id, sorted ascending.
+ * @param array<string,string> $ref_fields
+ *   Map of [reference table => target_id column] to count references in.
+ *
+ * @return int
+ *   The node ID to keep.
+ */
+function _access_affinitygroup_pick_canonical_nid(array $nids, array $ref_fields): int {
+  $db = \Drupal::database();
+  $best_nid = $nids[0];
+  $best_refs = -1;
+  foreach ($nids as $nid) {
+    $refs = 0;
+    foreach ($ref_fields as $table => $column) {
+      $refs += (int) $db->select($table, 't')
+        ->condition($column, $nid)
+        ->countQuery()
+        ->execute()
+        ->fetchField();
+    }
+    // Strictly greater keeps the earliest (lowest) nid on ties, since $nids is
+    // sorted ascending.
+    if ($refs > $best_refs) {
+      $best_refs = $refs;
+      $best_nid = (int) $nid;
+    }
+  }
+
+  return (int) $best_nid;
+}
+
+/**
+ * Copies curated field_rp_* docs from clones onto the kept node (empty only).
+ *
+ * The kept node is the most-referenced one, which may be the bare CiDeR import
+ * lacking documentation a hand-edited clone holds. To avoid losing that content
+ * when the clone is deleted, copy each populated field_rp_* value onto the keep
+ * where the keep's field is empty. Existing values on the keep are never
+ * overwritten. Uses the entity API (only a handful of nodes, so no timeout
+ * risk) so the save is clean and indexed.
+ *
+ * @param int $keep_nid
+ *   The node being kept.
+ * @param int[] $delete_nids
+ *   The clone node IDs being deleted, in ascending order.
+ *
+ * @return int
+ *   Number of field values copied.
+ */
+function _access_affinitygroup_copy_rp_content(int $keep_nid, array $delete_nids): int {
+  $node_storage = \Drupal::entityTypeManager()->getStorage('node');
+  $keep = $node_storage->load($keep_nid);
+  if (!$keep) {
+    return 0;
+  }
+
+  $rp_fields = [];
+  foreach (\Drupal::service('entity_field.manager')
+    ->getFieldDefinitions('node', 'access_active_resources_from_cid') as $name => $def) {
+    if (str_starts_with($name, 'field_rp_')) {
+      $rp_fields[] = $name;
+    }
+  }
+
+  $copied = 0;
+  foreach ($rp_fields as $field) {
+    if (!$keep->hasField($field) || !$keep->get($field)->isEmpty()) {
+      continue;
+    }
+    // First clone (lowest nid) that has a value wins.
+    foreach ($delete_nids as $nid) {
+      $clone = $node_storage->load($nid);
+      if ($clone && $clone->hasField($field) && !$clone->get($field)->isEmpty()) {
+        $keep->set($field, $clone->get($field)->getValue());
+        $copied++;
+        break;
+      }
+    }
+  }
+
+  if ($copied) {
+    $keep->save();
+  }
+  return $copied;
+}
+
+/**
+ * Builds [table => target_id column] for every node entity-reference field.
+ *
+ * Discovered dynamically from field config so any field that can point at a
+ * node (including new ones) is repointed when a duplicate is deleted. Covers
+ * both the default and revision data tables. A static list silently misses
+ * fields added later, leaving dangling references.
+ *
+ * @return array<string,string>
+ *   Map of database table name to its target_id column.
+ */
+function _access_affinitygroup_node_reference_tables(): array {
+  $db = \Drupal::database();
+  $tables = [];
+  foreach (\Drupal::service('entity_type.manager')
+    ->getStorage('field_storage_config')->loadMultiple() as $storage) {
+    if ($storage->getType() !== 'entity_reference') {
+      continue;
+    }
+    if ($storage->getSetting('target_type') !== 'node') {
+      continue;
+    }
+    $entity_type = $storage->getTargetEntityTypeId();
+    $field_name = $storage->getName();
+    $column = $field_name . '_target_id';
+    foreach (["{$entity_type}__{$field_name}", "{$entity_type}_revision__{$field_name}"] as $table) {
+      if ($db->schema()->tableExists($table)) {
+        $tables[$table] = $column;
+      }
+    }
+  }
+  return $tables;
+}
+
+/**
+ * Adds the sp_state column to access_user_rp_account.
+ *
+ * sp_state is the resource-provider's view of the account (active / inactive /
+ * pending-active / pending-inactive), separate from account_state (the ACCESS
+ * view). A pending- value means the account is not yet provisioned on the RP
+ * side even when account_state is active.
+ */
+function access_affinitygroup_update_10013(): string {
+  $schema = \Drupal::database()->schema();
+  if ($schema->fieldExists('access_user_rp_account', 'sp_state')) {
+    return 'Column sp_state already exists on access_user_rp_account; nothing to add.';
+  }
+  $schema->addField('access_user_rp_account', 'sp_state', [
+    'type' => 'varchar',
+    'length' => 32,
+    'not null' => FALSE,
+    'description' => "Resource-provider's view of the account: active / inactive / pending-active / pending-inactive. A pending- value means the account is not yet provisioned on the RP side, even if account_state is active.",
+  ]);
+  return 'Added sp_state column to access_user_rp_account.';
+}
+
+/**
+ * Adds a sub-only index to the openid_connect_authmap table.
+ *
+ * NOTE: this indexes a table owned by the CONTRIB openid_connect module, not
+ * one of ours. That is deliberate. ActingUserAccess resolves an ACCESS ID by
+ * looking up `sub` WITHOUT a client_name, because the gate has no way to know
+ * which OIDC client provisioned a given account. The contrib `identifier`
+ * index is (client_name, sub), so a sub-only predicate cannot use it and the
+ * query degrades to a full scan (~62k rows on production).
+ *
+ * The index is added defensively — it is skipped if openid_connect is not
+ * installed or if the index already exists — so the hook is safe on any site.
+ * If openid_connect ever ships its own sub index, this one becomes redundant
+ * and can be dropped.
+ *
+ * @see \Drupal\access_affinitygroup\Access\ActingUserAccess::loadActiveUserByAuthmapSub()
+ */
+function access_affinitygroup_update_10014(): string {
+  $schema = \Drupal::database()->schema();
+
+  if (!$schema->tableExists('openid_connect_authmap')) {
+    return 'openid_connect_authmap does not exist (openid_connect not installed); nothing to index.';
+  }
+  if ($schema->indexExists('openid_connect_authmap', 'access_sub')) {
+    return 'Index access_sub already exists on openid_connect_authmap; nothing to add.';
+  }
+
+  // Prefix-limited to 191 chars to stay within the utf8mb4 index-length limit,
+  // matching how the contrib module indexes the same column.
+  $schema->addIndex(
+    'openid_connect_authmap',
+    'access_sub',
+    [['sub', 191]],
+    [
+      'fields' => [
+        'sub' => [
+          'type' => 'varchar',
+          'length' => 255,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+      ],
+    ]
+  );
+
+  return 'Added access_sub index on openid_connect_authmap.sub for ACCESS-ID lookups.';
 }

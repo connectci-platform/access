@@ -37,7 +37,13 @@ class PersonaBlock extends BlockBase {
     if (is_numeric($url_end)) {
       $user = User::load($url_end);
       if ($user !== NULL && count($user->field_region->getValue()) > 0) {
-        $should_user_load = TRUE;
+        if ($user->hasField('field_hide_community_profile') &&
+            (bool) $user->get('field_hide_community_profile')->value === TRUE) {
+          $should_user_load = FALSE;
+        }
+        else {
+          $should_user_load = TRUE;
+        }
       }
     }
     if ($should_user_load) {

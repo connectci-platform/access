@@ -305,9 +305,12 @@ function cssn_role_region($role, $checked, $term_id, $enroll_program, $user) {
     if (!empty($role)) {
       $role_program_sorter->addRole($role);
       if ($role == 'cip') {
-        $badgetid[] = ['target_id' => $scipe_badge];
-        $user->set('field_user_badges', $badgetid);
-        $user->save();
+        $has_badge = array_filter($badgetid, fn($b) => $b['target_id'] == $scipe_badge);
+        if (empty($has_badge)) {
+          $badgetid[] = ['target_id' => $scipe_badge];
+          $user->set('field_user_badges', $badgetid);
+          $user->save();
+        }
       }
       // Flag user as part of the CSSN Affinity Group.
       $cssn_affinity_group = \Drupal::entityTypeManager()
@@ -376,7 +379,9 @@ function cssn_page_attachments_alter(array &$attachments) {
     if (is_numeric($uid)) {
       $user = User::load($uid);
 
-      if ($user && count($user->field_region->getValue()) > 0) {
+      if ($user && count($user->field_region->getValue()) > 0 &&
+          !($user->hasField('field_hide_community_profile') &&
+            (bool) $user->get('field_hide_community_profile')->value === TRUE)) {
         $first_name = $user->get('field_user_first_name')->value ?? '';
         $last_name = $user->get('field_user_last_name')->value ?? '';
         $full_name = trim("$first_name $last_name");

@@ -33,8 +33,7 @@ function access_misc_theme() {
     'tcs_case_study_tools_used_block' => [
       'variables' => [
         'tools' => [],
-        'resource_name' => NULL,
-        'resource_url' => NULL,
+        'resources' => [],
       ],
       'template' => 'tcs-case-study-tools-used-block',
     ],
@@ -229,6 +228,18 @@ function access_misc_views_data() {
 function access_misc_views_pre_render(ViewExecutable $view) {
   if ($view->id() == 'tool_case_study') {
     $view->element['#attached']['library'][] = 'access_misc/copyclip';
+    // Deduplicate rows by nid — multi-value field_tcs_access_resource causes
+    // duplicate rows via LEFT JOIN when a node references multiple resources.
+    $seen = [];
+    foreach ($view->result as $index => $row) {
+      $nid = $row->nid;
+      if (isset($seen[$nid])) {
+        unset($view->result[$index]);
+      }
+      else {
+        $seen[$nid] = TRUE;
+      }
+    }
   }
   if ($view->id() == 'tool_case_study_slideshow') {
     $view->element['#attached']['library'][] = 'aspTheme/carousel';
@@ -304,8 +315,8 @@ function access_misc_views_post_render(ViewExecutable $view) {
       ($view->id() == 'people_with_expertise_tags' && isset($view->getDisplay()->view->element['#display_id']) && $view->getDisplay()->view->element['#display_id'] == 'page_1')) {
     $path = \Drupal::service('path.current')->getPath();
     $path_args = explode('/', $path);
-    $tid = is_numeric($path_args[2]) ? $path_args[2] : FALSE;
-    if ($term = term::load($tid)) {
+    $tid = is_numeric($path_args[2]) ? $path_args[2] : NULL;
+    if ($tid && $term = term::load($tid)) {
       $title = 'People with interest in ' . $term->get('name')->value;
       if ($view->id() == 'people_with_expertise_tags') {
         $title = 'People with expertise in ' . $term->get('name')->value;
@@ -344,6 +355,18 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
     ($view->id() == 'people_with_interest_tags' && $view->getDisplay()->view->element['#display_id'] == 'block_1') ||
     ($view->id() == 'people_with_interest_tags' && $view->getDisplay()->view->element['#display_id'] == 'page_1')
   ) {
+    // The page_1 display's URL is /tags/{arg}/people-with-{interest|expertise}.
+    // The taxonomy contextual filter expects a tid, but a slug here gives
+    // friendlier URLs. Convert a non-numeric arg to its tid by looking up the
+    // term in the tags vocabulary.
+    if (!empty($args[0]) && !is_numeric($args[0])) {
+      $terms = \Drupal::entityTypeManager()->getStorage('taxonomy_term')
+        ->loadByProperties(['name' => $args[0], 'vid' => 'tags']);
+      if ($term = reset($terms)) {
+        $args[0] = $term->id();
+      }
+    }
+
     $view_filters = $view->display_handler->getOption('filters');
     $program = \Drupal::service('access_misc.sitetools')->getProgram();
 
@@ -387,7 +410,7 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
     $term = term_lookup_from_path();
     if (!empty($term['tid'])) {
       $footer = \Drupal::service('access_misc.viewstools');
-      $footer->setFooter($view, 'more people', '/tags/' . $term['tid'] . '/people-with-expertise', 'block_1');
+      $footer->setFooter($view, 'more people', '/tags/' . $term['title'] . '/people-with-expertise', 'block_1');
     }
   }
 
@@ -395,7 +418,7 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
     $term = term_lookup_from_path();
     if (!empty($term['tid'])) {
       $footer = \Drupal::service('access_misc.viewstools');
-      $footer->setFooter($view, 'more people', '/tags/' . $term['tid'] . '/people-with-interest', 'block_1');
+      $footer->setFooter($view, 'more people', '/tags/' . $term['title'] . '/people-with-interest', 'block_1');
     }
   }
 
@@ -583,30 +606,6 @@ function access_misc_preprocess_views_view_field(&$variables) {
     }
   }
 
-  // Replace COPYCLIP_GOES_HERE placeholder with a copy-link button on the
-  // researcher stories page.
-  if ($view->id() == 'tool_case_study' && $view->current_display == 'page_1' && $field->options['id'] == 'nothing') {
-    $current_output = (string) $variables['output'];
-
-    if (strpos($current_output, 'COPYCLIP_GOES_HERE') === FALSE) {
-      return;
-    }
-
-    $node = $variables['row']->_entity ?? NULL;
-    $title = $node ? $node->label() : '';
-    $clean_id = \Drupal\Component\Utility\Html::getId($title);
-
-    $copyclip_html = '<button class="text-sm copyclip ms-4 absolute right-0 z-10" style="top: 0.5rem;" onclick="copyclip(\'https://support.access-ci.org/tools/researcher-stories#' . $clean_id . '\', event)">'
-      . '<span class="default-message block leading-5 text-dark-teal">'
-      . '<i class="bi-link"></i><br>Copy link</span>'
-      . '<span class="copied-message text-dark-teal hidden d-none">'
-      . '<i class="bi-check"></i><br>Copied!</span>'
-      . '</button>';
-
-    $new_output = str_replace('COPYCLIP_GOES_HERE', $copyclip_html, $current_output);
-    $variables['output'] = Markup::create($new_output);
-  }
-
 }
 
 /**
@@ -728,6 +727,12 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     $form['#title'] = t('Join or Login');
   }
 
+  // On the "ACCESS Active Resources from CID" node form, require the RP account
+  // setup URL whenever the "RP Account Required" boolean is checked.
+  if ($form_id == 'node_access_active_resources_from_cid_form' || $form_id == 'node_access_active_resources_from_cid_edit_form') {
+    $form['#validate'][] = 'access_misc_rp_account_setup_url_validate';
+  }
+
   if ($form_id == 'user_form') {
     $form['actions']['submit']['#submit'][] = 'access_misc_user_password_change';
 
@@ -735,6 +740,25 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     // so users can save profile changes without setting a new password.
     // Uses #after_build to ensure it runs after the form is fully built.
     $form['#after_build'][] = 'access_misc_user_form_after_build';
+  }
+}
+
+/**
+ * Validation handler for the ACCESS Active Resources from CID node form.
+ *
+ * Makes field_rp_account_setup_url required when the field_rp_account_required
+ * boolean is checked.
+ */
+function access_misc_rp_account_setup_url_validate(&$form, FormStateInterface $form_state) {
+  $account_required = (bool) $form_state->getValue(['field_rp_account_required', 'value']);
+  if (!$account_required) {
+    return;
+  }
+
+  $setup_url = $form_state->getValue(['field_rp_account_setup_url', 0, 'uri']);
+  if (empty($setup_url)) {
+    $label = $form['field_rp_account_setup_url']['widget']['#title'] ?? t('RP Account Setup URL');
+    $form_state->setError($form['field_rp_account_setup_url'], t('@label is required when RP Account Required is checked.', ['@label' => $label]));
   }
 }
 

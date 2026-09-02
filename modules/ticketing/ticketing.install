@@ -2,6 +2,7 @@
 
 /**
  * @file
+ * Update hooks for the Ticketing module.
  */
 
 use Drupal\menu_link_content\Entity\MenuLinkContent;
@@ -9,14 +10,13 @@ use Drupal\menu_link_content\Entity\MenuLinkContent;
 /**
  * Add menu item.
  */
-function ticketing_update_10001() {
-    $menu = MenuLinkContent::create([
-      'title' => 'View All Help Tickets',
-      'link' => ['uri' => 'https://access-ci.atlassian.net/servicedesk/customer/user/requests'],
-      'menu_name' => 'access-secondary-menu',
-      'parent' => 'menu_link_content:9a64efcc-e3f7-4488-a9a3-eeb3466b43ac',
-      'weight' => -47,
-    ]);
-    $menu->save();
+function ticketing_update_10001(): void {
+  $menu = MenuLinkContent::create([
+    'title' => 'View All Help Tickets',
+    'link' => ['uri' => 'https://access-ci.atlassian.net/servicedesk/customer/user/requests'],
+    'menu_name' => 'access-secondary-menu',
+    'parent' => 'menu_link_content:9a64efcc-e3f7-4488-a9a3-eeb3466b43ac',
+    'weight' => -47,
+  ]);
+  $menu->save();
 }
-

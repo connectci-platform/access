@@ -2,6 +2,9 @@
 
 namespace Drupal\access_badges\Plugin;
 
+use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\user\Entity\User;
 
 /**
@@ -19,7 +22,7 @@ class BadgeTools {
   /**
    * User badges.
    *
-   * @var array
+   * @var array<int, array<string, mixed>>
    */
   protected $userBadges;
 
@@ -29,6 +32,22 @@ class BadgeTools {
    * @var string
    */
   protected $currentVocabulary = 'badges';
+
+  /**
+   * Constructs a BadgeTools object.
+   *
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entityTypeManager
+   *   The entity type manager.
+   * @param \Drupal\Core\Database\Connection $database
+   *   The database connection.
+   * @param \Drupal\Component\Datetime\TimeInterface $time
+   *   The time service.
+   */
+  public function __construct(
+    protected EntityTypeManagerInterface $entityTypeManager,
+    protected Connection $database,
+    protected TimeInterface $time,
+  ) {}
 
   /**
    * Returns the user field name for a given vocabulary.
@@ -75,9 +94,17 @@ class BadgeTools {
 
   /**
    * Return badge term ID by name.
+   *
+   * @param string $badge_name
+   *   The badge term name.
+   * @param string $vocabulary
+   *   The vocabulary machine name.
+   *
+   * @return string
+   *   The matching term ID, or an empty string.
    */
   public function getBadgeTid($badge_name, $vocabulary = 'badges') {
-    $query = \Drupal::entityQuery('taxonomy_term');
+    $query = $this->entityTypeManager->getStorage('taxonomy_term')->getQuery();
     $query->condition('vid', $vocabulary);
     $query->condition('name', $badge_name);
     $query->accessCheck(FALSE);
@@ -89,11 +116,14 @@ class BadgeTools {
 
   /**
    * Return Users that have access-ci in name.
+   *
+   * @return array<int, string>
+   *   User IDs keyed by revision ID.
    */
   public function getAccessUsers() {
     // User entity lookup that were created 90 days or less ago and has
     // access-ci.org in their name.
-    $query = \Drupal::entityQuery('user');
+    $query = $this->entityTypeManager->getStorage('user')->getQuery();
     $query->condition('created', strtotime('-90 days'), '>');
     $query->condition('name', '%access-ci.org%', 'LIKE');
     $query->accessCheck(FALSE);
@@ -103,10 +133,16 @@ class BadgeTools {
 
   /**
    * Return Users that have a certain region/program.
+   *
+   * @param int|string $program
+   *   The region/program value.
+   *
+   * @return array<int, string>
+   *   User IDs keyed by revision ID.
    */
   public function getProgramUsers($program) {
     // User entity lookup that have a certain region/program.
-    $query = \Drupal::entityQuery('user');
+    $query = $this->entityTypeManager->getStorage('user')->getQuery();
     $query->condition('field_region', $program);
     $query->accessCheck(FALSE);
     $users = $query->execute();
@@ -115,25 +151,52 @@ class BadgeTools {
 
   /**
    * Load the users badges.
+   *
+   * @param int|string $user_id
+   *   The user ID.
+   * @param string $vocabulary
+   *   The vocabulary machine name.
    */
-  public function loadUserBadges($user_id, $vocabulary = 'badges') {
+  public function loadUserBadges($user_id, $vocabulary = 'badges'): void {
     $this->currentUser = User::load($user_id);
     $this->currentVocabulary = $vocabulary;
+    // User::load() returns NULL for a deleted/missing uid; bail with empty
+    // badges rather than fataling on ->get() against null.
+    if (!$this->currentUser) {
+      $this->userBadges = [];
+      return;
+    }
     $field_name = $this->getBadgeFieldName($vocabulary);
     $this->userBadges = $this->currentUser->get($field_name)->getValue();
   }
 
   /**
    * Add badges to user.
+   *
+   * @param int|string $badge
+   *   The badge term ID.
    */
-  public function addUserBadges($badge) {
+  public function addUserBadges($badge): void {
+    foreach ($this->userBadges as $existing) {
+      if ($existing['target_id'] == $badge) {
+        return;
+      }
+    }
     $this->userBadges[] = ['target_id' => $badge];
   }
 
   /**
    * Save user.
+   *
+   * @param string|null $vocabulary
+   *   The vocabulary machine name, or NULL to use the current context.
    */
-  public function saveUserBadges($vocabulary = NULL) {
+  public function saveUserBadges($vocabulary = NULL): void {
+    // currentUser is NULL when loadUserBadges() got a deleted/missing uid;
+    // nothing to save in that case.
+    if (!$this->currentUser) {
+      return;
+    }
     $vocab = $vocabulary ?? $this->currentVocabulary;
     $field_name = $this->getBadgeFieldName($vocab);
     $this->currentUser->set($field_name, $this->userBadges);
@@ -142,6 +205,9 @@ class BadgeTools {
 
   /**
    * Return the users badges.
+   *
+   * @return array<int, array<string, mixed>>
+   *   The user badge field values.
    */
   public function getUserBadges() {
     return $this->userBadges;
@@ -149,9 +215,12 @@ class BadgeTools {
 
   /**
    * Return Users that have the affinity group leader role.
+   *
+   * @return array<int, string>
+   *   User IDs keyed by revision ID.
    */
   public function getAgRoleUsers() {
-    $query = \Drupal::entityQuery('user');
+    $query = $this->entityTypeManager->getStorage('user')->getQuery();
     $query->condition('roles', 'affinity_group_leader');
     $query->accessCheck(FALSE);
     $users = $query->execute();
@@ -160,16 +229,19 @@ class BadgeTools {
 
   /**
    * Return Users that have submitted the CSSN webform in the last 90 days.
+   *
+   * @return array<int, int|string>
+   *   The owner user IDs of recent submissions.
    */
   public function getNewCssnUsers() {
     // Lookup webform submissions for 'join_the_cssn_network'.
-    $webform = \Drupal::entityTypeManager()->getStorage('webform')->load('join_the_cssn_network');
-    $webform_submissions = \Drupal::entityTypeManager()->getStorage('webform_submission')->loadByProperties(['webform_id' => $webform->id()]);
+    $webform = $this->entityTypeManager->getStorage('webform')->load('join_the_cssn_network');
+    $webform_submissions = $this->entityTypeManager->getStorage('webform_submission')->loadByProperties(['webform_id' => $webform->id()]);
     // Grab all submissions submited in the last 90 days.
     $submission_users = [];
     foreach ($webform_submissions as $submission) {
       $created = $submission->getCreatedTime();
-      $now = \Drupal::time()->getCurrentTime();
+      $now = $this->time->getCurrentTime();
       $diff = $now - $created;
       if ($diff < 7776000) {
         $submission_users[] = $submission->getOwnerId();
@@ -180,9 +252,19 @@ class BadgeTools {
 
   /**
    * Check if user has badge, return boolean.
+   *
+   * @param int|string $badge
+   *   The badge term ID.
+   * @param int|string|array<int, int|string> $user
+   *   The user ID, or an array of user IDs.
+   * @param string $vocabulary
+   *   The vocabulary machine name.
+   *
+   * @return bool
+   *   TRUE if the user has the badge.
    */
   public function checkBadges($badge, $user, $vocabulary = 'badges') {
-    $connection = \Drupal::database();
+    $connection = $this->database;
     $table = $this->getBadgeTableName($vocabulary);
     $target_column = $this->getBadgeTargetColumn($vocabulary);
     $query = $connection->select($table, 't');
@@ -196,9 +278,16 @@ class BadgeTools {
 
   /**
    * Set multiple users badge via the database.
+   *
+   * @param int|string $badge
+   *   The badge term ID.
+   * @param array<int, int|string> $users
+   *   The user IDs to assign the badge to.
+   * @param string $vocabulary
+   *   The vocabulary machine name.
    */
-  public function setBadges($badge, $users, $vocabulary = 'badges') {
-    $connection = \Drupal::database();
+  public function setBadges($badge, $users, $vocabulary = 'badges'): void {
+    $connection = $this->database;
     $table = $this->getBadgeTableName($vocabulary);
     $target_column = $this->getBadgeTargetColumn($vocabulary);
 
@@ -237,15 +326,19 @@ class BadgeTools {
 
   /**
    * Set user badge via saving user.
+   *
+   * @param int|string $badge
+   *   The badge term ID.
+   * @param array<int, array<string, mixed>> $users
+   *   The user reference field values, each containing a 'target_id'.
    */
-  public function setUserBadge($badge, $users) {
+  public function setUserBadge($badge, $users): void {
     foreach ($users as $user) {
       $uid = $user['target_id'];
-      $badge_load = $this->loadUserBadges($uid);
+      $this->loadUserBadges($uid);
       // Check if user has badge.
       $badge_check = $this->checkBadges($badge, [$uid]);
       if (!$badge_check) {
-        $badges = $this->getUserBadges();
         // Set badges for user.
         $this->addUserBadges($badge);
         $this->saveUserBadges();
@@ -255,9 +348,16 @@ class BadgeTools {
 
   /**
    * Fields with user id's to badge.
+   *
+   * @param string $field
+   *   The node field machine name.
+   * @param string $badge
+   *   The badge term name.
+   * @param string $bundle
+   *   The node bundle machine name.
    */
-  public function fieldToBadge($field, $badge, $bundle) {
-    $query = \Drupal::database()->select('node__' . $field, 'fd');
+  public function fieldToBadge($field, $badge, $bundle): void {
+    $query = $this->database->select('node__' . $field, 'fd');
     $query->fields('fd', [$field . '_target_id']);
     $query->condition('fd.bundle', $bundle);
     $field_users = $query->execute()->fetchAll();
@@ -265,6 +365,10 @@ class BadgeTools {
     foreach ($field_users as $field_user) {
       $uid = $field_user->{$field . '_target_id'};
       $user = User::load($uid);
+      // Skip stale references to deleted users rather than fatal on ->get().
+      if (!$user) {
+        continue;
+      }
       $badgetid_new = $this->getBadgeTid($badge);
       $badgetid = $user->get('field_user_badges')->getValue();
       $badge_check = $this->checkBadges($badgetid_new, $uid);
@@ -296,6 +400,32 @@ class BadgeTools {
     }
     $this->loadUserBadges($uid, $vocabulary);
     $this->addUserBadges($badge_tid);
+    $this->saveUserBadges($vocabulary);
+    return TRUE;
+  }
+
+  /**
+   * Remove a single badge from a user by UID.
+   *
+   * @param int $uid
+   *   The user ID.
+   * @param int $badge_tid
+   *   The badge taxonomy term ID.
+   * @param string $vocabulary
+   *   The vocabulary machine name.
+   *
+   * @return bool
+   *   TRUE if removed, FALSE if user did not have the badge.
+   */
+  public function removeBadgeFromUser($uid, $badge_tid, $vocabulary = 'badges') {
+    if (!$this->checkBadges($badge_tid, $uid, $vocabulary)) {
+      return FALSE;
+    }
+    $this->loadUserBadges($uid, $vocabulary);
+    $this->userBadges = array_values(array_filter(
+      $this->userBadges,
+      fn($b) => $b['target_id'] != $badge_tid
+    ));
     $this->saveUserBadges($vocabulary);
     return TRUE;
   }
