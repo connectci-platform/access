@@ -757,6 +757,21 @@ function access_misc_rp_account_setup_url_validate(&$form, FormStateInterface $f
 
   $setup_url = $form_state->getValue(['field_rp_account_setup_url', 0, 'uri']);
   if (empty($setup_url)) {
+    // The setup URL is inheritable: a Resource that leaves it empty renders
+    // the parent Resource Group's URL, so an empty own value is fine when the
+    // group provides one. Resolved here (not mirrored into form state by
+    // operations_cider) because writing an inherited value to the field's own
+    // form-state path would feed the widget's extraction and persist the
+    // inherited URL onto the Resource on save.
+    if (\Drupal::hasService('operations_cider.resource_group_inheritance')) {
+      $node = $form_state->getFormObject()->getEntity();
+      if ($node instanceof \Drupal\node\NodeInterface) {
+        $group = \Drupal::service('operations_cider.resource_group_inheritance')->findParentGroup($node);
+        if ($group && $group->hasField('field_rp_account_setup_url') && !$group->get('field_rp_account_setup_url')->isEmpty()) {
+          return;
+        }
+      }
+    }
     $label = $form['field_rp_account_setup_url']['widget']['#title'] ?? t('RP Account Setup URL');
     $form_state->setError($form['field_rp_account_setup_url'], t('@label is required when RP Account Required is checked.', ['@label' => $label]));
   }
