@@ -112,7 +112,11 @@ async function setMenu(menu, currentUri) {
   });
 
   const { email = '', name = '', accessId = '' } = drupalSettings.access.user || {};
-  const apiKey = drupalSettings.access.qaApiKey || '';
+  // access-ci-ui's QABot refuses to render without a non-empty apiKey, but the
+  // agent at qa.access-ci.org ignores the key — it's a legacy qa-bot-proxy
+  // credential. Default to a placeholder so environments without the 'qabot'
+  // Key module entry (multidevs) still render the bot.
+  const apiKey = drupalSettings.access.qaApiKey || 'portal-demo';
 
   // GTM dataLayer event handler for QA bot analytics
   const chatbotEnv = drupalSettings.access.environment || 'unknown';
