@@ -94,6 +94,7 @@ class CancellationNotifier {
     protected TimeInterface $time,
     protected ConfigFactoryInterface $configFactory,
     protected Connection $database,
+    protected EventDomainContext $domainContext,
   ) {}
 
   /**
@@ -137,21 +138,28 @@ class CancellationNotifier {
       return 0;
     }
 
-    $count = 0;
-    foreach ($this->entityTypeManager->getStorage('registrant')->loadMultiple($ids) as $registrant) {
-      // A reinstatement supersedes any earlier, still-unclaimed reinstatement
-      // to the same registrant for this same occurrence: that earlier notice
-      // was rendered with an old subject/body/date at enqueue time and would
-      // otherwise reach the registrant alongside this fresher one. Remove it
-      // before enqueuing. A cancellation is deliberately NOT superseded here —
-      // a cancel followed by a reinstate is a legitimate pair.
-      if ($key === self::REINSTATE_KEY) {
-        $this->removeSupersededQueueItems((string) $registrant->email->value, $instanceId, [self::REINSTATE_KEY]);
+    // The whole loop runs in the occurrence's own domain context: contrib
+    // renders subject and body (and with them every absolute link) at ENQUEUE
+    // time and bakes them into the queue item, so the domain has to be right
+    // here, not when cron drains the queue.
+    // @see \Drupal\access_events\EventDomainContext
+    return $this->domainContext->forEntity($instance, function () use ($ids, $instanceId, $key): int {
+      $count = 0;
+      foreach ($this->entityTypeManager->getStorage('registrant')->loadMultiple($ids) as $registrant) {
+        // A reinstatement supersedes any earlier, still-unclaimed reinstatement
+        // to the same registrant for this same occurrence: that earlier notice
+        // was rendered with an old subject/body/date at enqueue time and would
+        // otherwise reach the registrant alongside this fresher one. Remove it
+        // before enqueuing. A cancellation is deliberately NOT superseded
+        // here — a cancel followed by a reinstate is a legitimate pair.
+        if ($key === self::REINSTATE_KEY) {
+          $this->removeSupersededQueueItems((string) $registrant->email->value, $instanceId, [self::REINSTATE_KEY]);
+        }
+        $this->notificationService->addEmailNotificationToQueue($key, $registrant);
+        $count++;
       }
-      $this->notificationService->addEmailNotificationToQueue($key, $registrant);
-      $count++;
-    }
-    return $count;
+      return $count;
+    });
   }
 
   /**
@@ -198,21 +206,29 @@ class CancellationNotifier {
       return 0;
     }
 
-    $count = 0;
-    foreach ($this->entityTypeManager->getStorage('registrant')->loadMultiple($ids) as $registrant) {
-      // A modification notice supersedes any earlier, still-unclaimed
-      // reinstatement OR modification notice to the same registrant for this
-      // same occurrence: those earlier notices were rendered with a now-stale
-      // date at enqueue time (e.g. a restore queued "back on, <old date>",
-      // then this edit moved the date) and would otherwise reach the
-      // registrant as a contradictory pair. Remove them before enqueuing. A
-      // cancellation is deliberately NOT superseded — a cancel then a later
-      // reschedule is a legitimate sequence.
-      $this->removeSupersededQueueItems((string) $registrant->email->value, $instanceId, [self::REINSTATE_KEY, self::MODIFICATION_KEY]);
-      $this->notificationService->addEmailNotificationToQueue(self::MODIFICATION_KEY, $registrant);
-      $count++;
-    }
-    return $count;
+    // Rendered at enqueue time in the occurrence's own domain context, for the
+    // same reason as enqueueGated() above.
+    return $this->domainContext->forEntity($instance, function () use ($ids, $instanceId): int {
+      $count = 0;
+      foreach ($this->entityTypeManager->getStorage('registrant')->loadMultiple($ids) as $registrant) {
+        // A modification notice supersedes any earlier, still-unclaimed
+        // reinstatement OR modification notice to the same registrant for this
+        // same occurrence: those earlier notices were rendered with a now-stale
+        // date at enqueue time (e.g. a restore queued "back on, <old date>",
+        // then this edit moved the date) and would otherwise reach the
+        // registrant as a contradictory pair. Remove them before enqueuing. A
+        // cancellation is deliberately NOT superseded — a cancel then a later
+        // reschedule is a legitimate sequence.
+        $this->removeSupersededQueueItems(
+          (string) $registrant->email->value,
+          $instanceId,
+          [self::REINSTATE_KEY, self::MODIFICATION_KEY]
+        );
+        $this->notificationService->addEmailNotificationToQueue(self::MODIFICATION_KEY, $registrant);
+        $count++;
+      }
+      return $count;
+    });
   }
 
   /**

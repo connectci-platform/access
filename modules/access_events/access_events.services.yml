@@ -1,4 +1,7 @@
 services:
+  access_events.domain_context:
+    class: Drupal\access_events\EventDomainContext
+    arguments: ['@router.request_context', '@?domain.negotiator']
   access_events.event_access:
     class: Drupal\access_events\Service\EventAccessService
   access_events.XsedeApi:
@@ -22,6 +25,7 @@ services:
         "@access_misc.sitetools",
         "@access_misc.symfony.mail",
         "@logger.factory",
+        "@access_events.domain_context",
       ]
   access_events.latest_revision:
     class: Drupal\access_events\Plugin\LatestRevisionCheck
@@ -40,7 +44,7 @@ services:
     arguments: ['@access_events.registrant_counter']
   access_events.cancellation_notifier:
     class: Drupal\access_events\CancellationNotifier
-    arguments: ['@entity_type.manager', '@recurring_events_registration.notification_service', '@datetime.time', '@config.factory', '@database']
+    arguments: ['@entity_type.manager', '@recurring_events_registration.notification_service', '@datetime.time', '@config.factory', '@database', '@access_events.domain_context']
   access_events.state_change_collector:
     class: Drupal\access_events\StateChangeCollector
   access_events.state_reactions:
