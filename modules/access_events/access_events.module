@@ -5,6 +5,7 @@
  */
 
 use Drupal\access_events\Plugin\Util\EventDateConvert;
+use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Session\AccountInterface;
@@ -3026,5 +3027,86 @@ function access_events_views_data_alter(array &$data) {
   $table = 'search_api_datasource_events_entity_eventinstance';
   if (isset($data[$table]['event_summary']['field']['id']) && $data[$table]['event_summary']['field']['id'] === 'search_api') {
     $data[$table]['event_summary']['field']['id'] = 'access_events_search_api_plain_text';
+  }
+}
+
+/**
+ * Implements hook_field_widget_single_element_WIDGET_TYPE_form_alter() for consecutive_recurring_date.
+ */
+function access_events_field_widget_single_element_consecutive_recurring_date_form_alter(array &$element, FormStateInterface $form_state, array $context): void {
+  _access_events_recur_widget_prefill_alter($element, $context);
+}
+
+/**
+ * Implements hook_field_widget_single_element_WIDGET_TYPE_form_alter() for daily_recurring_date.
+ */
+function access_events_field_widget_single_element_daily_recurring_date_form_alter(array &$element, FormStateInterface $form_state, array $context): void {
+  _access_events_recur_widget_prefill_alter($element, $context);
+}
+
+/**
+ * Implements hook_field_widget_single_element_WIDGET_TYPE_form_alter() for weekly_recurring_date.
+ */
+function access_events_field_widget_single_element_weekly_recurring_date_form_alter(array &$element, FormStateInterface $form_state, array $context): void {
+  _access_events_recur_widget_prefill_alter($element, $context);
+}
+
+/**
+ * Implements hook_field_widget_single_element_WIDGET_TYPE_form_alter() for monthly_recurring_date.
+ */
+function access_events_field_widget_single_element_monthly_recurring_date_form_alter(array &$element, FormStateInterface $form_state, array $context): void {
+  _access_events_recur_widget_prefill_alter($element, $context);
+}
+
+/**
+ * Implements hook_field_widget_single_element_WIDGET_TYPE_form_alter() for yearly_recurring_date.
+ */
+function access_events_field_widget_single_element_yearly_recurring_date_form_alter(array &$element, FormStateInterface $form_state, array $context): void {
+  _access_events_recur_widget_prefill_alter($element, $context);
+}
+
+/**
+ * Prefills anchored recurrence boundaries as their LITERAL stored date.
+ *
+ * The five recurring_events widgets inherit their date sub-elements from
+ * core's DateRangeWidgetBase, which prefills #default_value from the stored
+ * instant converted into the editor's timezone. For an anchored boundary
+ * (`{date}T12:00:00` UTC — the storage invariant EventSeriesAccess::preSave()
+ * maintains) that conversion renders NEXT-DAY for a UTC+12..+14 editor, and
+ * re-submitting the rendered date would then either trip the reschedule guard
+ * (registered series) or ratchet the stored boundary a day per save. When the
+ * RAW column value carries the anchor signature, this swaps the prefill for
+ * the literal stored date at midnight in the editor's zone — mirroring the
+ * bundle class's read-side decode, so the form round-trips the intended date
+ * from any timezone. Any other shape (unmigrated legacy wall-clock rows)
+ * keeps contrib's stock prefill untouched.
+ *
+ * READ-side classification only: the widget renders what an anchored row
+ * means. The WRITE path (preSave) deliberately never trusts the signature —
+ * see EventSeriesAccess::preSave() for why.
+ */
+function _access_events_recur_widget_prefill_alter(array &$element, array $context): void {
+  $item = $context['items'][$context['delta']] ?? NULL;
+  if ($item === NULL) {
+    return;
+  }
+  foreach (['value', 'end_value'] as $key) {
+    $raw = $item->{$key} ?? NULL;
+    if (!is_string($raw) || !str_ends_with($raw, 'T12:00:00')) {
+      continue;
+    }
+    if (!isset($element[$key]['#default_value'])) {
+      continue;
+    }
+    // Same zone the datetime element formats through (#date_timezone is set
+    // by core to the editor's zone for these datetime-type fields); creating
+    // the literal date directly IN that zone means no instant conversion can
+    // ever slide it.
+    $timezone = $element[$key]['#date_timezone'] ?? date_default_timezone_get();
+    $element[$key]['#default_value'] = DrupalDateTime::createFromFormat(
+      'Y-m-d H:i:s',
+      substr($raw, 0, 10) . ' 00:00:00',
+      $timezone,
+    );
   }
 }
