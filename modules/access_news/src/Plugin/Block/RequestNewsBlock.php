@@ -17,6 +17,9 @@ class RequestNewsBlock extends BlockBase {
 
   /**
    * {@inheritdoc}
+   *
+   * @return array<string, mixed>
+   *   The render array.
    */
   public function build() {
 

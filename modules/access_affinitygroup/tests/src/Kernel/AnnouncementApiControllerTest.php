@@ -182,9 +182,10 @@ class AnnouncementApiControllerTest extends KernelTestBase {
       'settings' => ['handler_settings' => ['target_bundles' => ['tags' => 'tags']]],
     ])->save();
 
-    // field_choose_where_to_share_this (on access_news) — a list_string read by
-    // affinityGroupBroadcast() in access_news_entity_update when a node is
-    // (re)saved published. Left empty in tests so the broadcast returns early.
+    // field_choose_where_to_share_this (on access_news) — a list_string read
+    // by access_news_affinity_group_broadcast() in access_news_entity_update
+    // when a node is (re)saved published. Left empty in tests so the broadcast
+    // returns early.
     FieldStorageConfig::create([
       'field_name' => 'field_choose_where_to_share_this',
       'entity_type' => 'node',
@@ -215,9 +216,10 @@ class AnnouncementApiControllerTest extends KernelTestBase {
       'bundle' => 'access_news',
     ])->save();
 
-    // The 'affinity-group' vocabulary + field_affinity_group taxonomy field, both
-    // required by access_news_node_presave() → update_affinity_group(): for each
-    // referenced group node it loads a same-named term and appends it here.
+    // The 'affinity-group' vocabulary + field_affinity_group taxonomy field,
+    // both required by access_news_node_presave() →
+    // access_news_update_affinity_group(): for each referenced group node it
+    // loads a same-named term and appends it here.
     Vocabulary::create(['vid' => 'affinity-group', 'name' => 'Affinity Group'])->save();
     FieldStorageConfig::create([
       'field_name' => 'field_affinity_group',

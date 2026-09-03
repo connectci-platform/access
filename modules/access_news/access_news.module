@@ -2,12 +2,15 @@
 
 /**
  * @file
+ * Contains hook implementations for the ACCESS News module.
  */
 
 use Drupal\access_affinitygroup\Plugin\EmailWrapper;
+use Drupal\access_news\AccessNewsInterface;
 use Drupal\Component\Utility\UrlHelper;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Datetime\DrupalDateTime;
+use Drupal\Core\Entity\ContentEntityInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Component\Utility\Html;
@@ -19,20 +22,20 @@ use Drupal\user\Entity\User;
 use Drupal\views\ViewExecutable;
 use Drupal\access_misc\Plugin\Util\SiteTools;
 
-define('ACCESS_SUPPORT_URL', "https://support.access-ci.org");
-
 /**
  * Implements hook_views_pre_view() for node templates.
+ *
+ * @phpstan-param array<int, mixed> $args
  */
-function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
-  // Only process News and Announcements views
+function access_news_views_pre_view(ViewExecutable $view, string $display_id, array &$args): void {
+  // Only process News and Announcements views.
   if (!in_array($view->id(), ['access_news', 'access_announcements'])) {
     return;
   }
 
   $current_display = $display_id;
 
-  // Define which displays need domain filtering
+  // Define which displays need domain filtering.
   $domain_filtered_displays = [
     'block_1' => SiteTools::DOMAIN_CURRENT,
     'latest_news_block' => SiteTools::DOMAIN_CURRENT,
@@ -41,31 +44,34 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
     'rest_export_2' => SiteTools::DOMAIN_CURRENT,
   ];
 
-  // Apply domain filtering if this display is in our list
+  // Apply domain filtering if this display is in our list.
   if (isset($domain_filtered_displays[$current_display])) {
     $view_filters = $view->display_handler->getOption('filters');
 
-    // Determine which domain to use
+    // Determine which domain to use.
     $domain = ($domain_filtered_displays[$current_display] === SiteTools::DOMAIN_CURRENT)
       ? \Drupal::service('access_misc.sitetools')->getDomainId()
       : $domain_filtered_displays[$current_display];
 
-    // Use appropriate field name based on view type
+    // Use appropriate field name based on view type.
     $domain_field = ($view->id() == 'access_announcements') ? 'field_domain_access' : 'field_domain_access_target_id';
 
-    // Only apply filtering if the domain field exists
+    // Only apply filtering if the domain field exists.
     if (isset($view_filters[$domain_field])) {
-      // Handle different filter value structures
+      // Handle different filter value structures.
       if (is_array($view_filters[$domain_field]['value'])) {
-        // If it's an array structure (like min/max/value), preserve the structure
+        // If it's an array structure (like min/max/value), preserve
+        // the structure.
         if (isset($view_filters[$domain_field]['value']['value'])) {
           $view_filters[$domain_field]['value']['value'] = $domain;
-        } else {
-          // If it's a simple associative array
+        }
+        else {
+          // If it's a simple associative array.
           $view_filters[$domain_field]['value'] = [$domain => $domain];
         }
-      } else {
-        // If it's a simple string value
+      }
+      else {
+        // If it's a simple string value.
         $view_filters[$domain_field]['value'] = $domain;
       }
 
@@ -76,8 +82,10 @@ function access_news_views_pre_view(ViewExecutable $view, $display_id, array &$a
 
 /**
  * Implements hook_form_alter().
+ *
+ * @phpstan-param array<string, mixed> $form
  */
-function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+function access_news_form_alter(array &$form, FormStateInterface $form_state, string $form_id): void {
   $domain = \Drupal::service('access_misc.sitetools')->getDomain();
 
   if ($domain != 'access-support' && ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form')) {
@@ -88,14 +96,15 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
   // Suggest tags for announcements.
   if ($form_id == 'node_access_news_edit_form' || $form_id == 'node_access_news_form') {
 
-    // A11y fixes
+    // A11y fixes.
     // Force h2 on titles.
     $form['field_affinity_group_node']['widget']['#title'] = Markup::create('<h2 class="label mb-0">' . $form['field_affinity_group_node']['widget']['#title'] . '</h2>');
     $form['field_affiliation']['widget']['#title'] = Markup::create('<h2 class="label">' . $form['field_affiliation']['widget']['#title'] . '</h2>');
     $form['field_choose_where_to_share_this']['widget']['#title'] = Markup::create('<h2 class="label">' . $form['field_choose_where_to_share_this']['widget']['#title'] . '</h2>');
     $form['field_news_external_link']['widget'][0]['#title'] = Markup::create('<h2 class="label mb-0">' . $form['field_news_external_link']['widget']['#title'] . '</h2>');
 
-    // Replace title of 'Affiliation' and 'Choose where to share this Announcment' with h4
+    // Replace title of 'Affiliation' and 'Choose where to share this
+    // Announcment' with h4.
     $fields = ['field_affiliation', 'field_choose_where_to_share_this'];
 
     foreach ($fields as $field) {
@@ -103,12 +112,12 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
       $form[$field]['widget']['#title'] = "<span class='text-xl font-bold text-dark-teal'>$title</span>";
     }
 
-    // Replace title of 'External Link' with h4
+    // Replace title of 'External Link' with h4.
     $el_title = $form['field_news_external_link']['widget'][0]['#title'];
     $form['field_news_external_link']['widget'][0]['#title'] = "<span class='text-xl font-bold text-dark-teal'>$el_title</span>";
 
-    // Field is hidden and replaced with custom UI
-    // Element validation ensures proper error messages are shown
+    // Field is hidden and replaced with custom UI.
+    // Element validation ensures proper error messages are shown.
     $form['field_tags']['widget']['#element_validate'][] = 'access_news_tags_validate_element';
 
     $form['field_tags_replace'] = [
@@ -125,8 +134,8 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
         'class' => [
           'bg-light-teal',
           'my-5',
-          'p-5'
-        ]
+          'p-5',
+        ],
       ],
     ];
     $form['field_tags_replace']['field_suggest']['tag_list'] = [
@@ -135,10 +144,10 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
     $form['field_tags_replace']['field_suggest']['replace_button'] = [
       '#type' => 'button',
       '#value' => t('Suggest Tags'),
-      '#limit_validation_errors' => array(),
+      '#limit_validation_errors' => [],
       '#attributes' => [
         'class' => [
-          'ml-0'
+          'ml-0',
         ],
       ],
       '#ajax' => [
@@ -152,11 +161,7 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
     $add_tags = \Drupal::service('access_misc.addtags');
     $output = $add_tags->getView();
     $form['custom_tags'] = [
-      '#markup' => "<div id='tag-suggestions'></div>
-                    <details open class='tags'>
-                     <summary><label class='js-form-required form-required'>Select relevant tags</label></summary>
-                      $output
-                    </details>",
+      '#markup' => "<div id='tag-suggestions'></div><details open class='tags'><summary><label class='js-form-required form-required'>Select relevant tags</label></summary>$output</details>",
       '#weight' => 1,
       '#allowed_tags' => [
         'ul',
@@ -221,8 +226,16 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
  * Add AI Suggested Tags to the form.
  *
  * Ajax callback function to replace the section with '#markup'.
+ *
+ * @param array<string, mixed> $form
+ *   The form render array.
+ * @param \Drupal\Core\Form\FormStateInterface $form_state
+ *   The current state of the form.
+ *
+ * @return array<string, mixed>
+ *   The 'field_tags_replace' render array section.
  */
-function access_news_replace_section_callback(array &$form, FormStateInterface $form_state) {
+function access_news_replace_section_callback(array &$form, FormStateInterface $form_state): array {
   $raw_data = $form_state->getUserInput();
   $body = $raw_data['body'][0]['value'];
   $body_filter = $body ? Xss::filter($body) : '';
@@ -268,7 +281,7 @@ function access_news_replace_section_callback(array &$form, FormStateInterface $
     ];
   }
 
-  $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids ;
+  $form['field_tags_replace']['#attributes']['data-suggest'] = $suggested_tag_ids;
 
   // Return the updated section.
   return $form['field_tags_replace'];
@@ -278,11 +291,18 @@ function access_news_replace_section_callback(array &$form, FormStateInterface $
  * Element validation callback for field_tags.
  *
  * Validates that at least one tag is selected and no more than 6.
+ *
+ * @param array<string, mixed> $element
+ *   The form element being validated.
+ * @param \Drupal\Core\Form\FormStateInterface $form_state
+ *   The current state of the form.
+ * @param array<string, mixed> $form
+ *   The complete form.
  */
-function access_news_tags_validate_element($element, FormStateInterface $form_state, $form) {
+function access_news_tags_validate_element(array $element, FormStateInterface $form_state, array $form): void {
   $values = $form_state->getValue('field_tags');
 
-  // Count non-empty tag values
+  // Count non-empty tag values.
   $tag_count = 0;
   if (is_array($values)) {
     foreach ($values as $tag) {
@@ -292,11 +312,11 @@ function access_news_tags_validate_element($element, FormStateInterface $form_st
     }
   }
 
-  // Check if at least one tag is selected
+  // Check if at least one tag is selected.
   if ($tag_count === 0) {
     $form_state->setError($element, t('Please select at least one tag from the list below. Tags help others find your announcement.'));
   }
-  // Check maximum of 6 tags
+  // Check maximum of 6 tags.
   elseif ($tag_count > 6) {
     $form_state->setError($element, t('You can only select up to 6 tags. Please remove @count tags.', ['@count' => $tag_count - 6]));
   }
@@ -306,22 +326,27 @@ function access_news_tags_validate_element($element, FormStateInterface $form_st
  * Custom validation callback.
  *
  * Make sure AG is selected with proper checkboxes.
+ *
+ * @param array<string, mixed> $form
+ *   The complete form.
+ * @param \Drupal\Core\Form\FormStateInterface $form_state
+ *   The current state of the form.
  */
-function access_news_ag_validate(&$form, FormStateInterface $form_state) {
+function access_news_ag_validate(array &$form, FormStateInterface $form_state): void {
   // Get the value of the field_choose_where_to_share_this field.
   $values = $form_state->getValues();
   $share_options = $values['field_choose_where_to_share_this'] ?? [];
   $ag = $values['field_affinity_group_node'] ?? [];
 
   $no_ag = TRUE;
-  foreach ($ag as $key => $value) {
+  foreach ($ag as $value) {
     if (is_array($value) && !empty($value['target_id'])) {
       $no_ag = FALSE;
     }
   }
 
   if ($no_ag) {
-    foreach ($share_options as $key => $value) {
+    foreach ($share_options as $value) {
       if ($value['value'] == 'email_to_your_affinity_group' || $value['value'] == 'on_your_affinity_group_page') {
         $form_state->setErrorByName('field_affinity_group_node', t('You must select at least one Affinity Group when choosing to email your Affinity Groups or place the announcement on your Affinity Group Page.'));
       }
@@ -337,8 +362,13 @@ function access_news_ag_validate(&$form, FormStateInterface $form_state) {
  * is a Coordinator of that Affinity Group.
  *
  * Also, check that the Affinity Group taxonomy term exists.
+ *
+ * @param array<string, mixed> $form
+ *   The complete form.
+ * @param \Drupal\Core\Form\FormStateInterface $form_state
+ *   The current state of the form.
  */
-function access_news_validate(&$form, FormStateInterface $form_state) {
+function access_news_validate(array &$form, FormStateInterface $form_state): void {
   // Require that the person saving is an Affinity Group Coordinator
   // if an Affinity Group is selected for ACCESS News.
   $user = User::load(\Drupal::currentUser()->id());
@@ -350,39 +380,39 @@ function access_news_validate(&$form, FormStateInterface $form_state) {
       if ($nid) {
         $authorized = FALSE;
         $n = Node::load($nid);
-        // Administrator or news_pm role can assign ACCESS News to any Affinity Group.
+        // Administrator or news_pm role can assign ACCESS News to any
+        // Affinity Group.
         if (
           in_array('administrator', \Drupal::currentUser()->getRoles()) ||
           in_array('news_pm', \Drupal::currentUser()->getRoles())
         ) {
           $authorized = TRUE;
-        } else {
+        }
+        else {
           // Load coordinator(s) for the Affinity Group.
           $coordinator_field = $n->get('field_coordinator');
-          if ($coordinator_field) {
-            $coordinators = $coordinator_field->getValue();
-            foreach ($coordinators as $coordinator) {
-              if ($coordinator['target_id'] == $user->get('uid')->value) {
-                $authorized = TRUE;
-              }
+          $coordinators = $coordinator_field->getValue();
+          foreach ($coordinators as $coordinator) {
+            if ($coordinator['target_id'] == $user->get('uid')->value) {
+              $authorized = TRUE;
             }
           }
         }
         // Check that the Affinity Group term exists.
         $name = $n->get('title')->value;
-        $vid = 'affinity-group';
         $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => $name]);
         if (!$term) {
-          $form_state->setErrorByName('access_news', t('The Affinity Group taxonomy term ' . $name . ' does not exist. Please contact an administrator.'));
+          $form_state->setErrorByName('access_news', t('The Affinity Group taxonomy term @name does not exist. Please contact an administrator.', ['@name' => $name]));
         }
         if (!$authorized) {
-          $form_state->setErrorByName('access_news', t('You are not a Coordinator for the ' . $n->get('title')->value . ' Affinity Group.'));
+          $form_state->setErrorByName('access_news', t('You are not a Coordinator for the @title Affinity Group.', ['@title' => $n->get('title')->value]));
         }
       }
     }
   }
 
-  // Note: Tag validation (min 1, max 6) is handled by access_news_tags_validate_element()
+  // Note: Tag validation (min 1, max 6) is handled by
+  // access_news_tags_validate_element().
 }
 
 /**
@@ -391,10 +421,10 @@ function access_news_validate(&$form, FormStateInterface $form_state) {
  * Set the Affinity Group taxonomy term based on the
  * Affinity Group node so people only have to select it once.
  */
-function access_news_node_presave(Node $node) {
+function access_news_node_presave(Node $node): void {
   $type = $node->bundle();
   if ($type == 'access_news') {
-    update_affinity_group($node);
+    access_news_update_affinity_group($node);
   }
 }
 
@@ -404,18 +434,23 @@ function access_news_node_presave(Node $node) {
  * Set the Affinity Group taxonomy term based on the
  * Affinity Group node so people only have to select it once.
  */
-function access_news_entity_presave(EntityInterface $entity) {
+function access_news_entity_presave(EntityInterface $entity): void {
   $type = $entity->getEntityTypeId();
   if ($type == 'eventseries') {
-    update_affinity_group($entity);
+    /** @var \Drupal\Core\Entity\ContentEntityInterface $entity */
+    access_news_update_affinity_group($entity);
   }
 }
 
 /**
- * Preprocess entity eventinstance registration field to NOT display
- * registration link if the event is past.
+ * Implements hook_preprocess_field().
+ *
+ * Hides the registration link on the eventinstance registration field
+ * if the event is past.
+ *
+ * @phpstan-param array<string, mixed> $variables
  */
-function access_news_preprocess_field(&$variables) {
+function access_news_preprocess_field(array &$variables): void {
   if ($variables['entity_type'] == 'eventinstance' && $variables['field_name'] == 'registration') {
     $event = $variables['element']['#object'];
     $eventDate = $event->get('date')->value;
@@ -429,8 +464,11 @@ function access_news_preprocess_field(&$variables) {
 
 /**
  * Set Affinity Group taxonomy terms based on the Affinity Group node field.
+ *
+ * @param \Drupal\Core\Entity\ContentEntityInterface $node
+ *   The ACCESS News node or EventSeries entity being saved.
  */
-function update_affinity_group($node) {
+function access_news_update_affinity_group(ContentEntityInterface $node): void {
   $ag_node_array = $node->get('field_affinity_group_node');
   $node->set('field_affinity_group', NULL);
   foreach ($ag_node_array as $ag_node) {
@@ -439,7 +477,6 @@ function update_affinity_group($node) {
     $ag = Node::load($nid);
     $name = $ag->get('title')->value;
     // Get the term with the same name as the Affinity Group.
-    $vid = 'affinity-group';
     $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => $name]);
     $node->get('field_affinity_group')->appendItem(array_key_first($term));
   }
@@ -450,7 +487,7 @@ function update_affinity_group($node) {
  *
  * Provide message that approval is required.
  */
-function access_news_node_insert(Node $node) {
+function access_news_node_insert(Node $node): void {
   $type = $node->bundle();
   if ($type == 'access_news') {
     // Send admins a message if an ACCESS News node is created
@@ -463,8 +500,9 @@ function access_news_node_insert(Node $node) {
       }
     }
     else {
-      // For published news: Check if broadcast to listed AGs desired, do it if so.
-      affinityGroupBroadcast($node, TRUE);
+      // For published news: Check if broadcast to listed AGs desired,
+      // do it if so.
+      access_news_affinity_group_broadcast($node, TRUE);
     }
   }
 }
@@ -473,16 +511,18 @@ function access_news_node_insert(Node $node) {
  * Implements hook_module_implements_alter().
  *
  * Move our entity_insert/entity_update handlers to the END of the hook list
- * so affinityGroupBroadcast() runs AFTER recurring_events has populated
- * `event_instances` on the EventSeries. Otherwise the broadcast email would
- * link to the series URL (e.g. /events/series/914) instead of the single
- * instance URL, since `getInstanceCount()` returns 0 before the contrib
- * module's eventseries_insert hook fires to create instances.
+ * so access_news_affinity_group_broadcast() runs AFTER recurring_events has
+ * populated `event_instances` on the EventSeries. Otherwise the broadcast
+ * email would link to the series URL (e.g. /events/series/914) instead of
+ * the single instance URL, since `getInstanceCount()` returns 0 before the
+ * contrib module's eventseries_insert hook fires to create instances.
  *
- * Module implementations are invoked alphabetically by default; "access_news"
- * sorts before "recurring_events", so we reorder explicitly.
+ * Module implementations are invoked alphabetically by default;
+ * "access_news" sorts before "recurring_events", so we reorder explicitly.
+ *
+ * @phpstan-param array<string, mixed> $implementations
  */
-function access_news_module_implements_alter(&$implementations, $hook) {
+function access_news_module_implements_alter(array &$implementations, string $hook): void {
   if (in_array($hook, ['entity_insert', 'entity_update'], TRUE)
     && isset($implementations['access_news'])) {
     $impl = $implementations['access_news'];
@@ -494,12 +534,13 @@ function access_news_module_implements_alter(&$implementations, $hook) {
 /**
  * Implements hook_entity_insert().
  *
- *  * Provide message that approval is required.
+ * Provide message that approval is required.
  */
-function access_news_entity_insert(EntityInterface $entity) {
+function access_news_entity_insert(EntityInterface $entity): void {
 
   $type = $entity->getEntityTypeId();
   if ($type == 'eventseries') {
+    /** @var \Drupal\recurring_events\Entity\EventSeries $entity */
     if (!$entity->isPublished()) {
       $allowed_roles = ['affinity_group_leader'];
       if (!in_array($allowed_roles, \Drupal::currentUser()->getRoles())) {
@@ -508,43 +549,54 @@ function access_news_entity_insert(EntityInterface $entity) {
       }
     }
     else {
-      // For published event: Check if broadcast to listed AGs desired, do it if so.
-      affinityGroupBroadcast($entity, FALSE);
+      // For published event: Check if broadcast to listed AGs desired,
+      // do it if so.
+      access_news_affinity_group_broadcast($entity, FALSE);
     }
   }
 }
 
 /**
+ * Implements hook_entity_update().
  *
+ * Broadcasts published ACCESS News and Event Series to their Affinity
+ * Groups, if requested.
  */
-function access_news_entity_update(EntityInterface $node) {
+function access_news_entity_update(EntityInterface $node): void {
 
   $type = $node->bundle();
   if ($type != 'access_news') {
     $type = $node->getEntityTypeId();
   }
   // @todo possible want to allow broadcast on an individual event as well.
-  // if ($type == 'access_news' || $type == 'eventseries' || $type == 'eventinstance') {
+  // if ($type == 'access_news' || $type == 'eventseries'
+  // || $type == 'eventinstance') {
   if ($type == 'access_news' || $type == 'eventseries') {
-
+    /** @var \Drupal\Core\Entity\ContentEntityInterface&\Drupal\Core\Entity\EntityPublishedInterface $node */
     if ($node->isPublished()) {
-      affinityGroupBroadcast($node, $type);
+      access_news_affinity_group_broadcast($node, $type);
     }
   }
 }
 
 /**
- * Send email to constant contact email list of chosen Affinity Groups
- *  if both:
- * 1) option to BroadcastToAffinityGroup is checked
- * 2) at least one affinity group specified
+ * Sends email to constant contact email list of chosen Affinity Groups.
+ *
+ * Sends only if both:
+ * 1) option to BroadcastToAffinityGroup is checked.
+ * 2) at least one affinity group specified.
  *
  * Should also be in published state, but that is checked before we get here.
  * After send attempt, uncheck the broadcast option.
- * Meant to be used by both News items and Events Series
- * $newsType is eventseries or access_news (or tdb: eventinstance)
+ * Meant to be used by both News items and Events Series.
+ *
+ * @param \Drupal\Core\Entity\ContentEntityInterface $node
+ *   The ACCESS News node or EventSeries entity being broadcast.
+ * @param bool|string $newsType
+ *   'Eventseries' or 'access_news' (or tdb: eventinstance); may also be
+ *   passed as a boolean by some callers (loosely compared below).
  */
-function affinityGroupBroadcast(EntityInterface $node, $newsType) {
+function access_news_affinity_group_broadcast(ContentEntityInterface $node, $newsType): void {
   $getFields = $node->getFields();
   $broadcastArray = $getFields['field_choose_where_to_share_this']->getValue();
   $broadcast = 0;
@@ -572,6 +624,11 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
 
       // Get the current domain (where the broadcast is being initiated from)
       // to use for URLs in the email.
+      // Note: DomainNegotiatorInterface::getActiveDomain() is documented as
+      // always returning a DomainInterface, but the implementation can
+      // return NULL if no domain has been negotiated, so the type is
+      // corrected here.
+      /** @var \Drupal\domain\DomainInterface|null $current_domain */
       $current_domain = \Drupal::service('domain.negotiator')->getActiveDomain();
       if ($current_domain) {
         $currentDomainId = $current_domain->id();
@@ -597,8 +654,10 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
 
           // Get logo image url for use in community template.
           if ($useCommunityTemplate) {
-            if (!empty($ag->get('field_image')->entity)) {
-              $uri = $ag->get('field_image')->entity->getFileUri();
+            /** @var \Drupal\file\FileInterface|null $logo_file */
+            $logo_file = $ag->get('field_image')->entity;
+            if (!empty($logo_file)) {
+              $uri = $logo_file->getFileUri();
               $logoUrl = \Drupal::service('file_url_generator')->generateAbsoluteString($uri);
             }
           }
@@ -617,7 +676,7 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
         // Use the current domain for the URL.
         $newsUrl = _access_news_build_url_for_domain($node, $currentDomainId);
         $utmCampaign = filter_var($agNames[0], FILTER_SANITIZE_URL) . '-' . date('mdy');
-        $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
+        $newsUrl = access_news_append_utm_cc($newsUrl, $utmCampaign);
 
         // Set pubDate and body; news / eventseries different.
         if ($newsType == 'access_news') {
@@ -628,22 +687,26 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
           $pubDate = date_format($date, 'F j, Y');
 
           // check_markup applies all the filters that are set for the
-          // basic_html for security and also to add host to img src, for example
-          // We don't use the renderer because we need to separate the title.
+          // basic_html for security and also to add host to img src,
+          // for example.
+          // We don't use the renderer because we need to separate the
+          // title.
           $bodyArray = $getFields['body']->getValue();
           $body = check_markup($bodyArray[0]['value'], 'basic_html');
         }
         else {
           // Newstype is eventseries.
+          /** @var \Drupal\recurring_events\Entity\EventSeries $node */
           $pubDate = NULL;
 
-          // If there's only one event instance, link to that instance instead of the series.
+          // If there's only one event instance, link to that instance
+          // instead of the series.
           if ($node->getInstanceCount() == 1) {
             $instances = $node->get('event_instances')->referencedEntities();
             if (!empty($instances)) {
               $first_instance = reset($instances);
               $newsUrl = _access_news_build_url_for_domain($first_instance, $currentDomainId);
-              $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
+              $newsUrl = access_news_append_utm_cc($newsUrl, $utmCampaign);
             }
           }
           elseif ($node->getInstanceCount() > 1) {
@@ -654,7 +717,7 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
           // Body set using a custom view mode: ccemail.
           $view_builder = \Drupal::entityTypeManager()->getViewBuilder('eventseries');
           $renderArray = $view_builder->view($node, 'ccemail');
-          $body = \Drupal::service('renderer')->renderPlain($renderArray);
+          $body = \Drupal::service('renderer')->renderInIsolation($renderArray);
 
           $body = str_replace('Event Instances', 'Event Date & Time', $body);
 
@@ -671,10 +734,12 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
 
           // Transform relative URLs to absolute using the current domain.
           if (!empty($body)) {
+            /** @var \Drupal\domain\Entity\Domain|null $domain */
             $domain = \Drupal::entityTypeManager()->getStorage('domain')->load($currentDomainId);
             if ($domain) {
               // Build base URL: scheme + hostname.
-              // getScheme() returns 'https://' or 'http://' with the separator included.
+              // getScheme() returns 'https://' or 'http://' with the
+              // separator included.
               $domain_url = $domain->getScheme() . $domain->getHostname();
               $body = Html::transformRootRelativeUrlsToAbsolute($body, $domain_url);
             }
@@ -693,8 +758,9 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
           return;
         }
 
-        // Now emailing the group; set option broadcast off. If user wants to email again after
-        // and edit, they will need to check the box again.
+        // Now emailing the group; set option broadcast off. If user
+        // wants to email again after and edit, they will need to
+        // check the box again.
         $node->set('field_choose_where_to_share_this', $broadcastArray);
         $node->save();
 
@@ -722,8 +788,12 @@ function affinityGroupBroadcast(EntityInterface $node, $newsType) {
  *
  *  noSend: if true, only creates the campaign; otherwise sends a preliminary
  *  email @todo to ??
+ *
+ * @param bool $noSend
+ *   If true, only creates the campaign; otherwise sends a preliminary
+ *   email.
  */
-function weeklyNewsReport($noSend) {
+function access_news_weekly_news_report(bool $noSend): void {
 
   try {
     // Gather all news published from 14 days ago until today.
@@ -739,7 +809,7 @@ function weeklyNewsReport($noSend) {
       ->format(DateTimeItemInterface::DATE_STORAGE_FORMAT);
 
     $wrapper = new EmailWrapper();
-    $newsHTML = newsRangeView($d1, $d2, $utmCampaign);
+    $newsHTML = access_news_news_range_view($d1, $d2, $utmCampaign);
     $mainHeader = $wrapper->mainHeadHTML("The ACCESS Digest // " . $dtDigestDate->format('F j, Y'));
     $sectionHeader = $wrapper->sectionHeadHTML(t('Announcements'));
     $newsHTML = $newsHTML != '' ? $mainHeader . $sectionHeader . $newsHTML : $mainHeader;
@@ -756,12 +826,12 @@ function weeklyNewsReport($noSend) {
       ->format(DateTimeItemInterface::DATETIME_STORAGE_FORMAT);
 
     Drupal::logger('cron_accessnews')->notice('Digest: events from: ' . $d1 . ' to: ' . $d2);
-    $conference = eventsRangeView($d1, $d2, 'Conference', t('Conferences'), $utmCampaign);
-    $trainings = eventsRangeView($d1, $d2, 'Training', t('Training'), $utmCampaign);
-    $other = eventsRangeView($d1, $d2, 'zz_other', t('Other Events'), $utmCampaign);
-    $office_hours = eventsRangeView($d1, $d2, 'Office Hours', t('Office Hours'), $utmCampaign);
+    $conference = access_news_events_range_view($d1, $d2, 'Conference', t('Conferences'), $utmCampaign);
+    $trainings = access_news_events_range_view($d1, $d2, 'Training', t('Training'), $utmCampaign);
+    $other = access_news_events_range_view($d1, $d2, 'zz_other', t('Other Events'), $utmCampaign);
+    $office_hours = access_news_events_range_view($d1, $d2, 'Office Hours', t('Office Hours'), $utmCampaign);
 
-    $eventHTML = $conference . $trainings .  $office_hours . $other;
+    $eventHTML = $conference . $trainings . $office_hours . $other;
 
     $emailHTML = $wrapper->ccNewsRollupHTML($newsHTML, $eventHTML);
 
@@ -770,33 +840,41 @@ function weeklyNewsReport($noSend) {
 
     $ccResponse = setupEmailCampaign('The ACCESS Digest // ' . $dtDigestDate->format('F j, Y'), $emailHTML, $campaignName);
     if (!$ccResponse) {
-      \Drupal::logger('cron_accessnews')->error('weeklyNewsReport: error setting up campaign. Make sure Constant Contact calls are not disabled.');
+      \Drupal::logger('cron_accessnews')->error('access_news_weekly_news_report: error setting up campaign. Make sure Constant Contact calls are not disabled.');
     }
   }
   catch (Exception $e) {
-    \Drupal::logger('cron_accessnews')->error('weeklyNewsReport: ' . $e->getMessage());
+    \Drupal::logger('cron_accessnews')->error('access_news_weekly_news_report: ' . $e->getMessage());
   }
-  // Possible todo: if !nosend, send email to xx saying the draft is ready. Or perhaps send a CC test mail to the person.
-  return;
+  // Possible todo: if !nosend, send email to xx saying the draft is
+  // ready. Or perhaps send a CC test mail to the person.
 }
-
 
 /**
  * OfficeHours type returned.
+ *
+ * @param array<int|string, mixed> $ids
+ *   Event series IDs mapped to their upcoming instance data.
+ * @param string|null $utmCampaign
+ *   Text for utm_campaign=.
+ *
+ * @return string
+ *   Rendered HTML for the recurring office hours events.
  */
-function officeHours($ids, $utmCampaign = NULL) {
+function access_news_office_hours(array $ids, $utmCampaign = NULL): string {
   $wrapper = new EmailWrapper();
   $eventseries_office_hours = [];
 
   foreach ($ids as $entity_id => $entities) {
+    /** @var \Drupal\recurring_events\Entity\EventSeries $entity */
     $entity = \Drupal::entityTypeManager()->getStorage('eventseries')->load($entity_id);
 
     $title = $entity->get('title')->value;
     $recur_type = $entity->get('recur_type')->value;
 
     $weekly_recurring_day = $entity->get('weekly_recurring_date')->__get('days');
-    //$weekly_recurring_time = $entity->get('weekly_recurring_date')->__get('time');
-
+    // $weekly_recurring_time = $entity->get('weekly_recurring_date')
+    // ->__get('time');
     $monthly_occurance = $entity->get('monthly_recurring_date')->__get('day_occurrence');
     $monthly_days = $entity->get('monthly_recurring_date')->__get('days');
 
@@ -804,10 +882,11 @@ function officeHours($ids, $utmCampaign = NULL) {
     if ($body == NULL) {
       $body = $entity->get('body')->view('list');
       $body = $body[0] != NULL ? $body[0] : '';
-      $body = \Drupal::service('renderer')->renderPlain($body);
+      $body = \Drupal::service('renderer')->renderInIsolation($body);
     }
 
     $n = 0;
+    $time = '';
     foreach ($entities as $entity) {
       $date = $entity['date'];
       $url = $entity['url'];
@@ -836,15 +915,14 @@ function officeHours($ids, $utmCampaign = NULL) {
 
   $recurring_events = '';
   $recurring_events_exists = 0;
-  foreach ($eventseries_office_hours as $eid => $event) {
+  foreach ($eventseries_office_hours as $event) {
     $recurring_events_exists = 1;
-    $eventUrl = appendUtmCC("https://support.access-ci.org//events/series/$eid", $utmCampaign);
 
     if ($event['day_of_week']) {
-      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['day_of_week']}s at {$event['time']}", $event['body'], null);
+      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['day_of_week']}s at {$event['time']}", $event['body'], NULL);
     }
     else {
-      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['monthly_occurance']} {$event['monthly_days']} at {$event['time']}", $event['body'], null);
+      $recurring_events .= $wrapper->eventItemHTML($event['title'], "{$event['monthly_occurance']} {$event['monthly_days']} at {$event['time']}", $event['body'], NULL);
     }
   }
 
@@ -856,12 +934,22 @@ function officeHours($ids, $utmCampaign = NULL) {
 }
 
 /**
- * NewsRangeView
- * Return html list of news in this date range.
- * Each item shows Title, date, time, excerpt, location, link to news item
- * utmCampaign: text for utm_campaign=
+ * Returns html list of news in this date range.
+ *
+ * Each item shows Title, date, time, excerpt, location, link to news
+ * item. utmCampaign: text for utm_campaign=.
+ *
+ * @param string $fromDate
+ *   The start of the date range, in storage format.
+ * @param string $toDate
+ *   The end of the date range, in storage format.
+ * @param string $utmCampaign
+ *   Text for utm_campaign=.
+ *
+ * @return string
+ *   Rendered HTML list of news items.
  */
-function newsRangeView($fromDate, $toDate, $utmCampaign) {
+function access_news_news_range_view(string $fromDate, string $toDate, string $utmCampaign): string {
 
   $listDisplay = '';
   $wrapper = new EmailWrapper();
@@ -877,38 +965,42 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
       ->execute();
 
     $nodes = Node::loadMultiple($nids);
-    $nCount = 0;
     foreach ($nodes as $node) {
 
       try {
-        $nCount += 1;
-
         $title = $node->getTitle();
 
         // Gets format Apr 03, 2023; want 4/3/2023.
-        $pubDate = $node->field_published_date[0]->view('alt_teaser');
-        $pubDateDisp = \Drupal::service('renderer')->renderPlain($pubDate);
+        /** @var \Drupal\Core\Field\FieldItemInterface $published_date_item */
+        $published_date_item = $node->field_published_date[0];
+        $pubDate = $published_date_item->view('alt_teaser');
+        $pubDateDisp = \Drupal::service('renderer')->renderInIsolation($pubDate);
         $pubDate = date_create_from_format('M d, Y', $pubDateDisp);
         $pubDateDisp = $pubDate->format('n/j/Y');
 
-        // For body section, meant to be a snippet, this will return either a nicely
-        // truncated version of the body (the length is configured on site via
-        // /admin/structure/types/manage/access_news/display/alt_teaser )
-        // or, if the user has set the "custom summary", will return that instead.
-        // @todo The body is returned with <p>body</p> markup, but the summary is not.
-        // (need to distiguish because the news items with and without custom summary
-        //  will have different spacing in the digest.  Or do something with css)
+        // For body section, meant to be a snippet, this will return
+        // either a nicely truncated version of the body (the length
+        // is configured on site via
+        // /admin/structure/types/manage/access_news/display/alt_teaser)
+        // or, if the user has set the "custom summary", will return
+        // that instead.
+        // @todo The body is returned with <p>body</p> markup, but the
+        // summary is not. (need to distiguish because the news items
+        // with and without custom summary will have different
+        // spacing in the digest. Or do something with css)
         if ($node->body[0] != NULL) {
-          $body = $node->body[0]->view('teaser');
-          $bodyRendered = \Drupal::service('renderer')->renderPlain($body);
+          /** @var \Drupal\Core\Field\FieldItemInterface $body_item */
+          $body_item = $node->body[0];
+          $body = $body_item->view('teaser');
+          $bodyRendered = \Drupal::service('renderer')->renderInIsolation($body);
           $bodyDisp = "<p>$bodyRendered</p>";
         }
         else {
           $bodyDisp = '<p></p>';
         }
 
-        $newsUrl = ACCESS_SUPPORT_URL . $node->toUrl()->toString();
-        $newsUrl = appendUtmCC($newsUrl, $utmCampaign);
+        $newsUrl = AccessNewsInterface::SUPPORT_URL . $node->toUrl()->toString();
+        $newsUrl = access_news_append_utm_cc($newsUrl, $utmCampaign);
 
         $itemDisplay = $wrapper->newsItemHTML($title, $pubDateDisp, $bodyDisp, $newsUrl);
       }
@@ -926,16 +1018,29 @@ function newsRangeView($fromDate, $toDate, $utmCampaign) {
 }
 
 /**
- * EventsRangeView
- * Note: the date/times should have 0 for time for the end date; if not
- * the date should be +1 from needed date.
- * Return html list of news in this date range.
- *  utmCampaign: text for utm_campaign=
+ * Returns html list of events in this date range.
+ *
+ * Note: the date/times should have 0 for time for the end date; if
+ * not the date should be +1 from needed date. utmCampaign: text for
+ * utm_campaign=.
+ *
+ * @param string $fromDate
+ *   The start of the date range, in storage format.
+ * @param string $toDate
+ *   The end of the date range, in storage format.
+ * @param string $type
+ *   The event type to filter on (e.g. 'Conference', 'Training').
+ * @param string|\Drupal\Core\StringTranslation\TranslatableMarkup $type_title
+ *   The human-readable section title for this event type.
+ * @param string $utmCampaign
+ *   Text for utm_campaign=.
+ *
+ * @return string
+ *   Rendered HTML list of events.
  */
-function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) {
+function access_news_events_range_view(string $fromDate, string $toDate, string $type, $type_title, string $utmCampaign): string {
 
   $listDisplay = '';
-  $eCount = 0;
   $wrapper = new EmailWrapper();
 
   $weekly_id = [];
@@ -954,23 +1059,21 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
     $eventNodes = EventInstance::loadMultiple($eids);
     foreach ($eventNodes as $enode) {
       try {
-        $eCount += 1;
         $series = $enode->getEventSeries();
         $series_id = $series->id();
-        // todo: Replace with new where to share checkbox soon.
-        //$no_share = $series->get('field_event_no_listing')->value;
-
+        // @todo Replace with new where to share checkbox soon.
+        // $no_share = $series->get('field_event_no_listing')->value;
         $where_share = $series->get('field_choose_where_to_share_this');
         $no_share = 1;
         foreach ($where_share as $ws) {
-          if ($ws->value == 'in_the_access_support_bi_weekly_digest') {
+          if ($ws->get('value')->getValue() == 'in_the_access_support_bi_weekly_digest') {
             $no_share = 0;
           }
         }
 
         $recur_type = $series->get('recur_type')->value;
 
-        if ($series->field_event_type->value != $type) {
+        if ($series->get('field_event_type')->value != $type) {
           continue;
         }
 
@@ -983,8 +1086,8 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
         $titleArray = $fields['title']->getValue();
         $title = $titleArray[0]['value'];
 
-        $eventUrl = ACCESS_SUPPORT_URL . $enode->toUrl()->toString();
-        $eventUrl = appendUtmCC($eventUrl, $utmCampaign);
+        $eventUrl = AccessNewsInterface::SUPPORT_URL . $enode->toUrl()->toString();
+        $eventUrl = access_news_append_utm_cc($eventUrl, $utmCampaign);
 
         // Event date-time is stored as array of 'value' and
         // 'end_value' in UTC format.
@@ -1009,7 +1112,8 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
         // Include end date only if different
         // display ex: 2/21/2023 4:00 PM - 6:30 PM EST.
         $date = new DateTime("now", new DateTimeZone("America/New_York"));
-        $tz = $date->format('T'); // EST or EDT
+        // EST or EDT.
+        $tz = $date->format('T');
 
         $dateTimeDisp = $startEvent->format('n/j/Y g:i a')
           . ' - ' . $endDisplay . " " . $tz;
@@ -1017,17 +1121,25 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
         // Inheritance computed field — instance override falls back to series.
         $summary = $enode->get('event_summary')->value;
         if ($summary == NULL) {
-          $body = empty($enode->description[0]) ? '' : $enode->description[0]->view('rollup_list');
-          $body = \Drupal::service('renderer')->renderPlain($body);
+          if (empty($enode->description[0])) {
+            $body = '';
+          }
+          else {
+            /** @var \Drupal\Core\Field\FieldItemInterface $description_item */
+            $description_item = $enode->description[0];
+            $body = $description_item->view('rollup_list');
+          }
+          $body = \Drupal::service('renderer')->renderInIsolation($body);
         }
         else {
           $body = '<p>' . $summary . '</p>';
         }
         $bodyDisp = $body;
 
-        // $location = empty($enode->location[0]) ? '' : $enode->location[0]->view('rollup_list');
-        // $locationDisp = \Drupal::service('renderer')->renderPlain($location);
-
+        // $location = empty($enode->location[0]) ? '' :
+        // $enode->location[0]->view('rollup_list');
+        // $locationDisp = \Drupal::service('renderer')
+        // ->renderInIsolation($location);
         if ($recur_type == 'weekly_recurring_date') {
           $weekly_id[$series_id][] = [
             'title' => $title,
@@ -1055,15 +1167,14 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
 
       $listDisplay = $listDisplay . $itemDisplay;
     } // end for
-
     if (count($weekly_id)) {
       $listDisplay .= $wrapper->sectionSubHeadHTML(t("Weekly"));
-      $listDisplay .= officeHours($weekly_id, $utmCampaign);
+      $listDisplay .= access_news_office_hours($weekly_id, $utmCampaign);
     }
 
     if (count($monthly_id)) {
       $listDisplay .= $wrapper->sectionSubHeadHTML(t("Monthly"));
-      $listDisplay .= officeHours($monthly_id, $utmCampaign);
+      $listDisplay .= access_news_office_hours($monthly_id, $utmCampaign);
     }
 
     $sectionHeader = $wrapper->sectionHeadHTML($type_title);
@@ -1076,24 +1187,33 @@ function eventsRangeView($fromDate, $toDate, $type, $type_title,  $utmCampaign) 
 }
 
 /**
+ * Appends Constant Contact utm_campaign tracking parameters to a URL.
  *
+ * @param string $url
+ *   The URL to append tracking parameters to.
+ * @param string $utmCampaign
+ *   Text for utm_campaign=.
+ *
+ * @return string
+ *   The URL with tracking parameters appended.
  */
-function appendUtmCC($url, $utmCampaign) {
+function access_news_append_utm_cc(string $url, string $utmCampaign): string {
   return ($url . '?utm_source=constantcontact&utm_medium=email&utm_campaign=' . $utmCampaign);
 }
 
 /**
  * Implements hook_cron().
+ *
  * Do the weekly news and events rollup if it's time.
  */
-function access_news_cron() {
+function access_news_cron(): void {
   try {
-    if (accessNewsCronShouldRun()) {
+    if (access_news_cron_should_run()) {
 
       // Ny timezone.
       $currentTime = \Drupal::time()->getCurrentTime();
       \Drupal::state()->set('access_news.crontime-rollupnews', $currentTime);
-      weeklyNewsReport(FALSE);
+      access_news_weekly_news_report(FALSE);
     }
   }
   catch (Exception $e) {
@@ -1102,12 +1222,12 @@ function access_news_cron() {
 }
 
 /**
- * AccessNewsCronShouldRun
  * Returns true if it's time to run the news+events rollup.
+ *
  * Want to run on 1st and 3rd Mondays of the month after 3 am.
  * We assume the calling cron job runs every hour.
  */
-function accessNewsCronShouldRun() {
+function access_news_cron_should_run(): bool {
 
   // UTC timestamp.
   $currentTime = \Drupal::time()->getCurrentTime();
@@ -1134,13 +1254,13 @@ function accessNewsCronShouldRun() {
  *
  * @param \Drupal\Core\Entity\EntityInterface $entity
  *   The entity (node, eventseries, or eventinstance) to get the URL for.
- * @param string $domain_id
+ * @param string|null $domain_id
  *   The domain ID to use for building the URL.
  *
  * @return string
  *   The full URL with domain.
  */
-function _access_news_build_url_for_domain($entity, $domain_id) {
+function _access_news_build_url_for_domain(EntityInterface $entity, ?string $domain_id): string {
   $path = $entity->toUrl()->toString();
 
   // Under Domain Source, toString() may already be an absolute URL (rewritten
@@ -1151,6 +1271,7 @@ function _access_news_build_url_for_domain($entity, $domain_id) {
   }
 
   try {
+    /** @var \Drupal\domain\Entity\Domain|null $domain */
     $domain = \Drupal::entityTypeManager()
       ->getStorage('domain')
       ->load($domain_id);
@@ -1160,19 +1281,22 @@ function _access_news_build_url_for_domain($entity, $domain_id) {
     }
 
     // Fallback to ACCESS Support URL if domain load fails.
-    return ACCESS_SUPPORT_URL . $path;
+    return AccessNewsInterface::SUPPORT_URL . $path;
   }
   catch (\Exception $e) {
     \Drupal::logger('access_news')
       ->error('Error building URL for domain: ' . $e->getMessage());
-    return ACCESS_SUPPORT_URL . $path;
+    return AccessNewsInterface::SUPPORT_URL . $path;
   }
 }
 
 /**
  * Implements hook_theme().
+ *
+ * @phpstan-param array<string, mixed> $existing
+ * @phpstan-return array<string, mixed>
  */
-function access_news_theme($existing, $type, $theme, $path): array {
+function access_news_theme(array $existing, string $type, string $theme, string $path): array {
   return [
     'requestnews_block' => [
       'variables' => [''],

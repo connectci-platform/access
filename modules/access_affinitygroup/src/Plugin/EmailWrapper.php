@@ -3,6 +3,7 @@
 namespace Drupal\access_affinitygroup\Plugin;
 
 use Drupal\access_affinitygroup\Plugin\ConstantContactApi;
+use Drupal\access_news\AccessNewsInterface;
 
 /**
  * @file
@@ -811,7 +812,7 @@ DIVIDERHTML;
     $fbIcon = $this->imageUrl('circleIconFacebook.png');
     $bsIcon = $this->imageUrl('circleIconBluesky.png');
     $ytIcon = $this->imageUrl('circleIconYoutube.png');
-    $nsfLogo = ACCESS_SUPPORT_URL . '/themes/contrib/asp-theme/assets/NSF_4-Color_bitmap_Logo_350x350.png';
+    $nsfLogo = AccessNewsInterface::SUPPORT_URL . '/themes/contrib/asp-theme/assets/NSF_4-Color_bitmap_Logo_350x350.png';
 
     $emailText = <<<EMAILTEXT1
     <html lang="en-US">
@@ -1250,7 +1251,7 @@ DIVIDERHTML;
                 When you join the ACCESS Support Affinity Group you'll receive these weekly digests.";
 
     $buttonText = "See Affinity Groups";
-    $buttonUrl = ACCESS_SUPPORT_URL . '/affinity-groups';
+    $buttonUrl = AccessNewsInterface::SUPPORT_URL . '/affinity-groups';
 
     $html = <<<ROLLUPSTATIC1
     <table class="layout" style="table-layout:fixed" width="100%" border="0" cellpadding="0" cellspacing="0">
@@ -1321,8 +1322,8 @@ DIVIDERHTML;
    */
   private function ccRollupBottomStatic2() {
     $title = $this->titleHTML('Do you have announcements or trainings to share?');
-    $newsUrl = ACCESS_SUPPORT_URL . '/announcements';
-    $eventsUrl = ACCESS_SUPPORT_URL . '/events';
+    $newsUrl = AccessNewsInterface::SUPPORT_URL . '/announcements';
+    $eventsUrl = AccessNewsInterface::SUPPORT_URL . '/events';
 
     $bodyHtml = <<<BODY
       <span>Add your </span>

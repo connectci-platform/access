@@ -26,7 +26,7 @@ class EventWhereToShare extends ProcessorPluginBase {
   /**
    * {@inheritdoc}
    */
-  public function getPropertyDefinitions(DatasourceInterface $datasource = NULL) {
+  public function getPropertyDefinitions(?DatasourceInterface $datasource = NULL) {
     $properties = [];
 
     if (!$datasource) {
@@ -44,8 +44,11 @@ class EventWhereToShare extends ProcessorPluginBase {
 
   /**
    * {@inheritdoc}
+   *
+   * @param \Drupal\search_api\Item\ItemInterface<\Drupal\search_api\Item\FieldInterface> $item
+   *   The item whose fields should be added.
    */
-  public function addFieldValues(ItemInterface $item) {
+  public function addFieldValues(ItemInterface $item): void {
     $entity = $item->getOriginalObject()->getValue();
 
     $fields = $item->getFields();

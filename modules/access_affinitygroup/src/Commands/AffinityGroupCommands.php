@@ -439,7 +439,7 @@ class AffinityGroupCommands extends DrushCommands {
    * @usage   access_affinitygroup:newsRollup
    */
   public function newsRollup() {
-    $retval = weeklyNewsReport(TRUE);
+    $retval = access_news_weekly_news_report(TRUE);
     $this->output()->writeln($retval);
   }
 

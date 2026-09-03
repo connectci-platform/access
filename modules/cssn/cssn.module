@@ -2,6 +2,7 @@
 
 /**
  * @file
+ * Module for CSSN.
  */
 
 use Drupal\Core\Access\AccessResult;
@@ -16,23 +17,20 @@ use Drupal\user\Entity\User;
 use Drupal\views\ViewExecutable;
 
 /**
- * @file
- * Module for CSSN.
- */
-
-/**
  * Implements hook_views_pre_render().
  */
-function cssn_views_pre_render(ViewExecutable $view) {
+function cssn_views_pre_render(ViewExecutable $view): void {
   if ($view->id() == 'cssn_directory') {
     $view->element['#attached']['library'][] = 'cssn/cssn_directory';
   }
 }
 
 /**
- * Implements hook_preprocess_views_view_field for views-view-field.html.twig.
+ * Implements hook_preprocess_HOOK() for views-view-field.html.twig.
+ *
+ * @phpstan-param array<string, mixed> $variables
  */
-function cssn_preprocess_views_view_field(&$variables) {
+function cssn_preprocess_views_view_field(array &$variables): void {
   $view = $variables['view'];
   $field = $variables['field'];
 
@@ -49,12 +47,15 @@ function cssn_preprocess_views_view_field(&$variables) {
         if (!empty($term_ids[0])) {
           foreach ($term_ids as $term_id) {
             $term = Term::load($term_id);
-            if ($term->get('field_badge')->entity != NULL) {
+            /** @var \Drupal\file\FileInterface|null $badge_file */
+            $badge_file = $term ? $term->get('field_badge')->entity : NULL;
+            if ($badge_file != NULL) {
               $name = $term->get('name')->value;
               $description = $term->get('description')->value;
               $description = $description ? strip_tags($description) : '';
-              $image_alt = $term->get('field_badge')->alt;
-              $image_url = $term->get('field_badge')->entity->getFileUri();
+              $badge_value = $term->get('field_badge')->getValue();
+              $image_alt = $badge_value[0]['alt'] ?? '';
+              $image_url = $badge_file->getFileUri();
               $image = \Drupal::service('file_url_generator')->generateAbsoluteString($image_url);
               if ($image) {
                 if ($name) {
@@ -69,7 +70,8 @@ function cssn_preprocess_views_view_field(&$variables) {
             }
           }
           $badges .= "</ul>";
-        } else {
+        }
+        else {
           $badges = '';
         }
       }
@@ -91,7 +93,7 @@ function cssn_preprocess_views_view_field(&$variables) {
  * Show welcometothecssn block to people in the ACCESS CSSN program/region.
  * Show jointhecssn block to other people.
  */
-function cssn_block_access(Block $block, $operation, AccountInterface $account) {
+function cssn_block_access(Block $block, string $operation, AccountInterface $account): AccessResult {
   if ($block->getPluginId() == 'block_content:58e0d082-2224-43c2-a911-c41e5afc47b9') {
     // If the User is part of the ACCESS CSSN program, show the welcome block.
     $current_user = \Drupal::currentUser();
@@ -124,13 +126,16 @@ function cssn_block_access(Block $block, $operation, AccountInterface $account) 
     }
     return AccessResult::allowed();
   }
-  return  AccessResult::neutral();
+  return AccessResult::neutral();
 }
 
 /**
  * Return a list of selectable roles for CSSN form.
+ *
+ * @return string[]
+ *   The role ids that the CSSN forms expose.
  */
-function cssn_get_roles_array() {
+function cssn_get_roles_array(): array {
   return [
     "mentor",
     "student",
@@ -143,8 +148,10 @@ function cssn_get_roles_array() {
 
 /**
  * Implements hook_form_alter().
+ *
+ * @phpstan-param array<string, mixed> $form
  */
-function cssn_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+function cssn_form_alter(array &$form, FormStateInterface $form_state, string $form_id): void {
   // Handle role forms.
   if (
     $form_id == 'webform_submission_edit_your_cssn_roles_add_form' ||
@@ -208,10 +215,10 @@ function cssn_form_alter(&$form, FormStateInterface $form_state, $form_id) {
     $term = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadByProperties(['name' => 'ACCESS CSSN']);
     $term = reset($term);
     $term_id = $term->id();
-    $role_program_sorter = new RoleProgramSorter($user);
+    $role_program_sorter = new RoleProgramSorter($user, \Drupal::entityTypeManager(), \Drupal::messenger());
     $region_set = $role_program_sorter->lookupRegion($term_id);
     if ($form_id == 'webform_submission_join_the_cssn_network_add_form' && $roles_set && !$region_set) {
-      \Drupal::messenger()->addMessage(t('The boxes checked below reflect your current roles, please select \'General Member\' and submit this form to participate in the CSSN.'), 'warning');
+      \Drupal::messenger()->addMessage(t("The boxes checked below reflect your current roles, please select 'General Member' and submit this form to participate in the CSSN."), 'warning');
     }
 
     // Set submit action.
@@ -224,23 +231,30 @@ function cssn_form_alter(&$form, FormStateInterface $form_state, $form_id) {
 
 /**
  * Initialize form element academic status.
+ *
+ * @param array<string, mixed> $form
+ *   The form structure.
  */
-function cssn_form_update_academic_status(&$form) {
+function cssn_form_update_academic_status(array &$form): void {
   $user = \Drupal::currentUser();
   $account = User::load($user->id());
-  $academic_status = $account->field_academic_status->getValue();
+  $academic_status = $account->get('field_academic_status')->getValue();
   $academic_status = count($academic_status) ? $academic_status[0]['value'] : NULL;
   $form['elements']['academic_status_select2']['#default_value'] = $academic_status;
 }
 
 /**
- * Implements hook_form_submit().
+ * Form submit handler for the CSSN roles webform.
+ *
+ * @param array<string, mixed> $form
+ *   The form structure.
+ * @param \Drupal\Core\Form\FormStateInterface $form_state
+ *   The form state.
  */
-function cssn_role_form_submit(&$form, FormStateInterface $form_state) {
-
+function cssn_role_form_submit(array &$form, FormStateInterface $form_state): void {
   $form_roles = cssn_get_roles_array();
   $user = \Drupal::currentUser();
-  $role_program_sorter = new RoleProgramSorter($user);
+  $role_program_sorter = new RoleProgramSorter($user, \Drupal::entityTypeManager(), \Drupal::messenger());
   foreach ($form_roles as $role) {
     $set_role = in_array($role, $form['elements']['roles_']['#value']);
     if ($set_role) {
@@ -258,9 +272,14 @@ function cssn_role_form_submit(&$form, FormStateInterface $form_state) {
 }
 
 /**
- * Implements hook_form_submit().
+ * Form submit handler for the join the CSSN network webform.
+ *
+ * @param array<string, mixed> $form
+ *   The form structure.
+ * @param \Drupal\Core\Form\FormStateInterface $form_state
+ *   The form state.
  */
-function cssn_form_submit(&$form, FormStateInterface $form_state) {
+function cssn_form_submit(array &$form, FormStateInterface $form_state): void {
   $elements = $form['elements']['i_am_joining_as_a_'];
 
   $general = $elements['General Member']['#checked'] ?? FALSE;
@@ -282,24 +301,40 @@ function cssn_form_submit(&$form, FormStateInterface $form_state) {
 
 /**
  * Update user's academic status.
+ *
+ * @param \Drupal\Core\Session\AccountInterface $user
+ *   The account to update.
+ * @param array<string, mixed> $form
+ *   The submitted form structure.
  */
-function cssn_update_academic_status($user, $form) {
+function cssn_update_academic_status(AccountInterface $user, array $form): void {
   $academic_status = $form['elements']['academic_status_select2']['#value'];
   $account = User::load($user->id());
-  $account->field_academic_status->setValue($academic_status);
+  $account->get('field_academic_status')->setValue($academic_status);
   $account->save();
 }
 
 /**
  * Set or remove role and region and add badge for CSSN.
+ *
+ * @param string $role
+ *   The role id to add or remove.
+ * @param bool $checked
+ *   Whether the role was selected on the form.
+ * @param int|string $term_id
+ *   The taxonomy term id of the CSSN region.
+ * @param bool $enroll_program
+ *   Whether the user should be enrolled in the CSSN program.
+ * @param \Drupal\Core\Session\AccountInterface $user
+ *   The account to update.
  */
-function cssn_role_region($role, $checked, $term_id, $enroll_program, $user) {
-  $role_program_sorter = new RoleProgramSorter($user);
+function cssn_role_region(string $role, bool $checked, $term_id, bool $enroll_program, AccountInterface $user): void {
+  $role_program_sorter = new RoleProgramSorter($user, \Drupal::entityTypeManager(), \Drupal::messenger());
   $scipe_badge = \Drupal::service('access_badges.badgeTools')->getBadgeTid('SCIPE Awardee');
 
   // Lookup user field 'field_user_badges'.
-  $user = User::load($user->id());
-  $badgetid = $user->get('field_user_badges')->getValue();
+  $account = User::load($user->id());
+  $badgetid = $account->get('field_user_badges')->getValue();
 
   if ($checked) {
     if (!empty($role)) {
@@ -308,8 +343,8 @@ function cssn_role_region($role, $checked, $term_id, $enroll_program, $user) {
         $has_badge = array_filter($badgetid, fn($b) => $b['target_id'] == $scipe_badge);
         if (empty($has_badge)) {
           $badgetid[] = ['target_id' => $scipe_badge];
-          $user->set('field_user_badges', $badgetid);
-          $user->save();
+          $account->set('field_user_badges', $badgetid);
+          $account->save();
         }
       }
       // Flag user as part of the CSSN Affinity Group.
@@ -321,11 +356,12 @@ function cssn_role_region($role, $checked, $term_id, $enroll_program, $user) {
       if ($cssn_affinity_group) {
         $flag_id = 'affinity_group';
         $flag = \Drupal::service('cssn.flag');
-        $set_flag = $flag->setFlag($flag_id, $cssn_affinity_group, $user);
+        $set_flag = $flag->setFlag($flag_id, $cssn_affinity_group, $account);
         if ($set_flag) {
           \Drupal::messenger()->addMessage(t('You have been added to the CSSN Affinity Group.'));
         }
-      } else {
+      }
+      else {
         \Drupal::logger('cssn')->error('Could not load CSSN affinity group with tid 794');
       }
     }
@@ -345,8 +381,8 @@ function cssn_role_region($role, $checked, $term_id, $enroll_program, $user) {
           }
         }
         if ($badge_unset) {
-          $user->set('field_user_badges', $badgetid);
-          $user->save();
+          $account->set('field_user_badges', $badgetid);
+          $account->save();
         }
       }
     }
@@ -358,9 +394,10 @@ function cssn_role_region($role, $checked, $term_id, $enroll_program, $user) {
 
 /**
  * Implements hook_entity_update().
- * Invalidate community persona caching when user is updated.
+ *
+ * Invalidates community persona caching when a user is updated.
  */
-function cssn_entity_update(EntityInterface $entity) {
+function cssn_entity_update(EntityInterface $entity): void {
   $type = $entity->bundle();
   if ($type == 'user') {
     \Drupal::service('cache_tags.invalidator')->invalidateTags(['community_persona']);
@@ -369,8 +406,10 @@ function cssn_entity_update(EntityInterface $entity) {
 
 /**
  * Implements hook_page_attachments_alter().
+ *
+ * @phpstan-param array<string, mixed> $attachments
  */
-function cssn_page_attachments_alter(array &$attachments) {
+function cssn_page_attachments_alter(array &$attachments): void {
   $route_match = \Drupal::routeMatch();
 
   if ($route_match->getRouteName() === 'cssn.public_page') {
@@ -379,7 +418,7 @@ function cssn_page_attachments_alter(array &$attachments) {
     if (is_numeric($uid)) {
       $user = User::load($uid);
 
-      if ($user && count($user->field_region->getValue()) > 0 &&
+      if ($user && count($user->get('field_region')->getValue()) > 0 &&
           !($user->hasField('field_hide_community_profile') &&
             (bool) $user->get('field_hide_community_profile')->value === TRUE)) {
         $first_name = $user->get('field_user_first_name')->value ?? '';
@@ -396,8 +435,10 @@ function cssn_page_attachments_alter(array &$attachments) {
 
         // Get user bio for description.
         $bio = $user->get('field_user_bio')->value ?? '';
-        $description = !empty($bio) ? strip_tags($bio) : "View $full_name's community persona profile on $site_name.";
-        // Trim description to 160 characters for meta description best practice.
+        $description = !empty($bio) ? strip_tags($bio)
+          : "View $full_name's community persona profile on $site_name.";
+        // Trim description to 160 characters, a meta description best
+        // practice.
         if (strlen($description) > 160) {
           $description = substr($description, 0, 157) . '...';
         }
@@ -442,6 +483,7 @@ function cssn_page_attachments_alter(array &$attachments) {
 
         // Optional: Add user image if available.
         if ($user->hasField('user_picture') && !$user->get('user_picture')->isEmpty()) {
+          /** @var \Drupal\file\FileInterface|null $user_picture */
           $user_picture = $user->get('user_picture')->entity;
           if ($user_picture) {
             $image_uri = $user_picture->getFileUri();

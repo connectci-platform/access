@@ -2,33 +2,115 @@
 
 namespace Drupal\cssn\Controller;
 
-use Drupal\webform\Entity\WebformSubmission;
 use Drupal\views\Views;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Component\Utility\Html;
+use Drupal\Core\Database\Connection;
+use Drupal\Core\File\FileUrlGeneratorInterface;
 use Drupal\Core\Link;
+use Drupal\Core\PageCache\ResponsePolicy\KillSwitch;
+use Drupal\Core\Render\RendererInterface;
+use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Url;
+use Drupal\Core\Utility\Token;
+use Drupal\file\FileInterface;
 use Drupal\ccmnet\Plugin\Util\MentorshipLookup;
 use Drupal\cssn\Plugin\Util\EndUrl;
 use Drupal\cssn\Plugin\Util\MatchLookup;
 use Drupal\cssn\Plugin\Util\ProjectLookup;
-use Drupal\taxonomy\Entity\Term;
-use Drupal\user\Entity\User;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
 /**
  * Controller for Community Persona.
+ *
+ * @phpstan-consistent-constructor
  */
 class CommunityPersonaController extends ControllerBase {
 
   /**
+   * The database connection.
+   *
+   * @var \Drupal\Core\Database\Connection
+   */
+  protected Connection $database;
+
+  /**
+   * The renderer.
+   *
+   * @var \Drupal\Core\Render\RendererInterface
+   */
+  protected RendererInterface $renderer;
+
+  /**
+   * The token service.
+   *
+   * @var \Drupal\Core\Utility\Token
+   */
+  protected Token $token;
+
+  /**
+   * The file URL generator.
+   *
+   * @var \Drupal\Core\File\FileUrlGeneratorInterface
+   */
+  protected FileUrlGeneratorInterface $fileUrlGenerator;
+
+  /**
+   * The page cache kill switch.
+   *
+   * @var \Drupal\Core\PageCache\ResponsePolicy\KillSwitch
+   */
+  protected KillSwitch $pageCacheKillSwitch;
+
+  /**
+   * Constructs a CommunityPersonaController.
+   *
+   * @param \Drupal\Core\Database\Connection $database
+   *   The database connection.
+   * @param \Drupal\Core\Render\RendererInterface $renderer
+   *   The renderer.
+   * @param \Drupal\Core\Utility\Token $token
+   *   The token service.
+   * @param \Drupal\Core\File\FileUrlGeneratorInterface $file_url_generator
+   *   The file URL generator.
+   * @param \Drupal\Core\PageCache\ResponsePolicy\KillSwitch $page_cache_kill_switch
+   *   The page cache kill switch.
+   */
+  public function __construct(Connection $database, RendererInterface $renderer, Token $token, FileUrlGeneratorInterface $file_url_generator, KillSwitch $page_cache_kill_switch) {
+    $this->database = $database;
+    $this->renderer = $renderer;
+    $this->token = $token;
+    $this->fileUrlGenerator = $file_url_generator;
+    $this->pageCacheKillSwitch = $page_cache_kill_switch;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public static function create(ContainerInterface $container) {
+    return new static(
+      $container->get('database'),
+      $container->get('renderer'),
+      $container->get('token'),
+      $container->get('file_url_generator'),
+      $container->get('page_cache_kill_switch')
+    );
+  }
+
+  /**
    * List of affinity groups given user has flagged.
+   *
+   * @param \Drupal\Core\Session\AccountInterface $user
+   *   The account whose affinity groups are listed.
+   * @param bool $public
+   *   Whether the list is rendered on a public profile.
    *
    * @return string
    *   List of affinity groups.
    */
-  public function affinityGroupList($user, $public = FALSE) {
-    $query = \Drupal::database()->select('flagging', 'fl');
+  public function affinityGroupList(AccountInterface $user, bool $public = FALSE): string {
+    $query = $this->database->select('flagging', 'fl');
     $query->condition('fl.uid', $user->id());
     $query->condition('fl.flag_id', 'affinity_group');
     $query->fields('fl', ['entity_id']);
@@ -36,22 +118,22 @@ class CommunityPersonaController extends ControllerBase {
     $affinity_groups = array_unique($affinity_groups);
     $user_affinity_groups = "<ul>";
     if ($affinity_groups == NULL && $public === FALSE) {
-      $user_affinity_groups = '<p class="mb-3">' . t('You currently are not connected to any Affinity groups. Click below to explore.') . "</p>";
+      $user_affinity_groups = '<p class="mb-3">' . $this->t('You currently are not connected to any Affinity groups. Click below to explore.') . "</p>";
     }
     if ($affinity_groups == NULL && $public === TRUE) {
-      $user_affinity_groups = '<p class="mb-3">' . t('Not connected to any Affinity groups.') . "</p>";
+      $user_affinity_groups = '<p class="mb-3">' . $this->t('Not connected to any Affinity groups.') . "</p>";
     }
     if ($user_affinity_groups == '<ul>') {
       $user_affinity_groups = '<ul class="grid grid-cols-2 my-3">';
       foreach ($affinity_groups as $affinity_group) {
-        $query = \Drupal::database()->select('taxonomy_index', 'ti');
+        $query = $this->database->select('taxonomy_index', 'ti');
         $query->condition('ti.tid', $affinity_group);
         $query->fields('ti', ['nid']);
         $affinity_group_nid = $query->execute()->fetchCol();
 
         $ag_node = [];
         foreach ($affinity_group_nid as $nid) {
-          $affinity_group_loaded = \Drupal::entityTypeManager()->getStorage('node')->load($nid);
+          $affinity_group_loaded = $this->entityTypeManager()->getStorage('node')->load($nid);
           // Get node type.
           $node_type = $affinity_group_loaded->bundle();
           if ($node_type == 'affinity_group') {
@@ -64,16 +146,15 @@ class CommunityPersonaController extends ControllerBase {
           $affinity_group_loaded = $ag_node;
           $persona_source = $affinity_group_loaded->get('field_persona_source')->value;
           $env = getenv('PANTHEON_ENVIRONMENT');
-          $token = \Drupal::token();
-          $domainName = Html::getClass($token->replace(t('[domain:name]')));
+          $domain_name = Html::getClass($this->token->replace('[domain:name]'));
 
-          if ($persona_source == 'openondemand' && $domainName != 'open-ondemand' && $env == 'live') {
+          if ($persona_source == 'openondemand' && $domain_name != 'open-ondemand' && $env == 'live') {
             $url = Url::fromUri('https://ondemand.connectci.org/node/' . $affinity_group_loaded->id());
           }
-          elseif ($persona_source == 'access' && $domainName != 'access' && $env == 'live') {
+          elseif ($persona_source == 'access' && $domain_name != 'access' && $env == 'live') {
             $url = Url::fromUri('https://support.access-ci.org/node/' . $affinity_group_loaded->id());
           }
-          elseif ($persona_source == 'ccmnet' && $domainName != 'ccmnet' && $env == 'live') {
+          elseif ($persona_source == 'ccmnet' && $domain_name != 'ccmnet' && $env == 'live') {
             $url = Url::fromUri('https://ccmnet.org/node/' . $affinity_group_loaded->id());
           }
           else {
@@ -83,7 +164,7 @@ class CommunityPersonaController extends ControllerBase {
           $class = ['font-bold', 'underline', 'hover--no-underline', 'hover--text-dark-teal'];
           $project_link = Link::fromTextAndUrl($affinity_group_loaded->getTitle(), $url)->toRenderable();
           $project_link['#attributes'] = ['class' => $class];
-          $link = \Drupal::service('renderer')->render($project_link);
+          $link = $this->renderer->render($project_link);
           $user_affinity_groups .= "<li>$link</li>";
         }
       }
@@ -95,41 +176,55 @@ class CommunityPersonaController extends ControllerBase {
   /**
    * Link to Affinity page.
    *
-   * @return string
-   *   Link to affinity page.
+   * @return array<string, mixed>
+   *   Render array for the link to the affinity page.
    */
-  public function buildAffinityLink() {
+  public function buildAffinityLink(): array {
     $affinity_url = Url::fromUri('internal:/affinity-groups');
     $affinity_link = Link::fromTextAndUrl('All Affinity Groups', $affinity_url);
     $affinity_renderable = $affinity_link->toRenderable();
     $build_affinity_link = $affinity_renderable;
-    $build_affinity_link['#attributes']['class'] = ['btn', 'btn-outline-dark', 'btn-md-teal', 'btn-sm', 'py-1', 'px-2', 'm-0'];
+    $build_affinity_link['#attributes']['class'] = [
+      'btn',
+      'btn-outline-dark',
+      'btn-md-teal',
+      'btn-sm',
+      'py-1',
+      'px-2',
+      'm-0',
+    ];
     return $build_affinity_link;
   }
 
   /**
    * Return list of flagged Expertise.
    *
+   * @param \Drupal\Core\Session\AccountInterface $user
+   *   The account whose skills are listed.
+   * @param bool $public
+   *   Whether the list is rendered on a public profile.
+   *
    * @return string
    *   List of expertise.
    */
-  public function mySkills($user, $public = FALSE) {
-    $term = \Drupal::database()->select('flagging', 'fl');
+  public function mySkills(AccountInterface $user, bool $public = FALSE): string {
+    $term = $this->database->select('flagging', 'fl');
     $term->condition('fl.uid', $user->id());
     $term->condition('fl.flag_id', 'skill');
     $term->fields('fl', ['entity_id']);
     $flagged_skills = $term->execute()->fetchCol();
     $my_skills = "";
     if ($flagged_skills == NULL && $public === FALSE) {
-      $my_skills = '<p class="mb-3">' . t('You currently have not added any skills. Click update expertise to add.') . "</p>";
+      $my_skills = '<p class="mb-3">' . $this->t('You currently have not added any skills. Click update expertise to add.') . "</p>";
     }
     if ($flagged_skills == NULL && $public === TRUE) {
-      $my_skills = '<p>' . t('No skills added.') . "</p>";
+      $my_skills = '<p>' . $this->t('No skills added.') . "</p>";
     }
     if ($my_skills == "") {
       $my_skills = "<ul class='ms-0 ml-0 d-flex flex flex-wrap list-none list-unstyled'>";
+      $term_storage = $this->entityTypeManager()->getStorage('taxonomy_term');
       foreach ($flagged_skills as $flagged_skill) {
-        $term_title = Term::load($flagged_skill)->get('name')->value;
+        $term_title = $term_storage->load($flagged_skill)->get('name')->value;
         $my_skills .= "<li class='ps-0 mb-1 me-1 mr-1'><a class='no-underline font-normal px-2 py-1 hover--border-dark-teal border' href='/taxonomy/term/" . $flagged_skill . "'>" . $term_title . "</a></li>";
       }
       $my_skills .= "</ul>";
@@ -140,28 +235,34 @@ class CommunityPersonaController extends ControllerBase {
   /**
    * Return list of Knowledge Contributions.
    *
+   * @param \Drupal\Core\Session\AccountInterface $user
+   *   The account whose contributions are listed.
+   * @param bool $public
+   *   Whether the list is rendered on a public profile.
+   *
    * @return string
    *   List of Knowledge Contributions.
    */
-  public function knowledgeBaseContrib($user, $public = FALSE) {
-    $ws_query = \Drupal::entityQuery('webform_submission')
+  public function knowledgeBaseContrib(AccountInterface $user, bool $public = FALSE): string {
+    $submission_storage = $this->entityTypeManager()->getStorage('webform_submission');
+    $ws_results = $submission_storage->getQuery()
       ->condition('uid', $user->id())
       ->condition('uri', '/form/resource')
-      ->accessCheck(FALSE);
-    $ws_results = $ws_query->execute();
+      ->accessCheck(FALSE)
+      ->execute();
     $ws_link = "<ul>";
     if ($ws_results == NULL && $public === FALSE) {
-      $ws_link = '<p class="mb-3">' . t('You currently have not contributed to the Knowledge Base. Click below to contribute.') . "</p>";
+      $ws_link = '<p class="mb-3">' . $this->t('You currently have not contributed to the Knowledge Base. Click below to contribute.') . "</p>";
     }
     if ($ws_results == NULL && $public === TRUE) {
-      $ws_link = '<p>' . t('No contributions to the Knowledge Base.') . "</p>";
+      $ws_link = '<p>' . $this->t('No contributions to the Knowledge Base.') . "</p>";
     }
     if ($ws_link == "<ul>") {
       $ws_link = "<ul class='list-unstyled list-none mx-0 my-3 p-0'>";
       $n = 1;
       foreach ($ws_results as $ws_result) {
         $stripe_class = $n % 2 == 0 ? 'bg-light bg-light-teal' : '';
-        $ws = WebformSubmission::load($ws_result);
+        $ws = $submission_storage->load($ws_result);
         $url = '/knowledge-base/resources/' . $ws->id();
         $ws_data = $ws->getData();
         $ws_link .= '<li class="p-3 ' . $stripe_class . '"><a href=' . $url . ' class="font-bold underline hover--no-underline hover--text-dark-teal">' . $ws_data['title'] . '</a></li>';
@@ -175,10 +276,15 @@ class CommunityPersonaController extends ControllerBase {
   /**
    * Return list of engagements.
    *
+   * @param \Drupal\Core\Session\AccountInterface $user
+   *   The account whose engagements are listed.
+   * @param bool $public
+   *   Whether the list is rendered on a public profile.
+   *
    * @return string
    *   List of engagements.
    */
-  public function matchList($user, $public = FALSE) {
+  public function matchList(AccountInterface $user, bool $public = FALSE): string {
     $fields = [
       'field_match_interested_users' => 'Interested',
       'field_mentor' => 'Mentor',
@@ -186,7 +292,7 @@ class CommunityPersonaController extends ControllerBase {
       'field_consultant' => 'Consultant',
       'field_researcher' => 'Researcher',
     ];
-    $matches = new MatchLookup($fields, $user->id(), $public);
+    $matches = new MatchLookup($fields, $user->id(), $this->database, $this->entityTypeManager(), $public);
     // Sort by status.
     $matches->sortStatusMatches();
     $match_list = $matches->getMatchList();
@@ -206,17 +312,22 @@ class CommunityPersonaController extends ControllerBase {
   /**
    * Return list of mentorships.
    *
+   * @param \Drupal\Core\Session\AccountInterface $user
+   *   The account whose mentorships are listed.
+   * @param bool $public
+   *   Whether the list is rendered on a public profile.
+   *
    * @return string
    *   List of mentorships.
    */
-  public function mentorList($user, $public = FALSE) {
+  public function mentorList(AccountInterface $user, bool $public = FALSE): string {
     $fields = [
       'field_match_interested_users' => 'Interested',
       'field_mentor' => 'Mentor',
       'field_mentee' => 'Mentee',
       'field_me_ccmnet_leadership' => 'CCMNet Leadership Team Liaison',
     ];
-    $mentorships = new MentorshipLookup(\Drupal::database(), \Drupal::entityTypeManager(), $fields, $user->id(), $public);
+    $mentorships = new MentorshipLookup($this->database, $this->entityTypeManager(), $fields, $user->id(), $public);
     $mentorship_list = $mentorships->getMentorshipList();
     $mentorship_link = "<ul class='list-unstyled mx-0 my-3 p-0'>";
     if ($mentorship_list == NULL && $public === FALSE) {
@@ -234,10 +345,15 @@ class CommunityPersonaController extends ControllerBase {
   /**
    * Return list of engagements.
    *
+   * @param \Drupal\Core\Session\AccountInterface $user
+   *   The account whose engagements are listed.
+   * @param bool $public
+   *   Whether the list is rendered on a public profile.
+   *
    * @return string
    *   List of engagements.
    */
-  public function mmatchList($user, $public = FALSE) {
+  public function mmatchList(AccountInterface $user, bool $public = FALSE): string {
     $fields = [
       'field_match_interested_users' => 'Interested',
       'field_mentor' => 'Mentor',
@@ -245,7 +361,7 @@ class CommunityPersonaController extends ControllerBase {
       'field_consultant' => 'Consultant',
       'field_researcher' => 'Researcher',
     ];
-    $matches = new MatchLookup($fields, $user->id(), $public);
+    $matches = new MatchLookup($fields, $user->id(), $this->database, $this->entityTypeManager(), $public);
     // Sort by status.
     $matches->sortStatusMatches();
     $match_list = $matches->getMatchList();
@@ -265,10 +381,15 @@ class CommunityPersonaController extends ControllerBase {
   /**
    * Return list of projects.
    *
+   * @param \Drupal\Core\Session\AccountInterface $user
+   *   The account whose projects are listed.
+   * @param bool $public
+   *   Whether the list is rendered on a public profile.
+   *
    * @return string
    *   List of projects.
    */
-  public function projectList($user, $public = FALSE) {
+  public function projectList(AccountInterface $user, bool $public = FALSE): string {
     $fields = [
       'email' => 'Project Leader',
       'mentor' => 'Mentor',
@@ -278,7 +399,7 @@ class CommunityPersonaController extends ControllerBase {
       'students' => 'Student-facilitator(s)',
       'interested_in_project' => 'Interested',
     ];
-    $projects = new ProjectLookup($fields, $user->id(), $user->getEmail());
+    $projects = new ProjectLookup($fields, $user->id(), $user->getEmail(), $this->database, $this->entityTypeManager());
     $projects->sortStatusProjects();
     $project_list = $projects->getProjectList();
     $project_link = "<ul class='list-unstyled list-none mx-0 my-3 p-0'>";
@@ -294,26 +415,32 @@ class CommunityPersonaController extends ControllerBase {
   /**
    * Return list of Interests.
    *
+   * @param \Drupal\Core\Session\AccountInterface $user
+   *   The account whose interests are listed.
+   * @param bool $public
+   *   Whether the list is rendered on a public profile.
+   *
    * @return string
    *   List of the person's interest.
    */
-  public function buildInterests($user, $public = FALSE) {
-    $term_interest = \Drupal::database()->select('flagging', 'fl');
+  public function buildInterests(AccountInterface $user, bool $public = FALSE): string {
+    $term_interest = $this->database->select('flagging', 'fl');
     $term_interest->condition('fl.uid', $user->id());
     $term_interest->condition('fl.flag_id', 'interest');
     $term_interest->fields('fl', ['entity_id']);
     $flagged_interests = $term_interest->execute()->fetchCol();
     $my_interests = "";
     if ($flagged_interests == NULL && $public === FALSE) {
-      $my_interests = '<p>' . t('You currently have not added any interests. Click update interests to add.') . "</p>";
+      $my_interests = '<p>' . $this->t('You currently have not added any interests. Click update interests to add.') . "</p>";
     }
     if ($flagged_interests == NULL && $public === TRUE) {
-      $my_interests = '<p>' . t('No interests added.') . "</p>";
+      $my_interests = '<p>' . $this->t('No interests added.') . "</p>";
     }
     if ($my_interests == "") {
       $my_interests = "<ul class='ms-0 ml-0 d-flex flex flex-wrap list-none list-unstyled'>";
+      $term_storage = $this->entityTypeManager()->getStorage('taxonomy_term');
       foreach ($flagged_interests as $flagged_interest) {
-        $term_title = Term::load($flagged_interest)->get('name')->value;
+        $term_title = $term_storage->load($flagged_interest)->get('name')->value;
         $my_interests .= "<li class='ps-0 mb-1 me-1 mr-1'><a class='no-underline font-normal px-2 py-1 hover--border-dark-teal border' href='/taxonomy/term/" . $flagged_interest . "'>" . $term_title . "</a></li>";
       }
       $my_interests .= "</ul>";
@@ -324,11 +451,17 @@ class CommunityPersonaController extends ControllerBase {
   /**
    * Return list of Appverse Contributions for a user.
    *
+   * @param \Drupal\Core\Session\AccountInterface $user
+   *   The account whose contributions are listed.
+   * @param bool $public
+   *   Whether the list is rendered on a public profile.
+   *
    * @return string
    *   List of appverse app contributions.
    */
-  public function appverseContributions($user, $public = FALSE) {
-    $nids = \Drupal::entityQuery('node')
+  public function appverseContributions(AccountInterface $user, bool $public = FALSE): string {
+    $node_storage = $this->entityTypeManager()->getStorage('node');
+    $nids = $node_storage->getQuery()
       ->condition('type', 'appverse_app')
       ->condition('uid', $user->id())
       ->accessCheck(FALSE)
@@ -338,7 +471,7 @@ class CommunityPersonaController extends ControllerBase {
       return '';
     }
 
-    $nodes = \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($nids);
+    $nodes = $node_storage->loadMultiple($nids);
     uasort($nodes, fn($a, $b) => strnatcasecmp($a->getTitle(), $b->getTitle()));
     $items = '';
     $n = 1;
@@ -348,14 +481,16 @@ class CommunityPersonaController extends ControllerBase {
       $class = ['font-bold', 'underline', 'hover--no-underline', 'hover--text-dark-teal'];
       $link = Link::fromTextAndUrl($title, $url)->toRenderable();
       $link['#attributes'] = ['class' => $class];
-      $rendered_link = \Drupal::service('renderer')->render($link);
+      $rendered_link = $this->renderer->render($link);
 
       $logo_html = '';
       if (!$node->get('field_appverse_software_implemen')->isEmpty()) {
+        /** @var \Drupal\node\NodeInterface|null $software_node */
         $software_node = $node->get('field_appverse_software_implemen')->entity;
-        if ($software_node && !$software_node->get('field_appverse_logo')->isEmpty()) {
+        if ($software_node !== NULL && !$software_node->get('field_appverse_logo')->isEmpty()) {
+          /** @var \Drupal\media\MediaInterface|null $media */
           $media = $software_node->get('field_appverse_logo')->entity;
-          if ($media) {
+          if ($media !== NULL) {
             $file = NULL;
             if ($media->bundle() === 'svg' && $media->hasField('field_media_image_1') && !$media->get('field_media_image_1')->isEmpty()) {
               $file = $media->get('field_media_image_1')->entity;
@@ -363,19 +498,18 @@ class CommunityPersonaController extends ControllerBase {
             elseif ($media->hasField('field_media_image') && !$media->get('field_media_image')->isEmpty()) {
               $file = $media->get('field_media_image')->entity;
             }
-            if ($file) {
-              $file_url = \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri());
-              $alt = Html::escape($software_node->getTitle() . ' logo');
+            if ($file instanceof FileInterface) {
+              $file_url = $this->fileUrlGenerator->generateAbsoluteString($file->getFileUri());
+              $alt = Html::escape($software_node->label() . ' logo');
               $logo_html = '<img src="' . $file_url . '" alt="' . $alt . '" class="me-2 mr-2" style="width:24px;height:24px;object-fit:contain;" />';
             }
           }
         }
-      else {
-        // First letter of software name if no logo image is available.
-        $first_letter = strtoupper(substr($title, -1));
-        $logo_html = '<div class="me-2 mr-2 d-flex align-items-center justify-content-center rounded text-gray-dark bg-gray bg-header-gray text-center font-weight-bold" style="width:24px;height:24px;font-size:14px;">' . $first_letter . '</div>';
-      }
-
+        else {
+          // First letter of software name if no logo image is available.
+          $first_letter = strtoupper(substr($title, -1));
+          $logo_html = '<div class="me-2 mr-2 d-flex align-items-center justify-content-center rounded text-gray-dark bg-gray bg-header-gray text-center font-weight-bold" style="width:24px;height:24px;font-size:14px;">' . $first_letter . '</div>';
+        }
       }
       $items .= '<li class="p-3 d-flex flex align-items-center">' . $logo_html . $rendered_link . '</li>';
       $n++;
@@ -387,11 +521,14 @@ class CommunityPersonaController extends ControllerBase {
   /**
    * Return the processed bio.
    *
+   * @param int|string $uid
+   *   The id of the user whose bio is returned.
+   *
    * @return string
    *   Processed bio markup, or an empty string when there is no bio.
    */
-  public function userBio($uid): string {
-    $user_entity = \Drupal::entityTypeManager()->getStorage('user')->load($uid);
+  public function userBio(int|string $uid): string {
+    $user_entity = $this->entityTypeManager()->getStorage('user')->load($uid);
     if (!$user_entity || $user_entity->get('field_user_bio')->isEmpty()) {
       return '';
     }
@@ -409,13 +546,23 @@ class CommunityPersonaController extends ControllerBase {
   /**
    * Return discourse contribution.
    *
-   * @return array
+   * @param int|string $uid
+   *   The id of the user whose contributions are returned.
+   *
+   * @return array<string, int>
    *   Discourse contribution data.
    */
-  public function discourseContrib($uid) {
-    $query = \Drupal::database()->select('ood_disc_contrib', 'odc');
+  public function discourseContrib(int|string $uid): array {
+    $query = $this->database->select('ood_disc_contrib', 'odc');
     $query->condition('odc.uid', $uid);
-    $query->fields('odc', ['post_count', 'topic_count', 'likes_given', 'likes_received', 'days_visited', 'solved_count']);
+    $query->fields('odc', [
+      'post_count',
+      'topic_count',
+      'likes_given',
+      'likes_received',
+      'days_visited',
+      'solved_count',
+    ]);
     $result = $query->execute()->fetch();
 
     $contrib = [
@@ -431,10 +578,13 @@ class CommunityPersonaController extends ControllerBase {
 
   /**
    * Build content to display on page.
+   *
+   * @return array<string, mixed>
+   *   Render array for the community persona page.
    */
-  public function communityPersona() {
+  public function communityPersona(): array {
     // My Affinity Groups.
-    $current_user = \Drupal::currentUser();
+    $current_user = $this->currentUser();
 
     // User Bio.
     $bio = $this->userBio($current_user->id());
@@ -454,14 +604,18 @@ class CommunityPersonaController extends ControllerBase {
     $edit_interest_url = Url::fromUri('internal:/community-persona/add-interest');
     $edit_interest_link = Link::fromTextAndUrl('Update interests', $edit_interest_url);
     $edit_interest_renderable = $edit_interest_link->toRenderable();
-    $edit_interest_renderable['#attributes']['class'] = ['btn', 'btn-primary', 'btn-sm', 'py-1', 'px-2'];
+    $edit_interest_renderable['#attributes']['class'] = [
+      'btn', 'btn-primary', 'btn-sm', 'py-1', 'px-2',
+    ];
     // My Expertise.
     $my_skills = $this->mySkills($current_user);
     // Link to add Skills/Expertise.
     $edit_skill_url = Url::fromUri('internal:/community-persona/add-skill');
     $edit_skill_link = Link::fromTextAndUrl('Update skills', $edit_skill_url);
     $edit_skill_renderable = $edit_skill_link->toRenderable();
-    $edit_skill_renderable['#attributes']['class'] = ['btn', 'btn-primary', 'btn-sm', 'py-1', 'px-2'];
+    $edit_skill_renderable['#attributes']['class'] = [
+      'btn', 'btn-primary', 'btn-sm', 'py-1', 'px-2',
+    ];
     // My Knowledge Base Contributions.
     $ws_link = $this->knowledgeBaseContrib($current_user);
 
@@ -470,7 +624,9 @@ class CommunityPersonaController extends ControllerBase {
     $webform_link = Link::fromTextAndUrl('Add Resource', $webform_url);
     $webform_renderable = $webform_link->toRenderable();
     $build_webform_link = $webform_renderable;
-    $build_webform_link['#attributes']['class'] = ['btn', 'btn-outline-dark', 'btn-md-teal', 'btn-sm', 'py-1', 'px-2', 'm-0'];
+    $build_webform_link['#attributes']['class'] = [
+      'btn', 'btn-outline-dark', 'btn-md-teal', 'btn-sm', 'py-1', 'px-2', 'm-0',
+    ];
     // My Match Engagements.
     $match_link = $this->matchList($current_user);
     // Link to see all Match Engagements.
@@ -478,7 +634,9 @@ class CommunityPersonaController extends ControllerBase {
     $match_engage_link = Link::fromTextAndUrl('See engagements', $match_engage_url);
     $match_engage_renderable = $match_engage_link->toRenderable();
     $build_match_engage_link = $match_engage_renderable;
-    $build_match_engage_link['#attributes']['class'] = ['btn', 'btn-outline-dark', 'btn-md-teal', 'btn-sm', 'py-1', 'px-2', 'm-0'];
+    $build_match_engage_link['#attributes']['class'] = [
+      'btn', 'btn-outline-dark', 'btn-md-teal', 'btn-sm', 'py-1', 'px-2', 'm-0',
+    ];
     // Mentorships.
     $mentorships = $this->mentorList($current_user);
     // My Projects.
@@ -488,7 +646,7 @@ class CommunityPersonaController extends ControllerBase {
     $user_event_registrations = '';
     $total_items = 0;
 
-    // Only show registrations for authenticated users
+    // Only show registrations for authenticated users.
     if (!$current_user->isAnonymous()) {
       $view = Views::getView('recurring_events_registrations');
       $view->setDisplay('user_event_registrations');
@@ -500,7 +658,7 @@ class CommunityPersonaController extends ControllerBase {
     }
 
     // Load 'field_github_graph' value.
-    $user_fields = \Drupal::entityTypeManager()->getStorage('user')->load($current_user->id());
+    $user_fields = $this->entityTypeManager()->getStorage('user')->load($current_user->id());
     $github_graph = $user_fields->get('field_github_graph')->value;
 
     // Discourse Participation.
@@ -665,68 +823,72 @@ class CommunityPersonaController extends ControllerBase {
           {% endif %}
         </div>',
       '#context' => [
-        'bio_title' => t('Bio'),
+        'bio_title' => $this->t('Bio'),
         'bio' => $bio,
         'bio_expandable' => $bio_expandable,
-        'ag_title' => t('My Affinity Groups'),
-        'ag_intro' => t('Connect with researchers of common interests.'),
+        'ag_title' => $this->t('My Affinity Groups'),
+        'ag_intro' => $this->t('Connect with researchers of common interests.'),
         'user_affinity_groups' => $user_affinity_groups,
         'affinity_link' => $build_affinity_link,
-        'mi_title' => t('My Interests'),
+        'mi_title' => $this->t('My Interests'),
         'my_interests' => $my_interests,
         'edit_interest_link' => $edit_interest_renderable,
-        'me_title' => t('My Skills'),
+        'me_title' => $this->t('My Skills'),
         'my_skills' => $my_skills,
         'edit_skill_link' => $edit_skill_renderable,
-        'match_title' => t('My MATCH Engagements'),
+        'match_title' => $this->t('My MATCH Engagements'),
         'match_links' => $match_link,
-        'mentorships_title' => t('My Mentorships'),
+        'mentorships_title' => $this->t('My Mentorships'),
         'mentorships' => $mentorships,
         'request_match_link' => $build_match_engage_link,
-        'project_title' => t('My Projects'),
+        'project_title' => $this->t('My Projects'),
         'projects' => $projects,
-        'ws_title' => t('My Knowledge Base Contributions'),
+        'ws_title' => $this->t('My Knowledge Base Contributions'),
         'ws_links' => $ws_link,
         'request_webform_link' => $build_webform_link,
-        'user_event_title' => t('My Event Registrations'),
+        'user_event_title' => $this->t('My Event Registrations'),
         'user_event_registrations' => $user_event_registrations,
         'user_event_total_items' => $total_items,
-        'gh_title' => t('Code & Documentation Contributions'),
+        'gh_title' => $this->t('Code & Documentation Contributions'),
         'gh_graph' => $github_graph,
-        'discourse_title' => t('Discourse Participation'),
-        'discourse_post_title' => t('Posts'),
+        'discourse_title' => $this->t('Discourse Participation'),
+        'discourse_post_title' => $this->t('Posts'),
         'discourse_posts' => $discourse_contrib['posts'],
-        'discourse_topic_title' => t('Topics'),
+        'discourse_topic_title' => $this->t('Topics'),
         'discourse_topics' => $discourse_contrib['topics'],
-        'discourse_likes_given_title' => t('Likes Given'),
+        'discourse_likes_given_title' => $this->t('Likes Given'),
         'discourse_likes_given' => $discourse_contrib['likes_given'],
-        'discourse_likes_received_title' => t('Likes Received'),
+        'discourse_likes_received_title' => $this->t('Likes Received'),
         'discourse_likes_received' => $discourse_contrib['likes_received'],
-        'discourse_days_visited_title' => t('Days Visited'),
+        'discourse_days_visited_title' => $this->t('Days Visited'),
         'discourse_days_visited' => $discourse_contrib['days_visited'],
-        'discourse_solved_title' => t('Solutions'),
+        'discourse_solved_title' => $this->t('Solutions'),
         'discourse_solved' => $discourse_contrib['solved'],
-        'appverse_title' => t('My Appverse Contributions'),
+        'appverse_title' => $this->t('My Appverse Contributions'),
         'appverse_contributions' => $appverse_contributions,
       ],
     ];
 
     // Deny any page caching on the current request.
-    \Drupal::service('page_cache_kill_switch')->trigger();
+    $this->pageCacheKillSwitch->trigger();
 
     return $persona_page;
   }
 
   /**
    * Build public version of community persona page.
+   *
+   * @return array<string, mixed>
+   *   Render array for the public community persona page.
    */
-  public function communityPersonaPublic() {
+  public function communityPersonaPublic(): array {
     // Get last item in url.
     $end_url = new EndUrl();
     $user_id = $end_url->getUrlEnd();
     $should_user_load = FALSE;
+    $user = NULL;
     // Get current user id.
-    $current_user = \Drupal::currentUser();
+    $current_user = $this->currentUser();
     // Redirect to to profile if public persona page is for current user.
     if ($current_user->id() == $user_id) {
       $url = Url::fromUri('internal:/community-persona');
@@ -734,9 +896,9 @@ class CommunityPersonaController extends ControllerBase {
       $response->send();
     }
     if (is_numeric($user_id)) {
-      $user = User::load($user_id);
+      $user = $this->entityTypeManager()->getStorage('user')->load($user_id);
       // Don't show profile for people who haven't joined a region/program.
-      if ($user !== NULL && count($user->field_region->getValue()) > 0) {
+      if ($user !== NULL && count($user->get('field_region')->getValue()) > 0) {
         if ($user->hasField('field_hide_community_profile') &&
             (bool) $user->get('field_hide_community_profile')->value === TRUE) {
           $should_user_load = FALSE;
@@ -925,39 +1087,39 @@ class CommunityPersonaController extends ControllerBase {
             {% endif %}
           </div>',
         '#context' => [
-          'bio_title' => t('Bio'),
+          'bio_title' => $this->t('Bio'),
           'bio' => $bio,
           'bio_expandable' => $bio_expandable,
-          'ag_title' => t('Affinity Groups'),
+          'ag_title' => $this->t('Affinity Groups'),
           'user_affinity_groups' => $user_affinity_groups,
-          'mi_title' => t('Interests'),
+          'mi_title' => $this->t('Interests'),
           'my_interests' => $my_interests,
-          'me_title' => t('Skills'),
+          'me_title' => $this->t('Skills'),
           'my_skills' => $my_skills,
-          'ws_title' => t('Knowledge Base Contributions'),
+          'ws_title' => $this->t('Knowledge Base Contributions'),
           'ws_links' => $ws_link,
-          'match_title' => t('MATCH Engagements'),
+          'match_title' => $this->t('MATCH Engagements'),
           'match_links' => $match_link,
-          'mentorship_title' => t('Mentorships'),
+          'mentorship_title' => $this->t('Mentorships'),
           'mentorships' => $mentorships,
-          'project_title' => t('Projects'),
+          'project_title' => $this->t('Projects'),
           'projects' => $projects,
-          'gh_title' => t('Code & Documentation Contributions'),
+          'gh_title' => $this->t('Code & Documentation Contributions'),
           'gh_graph' => $github_graph,
-          'discourse_title' => t('Discourse Participation'),
-          'discourse_post_title' => t('Posts'),
+          'discourse_title' => $this->t('Discourse Participation'),
+          'discourse_post_title' => $this->t('Posts'),
           'discourse_posts' => $discourse_contrib['posts'],
-          'discourse_topic_title' => t('Topics'),
+          'discourse_topic_title' => $this->t('Topics'),
           'discourse_topics' => $discourse_contrib['topics'],
-          'discourse_likes_given_title' => t('Likes Given'),
+          'discourse_likes_given_title' => $this->t('Likes Given'),
           'discourse_likes_given' => $discourse_contrib['likes_given'],
-          'discourse_likes_received_title' => t('Likes Received'),
+          'discourse_likes_received_title' => $this->t('Likes Received'),
           'discourse_likes_received' => $discourse_contrib['likes_received'],
-          'discourse_days_visited_title' => t('Days Visited'),
+          'discourse_days_visited_title' => $this->t('Days Visited'),
           'discourse_days_visited' => $discourse_contrib['days_visited'],
-          'discourse_solved_title' => t('Solutions'),
+          'discourse_solved_title' => $this->t('Solutions'),
           'discourse_solved' => $discourse_contrib['solved'],
-          'appverse_title' => t('Appverse Contributions'),
+          'appverse_title' => $this->t('Appverse Contributions'),
           'appverse_contributions' => $appverse_contributions,
         ],
         '#cache' => [
@@ -977,7 +1139,7 @@ class CommunityPersonaController extends ControllerBase {
         '#cache' => [
           'tags' => $cache_tags,
         ],
-        '#markup' => t('No public profile available for this person.'),
+        '#markup' => $this->t('No public profile available for this person.'),
       ];
     }
   }
@@ -987,8 +1149,8 @@ class CommunityPersonaController extends ControllerBase {
    *
    * Set the route title to the user's name if it is a public persona page.
    *
-   * @return string
-   *   Title to use for the route.
+   * @return \Drupal\Core\StringTranslation\TranslatableMarkup|string|null
+   *   Title to use for the route, or NULL to keep the route default.
    */
   public function titleCallback() {
     // It's a public persona page if the url has the uid at the end.
@@ -996,17 +1158,18 @@ class CommunityPersonaController extends ControllerBase {
     $user_id = $end_url->getUrlEnd();
     if (is_numeric($user_id)) {
       // Load the user using the user id.
-      $user = User::load($user_id);
+      $user = $this->entityTypeManager()->getStorage('user')->load($user_id);
       if ($user !== NULL) {
         if ($user->hasField('field_hide_community_profile') &&
             (bool) $user->get('field_hide_community_profile')->value === TRUE) {
-          return t('Community Profile');
+          return $this->t('Community Profile');
         }
         $user_first_name = $user->get('field_user_first_name')->value;
         $user_last_name = $user->get('field_user_last_name')->value;
         return "$user_first_name $user_last_name";
       }
     }
+    return NULL;
   }
 
 }

@@ -2,6 +2,9 @@
 
 namespace Drupal\cssn\Plugin\Util;
 
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
+
 /**
  * Lookup connected Match+ nodes.
  *
@@ -13,25 +16,56 @@ namespace Drupal\cssn\Plugin\Util;
  * )
  */
 class MatchLookup {
-  /**
-   * Store matching nodes.
-   * $var array
-   */
-  private $matches;
 
   /**
-   * Array of sorted matches.
-   * $var array
+   * Store matching nodes, keyed by match field.
+   *
+   * @var array<string, array{name: string, nodes: array<int, \Drupal\node\NodeInterface>}>
    */
-  private $matches_sorted;
+  private array $matches = [];
 
   /**
-   * Function to return matching nodes.
+   * Array of sorted matches, keyed by node id.
+   *
+   * @var array<int|string, array<string, mixed>>
    */
-  public function __construct($match_fields, $match_user_id, $public = FALSE) {
+  private array $matchesSorted = [];
+
+  /**
+   * The database connection.
+   *
+   * @var \Drupal\Core\Database\Connection
+   */
+  private Connection $database;
+
+  /**
+   * The entity type manager.
+   *
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   */
+  private EntityTypeManagerInterface $entityTypeManager;
+
+  /**
+   * Collects the match engagements connected to a user.
+   *
+   * @param array<string, string> $match_fields
+   *   Match engagement field names keyed by the label to display.
+   * @param int|string $match_user_id
+   *   The user id to look matches up for.
+   * @param \Drupal\Core\Database\Connection $database
+   *   The database connection.
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
+   *   The entity type manager.
+   * @param bool $public
+   *   Whether the matches are shown on a public profile.
+   */
+  public function __construct(array $match_fields, $match_user_id, Connection $database, EntityTypeManagerInterface $entity_type_manager, bool $public = FALSE) {
+    $this->database = $database;
+    $this->entityTypeManager = $entity_type_manager;
+
     // If not public, add engagements authored by User.
     if (!$public) {
-      $query = \Drupal::database()->select('node_field_data', 'nfd');
+      $query = $this->database->select('node_field_data', 'nfd');
       $query->fields('nfd', ['nid']);
       $query->condition('nfd.type', 'match_engagement');
       $query->condition('nfd.uid', $match_user_id);
@@ -39,7 +73,7 @@ class MatchLookup {
       $nids = array_column($result, 'nid');
       $this->matches['author'] = [
         'name' => 'Author',
-        'nodes' => \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($nids),
+        'nodes' => $this->entityTypeManager->getStorage('node')->loadMultiple($nids),
       ];
     }
     foreach ($match_fields as $match_field_key => $match_field) {
@@ -50,9 +84,16 @@ class MatchLookup {
 
   /**
    * Function to Run entity query by type.
+   *
+   * @param string $match_field_name
+   *   The label to display for this match field.
+   * @param string $match_field
+   *   The match engagement field to query.
+   * @param int|string $match_user_id
+   *   The user id to look matches up for.
    */
-  public function runQuery($match_field_name, $match_field, $match_user_id) {
-    $query = \Drupal::entityQuery('node')
+  public function runQuery(string $match_field_name, string $match_field, $match_user_id): void {
+    $query = $this->entityTypeManager->getStorage('node')->getQuery()
       ->condition('type', 'match_engagement')
       ->condition($match_field, $match_user_id)
       ->accessCheck(FALSE)
@@ -60,18 +101,21 @@ class MatchLookup {
     if ($query != NULL) {
       $this->matches[$match_field] = [
         'name' => $match_field_name,
-        'nodes' => \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($query),
+        'nodes' => $this->entityTypeManager->getStorage('node')->loadMultiple($query),
       ];
     }
   }
 
   /**
    * Function to lookup nodes and sort array.
+   *
+   * @param bool $public
+   *   Whether the matches are shown on a public profile.
    */
-  public function gatherMatches($public) {
+  public function gatherMatches(bool $public): void {
     $matches = $this->matches;
     $match_array = [];
-    if ($matches == NULL) {
+    if (!$matches) {
       return;
     }
     foreach ($matches as $key => $match) {
@@ -97,14 +141,14 @@ class MatchLookup {
         ];
       }
     }
-    $this->matches_sorted = $match_array;
+    $this->matchesSorted = $match_array;
   }
 
   /**
    * Function to sort by status.
    */
-  public function sortStatusMatches() {
-    $matches = $this->matches_sorted;
+  public function sortStatusMatches(): void {
+    $matches = $this->matchesSorted;
     $draft = $this->arrayPickSort($matches, 'draft');
     $in_review = $this->arrayPickSort($matches, 'in_review');
     $accepted = $this->arrayPickSort($matches, 'accepted');
@@ -116,17 +160,24 @@ class MatchLookup {
     $on_hold = $this->arrayPickSort($matches, 'on_hold');
     $halted = $this->arrayPickSort($matches, 'halted');
     // Combine all of the arrays.
-    $matches_sorted = $draft + $in_review + $accepted + $recruiting + $reviewing + $in_progress + $finishing + $completed + $on_hold + $halted;
-    $this->matches_sorted = $matches_sorted;
+    $this->matchesSorted = $draft + $in_review + $accepted + $recruiting + $reviewing + $in_progress + $finishing + $completed + $on_hold + $halted;
   }
 
   /**
    * Function to pick out a status into an array and sort by title.
+   *
+   * @param array<int|string, array<string, mixed>> $array
+   *   The matches to filter.
+   * @param string $sortby
+   *   The status value to keep.
+   *
+   * @return array<int|string, array<string, mixed>>
+   *   The matching entries, sorted by title.
    */
-  public function arrayPickSort($array, $sortby) {
+  public function arrayPickSort(array $array, string $sortby): array {
     $sorted = [];
-    if ($array == NULL) {
-      return;
+    if (!$array) {
+      return $sorted;
     }
     foreach ($array as $key => $value) {
       if ($value['status'] && $value['status'][0]['value'] == $sortby) {
@@ -141,14 +192,17 @@ class MatchLookup {
 
   /**
    * Function to return styled list.
+   *
+   * @return string
+   *   The rendered list items.
    */
-  public function getMatchList() {
+  public function getMatchList(): string {
     $n = 1;
     $match_link = '';
-    if ($this->matches_sorted == NULL) {
-      return;
+    if (!$this->matchesSorted) {
+      return $match_link;
     }
-    foreach ($this->matches_sorted as $match) {
+    foreach ($this->matchesSorted as $match) {
       $stripe_class = $n % 2 == 0 ? 'bg-light bg-light-teal' : '';
       $title = $match['title'];
       $nid = $match['nid'];
@@ -195,8 +249,11 @@ class MatchLookup {
 
   /**
    * Function to return matching nodes.
+   *
+   * @return array<string, array{name: string, nodes: array<int, \Drupal\node\NodeInterface>}>
+   *   The matches keyed by match field.
    */
-  public function getMatches() {
+  public function getMatches(): array {
     return $this->matches;
   }
 
