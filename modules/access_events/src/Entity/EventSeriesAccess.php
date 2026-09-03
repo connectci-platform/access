@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\access_events\Entity;
 
 use Drupal\Core\Datetime\DrupalDateTime;
+use Drupal\Core\Entity\EntityStorageInterface;
 use Drupal\datetime\Plugin\Field\FieldType\DateTimeItemInterface;
 use Drupal\recurring_events\Entity\EventSeries;
 
@@ -18,6 +19,21 @@ use Drupal\recurring_events\Entity\EventSeries;
 class EventSeriesAccess extends EventSeries {
 
   /**
+   * The five recurrence-rule date-range base fields the invariant covers.
+   *
+   * Each is a cardinality-1 daterange whose value/end_value columns hold the
+   * series' recurrence boundaries; preSave() normalizes all five regardless
+   * of which one the series' recur_type currently activates.
+   */
+  public const RULE_FIELDS = [
+    'consecutive_recurring_date',
+    'daily_recurring_date',
+    'weekly_recurring_date',
+    'monthly_recurring_date',
+    'yearly_recurring_date',
+  ];
+
+  /**
    * Whether an API writer already normalized the recurrence boundaries.
    *
    * Transient (never persisted): set by the write path on the in-memory
@@ -26,6 +42,86 @@ class EventSeriesAccess extends EventSeries {
    * load.
    */
   public bool $recurBoundariesNormalized = FALSE;
+
+  /**
+   * {@inheritdoc}
+   *
+   * Normalizes the recurrence boundaries to `{date}T12:00:00` anchors, keyed
+   * on CHANGE and WRITER — never on the stored value's shape, because the
+   * anchor signature is writer-reachable in-band (a far-east editor saving
+   * at local midnight stores a wrong date wearing `T12:00:00`; trusting the
+   * shape would freeze it forever). Per column, in this order:
+   * - flagged writer: a controller that already normalized set
+   *   $recurBoundariesNormalized, so its values are deliberate anchors,
+   *   correct under any acting-user timezone — stored verbatim;
+   * - unchanged value: byte-identical to the stored original — untouched.
+   *   This branch carries all far-east (UTC >= +12) correctness: a correct
+   *   anchor reads back as next-day under a +12 acting user, and only
+   *   never-re-deriving unchanged values keeps a programmatic re-save
+   *   (moderation, cron) from ratcheting the date a day per save;
+   * - changed value: new input from a form or programmatic write —
+   *   recovered to the saver's intended calendar date and anchored.
+   */
+  public function preSave(EntityStorageInterface $storage) {
+    parent::preSave($storage);
+    foreach (self::RULE_FIELDS as $field) {
+      if (!$this->hasField($field) || $this->get($field)->isEmpty()) {
+        continue;
+      }
+      $item = $this->get($field)->first();
+      foreach (['value', 'end_value'] as $column) {
+        $current = $item->{$column} ?? NULL;
+        if ($current === NULL || $current === '') {
+          continue;
+        }
+        if ($this->recurBoundariesNormalized) {
+          continue;
+        }
+        // "Unchanged" is measured against the DEFAULT revision (what
+        // $this->original holds during save).
+        $originalValue = isset($this->original) ? ($this->original->get($field)->first()->{$column} ?? NULL) : NULL;
+        if (isset($this->original) && $current === $originalValue) {
+          continue;
+        }
+        $item->set($column, self::recoverToAnchor((string) $current));
+      }
+    }
+  }
+
+  /**
+   * Recovers a changed raw boundary to its intended `{date}T12:00:00` anchor.
+   *
+   * An instant-shaped value is what the date widget stored: the chosen date
+   * at the editor's submit-moment wall clock, converted to UTC. Converting
+   * it back into the saver's zone (date_default_timezone_get()) inverts
+   * that write exactly, recovering the calendar date the editor chose —
+   * including the signature-collision case, where a far-east local-midnight
+   * save produced a T12-shaped wrong date.
+   *
+   * @param string $raw
+   *   The changed column value.
+   *
+   * @return string
+   *   The anchored value, or $raw unchanged if its shape is unrecognized.
+   */
+  private static function recoverToAnchor(string $raw): string {
+    // Bare calendar date: LITERAL — it has no instant; parsing it as one
+    // injects the current wall clock and shifts TZ-dependently.
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
+      return $raw . 'T12:00:00';
+    }
+    // `!` zeroes unspecified fields; the strict `\T` separator rejects
+    // space-separated datetimes into the store-unchanged path below rather
+    // than the bare-date branch above.
+    $dt = \DateTime::createFromFormat('!Y-m-d\TH:i:s', $raw, new \DateTimeZone('UTC'));
+    if ($dt === FALSE) {
+      // Unrecognized shape: store unchanged rather than corrupt; decode's
+      // stock branch handles it like any legacy value.
+      return $raw;
+    }
+    $dt->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+    return $dt->format('Y-m-d') . 'T12:00:00';
+  }
 
   /**
    * {@inheritdoc}

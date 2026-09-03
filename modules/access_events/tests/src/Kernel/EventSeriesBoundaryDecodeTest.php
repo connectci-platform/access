@@ -191,14 +191,6 @@ class EventSeriesBoundaryDecodeTest extends EventKernelTestBase {
   }
 
   /**
-   * The fixture trait plants its raw pair on the revision row too.
-   *
-   * Loading through loadRevision() bypasses the default-revision data table,
-   * so a planted value showing up here proves the trait's second UPDATE (the
-   * eventseries_field_revision write) actually lands — a moderation-flow load
-   * of the fixture would otherwise silently see the pre-trait values.
-   */
-  /**
    * Non-anchored rows decode byte-equivalent to contrib's stock getters.
    *
    * The hybrid's legacy branch must keep unmigrated rows and wall-clock
@@ -248,6 +240,53 @@ class EventSeriesBoundaryDecodeTest extends EventKernelTestBase {
     }
   }
 
+  /**
+   * Getters hand out fresh objects and never poison the computed property.
+   *
+   * Contrib's stock getters return the field item's SHARED computed date
+   * object and mutate it in place (setTimezone + setTime) — and a shallow
+   * clone shares the inner \DateTime, so it mutates it just the same. Two
+   * pins against that whole family of regressions:
+   * - two successive getter calls return distinct objects (equal values);
+   * - after a getter runs, the item's raw computed start_date still holds
+   *   the stored UTC instant untouched — under a far-east reader, where a
+   *   mutation would be visible as an Auckland-midnight rewrite.
+   */
+  public function testGettersReturnFreshObjectsWithoutPoisoningTheItem(): void {
+    $series = $this->makeFixtureSeries();
+    [$wallStart, $wallEnd] = self::WALL_CLOCK['daily_recurring_date'];
+    [$anchorStart, $anchorEnd] = self::ANCHORED['monthly_recurring_date'];
+    $this->setRawBoundary($series, 'daily_recurring_date', $wallStart, $wallEnd);
+    $this->setRawBoundary($series, 'monthly_recurring_date', $anchorStart . 'T12:00:00', $anchorEnd . 'T12:00:00');
+
+    $this->asReaderIn('Pacific/Auckland', function () use ($series, $wallStart): void {
+      $storage = \Drupal::entityTypeManager()->getStorage('eventseries');
+      $storage->resetCache([$series->id()]);
+      $loaded = $storage->load($series->id());
+
+      foreach (['getDailyStartDate', 'getMonthlyStartDate'] as $getter) {
+        $first = $loaded->{$getter}();
+        $second = $loaded->{$getter}();
+        $this->assertNotSame($first, $second, "$getter returns a fresh object per call");
+        $this->assertSame(serialize($first), serialize($second), "$getter is stable across calls");
+      }
+
+      // The wall-clock item's shared computed date is unpoisoned: still the
+      // stored UTC instant, not an Auckland midnight.
+      $computed = $loaded->get('daily_recurring_date')->start_date;
+      $this->assertSame($wallStart, $computed->format('Y-m-d\TH:i:s'));
+      $this->assertSame('UTC', $computed->getTimezone()->getName());
+    });
+  }
+
+  /**
+   * The fixture trait plants its raw pair on the revision row too.
+   *
+   * Loading through loadRevision() bypasses the default-revision data table,
+   * so a planted value showing up here proves the trait's second UPDATE (the
+   * eventseries_field_revision write) actually lands — a moderation-flow load
+   * of the fixture would otherwise silently see the pre-trait values.
+   */
   public function testSetRawBoundaryWritesTheRevisionRow(): void {
     $series = $this->makeFixtureSeries();
     $this->setRawBoundary($series, 'weekly_recurring_date', '2026-09-07T12:00:00', '2026-10-19T12:00:00');
