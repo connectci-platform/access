@@ -91,6 +91,9 @@ class AnnouncementTags extends ProcessorPluginBase {
         foreach ($entity->get('field_tags')->getValue() as $value) {
           if (isset($value['target_id'])) {
             $term = $this->entityTypeManager->getStorage('taxonomy_term')->load($value['target_id']);
+            if (!$term) {
+              continue;
+            }
             $field->addValue($term->getName());
           }
         }
