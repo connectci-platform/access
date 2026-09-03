@@ -8,7 +8,9 @@ use Drupal\access_events\Plugin\Util\EventDateConvert;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Entity\FieldableEntityInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\domain_access\DomainAccessManagerInterface;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Drupal\taxonomy\Entity\Term;
@@ -2088,5 +2090,40 @@ function _access_misc_build_json_ld($entity) {
   return !empty($json_ld['@type']) ? $json_ld : NULL;
 }
 
+/**
+ * Implements hook_entity_prepare_form().
+ *
+ * Restores the Domain 2.x default for the required "Domain Access" field.
+ *
+ * Domain 3.x rewrote DomainAccessManager::getDefaultValue() to only return the
+ * field's configured default_value literal (empty on our content types), so it
+ * no longer pre-selects the active domain the way 2.x did. Because
+ * field_domain_access is required, new-content forms then render with nothing
+ * selected and fail validation on submit — content can no longer be created.
+ *
+ * When a new entity's Domain Access field is empty, pre-select the active
+ * domain — the domain the content is being created on. This matches Domain 2.x,
+ * which assigned the active domain to new content regardless of the author's own
+ * domain-access grants: where content lands is a property of the request, not of
+ * the author's permissions. (A user can only create content on a domain they can
+ * actually reach, and editing rights remain separately permission-gated, so no
+ * author-access check is needed here.)
+ */
+function access_misc_entity_prepare_form(EntityInterface $entity, $operation, FormStateInterface $form_state) {
+  $field = DomainAccessManagerInterface::DOMAIN_ACCESS_FIELD;
 
+  // Only act on new, fieldable entities whose Domain Access field is empty.
+  if (!$entity instanceof FieldableEntityInterface
+    || !$entity->isNew()
+    || !$entity->hasField($field)
+    || !$entity->get($field)->isEmpty()) {
+    return;
+  }
 
+  $active = \Drupal::service('domain.negotiator')->getActiveDomain();
+  if (!$active) {
+    return;
+  }
+
+  $entity->set($field, ['target_id' => $active->id()]);
+}
