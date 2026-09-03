@@ -11,6 +11,10 @@ services:
     class: Drupal\access_misc\Plugin\NodeAddTags
     arguments: ["@renderer"]
 
+  access_misc.tag_suggester:
+    class: Drupal\access_misc\Plugin\TagSuggester
+    arguments: ["@access_misc.addtags"]
+
   access_misc.skillLevel:
     class: Drupal\access_misc\Plugin\SkillLevel
 

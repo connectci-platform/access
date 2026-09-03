@@ -9,8 +9,26 @@ if (checkBoxEmail && notes) {
   "use strict";
   Drupal.behaviors.nodeAddTags = {
     attach: function (context, settings) {
+        // The target select element id. Defaults to the canonical field_tags
+        // select; consumers with a different tags field (e.g. ood_general's
+        // field_oocs_topic_tags) override it via drupalSettings.
+        var fieldId = (settings.accessTagSuggester && settings.accessTagSuggester.fieldId) || 'edit-field-tags';
+        var tagsSelect = document.getElementById(fieldId);
+        // The widget isn't on this page; nothing to wire up.
+        if (!tagsSelect) {
+          return;
+        }
+
+        // Hide the raw select; users curate via the tag-cloud buttons. The
+        // canonical field_tags wrapper is also hidden via CSS to avoid a flash;
+        // this covers consumers with a different tags field (e.g. ood_general).
+        var fieldWrapper = document.getElementById(fieldId + '-wrapper');
+        if (fieldWrapper) {
+          fieldWrapper.style.display = 'none';
+        }
+
         // Only run this code once
-        var options = document.getElementById('edit-field-tags').selectedOptions;
+        var options = tagsSelect.selectedOptions;
         var set_tid = Array.from(options).map(({ value }) => value);
         const selected = [];
 
@@ -18,7 +36,7 @@ if (checkBoxEmail && notes) {
 
           var tagWrapper = document.getElementById("field-tags-replace");
           var suggested_tids = tagWrapper.getAttribute('data-suggest').split(', ');
-          var selectElementTags = document.getElementById("edit-field-tags");
+          var selectElementTags = tagsSelect;
           if (suggested_tids != 0) {
             Array.from(suggested_tids).forEach(function (suggested_tid) {
               if (selectElementTags.querySelector('option[value="' + suggested_tid + '"]').selected != true) {
@@ -80,7 +98,7 @@ if (checkBoxEmail && notes) {
           }
 
         }
-        selectElement('edit-field-tags');
+        selectElement(fieldId);
 
         const buttonPressed = e => {
           const isSelected = e.target.classList.contains("selected");
@@ -100,7 +118,7 @@ if (checkBoxEmail && notes) {
             e.target.classList.add("selected");
             selected.push(e.target.dataset.tid);
           }
-          selectElement('edit-field-tags')
+          selectElement(fieldId)
         }
 
         once('nodeAddTags', 'html').forEach(function () {
