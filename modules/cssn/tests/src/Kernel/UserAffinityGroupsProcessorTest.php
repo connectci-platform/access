@@ -5,6 +5,7 @@ namespace Drupal\Tests\cssn\Kernel;
 use Drupal\Core\Entity\Plugin\DataType\EntityAdapter;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\Tests\flag\Traits\FlagCreateTrait;
+use Drupal\flag\Entity\Flagging;
 use Drupal\Tests\user\Traits\UserCreationTrait;
 use Drupal\cssn\Plugin\search_api\processor\UserAffinityGroups;
 use Drupal\search_api\Entity\Index;
@@ -147,8 +148,26 @@ class UserAffinityGroupsProcessorTest extends KernelTestBase {
     $flag = $this->makeFlag();
     $userA = $this->createUser();
     $term = $this->makeTerm('Genomics');
-    $this->flagService->flag($flag, $term, $userA);
+    $termId = $term->id();
     $term->delete();
+
+    // Flagging through the flag service and then deleting the term cannot
+    // exercise the processor's null-term guard: flag_entity_delete() calls
+    // unflagAllByEntity(), so the flagging row vanishes with the term and
+    // extraction is indistinguishable from the no-flaggings case. Recreate
+    // the orphan condition directly — a flagging row pointing at a term id
+    // that no longer resolves.
+    Flagging::create([
+      'flag_id' => $flag->id(),
+      'entity_type' => 'taxonomy_term',
+      'entity_id' => $termId,
+      'uid' => $userA->id(),
+    ])->save();
+
+    // Prove the orphan row exists, so this test cannot silently degrade into
+    // the empty case again.
+    $count = \Drupal::database()->select('flagging')->countQuery()->execute()->fetchField();
+    $this->assertEquals(1, $count, 'The orphaned flagging row exists before extraction.');
 
     $this->assertSame([], $this->extract($userA));
   }
