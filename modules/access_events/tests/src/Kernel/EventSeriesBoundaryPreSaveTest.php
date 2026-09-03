@@ -276,6 +276,55 @@ class EventSeriesBoundaryPreSaveTest extends EventKernelTestBase {
   }
 
   /**
+   * The unchanged-value no-op is PER COLUMN, not per item.
+   *
+   * Editing only a range's start must leave the untouched end column
+   * byte-identical: a whole-item "anything changed, recover both" variant
+   * would re-derive the unchanged anchored end through the acting user's
+   * zone — under Pacific/Auckland (UTC+13 on 2026-11-30) ratcheting it to
+   * `2026-12-01T12:00:00` — while the changed start still recovers.
+   */
+  public function testOnlyTheChangedColumnIsRecovered(): void {
+    $series = $this->makeFixtureSeries();
+    $id = (int) $series->id();
+    $this->setRawBoundary($series, 'daily_recurring_date', '2026-06-01T12:00:00', '2026-11-30T12:00:00');
+
+    $this->asSaverIn('Pacific/Auckland', function () use ($id): void {
+      $storage = \Drupal::entityTypeManager()->getStorage('eventseries');
+      $storage->resetCache([$id]);
+      $loaded = $storage->load($id);
+      // An Auckland editor (NZST, UTC+12 in June) picks June 15 at a 09:00
+      // wall clock; the widget stores the UTC instant. end_value is not
+      // touched at all — it must ride through as the stored original.
+      $loaded->get('daily_recurring_date')->first()->set('value', '2026-06-14T21:00:00');
+      $loaded->save();
+    });
+
+    [$storedValue, $storedEnd] = $this->storedPair($id, 'daily_recurring_date');
+    $this->assertSame('2026-06-15T12:00:00', $storedValue, 'the changed start column is recovered');
+    $this->assertSame('2026-11-30T12:00:00', $storedEnd, 'the untouched end column is byte-identical, not re-derived');
+  }
+
+  /**
+   * The initial save (no stored original) anchors the boundaries too.
+   *
+   * On create $this->original is unset, so the unchanged-value branch can
+   * never match — every non-empty column is new input and must be
+   * recovered. Pinned under an explicit far-east saver so the expected
+   * bytes are deterministic: the fixture's seeded T00 weekly rule
+   * (`2999-01-04T00:00:00`) converts through Auckland (NZDT, UTC+13 in
+   * January) to a 13:00 wall clock the SAME day, anchoring `T12:00:00`
+   * without moving the date.
+   */
+  public function testCreateSaveAnchorsTheSeededRuleWithoutAnOriginal(): void {
+    $series = $this->asSaverIn('Pacific/Auckland', fn (): EventSeries => $this->makeFixtureSeries());
+
+    [$storedValue, $storedEnd] = $this->storedPair((int) $series->id(), 'weekly_recurring_date');
+    $this->assertSame('2999-01-04T12:00:00', $storedValue, 'create-save anchors the seeded start');
+    $this->assertSame('2999-01-10T12:00:00', $storedEnd, 'create-save anchors the seeded end');
+  }
+
+  /**
    * A changed bare `YYYY-MM-DD` is anchored LITERALLY in every saver zone.
    *
    * A bare calendar date has no instant: parsing it as one injects the
