@@ -2930,6 +2930,17 @@ function access_events_entity_base_field_info_alter(&$fields, EntityTypeInterfac
 }
 
 /**
+ * Implements hook_entity_bundle_info_alter().
+ */
+function access_events_entity_bundle_info_alter(array &$bundles): void {
+  // Only 'default' exists today; a future eventseries_type bundle MUST be
+  // added here or it silently gets stock (timezone-sliding) behavior.
+  if (isset($bundles['eventseries']['default'])) {
+    $bundles['eventseries']['default']['class'] = \Drupal\access_events\Entity\EventSeriesAccess::class;
+  }
+}
+
+/**
  * Implements hook_entity_type_alter().
  */
 function access_events_entity_type_alter(array &$entity_types) {
