@@ -49,6 +49,48 @@ class EventDomainContextTest extends UnitTestCase {
   }
 
   /**
+   * The negotiator is actually pointed at the domain WHILE the callback runs.
+   *
+   * The other tests here only see the request context, or only see the
+   * negotiator once the callback has already returned (post-restore). None
+   * of them would notice if the `$this->negotiator?->setActiveDomain($domain)`
+   * call inside the try{} block were deleted: forDomain() would still switch
+   * the request context, still run the callback, and still hit the restore
+   * in finally{} — so link hosts would keep passing while mail transport and
+   * From-address selection (which read the negotiator's active domain, not
+   * the request context) silently broke. This asserts what the callback
+   * itself observes.
+   *
+   * @covers ::forDomain
+   */
+  public function testForDomainPointsTheNegotiatorAtTheDomainDuringTheCallback(): void {
+    $context = new RequestContext('', 'GET', 'requesting-site.example.com', 'http', 80, 443);
+    $domain = $this->domain('event-site.example.com', 'https');
+
+    $active = NULL;
+    $negotiator = $this->createMock(DomainNegotiatorInterface::class);
+    // A regular closure, not `fn()`: arrow functions capture by value at
+    // definition time, which would freeze $active at NULL forever.
+    $negotiator->method('getActiveDomain')->willReturnCallback(function () use (&$active) {
+      return $active;
+    });
+    $negotiator->expects($this->once())->method('setActiveDomain')
+      ->with($domain)
+      ->willReturnCallback(function ($d) use (&$active): void {
+        $active = $d;
+      });
+
+    $service = new EventDomainContext($context, $negotiator);
+
+    $activeDuringCallback = NULL;
+    $service->forDomain($domain, function () use ($negotiator, &$activeDuringCallback): void {
+      $activeDuringCallback = $negotiator->getActiveDomain();
+    });
+
+    $this->assertSame($domain, $activeDuringCallback);
+  }
+
+  /**
    * A port carried on the domain's hostname lands on the matching setter.
    *
    * UrlGenerator only emits a port when it differs from the scheme default,
