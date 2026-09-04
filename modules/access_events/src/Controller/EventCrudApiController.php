@@ -4,6 +4,7 @@ namespace Drupal\access_events\Controller;
 
 use Drupal\access_affinitygroup\Access\CoordinatorAccess;
 use Drupal\access_events\EffectiveCreationSet;
+use Drupal\access_events\Entity\EventSeriesAccess;
 use Drupal\access_events\EventAccessHelper;
 use Drupal\access_events\EventDeleteGuard;
 use Drupal\access_events\RegistrantCounter;
@@ -249,7 +250,9 @@ class EventCrudApiController extends ControllerBase {
     }
     // Maps the API custom_dates param to the entity custom_date field, or the
     // matching *_recurring_date field for a rule recur_type.
-    $this->applyRecurDates($values, $body);
+    if ($refusal = $this->applyRecurDates($values, $body)) {
+      return $refusal;
+    }
     // Copies the whitelisted content fields (body, field_summary, …).
     $this->applyContentFields($values, $body);
 
@@ -266,6 +269,13 @@ class EventCrudApiController extends ControllerBase {
     }
 
     $series = $this->entityTypeManager->getStorage('eventseries')->create($values);
+    // The rule boundaries in $values were already normalized to anchors by
+    // applyRecurDates(); mark the entity so preSave() stores them verbatim
+    // instead of re-deriving through the acting user's timezone (which would
+    // shift the date for far-east zones).
+    if ($series instanceof EventSeriesAccess) {
+      $series->recurBoundariesNormalized = TRUE;
+    }
 
     // Entity-type-level create permission (governed by 'add eventseries
     // entity', which the acting-user route gate + authenticated role cover).
@@ -362,11 +372,19 @@ class EventCrudApiController extends ControllerBase {
       'title' => $body['title'] ?? '',
       'recur_type' => $body['recur_type'],
     ];
-    $this->applyRecurDates($values, $body);
+    if ($refusal = $this->applyRecurDates($values, $body)) {
+      return $refusal;
+    }
     $this->applyContentFields($values, $body);
 
     $series = $this->entityTypeManager->getStorage('eventseries')->create($values);
     assert($series instanceof EventSeries);
+    // Same normalized-by-writer mark as the commit path: the preview never
+    // saves, but keeping the entities identical guarantees preview/commit
+    // parity if compute paths ever touch save-adjacent code.
+    if ($series instanceof EventSeriesAccess) {
+      $series->recurBoundariesNormalized = TRUE;
+    }
 
     // Keep the entity create-permission gate on preview: a preview is a
     // create-shaped capability, and skipping it would open the compute to any
@@ -1656,7 +1674,7 @@ class EventCrudApiController extends ControllerBase {
    * @param array $body
    *   The decoded request body.
    */
-  private function applyRecurDates(array &$values, array $body): void {
+  private function applyRecurDates(array &$values, array $body): ?JsonResponse {
     $recurType = $body['recur_type'] ?? '';
     if ($recurType === 'custom') {
       $dates = [];
@@ -1670,10 +1688,10 @@ class EventCrudApiController extends ControllerBase {
         ];
       }
       $values['custom_date'] = $dates;
-      return;
+      return NULL;
     }
     // Rule recur_type (e.g. weekly_recurring_date): pass the matching rule
-    // field straight through when the caller supplies it.
+    // field through, normalizing its range boundaries first.
     $ruleField = $recurType;
     if ($ruleField !== '' && array_key_exists($ruleField, $body)) {
       $rule = $body[$ruleField];
@@ -1690,9 +1708,66 @@ class EventCrudApiController extends ControllerBase {
             $rule[$numericKey] = (int) $rule[$numericKey];
           }
         }
+        // Range boundaries are zone-neutral CALENDAR DATES, not instants: take
+        // the literal date part of whatever arrived (bare YYYY-MM-DD or any
+        // datetime-shaped string — an old client's 2026-10-01T00:00:00 means
+        // Oct 1 and stays Oct 1, never converted through a timezone) and
+        // anchor it T12:00:00 UTC, the storage invariant the eventseries
+        // bundle class maintains. The rule may arrive as a list of item
+        // arrays or a single flat assoc; walk both.
+        $items = array_is_list($rule) ? $rule : [$rule];
+        foreach ($items as $i => $item) {
+          if (!is_array($item)) {
+            continue;
+          }
+          foreach (['value', 'end_value'] as $column) {
+            if (!isset($item[$column]) || !is_string($item[$column]) || $item[$column] === '') {
+              continue;
+            }
+            $normalized = $this->normalizeInputBoundary($item[$column]);
+            if ($normalized === NULL) {
+              return $this->refuse(
+                'validation_error',
+                sprintf('%s %s must start with a calendar date in YYYY-MM-DD format.', $ruleField, $column),
+                422,
+              );
+            }
+            $items[$i][$column] = $normalized;
+          }
+          // Post-normalization ordering: literal date-part extraction can
+          // invert a pair that was ordered as instants (offsets), and a
+          // swapped pair would otherwise generate zero occurrences silently.
+          $start = $items[$i]['value'] ?? NULL;
+          $end = $items[$i]['end_value'] ?? NULL;
+          if (is_string($start) && is_string($end) && $start > $end) {
+            return $this->refuse(
+              'validation_error',
+              sprintf('%s value must not be after end_value.', $ruleField),
+              422,
+            );
+          }
+        }
+        $rule = array_is_list($rule) ? $items : $items[0];
       }
       $values[$ruleField] = $rule;
     }
+    return NULL;
+  }
+
+  /**
+   * Normalizes one boundary input to its noon-UTC anchor, or NULL if invalid.
+   *
+   * The literal first ten characters must form a real calendar date; anything
+   * after them (a time, an offset, junk) is deliberately ignored — the date
+   * is the only meaningful part of a range boundary.
+   */
+  private function normalizeInputBoundary(string $raw): ?string {
+    $datePart = substr(trim($raw), 0, 10);
+    if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $datePart, $m)
+      || !checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+      return NULL;
+    }
+    return $datePart . 'T12:00:00';
   }
 
   /**
