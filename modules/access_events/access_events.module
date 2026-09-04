@@ -1506,14 +1506,9 @@ function _access_events_hidden_series_options(): array {
       'cu_rmacc_webinars',
     ];
   }
-  $domainId = NULL;
-  if (\Drupal::hasService('domain.negotiator')) {
-    $activeDomain = \Drupal::service('domain.negotiator')->getActiveDomain();
-    $domainId = $activeDomain ? $activeDomain->id() : NULL;
-  }
-  if ($domainId !== 'amp_cyberinfrastructure_org') {
-    $hidden['field_choose_where_to_share_this'] = ['in_the_access_support_bi_weekly_digest'];
-  }
+  // The digest-hiding rule is shared with access_news; see
+  // Drupal\access\HiddenFieldOptions and D8-2824.
+  $hidden += \Drupal::service('access.hidden_field_options')->getHiddenDigestOptions();
   return $hidden;
 }
 

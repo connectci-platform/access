@@ -82,7 +82,20 @@ function access_news_form_alter(&$form, FormStateInterface $form_state, $form_id
 
   if ($domain != 'access-support' && ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form')) {
     $form['field_affiliation']['#access'] = FALSE;
-    unset($form['field_choose_where_to_share_this']['widget']['#options']['in_the_access_support_bi_weekly_digest']);
+  }
+
+  if ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form') {
+    // Hide options this editor's domain context may not set (the
+    // bi-weekly-digest share option off the ACCESS Support domain). The SAME
+    // map drives the presave strip guard below, which restores stored values
+    // an editor could not see — a hidden checkbox is round-tripped unchecked
+    // by the form, and without the guard the save would silently strip the
+    // value. Shared with access_events; see D8-2824.
+    foreach (_access_news_hidden_options() as $hiddenField => $hiddenValues) {
+      foreach ($hiddenValues as $hiddenValue) {
+        unset($form[$hiddenField]['widget']['#options'][$hiddenValue]);
+      }
+    }
   }
 
   // Suggest tags for announcements.
@@ -386,6 +399,52 @@ function access_news_validate(&$form, FormStateInterface $form_state) {
 }
 
 /**
+ * Option values hidden from the current editor's news form context.
+ *
+ * Keyed by field name, same shape as
+ * _access_events_hidden_series_options(). Delegates to the shared
+ * access.hidden_field_options service so the digest-hiding rule can't drift
+ * between access_events and access_news; see D8-2824.
+ *
+ * @return array<string, list<string>>
+ *   Hidden option values per field name.
+ */
+function _access_news_hidden_options() {
+  return \Drupal::service('access.hidden_field_options')->getHiddenDigestOptions();
+}
+
+/**
+ * Restores stored option values this editor's form context hid.
+ *
+ * Mirrors access_events_eventseries_presave()'s strip guard: the form
+ * removes hidden options entirely, so an off-domain submission round-trips
+ * without them and the save would silently strip values the editor never
+ * saw (see _access_news_hidden_options()). Values outside the hidden sets —
+ * anything the editor COULD see — are untouched, so deliberate removals on
+ * the ACCESS Support domain stick. Syncing saves are exempt so a
+ * programmatic caller can still remove a value deliberately.
+ */
+function _access_news_strip_guard(Node $node) {
+  if ($node->isSyncing() || $node->isNew() || !$node->original instanceof Node) {
+    return;
+  }
+  foreach (_access_news_hidden_options() as $guardedField => $hiddenValues) {
+    if (!$node->hasField($guardedField)) {
+      continue;
+    }
+    $currentValues = array_column($node->get($guardedField)->getValue(), 'value');
+    $originalValues = array_column($node->original->get($guardedField)->getValue(), 'value');
+    $lostHidden = array_values(array_intersect(array_diff($originalValues, $currentValues), $hiddenValues));
+    if ($lostHidden) {
+      $node->set($guardedField, array_map(
+        static fn (string $value): array => ['value' => $value],
+        array_merge($currentValues, $lostHidden),
+      ));
+    }
+  }
+}
+
+/**
  * Implements hook_node_presave().
  *
  * Set the Affinity Group taxonomy term based on the
@@ -395,6 +454,7 @@ function access_news_node_presave(Node $node) {
   $type = $node->bundle();
   if ($type == 'access_news') {
     update_affinity_group($node);
+    _access_news_strip_guard($node);
   }
 }
 
