@@ -204,8 +204,10 @@ class EventDetailApiController extends ControllerBase {
       // registrant_type); the instance's bundle (e.g. 'default').
       'bundle' => $eventinstance->getType(),
       // 'type' is the separate 'series' | 'instance' discriminator string from
-      // the series via the service — NOT the bundle and NOT 'default'.
-      'type' => $svc->getRegistrationType(),
+      // the series via the service — NOT the bundle and NOT 'default'. As of
+      // recurring_events 3.0 the service returns a RegistrationType enum, so
+      // take ->value: the field stores the backing string.
+      'type' => $svc->getRegistrationType()->value,
       'user_id' => $uid,
       'email' => $user?->getEmail(),
       'eventinstance_id' => $eventinstance->id(),

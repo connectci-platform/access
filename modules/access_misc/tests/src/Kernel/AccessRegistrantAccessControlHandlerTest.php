@@ -7,6 +7,7 @@ namespace Drupal\Tests\access_misc\Kernel;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events\Entity\EventSeries;
+use Drupal\recurring_events\Entity\EventSeriesType;
 use Drupal\recurring_events_registration\Entity\Registrant;
 use Drupal\recurring_events_registration\Entity\RegistrantType;
 use Drupal\user\Entity\Role;
@@ -36,9 +37,14 @@ class AccessRegistrantAccessControlHandlerTest extends KernelTestBase {
     'field_inheritance',
     'recurring_events',
     'recurring_events_registration',
-    'key',
+    // Container dependencies, not assertions of this test:
+    // access_misc.services.yml wires JsonApiEmailToUuidSubscriber against
+    // access.access_id_resolver, and access's own eligibility_check_subscriber
+    // wires against access_affinitygroup.allocations_client (which needs key).
+    // Same set EventKernelTestBase carries, for the same reason.
     'access',
     'access_affinitygroup',
+    'key',
     'access_misc',
   ];
 
@@ -67,7 +73,27 @@ class AccessRegistrantAccessControlHandlerTest extends KernelTestBase {
     $this->installEntitySchema('eventseries');
     $this->installEntitySchema('eventinstance');
     $this->installEntitySchema('registrant');
-    $this->installConfig(['field_inheritance', 'recurring_events']);
+    // field_inheritance 3.x installs a `field_inheritance` base field on every
+    // entity type named in field_inheritance.config, via its ConfigSubscriber.
+    // The module's install default names node/taxonomy_term/block_content/file,
+    // whose entity schemas this kernel env does not install — and the site only
+    // inherits into eventinstance anyway. Set the site's value directly rather
+    // than importing the module default.
+    $this->config('field_inheritance.config')
+      ->set('included_entities', ['eventinstance'])
+      ->save();
+    $this->installConfig(['recurring_events']);
+    // recurring_events 3.0 added a RecurringDateConstraint that refuses to save
+    // a series whose recurrence yields no dates, gated per bundle on
+    // validate_recurring_date. The module's install default turns it ON, but
+    // the site's eventseries_type does NOT (recurring_events_update_103001
+    // preserved existing behaviour), so leaving the contrib default in place
+    // here would test a configuration we do not run — and its violation
+    // pre-empts access_events' own EventSeriesRescheduleBlockConstraint
+    // message. Match the site.
+    $seriesType = EventSeriesType::load('default');
+    $seriesType->setValidateRecurringDate(FALSE);
+    $seriesType->save();
 
     // Only the "default" registrant bundle is needed. Installing the full
     // recurring_events_registration config also installs

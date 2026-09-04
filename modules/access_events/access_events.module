@@ -10,6 +10,7 @@ use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Access\AccessResult;
 use Drupal\Component\Utility\Xss;
+use Drupal\Core\Render\Element;
 use Drupal\Core\Render\Markup;
 use Drupal\user\Entity\User;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -405,19 +406,39 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
       }
     }
 
-    // The field_inheritance module renders a "Field Inheritance" admin
-    // widget (visible only to users with the `administer field inheritance`
-    // permission) at the top of the form. Collapse it (and its many nested
-    // per-field detail panels) by default — the state is wired automatically
-    // by access_events_entity_presave(), so admins rarely need to interact
-    // with this section.
-    if (isset($form['field_inheritance'])) {
-      $form['field_inheritance']['#open'] = FALSE;
-      if (isset($form['field_inheritance']['fields'])) {
-        foreach ($form['field_inheritance']['fields'] as $key => &$child) {
-          if (is_array($child) && ($child['#type'] ?? '') === 'details') {
-            $child['#open'] = FALSE;
+    // The field_inheritance module renders a "Field Inheritance" admin UI at
+    // the top of the form. In field_inheritance 2.x this came from that
+    // module's own hook_form_alter(), which gated the whole thing on the
+    // `administer field inheritance` permission. 3.x replaced it with an
+    // ordinary field widget on the eventinstance form display, which carries
+    // NO permission gate — so without this, every event editor would see a
+    // fieldset of ~22 source-entity autocompletes. Restore the gate, then
+    // collapse what is left: the state is wired automatically by
+    // access_events_entity_presave(), so even admins rarely touch it.
+    if (isset($form['field_inheritance']['widget'])) {
+      if (!\Drupal::currentUser()->hasPermission('administer field inheritance')) {
+        $form['field_inheritance']['#access'] = FALSE;
+      }
+      else {
+        foreach (Element::children($form['field_inheritance']['widget']) as $delta) {
+          $inheritance = &$form['field_inheritance']['widget'][$delta]['field_inheritance'];
+          if (!is_array($inheritance)) {
+            continue;
           }
+          $inheritance['#open'] = FALSE;
+          // Collapse the per-field and per-source-bundle panels nested inside
+          // the "Field Mappings" and "Entity Mappings" groups.
+          foreach (['fields', 'entities'] as $group) {
+            if (!isset($inheritance[$group])) {
+              continue;
+            }
+            foreach (Element::children($inheritance[$group]) as $key) {
+              if (($inheritance[$group][$key]['#type'] ?? '') === 'details') {
+                $inheritance[$group][$key]['#open'] = FALSE;
+              }
+            }
+          }
+          unset($inheritance);
         }
       }
     }
@@ -1378,7 +1399,7 @@ function access_events_entity_presave(EntityInterface $entity) {
     // See: https://www.drupal.org/project/recurring_events/issues/3357979
     if ($eventinstance->isNew() && $eventseries) {
       \Drupal::service('recurring_events.event_creation_service')
-        ->configureDefaultInheritances($eventinstance, $eventseries->id());
+        ->configureDefaultInheritances($eventinstance, (int) $eventseries->id());
     }
 
     if ($eventseries) {
@@ -2062,8 +2083,11 @@ function access_events_module_implements_alter(&$implementations, $hook) {
     unset($implementations['access_events']);
     $implementations['access_events'] = $group;
   }
-  // Run our form_alter AFTER field_inheritance so we can collapse its admin
-  // widget on eventinstance forms (it sets #open=TRUE; we override to FALSE).
+  // Run our form_alter last so we can gate and collapse the field_inheritance
+  // admin UI on eventinstance forms. As of field_inheritance 3.x that UI is a
+  // field widget rather than that module's own form_alter, so it is already
+  // built by the time any form_alter runs — but keep this pin so we also win
+  // over any other module that alters the same subtree.
   if ($hook === 'form_alter' && isset($implementations['access_events'])) {
     $group = $implementations['access_events'];
     unset($implementations['access_events']);
