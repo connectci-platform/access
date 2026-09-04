@@ -280,6 +280,13 @@ class RecurBoundaryRemediationTest extends EventKernelTestBase {
     $this->assertSame([], $remediation['regenerated']);
     $this->assertSame([(int) $draft->id()], array_column($remediation['unpublished'], 'id'));
     $this->assertSame($before, $this->instanceStartValues($draft));
+    // It must STAY pending: publishing it later carries no recur-config delta
+    // (the migration already normalized its boundaries), so contrib would
+    // never rebuild — dropping it here would lose the victim silently.
+    $this->assertSame(
+      [(int) $draft->id()],
+      array_column($this->migrator()->pendingVictims(), 'id'),
+    );
   }
 
   /**

@@ -62,8 +62,10 @@ class AccessEventsCommands extends DrushCommands {
    * stored dates but leaves its instances on the slid dates; this command
    * takes the victim list the migration persisted, re-counts registrants
    * fresh, and regenerates instances through the normal creation service for
-   * every victim with zero registrants. Registered victims are never
-   * touched — they are listed (and stay pending) for the operator playbook.
+   * every PUBLISHED victim with zero registrants. Registered and unpublished
+   * victims are never touched — they are listed (and stay pending) for the
+   * operator playbook, unpublished ones because publishing them later will
+   * not rebuild their instances on its own.
    * Run it after reviewing the migration's victim log; safe to re-run.
    *
    * @command access-events:remediate-recur-victims
@@ -85,6 +87,9 @@ class AccessEventsCommands extends DrushCommands {
     }
     foreach ($report['registered'] as $entry) {
       $this->output()->writeln(sprintf('LEFT UNTOUCHED: series %d ("%s") has %d not-past registrant(s) — operator playbook decision; it stays pending.', $entry['id'], $entry['title'], $entry['registrants']));
+    }
+    foreach ($report['unpublished'] as $entry) {
+      $this->output()->writeln(sprintf('LEFT UNTOUCHED: series %d ("%s") is unpublished — publishing it will NOT realign its instances, so it stays pending for an explicit decision.', $entry['id'], $entry['title']));
     }
     foreach ($report['missing'] as $id) {
       $this->output()->writeln(sprintf('Skipped series %d: no longer exists.', $id));

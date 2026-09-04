@@ -225,7 +225,7 @@ class RecurBoundaryMigrator {
   }
 
   /**
-   * Regenerates instances for the UNREGISTERED series on a victim list.
+   * Regenerates instances for the UNREGISTERED, PUBLISHED series on a list.
    *
    * The post-migration step (spec: never auto-run from the update hook): a
    * T00 victim's instances were generated from the slid dates, and the
@@ -247,9 +247,13 @@ class RecurBoundaryMigrator {
    *   non-default revision flags a series whose current rows were fine);
    *   regenerating such a false positive is harmless — same boundaries in,
    *   same instance dates out;
+   * - an UNPUBLISHED victim is left alone and stays pending: contrib rebuilds
+   *   only on a published save that carries a recur-config delta, and the
+   *   migration already removed that delta, so publishing it later will NOT
+   *   realign its instances. It needs an explicit operator decision;
    * - a series deleted since migration is reported and pruned, not fatal.
    * Regenerated and missing entries are pruned from the persisted pending
-   * list; registered ones stay pending for the operator.
+   * list; registered and unpublished ones stay pending for the operator.
    *
    * @param array $victims
    *   Victim entries ([id, title, registrants]) as produced by migrate() /
@@ -260,6 +264,7 @@ class RecurBoundaryMigrator {
    *   - regenerated: [id, title] per series whose instances were rebuilt;
    *   - registered: [id, title, registrants] per series skipped on its
    *     FRESH registrant count;
+   *   - unpublished: [id, title] per series skipped as not published;
    *   - missing: series ids no longer loadable.
    */
   public function remediate(array $victims): array {
@@ -295,14 +300,15 @@ class RecurBoundaryMigrator {
       }
 
       // Mirror contrib's own rebuild gate: recurring_events_eventseries_update
-      // only recreates instances for a published default revision. An
-      // unpublished victim (draft that never went live) keeps its instances
-      // untouched — its editor's next publish regenerates them through the
-      // normal save path anyway.
+      // only recreates instances when the recur config CHANGED and the series
+      // is published. An unpublished victim keeps its instances for now — but
+      // it stays PENDING, because publishing it later will not rebuild them:
+      // the migration already normalized its boundaries, so that save carries
+      // no recur-config delta and contrib's rebuild never fires. Leaving it
+      // pending keeps it on the operator's list until someone decides.
       if (!$series->isPublished()) {
         $report['unpublished'][] = ['id' => $id, 'title' => (string) $series->label()];
-        unset($pending[$id]);
-        $logger->notice('Recurrence boundary remediation skipped unpublished series @id ("@title"); its next publish rebuilds instances normally.', [
+        $logger->notice('Recurrence boundary remediation left unpublished series @id ("@title") pending: publishing it will not rebuild its instances, so it needs an explicit decision.', [
           '@id' => $id,
           '@title' => $victim['title'],
         ]);
