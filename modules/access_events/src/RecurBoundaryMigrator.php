@@ -263,7 +263,7 @@ class RecurBoundaryMigrator {
    *   - missing: series ids no longer loadable.
    */
   public function remediate(array $victims): array {
-    $report = ['regenerated' => [], 'registered' => [], 'missing' => []];
+    $report = ['regenerated' => [], 'registered' => [], 'missing' => [], 'unpublished' => []];
     $storage = $this->entityTypeManager->getStorage('eventseries');
     $logger = $this->loggerFactory->get('access_events');
     $pending = $this->state->get(self::VICTIMS_STATE_KEY, []);
@@ -288,6 +288,21 @@ class RecurBoundaryMigrator {
         $report['missing'][] = $id;
         unset($pending[$id]);
         $logger->notice('Recurrence boundary remediation skipped series @id ("@title"): no longer exists.', [
+          '@id' => $id,
+          '@title' => $victim['title'],
+        ]);
+        continue;
+      }
+
+      // Mirror contrib's own rebuild gate: recurring_events_eventseries_update
+      // only recreates instances for a published default revision. An
+      // unpublished victim (draft that never went live) keeps its instances
+      // untouched — its editor's next publish regenerates them through the
+      // normal save path anyway.
+      if (!$series->isPublished()) {
+        $report['unpublished'][] = ['id' => $id, 'title' => (string) $series->label()];
+        unset($pending[$id]);
+        $logger->notice('Recurrence boundary remediation skipped unpublished series @id ("@title"); its next publish rebuilds instances normally.', [
           '@id' => $id,
           '@title' => $victim['title'],
         ]);

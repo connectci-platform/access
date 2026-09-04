@@ -73,11 +73,18 @@ class RecurBoundaryRemediationTest extends EventKernelTestBase {
   }
 
   /**
-   * A saved rule series (weekly Mon+Wed, 2999-01-04 .. 2999-01-10).
+   * A saved, PUBLISHED rule series (weekly Mon+Wed, 2999-01-04 .. 2999-01-10).
+   *
+   * Published deliberately: remediation mirrors contrib's own rebuild gate and
+   * only regenerates instances for a published series, and a real bug victim
+   * was published when the bug generated its instances. The moderated
+   * builders otherwise compute to draft.
    */
   private function makeFixtureSeries(): EventSeries {
     $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
-    return $this->makeCoordinatorRuleSeries($coordinator);
+    $series = $this->makeCoordinatorRuleSeries($coordinator);
+    $this->publishModerated($series);
+    return $series;
   }
 
   /**
@@ -248,6 +255,31 @@ class RecurBoundaryRemediationTest extends EventKernelTestBase {
 
     $this->assertSame([(int) $falsePositive->id()], array_column($remediation['regenerated'], 'id'));
     $this->assertSame($before, $this->instanceStartValues($falsePositive));
+  }
+
+  /**
+   * An unpublished victim is skipped, not rebuilt.
+   *
+   * Remediation mirrors contrib's own rebuild gate, which only recreates
+   * instances for a published series. A draft victim keeps its instances
+   * untouched — its editor's next publish regenerates them through the
+   * normal save path — so remediation reports it rather than rebuilding.
+   */
+  public function testUnpublishedVictimIsSkipped(): void {
+    $coordinator = $this->createUser([], NULL, FALSE, ['roles' => ['news_pm']]);
+    // Deliberately NOT published: the moderated builder computes to draft.
+    $draft = $this->makeCoordinatorRuleSeries($coordinator);
+    $this->setRawBoundary($draft, 'weekly_recurring_date', '2999-01-04T00:00:00', '2999-01-10T00:00:00');
+    $before = $this->instanceStartValues($draft);
+
+    $report = $this->migrator()->migrate(TRUE);
+    $this->assertSame([(int) $draft->id()], array_column($report['victims'], 'id'));
+
+    $remediation = $this->migrator()->remediate($report['victims']);
+
+    $this->assertSame([], $remediation['regenerated']);
+    $this->assertSame([(int) $draft->id()], array_column($remediation['unpublished'], 'id'));
+    $this->assertSame($before, $this->instanceStartValues($draft));
   }
 
   /**
