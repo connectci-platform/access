@@ -1,4 +1,8 @@
 services:
+  access_events.route_alter_subscriber:
+    class: Drupal\access_events\EventSubscriber\RouteAlterSubscriber
+    tags:
+      - { name: event_subscriber }
   access_events.event_access:
     class: Drupal\access_events\Service\EventAccessService
   access_events.XsedeApi:
