@@ -20,9 +20,12 @@ use Symfony\Component\HttpFoundation\Request;
  * no-write preview: it builds the SAME unsaved series the commit path would,
  * gates on the acting user + the entity create permission, runs the
  * pre-compute validator, computes the occurrence dates, and returns them WITHOUT
- * saving. The envelope is exactly {status:"preview", executed:false,
+ * saving. The envelope is {status:"preview", executed:false, timezone,
  * occurrence_count, total_occurrence_count, truncated,
- * occurrences:[{start_date,end_date ISO}]}.
+ * occurrences:[{start_date,end_date ISO}]}, plus range:{start_date,end_date
+ * bare YYYY-MM-DD} for rule recur_types (omitted for custom, which has no rule
+ * boundaries). The timezone/range additions are pinned in
+ * EventCrudBoundaryInputTest.
  *
  * The critical invariant these tests pin: a preview writes NOTHING — the
  * eventseries storage count is identical before and after every preview.

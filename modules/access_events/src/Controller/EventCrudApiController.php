@@ -375,6 +375,10 @@ class EventCrudApiController extends ControllerBase {
     if ($refusal = $this->applyRecurDates($values, $body)) {
       return $refusal;
     }
+    // Read the resolved boundary range back out of the NORMALIZED values —
+    // the calendar range the preview actually settled on, echoed in the
+    // envelope as the agent's acceptance check.
+    $range = $this->resolvedBoundaryRange($values, $body['recur_type']);
     $this->applyContentFields($values, $body);
 
     $series = $this->entityTypeManager->getStorage('eventseries')->create($values);
@@ -427,14 +431,66 @@ class EventCrudApiController extends ControllerBase {
     // total_occurrence_count is the separate real total: it equals
     // occurrence_count when not truncated, and the larger true count when it
     // is. truncated signals the two differ.
-    return $this->success([
+    //
+    // The preview is the agent's only acceptance surface (commit returns no
+    // dates), and occurrence instants echo as UTC ATOM strings — an evening
+    // occurrence crosses UTC midnight, so string-slicing instants misreports
+    // the range. The envelope therefore also names:
+    // - timezone: the operative zone the config's wall-clock times were
+    //   interpreted in — date_default_timezone_get() at compute time, which
+    //   production sets to the acting user's profile zone per request;
+    // - range: the resolved boundary dates (bare YYYY-MM-DD) after input
+    //   normalization — what consumers verify the requested range against.
+    //   Omitted for a custom recur_type, which has no rule boundaries (its
+    //   custom_dates are genuine datetimes echoed as occurrences).
+    $envelope = [
       'status' => 'preview',
       'executed' => FALSE,
+      'timezone' => date_default_timezone_get(),
       'occurrence_count' => count($occurrences),
       'total_occurrence_count' => $total,
       'truncated' => $truncated,
       'occurrences' => $occurrences,
-    ]);
+    ];
+    if ($range !== NULL) {
+      $envelope['range'] = $range;
+    }
+    return $this->success($envelope);
+  }
+
+  /**
+   * The resolved rule-boundary range for the preview envelope, or NULL.
+   *
+   * Reads the post-normalization anchors back out of the built $values and
+   * returns their bare date parts — the calendar range the preview actually
+   * resolved, not an echo of the raw input. NULL (range omitted) for a custom
+   * recur_type, which has no rule boundaries, and for a rule whose boundary
+   * pair is absent (validateConfig refuses those configs downstream).
+   *
+   * @param array $values
+   *   The entity values array applyRecurDates() already normalized.
+   * @param string $recurType
+   *   The request's recur_type.
+   *
+   * @return array{start_date: string, end_date: string}|null
+   *   The bare-date range, or NULL when the config carries no rule boundaries.
+   */
+  private function resolvedBoundaryRange(array $values, string $recurType): ?array {
+    if ($recurType === 'custom') {
+      return NULL;
+    }
+    $rule = $values[$recurType] ?? NULL;
+    if (!is_array($rule)) {
+      return NULL;
+    }
+    $item = array_is_list($rule) ? ($rule[0] ?? NULL) : $rule;
+    if (!is_array($item) || !is_string($item['value'] ?? NULL) || !is_string($item['end_value'] ?? NULL)) {
+      return NULL;
+    }
+    return [
+      'start_date' => substr($item['value'], 0, 10),
+      'end_date' => substr($item['end_value'], 0, 10),
+    ];
   }
 
   /**
@@ -1721,8 +1777,19 @@ class EventCrudApiController extends ControllerBase {
             continue;
           }
           foreach (['value', 'end_value'] as $column) {
-            if (!isset($item[$column]) || !is_string($item[$column]) || $item[$column] === '') {
+            if (!isset($item[$column])) {
               continue;
+            }
+            // A present boundary that is not a non-empty string cannot be
+            // normalized; skipping it while still marking the series
+            // normalized-by-writer would hand preSave a value the writer never
+            // anchored. Refuse it exactly like an unparseable string.
+            if (!is_string($item[$column]) || $item[$column] === '') {
+              return $this->refuse(
+                'validation_error',
+                sprintf('%s %s must start with a calendar date in YYYY-MM-DD format.', $ruleField, $column),
+                422,
+              );
             }
             $normalized = $this->normalizeInputBoundary($item[$column]);
             if ($normalized === NULL) {

@@ -28,6 +28,11 @@ use Symfony\Component\HttpFoundation\JsonResponse;
  * class preSave() stores its anchors verbatim — correct under ANY acting-user
  * timezone, pinned here by the Auckland end-to-end create.
  *
+ * The preview envelope additionally names the operative `timezone` and the
+ * resolved boundary `range` (bare YYYY-MM-DD), the agent's acceptance surface:
+ * occurrence instants echo as UTC ATOM strings and an evening occurrence can
+ * cross UTC midnight, so string-slicing instants misreports the range.
+ *
  * @group access_events
  */
 class EventCrudBoundaryInputTest extends EventKernelTestBase {
@@ -332,6 +337,123 @@ class EventCrudBoundaryInputTest extends EventKernelTestBase {
     [$storedValue, $storedEnd] = $this->storedPair((int) $data['series_id'], 'weekly_recurring_date');
     $this->assertSame('2999-06-01T12:00:00', $storedValue);
     $this->assertSame('2999-06-29T12:00:00', $storedEnd);
+  }
+
+  /**
+   * The preview envelope names the operative timezone.
+   *
+   * `timezone` is date_default_timezone_get() at compute time — the zone the
+   * config's wall-clock times were interpreted in (production sets it to the
+   * acting user's profile zone per request; inTimezone models that here).
+   */
+  public function testPreviewEnvelopeCarriesOperativeTimezone(): void {
+    $user = $this->createUser([], NULL, FALSE, ['timezone' => 'Pacific/Auckland']);
+    $response = $this->inTimezone(
+      'Pacific/Auckland',
+      fn (): JsonResponse => $this->preview($this->weeklyBody('2999-06-01', '2999-06-29'), $user),
+    );
+
+    $this->assertSame(200, $response->getStatusCode(), $response->getContent());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertSame('Pacific/Auckland', $data['timezone']);
+  }
+
+  /**
+   * The preview range echoes the LITERAL sent dates, bare and T00 alike.
+   *
+   * The T00:00:00 case is the load-bearing one: it pins that the range is the
+   * literal date part of what was sent, never the input converted through the
+   * (far-east) operative zone — an Auckland conversion would shift both dates.
+   */
+  public function testPreviewRangeEchoesLiteralSentDates(): void {
+    $user = $this->createUser([], NULL, FALSE, ['timezone' => 'Pacific/Auckland']);
+
+    $cases = [
+      'bare' => ['2999-06-01', '2999-06-29'],
+      'midnight-shaped' => ['2999-06-01T00:00:00', '2999-06-29T00:00:00'],
+    ];
+    foreach ($cases as $label => [$value, $endValue]) {
+      $response = $this->inTimezone(
+        'Pacific/Auckland',
+        fn (): JsonResponse => $this->preview($this->weeklyBody($value, $endValue), $user),
+      );
+
+      $this->assertSame(200, $response->getStatusCode(), $response->getContent());
+      $data = json_decode($response->getContent(), TRUE);
+      $this->assertSame(
+        ['start_date' => '2999-06-01', 'end_date' => '2999-06-29'],
+        $data['range'] ?? NULL,
+        "range echoes the literal sent dates ($label)",
+      );
+    }
+  }
+
+  /**
+   * Preview and commit produce the SAME occurrence set for the same input.
+   *
+   * The preview computes via EffectiveCreationSet; the commit relies on the
+   * contrib insert hook to spawn instances. The commit response carries no
+   * dates, so parity is checked against STORAGE: the preview's occurrence
+   * instants must equal the committed instances' stored date instants. Run in
+   * a far-east zone with a morning local time (10:00 NZST = 22:00 UTC the
+   * previous day) so the UTC-midnight-crossing case is the one pinned.
+   */
+  public function testPreviewAndCommitProduceIdenticalOccurrenceSets(): void {
+    $user = $this->createUser([], NULL, FALSE, ['timezone' => 'Pacific/Auckland']);
+    $body = $this->weeklyBody('2999-06-01', '2999-06-29');
+
+    $previewResponse = $this->inTimezone(
+      'Pacific/Auckland',
+      fn (): JsonResponse => $this->preview($body, $user),
+    );
+    $this->assertSame(200, $previewResponse->getStatusCode(), $previewResponse->getContent());
+    $previewData = json_decode($previewResponse->getContent(), TRUE);
+    $previewPairs = array_map(
+      fn (array $o): array => [strtotime($o['start_date']), strtotime($o['end_date'])],
+      $previewData['occurrences'],
+    );
+
+    $commitResponse = $this->inTimezone(
+      'Pacific/Auckland',
+      fn (): JsonResponse => $this->commit($body, $user),
+    );
+    $this->assertSame(200, $commitResponse->getStatusCode(), $commitResponse->getContent());
+    $commitData = json_decode($commitResponse->getContent(), TRUE);
+
+    $storedPairs = [];
+    foreach ($commitData['instance_ids'] as $instanceId) {
+      $instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($instanceId);
+      $storedPairs[] = [
+        $instance->get('date')->start_date->getTimestamp(),
+        $instance->get('date')->end_date->getTimestamp(),
+      ];
+    }
+
+    sort($previewPairs);
+    sort($storedPairs);
+    $this->assertNotEmpty($previewPairs, 'Parity needs a non-empty occurrence set.');
+    $this->assertSame($previewPairs, $storedPairs, 'Preview occurrences and committed instances must be the same set.');
+  }
+
+  /**
+   * A present-but-non-string rule boundary is the same field-named 422.
+   *
+   * A non-string value/end_value cannot be normalized; silently skipping it
+   * while still marking the series normalized-by-writer would hand preSave a
+   * value the writer never anchored. Refuse it exactly like an unparseable
+   * string, naming the field and the expected format.
+   */
+  public function testNonStringRuleBoundaryRefused(): void {
+    $user = $this->createUser();
+    $body = $this->weeklyBody('2999-06-01', '2999-06-29');
+    $body['weekly_recurring_date'][0]['value'] = 12345;
+
+    $response = $this->preview($body, $user);
+    $this->assertSame(422, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertSame('validation_error', $data['error']);
+    $this->assertStringContainsString('weekly_recurring_date', $data['message']);
+    $this->assertStringContainsString('YYYY-MM-DD', $data['message']);
   }
 
 }
