@@ -12,6 +12,11 @@ services:
     class: Drupal\access\AccessIdResolver
     arguments: ['@entity_type.manager', '@database']
 
+  # Shared domain-gated hidden-option rules for access_events and access_news
+  # forms/presave guards; see D8-2824 and Drupal\access\HiddenFieldOptions.
+  access.hidden_field_options:
+    class: Drupal\access\HiddenFieldOptions
+
   access.auth_cookie_subscriber:
     class: Drupal\access\EventSubscriber\AccessAuthCookieSubscriber
     arguments: ['@access.jwt_key_provider', '@current_user', '@entity_type.manager', '@state', '@logger.channel.default', '@database']
