@@ -9,7 +9,10 @@ use Drupal\Core\Cache\CacheTagsInvalidatorInterface;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\Core\State\StateInterface;
+use Drupal\recurring_events\EventInstanceCreatorPluginManager;
 
 /**
  * Normalizes legacy recurrence-boundary rows to the T12 anchor invariant.
@@ -54,6 +57,18 @@ class RecurBoundaryMigrator {
     'eventseries_field_revision' => ['id', 'vid'],
   ];
 
+  /**
+   * State key holding the victim list across the migrate → remediate gap.
+   *
+   * Once migrate() has anchored the T00 rows, no shape in the DB identifies
+   * a victim anymore — the list produced during the run is the only record.
+   * It persists here (keyed by series id) so the drush remediation command,
+   * run after the operator has reviewed the victim log, still has it;
+   * remediate() prunes entries it regenerated (or found deleted) and keeps
+   * registered ones pending for the operator playbook.
+   */
+  private const VICTIMS_STATE_KEY = 'access_events.recur_boundary_victims';
+
   public function __construct(
     protected Connection $database,
     protected EntityTypeManagerInterface $entityTypeManager,
@@ -61,6 +76,9 @@ class RecurBoundaryMigrator {
     protected LoggerChannelFactoryInterface $loggerFactory,
     protected RegistrantCounter $registrantCounter,
     protected CacheTagsInvalidatorInterface $cacheTagsInvalidator,
+    protected StateInterface $state,
+    protected EventInstanceCreatorPluginManager $creatorPluginManager,
+    protected ModuleHandlerInterface $moduleHandler,
   ) {}
 
   /**
@@ -168,6 +186,16 @@ class RecurBoundaryMigrator {
       ];
     }
 
+    if ($report['victims'] !== []) {
+      // Persist for remediate(): after this run the anchored rows carry no
+      // trace of victimhood, so the list cannot be re-derived from the DB.
+      $pending = $this->state->get(self::VICTIMS_STATE_KEY, []);
+      foreach ($report['victims'] as $victim) {
+        $pending[$victim['id']] = $victim;
+      }
+      $this->state->set(self::VICTIMS_STATE_KEY, $pending);
+    }
+
     if ($changedIds !== []) {
       $ids = array_keys($changedIds);
       $this->entityTypeManager->getStorage('eventseries')->resetCache($ids);
@@ -179,6 +207,114 @@ class RecurBoundaryMigrator {
     }
 
     $this->logReport($report);
+    return $report;
+  }
+
+  /**
+   * The victim list awaiting remediation, as persisted by migrate().
+   *
+   * @return array[]
+   *   [id, title, registrants] entries, in series-id order. The registrant
+   *   counts are migrate-time snapshots — remediate() re-counts before it
+   *   touches anything.
+   */
+  public function pendingVictims(): array {
+    $pending = $this->state->get(self::VICTIMS_STATE_KEY, []);
+    ksort($pending);
+    return array_values($pending);
+  }
+
+  /**
+   * Regenerates instances for the UNREGISTERED series on a victim list.
+   *
+   * The post-migration step (spec: never auto-run from the update hook): a
+   * T00 victim's instances were generated from the slid dates, and the
+   * migration fixed only its boundary columns — regeneration through the
+   * normal creation path realigns them. Per victim:
+   * - registrants are re-counted FRESH (countNotPastForSeries, the same
+   *   population the reschedule guard keys on) — the list's counts may
+   *   predate a registration that happened in the review gap. Any count > 0
+   *   means the series is NEVER touched, only logged for the operator
+   *   playbook and kept pending;
+   * - a clean victim's instances are rebuilt via the active
+   *   EventInstanceCreator plugin — the identical resolve-alter-process call
+   *   contrib's own eventseries_update hook makes, so the site's
+   *   past-preserving plugin (and its registrant belt) applies. The belt's
+   *   RuntimeException deliberately propagates: a registrant appearing
+   *   between the fresh count and the delete loop should abort loudly, not
+   *   be papered over;
+   * - the victim list is over-inclusive by design (a T00 shape on a
+   *   non-default revision flags a series whose current rows were fine);
+   *   regenerating such a false positive is harmless — same boundaries in,
+   *   same instance dates out;
+   * - a series deleted since migration is reported and pruned, not fatal.
+   * Regenerated and missing entries are pruned from the persisted pending
+   * list; registered ones stay pending for the operator.
+   *
+   * @param array $victims
+   *   Victim entries ([id, title, registrants]) as produced by migrate() /
+   *   pendingVictims().
+   *
+   * @return array
+   *   Report with:
+   *   - regenerated: [id, title] per series whose instances were rebuilt;
+   *   - registered: [id, title, registrants] per series skipped on its
+   *     FRESH registrant count;
+   *   - missing: series ids no longer loadable.
+   */
+  public function remediate(array $victims): array {
+    $report = ['regenerated' => [], 'registered' => [], 'missing' => []];
+    $storage = $this->entityTypeManager->getStorage('eventseries');
+    $logger = $this->loggerFactory->get('access_events');
+    $pending = $this->state->get(self::VICTIMS_STATE_KEY, []);
+
+    foreach ($victims as $victim) {
+      $id = (int) $victim['id'];
+      $registrants = $this->registrantCounter->countNotPastForSeries($id);
+      if ($registrants > 0) {
+        $entry = ['id' => $id, 'title' => (string) $victim['title'], 'registrants' => $registrants];
+        $report['registered'][] = $entry;
+        $pending[$id] = $entry;
+        $logger->warning('Recurrence boundary remediation left bug-victim series @id ("@title") untouched: @count not-past registrant(s). Rebuilding would destroy their linkage — operator playbook decision per series (accept the off-by-one history, or coordinate a rebuild).', [
+          '@id' => $id,
+          '@title' => $victim['title'],
+          '@count' => $registrants,
+        ]);
+        continue;
+      }
+
+      $series = $storage->load($id);
+      if ($series === NULL) {
+        $report['missing'][] = $id;
+        unset($pending[$id]);
+        $logger->notice('Recurrence boundary remediation skipped series @id ("@title"): no longer exists.', [
+          '@id' => $id,
+          '@title' => $victim['title'],
+        ]);
+        continue;
+      }
+
+      // The same call contrib's recurring_events_eventseries_update makes:
+      // resolve the configured creator plugin (empty falls back to contrib's
+      // default), let the alter swap in the site's past-preserving plugin,
+      // then rebuild from the series' CURRENT (post-migration, anchored)
+      // boundary config.
+      $plugin = $this->creatorPluginManager->createInstance(
+        $this->configFactory->get('recurring_events.eventseries.config')->get('creator_plugin'), []
+      );
+      $this->moduleHandler->alter('recurring_events_event_instance_creator_plugin', $plugin, $this->creatorPluginManager, $series);
+      $plugin->processInstances($series);
+      $storage->resetCache([$id]);
+
+      $report['regenerated'][] = ['id' => $id, 'title' => (string) $series->label()];
+      unset($pending[$id]);
+      $logger->notice('Recurrence boundary remediation regenerated instances for bug-victim series @id ("@title") from its corrected boundaries.', [
+        '@id' => $id,
+        '@title' => $series->label(),
+      ]);
+    }
+
+    $this->state->set(self::VICTIMS_STATE_KEY, $pending);
     return $report;
   }
 

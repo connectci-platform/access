@@ -314,6 +314,52 @@ class RecurBoundaryMigrationTest extends EventKernelTestBase {
   }
 
   /**
+   * Revision rows that diverge from the default revision migrate per-ROW.
+   *
+   * The migrator walks every eventseries_field_revision row independently
+   * (keyed id+vid), so a forward/draft revision whose boundary shape differs
+   * from the default revision's must be normalized per ITS OWN shape — a
+   * migrator that only consulted the default revision's shape would either
+   * skip the draft row or rewrite it with the wrong recovery branch.
+   */
+  public function testDivergentRevisionRowsNormalizePerTheirOwnShapes(): void {
+    $series = $this->makeFixtureSeries();
+    // Default revision (data table + current revision row): wall-clock shape
+    // that recovers to the PREVIOUS date through the site zone (NY).
+    $this->setRawBoundary($series, 'weekly_recurring_date', '2026-04-03T01:30:00', '2026-10-20T02:15:00');
+    // Divergent higher-vid revision row: T00 shape over the SAME nominal
+    // dates — its literal branch must keep them, while the default
+    // revision's wall-clock branch shifts them back a day.
+    $draftVid = $this->plantDivergentRevisionRow($series, 'weekly_recurring_date', '2026-04-03T00:00:00', '2026-10-20T00:00:00');
+
+    $report = $this->migrator()->migrate(TRUE);
+
+    $fetchRevisionPair = fn(int $vid): array => \Drupal::database()
+      ->select('eventseries_field_revision', 'r')
+      ->fields('r', ['weekly_recurring_date__value', 'weekly_recurring_date__end_value'])
+      ->condition('id', $series->id())
+      ->condition('vid', $vid)
+      ->execute()
+      ->fetch(\PDO::FETCH_NUM);
+
+    // Each revision row normalized per its own shape, not its sibling's.
+    $this->assertSame(['2026-04-02T12:00:00', '2026-10-19T12:00:00'], $fetchRevisionPair((int) $series->getRevisionId()));
+    $this->assertSame(['2026-04-03T12:00:00', '2026-10-20T12:00:00'], $fetchRevisionPair($draftVid));
+
+    // The data table follows the default revision's (wall-clock) recovery.
+    $dataPair = $this->rawPairs('eventseries_field_data', (int) $series->id(), 'weekly_recurring_date');
+    $this->assertSame([['2026-04-02T12:00:00', '2026-10-19T12:00:00']], $dataPair);
+
+    // The divergent row's T00 branch fired, so the series is (over-
+    // inclusively, by design) on the victim list even though its default
+    // revision was merely wall-clock — remediation tolerates this.
+    $this->assertSame([(int) $series->id()], array_column($report['victims'], 'id'));
+
+    // One data row + two revision rows rewritten.
+    $this->assertSame(['eventseries_field_data' => 1, 'eventseries_field_revision' => 2], $report['updated']);
+  }
+
+  /**
    * The update hook runs the first-run migration and reports a summary.
    */
   public function testUpdateHookDelegatesToTheMigrator(): void {

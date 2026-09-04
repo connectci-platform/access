@@ -55,4 +55,40 @@ class AccessEventsCommands extends DrushCommands {
     }
   }
 
+  /**
+   * Remediate bug-victim series: regenerate unregistered victims' instances.
+   *
+   * The scoped post-migration step. The boundary migration fixes a victim's
+   * stored dates but leaves its instances on the slid dates; this command
+   * takes the victim list the migration persisted, re-counts registrants
+   * fresh, and regenerates instances through the normal creation service for
+   * every victim with zero registrants. Registered victims are never
+   * touched — they are listed (and stay pending) for the operator playbook.
+   * Run it after reviewing the migration's victim log; safe to re-run.
+   *
+   * @command access-events:remediate-recur-victims
+   * @aliases access-events-recur-remediate
+   * @usage drush access-events:remediate-recur-victims
+   *   Regenerate instances for unregistered bug-victim series.
+   */
+  public function remediateRecurVictims(): void {
+    $victims = $this->migrator->pendingVictims();
+    if ($victims === []) {
+      $this->output()->writeln('No bug-victim series are pending remediation.');
+      return;
+    }
+
+    $report = $this->migrator->remediate($victims);
+
+    foreach ($report['regenerated'] as $entry) {
+      $this->output()->writeln(sprintf('Regenerated instances for series %d ("%s") from its corrected boundaries.', $entry['id'], $entry['title']));
+    }
+    foreach ($report['registered'] as $entry) {
+      $this->output()->writeln(sprintf('LEFT UNTOUCHED: series %d ("%s") has %d not-past registrant(s) — operator playbook decision; it stays pending.', $entry['id'], $entry['title'], $entry['registrants']));
+    }
+    foreach ($report['missing'] as $id) {
+      $this->output()->writeln(sprintf('Skipped series %d: no longer exists.', $id));
+    }
+  }
+
 }

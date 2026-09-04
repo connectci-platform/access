@@ -73,6 +73,9 @@ services:
         "@logger.factory",
         "@access_events.registrant_counter",
         "@cache_tags.invalidator",
+        "@state",
+        "@plugin.manager.event_instance_creator",
+        "@module_handler",
       ]
   access_events.form_warnings:
     class: Drupal\access_events\FormWarnings
