@@ -154,20 +154,8 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $username = $current_user->getAccountName();
     $username = str_replace('@access-ci.org', '', $username);
 
-    $grantlist = \Drupal::service('access_events.XsedeApi')->getGrantList($username);
-    $no_grants = 0;
-    if (empty($grantlist)) {
-      $no_grants = 1;
-    }
-    $grantlist = [0 => 'No Allocation'] + $grantlist;
-
-    $form['field_event_allocation_grant']['widget'][0]['value']['#type'] = 'select';
-    $form['field_event_allocation_grant']['widget'][0]['value']['#options'] = $grantlist;
-    $form['field_event_allocation_grant']['widget'][0]['value']['#size'] = 1;
-    if ($no_grants) {
-      $form['field_event_allocation_grant']['widget'][0]['value']['#default_value'] = 0;
-      $form['field_event_allocation_grant']['widget'][0]['value']['#access'] = FALSE;
-    }
+    $series = $form_state->getFormObject()->getEntity();
+    _access_events_build_allocation_grant_widget($form, $series, $username);
 
     // Get current user.
     $current_user = \Drupal::currentUser();
@@ -1515,6 +1503,53 @@ function _access_events_hidden_series_options(): array {
     $hidden['field_choose_where_to_share_this'] = ['in_the_access_support_bi_weekly_digest'];
   }
   return $hidden;
+}
+
+/**
+ * Builds the field_event_allocation_grant select widget for the series form.
+ *
+ * The widget's options are replaced with the EDITING user's own grant list
+ * from the allocations API, "No Allocation" (0) first. Two failure modes
+ * this guards against (D8-2823):
+ * - A stored grant absent from that list (another user's grant, or the
+ *   owner's own grant after it rotates out of the API) would otherwise
+ *   render with no matching option; the browser preselects "No Allocation"
+ *   and a normal save silently writes 0. Fixed by appending the stored
+ *   value as an explicit option (labeled with a "(current value)" marker)
+ *   and selecting it by default — the fix belongs here, at the options
+ *   layer, because a presave guard cannot distinguish a deliberate "No
+ *   Allocation" choice from a browser default.
+ * - A grantless editor's widget must never have its default forced to 0
+ *   before being hidden: that defeats Drupal's hidden-element round-trip
+ *   safety and guarantees every such save wipes the stored grant. Leaving
+ *   the default alone (while still hiding the widget) lets the hidden
+ *   element round-trip the entity's real stored value safely.
+ *
+ * @param array $form
+ *   The series form, altered by reference.
+ * @param \Drupal\recurring_events\Entity\EventSeries $series
+ *   The eventseries entity being added/edited/cloned.
+ * @param string $username
+ *   The editing user's ACCESS username (no @access-ci.org suffix), used to
+ *   fetch their grant list from the allocations API.
+ */
+function _access_events_build_allocation_grant_widget(array &$form, $series, string $username): void {
+  $grantlist = \Drupal::service('access_events.XsedeApi')->getGrantList($username);
+  $no_grants = empty($grantlist);
+  $grantlist = [0 => 'No Allocation'] + $grantlist;
+
+  $stored_grant = $series->get('field_event_allocation_grant')->value;
+  if (!empty($stored_grant) && !isset($grantlist[$stored_grant])) {
+    $grantlist[$stored_grant] = $stored_grant . ' ' . t('(current value)');
+    $form['field_event_allocation_grant']['widget'][0]['value']['#default_value'] = $stored_grant;
+  }
+
+  $form['field_event_allocation_grant']['widget'][0]['value']['#type'] = 'select';
+  $form['field_event_allocation_grant']['widget'][0]['value']['#options'] = $grantlist;
+  $form['field_event_allocation_grant']['widget'][0]['value']['#size'] = 1;
+  if ($no_grants) {
+    $form['field_event_allocation_grant']['widget'][0]['value']['#access'] = FALSE;
+  }
 }
 
 /**
