@@ -191,7 +191,17 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $uri = explode('/', $uri);
     $eventinstance_id = $uri[2];
 
-    if (!in_array('administrator', $roles)) {
+    // Only force these fields to the current user's own identity when the
+    // registrant being submitted is (or will be) the current user's own
+    // record. No role currently holds the cross-user 'edit registrant
+    // entities' permission, so today a non-admin can only ever reach this
+    // form for their own registrant — but if that permission is ever granted
+    // to another role, this check keeps an editor from silently overwriting
+    // someone else's name/email with their own on save.
+    $registrant = $form_state->getFormObject()->getEntity();
+    $editing_own_registrant = $registrant->isNew() || (int) $registrant->getOwnerId() === (int) $current_user->id();
+
+    if (!in_array('administrator', $roles) && $editing_own_registrant) {
       // Get current user field 'field_user_first_name'.
       $user = User::load($current_user->id());
       $first_name = $user->get('field_user_first_name')->value;
