@@ -63,6 +63,17 @@ services:
         "@messenger",
         "@datetime.time",
       ]
+  access_events.recur_boundary_migrator:
+    class: Drupal\access_events\RecurBoundaryMigrator
+    arguments:
+      [
+        "@database",
+        "@entity_type.manager",
+        "@config.factory",
+        "@logger.factory",
+        "@access_events.registrant_counter",
+        "@cache_tags.invalidator",
+      ]
   access_events.form_warnings:
     class: Drupal\access_events\FormWarnings
     arguments:

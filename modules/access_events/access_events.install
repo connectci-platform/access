@@ -392,3 +392,27 @@ function access_events_update_10007() {
   \Drupal::entityDefinitionUpdateManager()
     ->installFieldStorageDefinition('individually_cancelled', 'eventinstance', 'access_events', $definition);
 }
+
+/**
+ * Normalizes legacy recurrence-boundary rows to reader-independent anchors.
+ *
+ * Direct DB rewrite via the migrator service (see RecurBoundaryMigrator for
+ * the shape taxonomy and why entity saves are off the table). First-run mode:
+ * already-anchored rows are audit-logged as collision candidates. Re-run
+ * later with `drush access-events:migrate-recur-boundaries` for any rows
+ * written after this hook fired.
+ */
+function access_events_update_10008() {
+  $report = \Drupal::service('access_events.recur_boundary_migrator')->migrate(TRUE);
+  return t('Recurrence boundaries normalized: @data data rows and @revision revision rows rewritten (@t00 T00 columns, @bare bare-date, @wall wall-clock; @anchored anchored skipped, @unrecognized unrecognized untouched). @victims bug-victim series logged for remediation; @audit pre-existing anchored rows audit-logged.', [
+    '@data' => $report['updated']['eventseries_field_data'],
+    '@revision' => $report['updated']['eventseries_field_revision'],
+    '@t00' => $report['shapes']['t00'],
+    '@bare' => $report['shapes']['bare'],
+    '@wall' => $report['shapes']['wall_clock'],
+    '@anchored' => $report['shapes']['anchored'],
+    '@unrecognized' => $report['shapes']['unrecognized'],
+    '@victims' => count($report['victims']),
+    '@audit' => count($report['audit']),
+  ]);
+}

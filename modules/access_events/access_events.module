@@ -4,6 +4,7 @@
  * @file
  */
 
+use Drupal\access_events\Entity\EventSeriesAccess;
 use Drupal\access_events\Plugin\Util\EventDateConvert;
 use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Form\FormStateInterface;
@@ -3092,7 +3093,7 @@ function _access_events_recur_widget_prefill_alter(array &$element, array $conte
   }
   foreach (['value', 'end_value'] as $key) {
     $raw = $item->{$key} ?? NULL;
-    if (!is_string($raw) || !str_ends_with($raw, 'T12:00:00')) {
+    if (!is_string($raw) || !EventSeriesAccess::isAnchored($raw)) {
       continue;
     }
     if (!isset($element[$key]['#default_value'])) {

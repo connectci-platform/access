@@ -34,6 +34,32 @@ class EventSeriesAccess extends EventSeries {
   ];
 
   /**
+   * The time-part suffix that marks a stored boundary as anchored.
+   *
+   * `{date}T12:00:00` means "this literal calendar date, for every reader" —
+   * noon-UTC keeps the date stable across UTC-12..UTC+14 when a legacy
+   * consumer does instant-convert it.
+   */
+  public const ANCHOR_SUFFIX = 'T12:00:00';
+
+  /**
+   * Whether a raw stored boundary carries the anchor signature.
+   *
+   * READ-side classification only — shared by the decode getters, the widget
+   * prefill and the legacy-row migrator. The WRITE path (preSave) must never
+   * key on it: the signature is writer-reachable in-band (see preSave()).
+   *
+   * @param string $raw
+   *   A raw {field}__value / {field}__end_value string.
+   *
+   * @return bool
+   *   TRUE when the value is an anchored boundary.
+   */
+  public static function isAnchored(string $raw): bool {
+    return str_ends_with($raw, self::ANCHOR_SUFFIX);
+  }
+
+  /**
    * Whether an API writer already normalized the recurrence boundaries.
    *
    * Transient (never persisted): set by the write path on the in-memory
@@ -108,7 +134,7 @@ class EventSeriesAccess extends EventSeries {
     // Bare calendar date: LITERAL — it has no instant; parsing it as one
     // injects the current wall clock and shifts TZ-dependently.
     if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
-      return $raw . 'T12:00:00';
+      return $raw . self::ANCHOR_SUFFIX;
     }
     // `!` zeroes unspecified fields; the strict `\T` separator rejects
     // space-separated datetimes into the store-unchanged path below rather
@@ -120,7 +146,7 @@ class EventSeriesAccess extends EventSeries {
       return $raw;
     }
     $dt->setTimezone(new \DateTimeZone(date_default_timezone_get()));
-    return $dt->format('Y-m-d') . 'T12:00:00';
+    return $dt->format('Y-m-d') . self::ANCHOR_SUFFIX;
   }
 
   /**
@@ -216,7 +242,7 @@ class EventSeriesAccess extends EventSeries {
       return NULL;
     }
     $tz = new \DateTimeZone(date_default_timezone_get());
-    if (str_ends_with($raw, 'T12:00:00')) {
+    if (self::isAnchored($raw)) {
       // Anchored: the stored date substring IS the calendar date.
       return DrupalDateTime::createFromFormat('Y-m-d H:i:s', substr($raw, 0, 10) . ' 00:00:00', $tz);
     }
