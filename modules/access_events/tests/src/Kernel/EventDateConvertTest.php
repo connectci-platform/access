@@ -127,4 +127,35 @@ class EventDateConvertTest extends KernelTestBase {
       'the end keeps its own date');
   }
 
+  /**
+   * Constructing the class raises no PHP notice.
+   *
+   * Every value this class exposes has to be a DECLARED property. Assigning an
+   * undeclared one is a deprecation on PHP 8.2+, and Drupal renders that
+   * notice into the response before the doctype — which breaks the document,
+   * takes the page's JavaScript down with it, and leaves facets and the
+   * toolbar unrendered. The class still returns correct strings throughout, so
+   * nothing here looks wrong; the damage is entirely in the emitted notice.
+   */
+  public function testConstructionRaisesNoPhpNotice(): void {
+    $raised = [];
+    set_error_handler(function (int $no, string $message) use (&$raised): bool {
+      $raised[] = $message;
+      return TRUE;
+    }, E_ALL);
+
+    try {
+      $convert = new EventDateConvert('2026-07-15T19:00:00', '2026-07-15T20:00:00', 'America/Chicago');
+      $convert->getStart();
+      $convert->getStartDayDate();
+      $convert->getEnd();
+    }
+    finally {
+      restore_error_handler();
+    }
+
+    $this->assertSame([], $raised,
+      'a notice here is rendered into the page and breaks the document');
+  }
+
 }

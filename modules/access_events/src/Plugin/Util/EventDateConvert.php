@@ -27,6 +27,13 @@ class EventDateConvert {
   private $startTime;
 
   /**
+   * Stores the start's weekday and date, in the same zone as the times.
+   *
+   * @var string
+   */
+  private $startDayDate = '';
+
+  /**
    * Stores end date.
    *
    * @var string
