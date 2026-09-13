@@ -75,6 +75,23 @@ access.api_docs_events_v23:
       openapi_generator:
         type: openapi_generator
 
+access.api_docs_events_v24:
+  path: '/api-docs/events-v24'
+  defaults:
+    _title: 'ACCESS Events API v2.4 Documentation'
+    _controller: '\Drupal\openapi\Controller\OpenApiUiController::generate'
+    openapi_ui: 'swagger'
+    openapi_generator: 'access_events_v24'
+  requirements:
+    _permission: 'access content'
+  options:
+    _admin_route: FALSE
+    parameters:
+      openapi_ui:
+        type: openapi_ui
+      openapi_generator:
+        type: openapi_generator
+
 access.api_docs_resources:
   path: '/api-docs/resources'
   defaults:
