@@ -1,0 +1,6 @@
+services:
+  access_events.commands:
+    class: \Drupal\access_events\Commands\AccessEventsCommands
+    arguments: ['@access_events.timezone_backfill']
+    tags:
+      - { name: drush.command }

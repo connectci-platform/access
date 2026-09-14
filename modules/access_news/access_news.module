@@ -1154,29 +1154,29 @@ function access_news_events_range_view(string $fromDate, string $toDate, string 
         $startDateTime = $enode->date[0]->getValue()['value'];
         $endDateTime = $enode->date[0]->getValue()['end_value'];
 
-        // @todo what is required to show for timezone-- zone of the event?
-        // Times are stored in UTC.
-        $startEvent = new DrupalDateTime($startDateTime, 'UTC');
-        $startEvent->setTimezone(new \DateTimeZone('America/New_York'));
+        // The event's own zone, answering the question this block used to ask
+        // in a @todo. The digest renders once and is fanned out by Constant
+        // Contact, so there is no recipient to personalise for — every reader
+        // gets one labelled time, and it has to be the event's.
+        $eventZone = $enode->hasField('event_timezone')
+          ? trim((string) ($enode->get('event_timezone')->value ?? ''))
+          : '';
 
-        $endEvent = new DrupalDateTime($endDateTime, 'UTC');
-        $endEvent->setTimezone(new \DateTimeZone('America/New_York'));
+        // Both ends and the abbreviation come from the same zone and the same
+        // dates. Taking the abbreviation from a fresh "now" — as this did —
+        // stamps EDT on a January event whenever the digest is sent in summer.
+        $startDisplay = _access_events_format_event_time($startDateTime, $eventZone, 'n/j/Y g:i a');
+        $sameDay = _access_events_format_event_time($startDateTime, $eventZone, 'Y-m-d')
+          === _access_events_format_event_time($endDateTime, $eventZone, 'Y-m-d');
+        $endDisplay = _access_events_format_event_time(
+          $endDateTime,
+          $eventZone,
+          $sameDay ? 'g:i a' : 'n/j/Y g:i a'
+        );
+        $tz = _access_events_format_event_time($startDateTime, $eventZone, 'T');
 
-        if ($startEvent->format('dmy') == $endEvent->format('dmy')) {
-          $endDisplay = $endEvent->format('g:i a');
-        }
-        else {
-          $endDisplay = $endEvent->format('n/j/Y g:i a');
-        }
-
-        // Include end date only if different
-        // display ex: 2/21/2023 4:00 PM - 6:30 PM EST.
-        $date = new DateTime("now", new DateTimeZone("America/New_York"));
-        // EST or EDT.
-        $tz = $date->format('T');
-
-        $dateTimeDisp = $startEvent->format('n/j/Y g:i a')
-          . ' - ' . $endDisplay . " " . $tz;
+        // Display example: 2/21/2023 4:00 PM - 6:30 PM EST.
+        $dateTimeDisp = $startDisplay . ' - ' . $endDisplay . " " . $tz;
 
         // Inheritance computed field — instance override falls back to series.
         $summary = $enode->get('event_summary')->value;

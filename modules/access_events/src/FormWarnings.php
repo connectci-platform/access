@@ -323,6 +323,85 @@ class FormWarnings {
   }
 
   /**
+   * Warns that changing the timezone will move this event's occurrences.
+   *
+   * A timezone edit is a reschedule. If an event was recorded as Chicago and
+   * is really New York, it happens an hour earlier than everyone was told, so
+   * the occurrences genuinely should move — and registrants should be treated
+   * the same way any other schedule change treats them.
+   *
+   * Because generation resolves the series' stored zone, the field takes part
+   * in recur-config change detection: saving a changed zone rebuilds the
+   * occurrences immediately rather than leaving them to drift. On a series
+   * with registrations that meets the existing reschedule guard, which refuses
+   * the save. This warning is what makes either outcome expected rather than
+   * a surprise.
+   *
+   * Returns NULL when there is nothing a rebuild could move: a custom-date
+   * series has stored instants rather than a rule to re-expand, and a series
+   * whose occurrences are all past cannot be moved by a rebuild.
+   *
+   * @param \Drupal\recurring_events\Entity\EventSeries $entity
+   *   The series being edited.
+   *
+   * @return \Drupal\Core\StringTranslation\TranslatableMarkup|null
+   *   The warning, or NULL when a zone change would move nothing.
+   */
+  public function timezoneChangeWarning(EventSeries $entity): ?TranslatableMarkup {
+    // Custom dates are stored instants, not a rule to re-expand, so the zone
+    // does not move them. That is 904 of 962 production series; warning on all
+    // of them would be noise that teaches editors to ignore the message.
+    if ($entity->get('recur_type')->value === 'custom') {
+      return NULL;
+    }
+    if (!$entity->hasField('field_event_timezone')) {
+      return NULL;
+    }
+    if ($this->futureOccurrenceCount($entity) === 0) {
+      return NULL;
+    }
+
+    if ($this->registrantCounter->countNotPastForSeries((int) $entity->id()) > 0) {
+      return $this->t("Changing this event's timezone moves its upcoming occurrences, so it counts as a schedule change. This event has registrations, so the save will be refused — cancel the event (registrants are notified), correct the times, then restore it.");
+    }
+
+    return $this->t("Changing this event's timezone moves its upcoming occurrences to the same clock times in the new zone. The occurrences are regenerated on save.");
+  }
+
+  /**
+   * Counts occurrences that have not happened yet.
+   *
+   * Queries storage rather than reading the entity's event_instances
+   * reference list. That list is populated by the insert hook and is empty on
+   * the in-memory entity immediately after a save, so reading it would
+   * silently report no future occurrences on exactly the entity a form holds.
+   */
+  private function futureOccurrenceCount(EventSeries $entity): int {
+    if ($entity->isNew()) {
+      return 0;
+    }
+    $storage = $this->entityTypeManager->getStorage('eventinstance');
+    $ids = $storage->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('eventseries_id', $entity->id())
+      ->execute();
+    if (!$ids) {
+      return 0;
+    }
+
+    $now = $this->registrantCounterTime();
+    $future = 0;
+    foreach ($storage->loadMultiple($ids) as $instance) {
+      /** @var \Drupal\recurring_events\Entity\EventInstance $instance */
+      $start = $instance->get('date')->start_date;
+      if ($start !== NULL && $start->getTimestamp() > $now) {
+        $future++;
+      }
+    }
+    return $future;
+  }
+
+  /**
    * Sums not-verifiably-past registrants across a series' CURRENTLY
    * PUBLISHED instances only.
    *

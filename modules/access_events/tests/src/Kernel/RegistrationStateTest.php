@@ -89,7 +89,8 @@ class RegistrationStateTest extends EventKernelTestBase {
    *
    * already_registered (hasUserRegisteredById) counts waitlisted registrants,
    * while registered_count (retrieveRegisteredPartiesCount(TRUE, FALSE)) does
-   * not. This asymmetry is intentional — it lets A3 refuse a re-registration
+   * not. This asymmetry is intentional — it lets the registration API refuse
+   * a re-registration
    * from a user who is only on the waitlist — so it is locked in here.
    */
   public function testWaitlistedRegistrationDedupsButHoldsNoSeat(): void {

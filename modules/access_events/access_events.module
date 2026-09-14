@@ -8,6 +8,8 @@ use Drupal\access_events\Plugin\Util\EventDateConvert;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Session\AccountInterface;
+use Drupal\Core\Datetime\TimeZoneFormHelper;
+use Drupal\Core\Entity\EntityFormInterface;
 use Drupal\Core\Access\AccessResult;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Render\Element;
@@ -28,6 +30,213 @@ use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events\Entity\EventSeries;
 use Drupal\recurring_events\EventInstanceCreatorInterface;
 use Drupal\recurring_events\EventInstanceCreatorPluginManager;
+
+/**
+ * Implements hook_field_formatter_info_alter().
+ *
+ * Points the two core date-range formatters at subclasses that render an
+ * in-person event in its venue's timezone. Doing it here rather than in the
+ * view displays means the six views that use daterange_default are covered
+ * too, without touching 21 config entries — and without a listing quietly
+ * keeping viewer-local times while the detail page looks right.
+ *
+ * Online events are unaffected: the subclasses defer to core unless the event
+ * is marked in-person and carries a valid zone.
+ */
+function access_events_field_formatter_info_alter(array &$info) {
+  // Only the class changes. Reassigning 'provider' as well would rewrite the
+  // config dependencies of every display using these formatters — the three
+  // eventinstance displays each swap datetime_range for access_events — which
+  // is export churn, and would make uninstalling this module target those
+  // displays.
+  if (isset($info['daterange_custom'])) {
+    $info['daterange_custom']['class'] = 'Drupal\\access_events\\Plugin\\Field\\FieldFormatter\\EventVenueDateRangeCustomFormatter';
+  }
+  if (isset($info['daterange_default'])) {
+    $info['daterange_default']['class'] = 'Drupal\\access_events\\Plugin\\Field\\FieldFormatter\\EventVenueDateRangeDefaultFormatter';
+  }
+}
+
+/**
+ * The zone a views row's dates were rendered in, when it is not the viewer's.
+ *
+ * Returns the venue zone for an in-person event, so a listing can label the
+ * time the formatter already produced. Returns NULL for an online event, whose
+ * times are viewer-local and correctly labelled by the ambient zone.
+ *
+ * @param array $variables
+ *   The views field preprocess variables.
+ *
+ * @return string|null
+ *   An IANA zone name, or NULL to leave the ambient zone in charge.
+ */
+function _access_events_row_display_timezone(array $variables): ?string {
+  $entity = $variables['row']->_entity ?? NULL;
+  if ($entity === NULL || !$entity->hasField('event_in_person')) {
+    return NULL;
+  }
+  if (!$entity->get('event_in_person')->value) {
+    return NULL;
+  }
+  $zone = $entity->hasField('event_timezone')
+    ? trim((string) ($entity->get('event_timezone')->value ?? ''))
+    : '';
+  return ($zone !== '' && in_array($zone, \DateTimeZone::listIdentifiers(), TRUE)) ? $zone : NULL;
+}
+
+/**
+ * Formats a stored event time in a given zone, for use outside a request.
+ *
+ * On a web request Drupal sets the ambient timezone to the viewer's account
+ * zone, so a strtotime()/date() round trip happens to come out right. Cron,
+ * queue workers and mail runs have no viewer, ambient falls back to the site
+ * default, and that cancellation stops holding — so these callers have to name
+ * the zone they mean.
+ *
+ * Both the number and any zone token in the format come from the same date
+ * object, which is what keeps a label from naming a different instant than the
+ * time beside it. That is also why the abbreviation is correct for the event's
+ * own date rather than for whenever the run happens: EST for a January event
+ * even in a July digest.
+ *
+ * @param string $storedValue
+ *   The stored naive-UTC value, as Drupal keeps datetimes.
+ * @param string $zone
+ *   An IANA zone name. An empty or unrecognised value falls back to the site
+ *   default, because these paths run where an exception is an unsent digest
+ *   rather than a visible error.
+ * @param string $format
+ *   A PHP date format string.
+ *
+ * @return string
+ *   The formatted time.
+ */
+function _access_events_format_event_time(string $storedValue, string $zone, string $format): string {
+  return _access_events_event_time_object($storedValue, $zone)->format($format);
+}
+
+/**
+ * An event time as ISO 8601 with the offset for its own zone and date.
+ *
+ * Structured-data consumers want an explicit offset, and Google reads it
+ * literally. Emitting
+ * a local offset against a value parsed as if it were local — which is what
+ * the JSON-LD builder did — is wrong by the full offset.
+ *
+ * Note this shape is for structured data only. RFC 5545 forbids an offset on
+ * an iCalendar DATE-TIME, so a calendar export needs its own serialiser rather
+ * than sharing this string.
+ *
+ * @param string $storedValue
+ *   The stored naive-UTC value.
+ * @param string $zone
+ *   An IANA zone name, with the same fallback as above.
+ *
+ * @return string
+ *   An ISO 8601 datetime carrying a numeric UTC offset.
+ */
+function _access_events_iso8601_event_time(string $storedValue, string $zone): string {
+  return _access_events_event_time_object($storedValue, $zone)->format('c');
+}
+
+/**
+ * Builds a zoned date object from a stored naive-UTC event value.
+ */
+function _access_events_event_time_object(string $storedValue, string $zone): \DateTime {
+  $date = new \DateTime($storedValue, new \DateTimeZone('UTC'));
+
+  $zone = trim($zone);
+  if ($zone === '' || !in_array($zone, \DateTimeZone::listIdentifiers(), TRUE)) {
+    $zone = (string) (\Drupal::config('system.date')->get('timezone.default') ?: date_default_timezone_get());
+  }
+  $date->setTimezone(new \DateTimeZone($zone));
+
+  return $date;
+}
+
+/**
+ * The timezone an API-created event should take when none is supplied.
+ *
+ * The browser form pre-selects the author's account zone, but that is a
+ * form-layer default and the write API never runs it. Without an equivalent,
+ * every event created through api/2.3 — which is how the MCP agent creates
+ * them — would carry no zone at all.
+ *
+ * Resolves the same way the form does, so an event's zone does not depend on
+ * which write path it happened to arrive through.
+ *
+ * @param \Drupal\Core\Session\AccountInterface $account
+ *   The acting user.
+ *
+ * @return string
+ *   An IANA timezone name.
+ */
+function _access_events_api_default_timezone(AccountInterface $account): string {
+  return _access_events_default_event_timezone($account);
+}
+
+/**
+ * Resolves the timezone an event series' instances should be generated in.
+ *
+ * Generation used to resolve this from date_default_timezone_get() — the
+ * ambient zone of whoever's request was running — so a series authored in one
+ * zone and later edited from another regenerated at a different instant. The
+ * series' own field is the authority; ambient remains the fallback so that a
+ * series with no zone set behaves exactly as it did before this change, which
+ * is every series until the backfill runs.
+ *
+ * Returns a zone NAME rather than a DateTimeZone so callers can decide whether
+ * they need an object, and so an invalid stored value degrades to the fallback
+ * here rather than throwing inside an entity hook, where an unhandled
+ * exception would abort the save.
+ *
+ * @param \Drupal\recurring_events\Entity\EventSeries|null $series
+ *   The series being generated, or NULL to get the ambient fallback.
+ *
+ * @return string
+ *   A valid IANA timezone name.
+ */
+function _access_events_generation_timezone($series = NULL): string {
+  $fallback = date_default_timezone_get();
+  if ($series === NULL || !$series->hasField('field_event_timezone')) {
+    return $fallback;
+  }
+  $stored = trim((string) ($series->get('field_event_timezone')->value ?? ''));
+  if ($stored === '') {
+    return $fallback;
+  }
+  // A stored value can be anything: the field is a plain string with no
+  // allowed-values constraint, and this runs inside insert/update hooks where
+  // a DateInvalidTimeZoneException would take the save down with it.
+  if (!in_array($stored, \DateTimeZone::listIdentifiers(), TRUE)) {
+    return $fallback;
+  }
+  return $stored;
+}
+
+/**
+ * Resolves the timezone an event form should pre-select for an author.
+ *
+ * Organizers have always entered times in their own account timezone — that
+ * is the contract the old form stated, and the one the backfill assumes for
+ * existing events. So the field starts on the zone the author was already
+ * assuming, and where they have none set, on the site default, shown rather
+ * than hidden because that is the case most likely to need correcting.
+ *
+ * @param \Drupal\Core\Session\AccountInterface $account
+ *   The account authoring the event.
+ *
+ * @return string
+ *   An IANA timezone name, always one core's select offers.
+ */
+function _access_events_default_event_timezone(AccountInterface $account): string {
+  $zone = $account->getTimeZone();
+  if ($zone !== NULL && $zone !== '') {
+    return $zone;
+  }
+  return \Drupal::config('system.date')->get('timezone.default')
+    ?: date_default_timezone_get();
+}
 
 /**
  * Implements hook_form_alter().
@@ -133,8 +342,41 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
         unset($form[$hiddenField]['widget']['#options'][$hiddenValue]);
       }
     }
-    $set_tz = $form['custom_date']['widget'][0]['value']['#date_timezone'];
-    $suffix = '<div class="form-text">' . t('Your time zone is set to ') . "<strong>$set_tz</strong>. " . t('If your event is in a different time zone, calculate the time difference accordingly.') . '</div>';
+    // The event's timezone is a field now, so the author no longer has to do
+    // the arithmetic the old notice asked for ("Your time zone is set to X.
+    // If your event is in a different time zone, calculate the time difference
+    // accordingly."). Production shows what that produced: 30 events with a
+    // timezone typed into the location free-text field.
+    //
+    // Options come from core rather than the field's own allowed_values so the
+    // list tracks the timezone database instead of going stale, and the
+    // default is the zone the author was already assuming.
+    if (isset($form['field_event_timezone']['widget'][0]['value'])) {
+      $tzElement =& $form['field_event_timezone']['widget'][0]['value'];
+      $tzElement['#type'] = 'select';
+      $tzElement['#options'] = TimeZoneFormHelper::getOptionsListByRegion();
+      $tzElement['#empty_option'] = t('- Select a timezone -');
+      if (empty($tzElement['#default_value'])) {
+        $account = $form_state->getFormObject() instanceof EntityFormInterface
+          ? $form_state->getFormObject()->getEntity()->getOwner()
+          : \Drupal::currentUser();
+        $tzElement['#default_value'] = _access_events_default_event_timezone($account);
+      }
+      $tzElement['#description'] = t('Times below are in this timezone.');
+      // A timezone change reschedules the event, so say so where the change is
+      // made rather than leaving the editor to discover it on save.
+      $entity = $form_state->getFormObject() instanceof EntityFormInterface
+        ? $form_state->getFormObject()->getEntity()
+        : NULL;
+      if ($entity instanceof EventSeries) {
+        $changeWarning = \Drupal::service('access_events.form_warnings')
+          ->timezoneChangeWarning($entity);
+        if ($changeWarning !== NULL) {
+          $tzElement['#description'] .= ' ' . $changeWarning;
+        }
+      }
+      unset($tzElement['#size'], $tzElement['#maxlength']);
+    }
 
     foreach ($form['custom_date']['widget'] as $key => $value) {
       if (is_numeric($key)) {
@@ -142,14 +384,8 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
         $form['custom_date']['widget'][$key]['value']['#attributes']['aria-label'] = t('Start date');
         $form['custom_date']['widget'][$key]['end_value']['#prefix'] = '<span class="label">' . t('End date') . '</span>';
         $form['custom_date']['widget'][$key]['end_value']['#attributes']['aria-label'] = t('End date');
-        $form['custom_date']['widget'][$key]['day_occurance']['#suffix'] = $suffix;
       }
     }
-
-    $form['monthly_recurring_date']['widget'][0]['day_occurrence']['#suffix'] = $suffix;
-
-    $form['weekly_recurring_date']['widget'][0]['days']['#suffix'] = $suffix;
-    $form['daily_recurring_date']['widget'][0]['duration']['#suffix'] = $suffix;
 
     $current_user = \Drupal::currentUser();
     $username = $current_user->getAccountName();
@@ -981,11 +1217,19 @@ function access_events_views_pre_render(ViewExecutable $view) {
     $instance_id = is_numeric($path_args[2]) ? $path_args[2] : '';
 
     // Entity load 'eventinstance' to get event title.
-    $eventinstance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($instance_id);
-    // Load event series to get event title.
-    $event_title = $eventinstance->getEventSeries()->get('title')->value;
+    $eventinstance = $instance_id === ''
+      ? NULL
+      : \Drupal::entityTypeManager()->getStorage('eventinstance')->load($instance_id);
+    // Both loads can come back empty: the path argument is whatever is in the
+    // URL, and an instance whose series has been deleted resolves to no series
+    // at all. Leave the view's own title in place rather than fataling on the
+    // admin screen.
+    $series = $eventinstance?->getEventSeries();
+    if ($series === NULL) {
+      return;
+    }
 
-    $view->setTitle(t('Registrations - @title', ['@title' => $event_title]));
+    $view->setTitle(t('Registrations - @title', ['@title' => $series->get('title')->value]));
   }
 }
 
@@ -1207,8 +1451,12 @@ function access_events_preprocess_views_view_field(&$variables) {
           $user_timezone = $user->getTimeZone() ?: date_default_timezone_get();
 
           if ($start_date) {
-            $start_date->setTimezone(new \DateTimeZone($user_timezone));
-            $formatted_output = $start_date->format('n/j/Y g:i A T');
+            // Clone first: start_date is the entity's cached DateTimeComputed
+            // object, shared with every other reader in this request, and
+            // setTimezone() mutates in place.
+            $formatted_output = (clone $start_date)
+              ->setTimezone(new \DateTimeZone($user_timezone))
+              ->format('n/j/Y g:i A T');
             $variables['output'] = Markup::create($formatted_output);
           }
         }
@@ -1268,15 +1516,29 @@ function access_events_preprocess_views_view_field(&$variables) {
           $start_date = $date_field->start_date;
           $end_date = $date_field->end_date;
 
-          // Convert to user timezone
-          $user = \Drupal::currentUser();
-          $user_timezone = $user->getTimeZone() ?: date_default_timezone_get();
+          // An in-person event states its venue's clock for every viewer; an
+          // online one is converted to the viewer's zone as before. This block
+          // bypasses the field formatter, so it has to resolve the same zone
+          // the formatter would rather than assuming the viewer's.
+          $venue_zone = $entity->hasField('event_in_person')
+            && !empty($entity->get('event_in_person')->value)
+            && $entity->hasField('event_timezone')
+            ? trim((string) ($entity->get('event_timezone')->value ?? ''))
+            : '';
+          $user_timezone = ($venue_zone !== '' && in_array($venue_zone, \DateTimeZone::listIdentifiers(), TRUE))
+            ? $venue_zone
+            : (\Drupal::currentUser()->getTimeZone() ?: date_default_timezone_get());
 
+          // Clone before converting: these are the entity's cached
+          // DateTimeComputed objects, shared with every other reader in this
+          // request, and setTimezone() mutates in place.
           if ($start_date) {
-            $start_date->setTimezone(new \DateTimeZone($user_timezone));
+            $start_date = (clone $start_date)
+              ->setTimezone(new \DateTimeZone($user_timezone));
           }
           if ($end_date) {
-            $end_date->setTimezone(new \DateTimeZone($user_timezone));
+            $end_date = (clone $end_date)
+              ->setTimezone(new \DateTimeZone($user_timezone));
           }
 
           // Create formatted output
@@ -1296,7 +1558,11 @@ function access_events_preprocess_views_view_field(&$variables) {
         if (count($output) == 2) {
           $start_date = $output[0];
           $end_date = $output[1];
-          $date = new EventDateConvert($start_date, $end_date);
+          // Pass the row's display zone for the same reason as the sibling
+          // branch below: without it the class infers a numeric offset from
+          // the rendered string and labels an in-person event GMT-0500
+          // rather than CST.
+          $date = new EventDateConvert($start_date, $end_date, _access_events_row_display_timezone($variables));
           if ($date->sameDay ) {
             $variables['output'] = Markup::create($date->getStart() . " - " . $date->getEnd());
           } else {
@@ -1316,7 +1582,11 @@ function access_events_preprocess_views_view_field(&$variables) {
       if (count($output) == 2) {
         $start_date = $output[0];
         $end_date = $output[1];
-        $date = new EventDateConvert($start_date, $end_date);
+        // The formatter has already rendered these in the venue's zone for an
+        // in-person event, so pass that zone through: without it the class
+        // infers a numeric offset from the string and 'T' renders GMT-0500
+        // instead of CST.
+        $date = new EventDateConvert($start_date, $end_date, _access_events_row_display_timezone($variables));
         if ($date->sameDay ) {
           $variables['output'] = Markup::create($date->getStartTime() . " - " . $date->getEndTime());
         } else {
@@ -1334,8 +1604,12 @@ function access_events_preprocess_views_view_field(&$variables) {
       if (count($output) == 2) {
         $start_date = $output[0];
         $end_date = $output[1];
-        $date = new EventDateConvert($start_date, $end_date);
-        $start_date = date('l n/j/Y', strtotime($start_date));
+        $rowZone = _access_events_row_display_timezone($variables);
+        $date = new EventDateConvert($start_date, $end_date, $rowZone);
+        // Re-format the weekday and date in the SAME zone the times were
+        // rendered in. date()/strtotime() here would use the ambient zone,
+        // which for an evening in-person event names the wrong weekday.
+        $start_date = $date->getStartDayDate();
 
         if ($date->sameDay ) {
           $variables['output'] = Markup::create($start_date . " | " . $date->getStartTime() . " - " . $date->getEndTime());
