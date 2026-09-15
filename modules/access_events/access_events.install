@@ -538,15 +538,19 @@ function access_events_update_10008() {
  * recurring_events 3.x upgrade.
  */
 function access_events_update_10009() {
-  // The field arrives with config, and config import runs AFTER updb, so on a
-  // normal deploy this hook runs before the field exists and the backfill has
-  // nothing it can write to. Say that, rather than reporting zero as though
-  // the work were done — the operator still has to run the drush command, and
-  // "Wrote 0 event timezones" reads like they do not.
+  // `drush deploy` runs updatedb BEFORE config:import, and the timezone field
+  // arrives with configuration — so on a normal deploy this hook runs before
+  // the field exists and has nothing to write to. That is expected, not a
+  // failure: access_events_deploy_0004_backfill_event_timezones() does the
+  // work afterwards, once the import has created the field.
+  //
+  // This hook stays for the environments that updb without a full deploy, and
+  // says plainly when it could do nothing rather than reporting a zero that
+  // reads like the work is finished.
   $definitions = \Drupal::service('entity_field.manager')
     ->getFieldStorageDefinitions('eventseries');
   if (!isset($definitions['field_event_timezone'])) {
-    return t('The event timezone field is not installed yet, so nothing was backfilled. Run `drush access-events:backfill-timezones` after configuration import.');
+    return t('The event timezone field is not installed yet; the deploy hook backfills after configuration import.');
   }
 
   $backfill = \Drupal::service('access_events.timezone_backfill');

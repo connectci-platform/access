@@ -431,3 +431,49 @@ function access_events_deploy_restore_series_domains(array &$sandbox) {
   ]);
 }
 
+
+/**
+ * Backfills each event series' timezone from its author's account zone.
+ *
+ * This belongs in a deploy hook rather than hook_update_N because of the order
+ * `drush deploy` runs things: updatedb, THEN config:import, then cache:rebuild,
+ * then deploy:hook. The timezone field arrives with configuration, so at
+ * update-hook time it does not exist yet and there is nothing to write to.
+ * access_events_update_10009() says exactly that and writes nothing. This hook
+ * runs after the import, when the field is there.
+ *
+ * It matters that this is automatic. The production deploy workflow runs
+ * `terminus env:deploy` and a Quicksilver hook calling `drush deploy`, with no
+ * manual step afterwards — so a backfill that waited for someone to run a drush
+ * command would simply never happen, and every existing series would keep an
+ * empty timezone. Generation then falls back to the ambient zone, which is the
+ * behaviour this whole feature exists to remove.
+ *
+ * Safe to re-run: the backfill never overwrites a series that already has a
+ * zone, so a human correction survives.
+ */
+function access_events_deploy_0004_backfill_event_timezones() {
+  $definitions = \Drupal::service('entity_field.manager')
+    ->getFieldStorageDefinitions('eventseries');
+  if (!isset($definitions['field_event_timezone'])) {
+    return t('The event timezone field is not installed; nothing to backfill.');
+  }
+
+  $result = \Drupal::service('access_events.timezone_backfill')->backfill();
+  $written = $result['author_zone'] + $result['site_default'];
+
+  $message = t('Wrote @n event timezones (@a from the author, @s from the site default); @k series already had one.', [
+    '@n' => $written,
+    '@a' => $result['author_zone'],
+    '@s' => $result['site_default'],
+    '@k' => $result['skipped'],
+  ]);
+  if (!empty($result['review'])) {
+    // Not a failure: these are rows where the location text disagrees with the
+    // zone derived from the author, so a human decides.
+    $message .= ' ' . t('@c series need review — run `drush access-events:backfill-timezones` to list them.', [
+      '@c' => count($result['review']),
+    ]);
+  }
+  return $message;
+}

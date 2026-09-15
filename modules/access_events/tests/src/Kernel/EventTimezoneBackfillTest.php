@@ -216,6 +216,35 @@ class EventTimezoneBackfillTest extends EventKernelTestBase {
   }
 
   /**
+   * The deploy hook is what actually backfills on a real deploy.
+   *
+   * `drush deploy` runs updatedb, THEN config:import, then cache:rebuild, then
+   * deploy:hook. The timezone field arrives with config, so at hook_update_N
+   * time it does not exist yet and the backfill has nothing to write to — the
+   * update hook says so and writes nothing, which is correct but leaves the
+   * work undone.
+   *
+   * hook_deploy_N runs after config:import, when the field exists. That is the
+   * only phase of the deploy where this can work, and the production deploy
+   * workflow runs no manual step afterwards — so if this hook is absent or
+   * stops being called, every existing series keeps an empty timezone forever
+   * and generation silently falls back to the ambient zone.
+   */
+  public function testDeployHookBackfillsTheTimezone(): void {
+    $series = $this->seriesOwnedByAuthorInZone('America/Chicago', 'deployhook');
+    $this->assertNull($series->get('field_event_timezone')->value,
+      'the series starts with no timezone, as every existing one does');
+
+    require_once __DIR__ . '/../../../access_events.deploy.php';
+    $message = access_events_deploy_0004_backfill_event_timezones();
+
+    $this->assertSame('America/Chicago',
+      $this->reloadSeries($series)->get('field_event_timezone')->value,
+      'the deploy hook wrote the zone the backfill derives');
+    $this->assertNotEmpty($message, 'and reported what it did');
+  }
+
+  /**
    * Reloads a series from storage.
    */
   private function reloadSeries(EventSeries $series): EventSeries {
