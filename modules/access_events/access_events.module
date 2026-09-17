@@ -1155,15 +1155,25 @@ function access_events_user_delete_submit($form, FormStateInterface $form_state)
  * Handle timezone parameter for API endpoints.
  */
 function access_events_views_pre_build(ViewExecutable $view) {
-  // Handle timezone parameter for Events API v2.1 and v2.2
-  if ($view->id() == 'events_facet' && in_array($view->current_display, ['data_export_1', 'data_export_2', 'data_export_3', 'data_export_4'])) {
+  // Resolve the relative date filters for the Events API exports.
+  if ($view->id() == 'events_facet' && in_array($view->current_display, ['data_export_1', 'data_export_2', 'data_export_3', 'data_export_4', 'data_export_5'])) {
     $request = \Drupal::request();
-    $timezone = $request->query->get('timezone', 'UTC');
 
-    // Validate timezone
-    $valid_timezones = timezone_identifiers_list();
-    if (!in_array($timezone, $valid_timezones)) {
+    // v2.4 states its dates as true UTC instants, so a caller-supplied
+    // timezone would contradict the contract: the relative filters have to be
+    // anchored in the same zone the response is expressed in. Earlier versions
+    // keep honouring the parameter.
+    if ($view->current_display === 'data_export_5') {
       $timezone = 'UTC';
+    }
+    else {
+      $timezone = $request->query->get('timezone', 'UTC');
+
+      // Validate timezone
+      $valid_timezones = timezone_identifiers_list();
+      if (!in_array($timezone, $valid_timezones)) {
+        $timezone = 'UTC';
+      }
     }
 
     // Store timezone in view for use in date calculations
@@ -2194,6 +2204,7 @@ function access_events_search_api_query_alter(\Drupal\search_api\Query\QueryInte
   $search_id = $query->getSearchId();
   $api_exports = [
     'views_data_export:events_facet__data_export_4',
+    'views_data_export:events_facet__data_export_5',
   ];
 
   if (in_array($search_id, $api_exports)) {
@@ -2225,6 +2236,7 @@ function access_events_search_api_db_query_alter(\Drupal\Core\Database\Query\Sel
   $search_id = $query->getSearchId();
   $api_exports = [
     'views_data_export:events_facet__data_export_4',
+    'views_data_export:events_facet__data_export_5',
   ];
 
   if (!in_array($search_id, $api_exports)) {
