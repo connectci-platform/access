@@ -1046,25 +1046,27 @@ function access_affinitygroup_update_10015(array &$sandbox): string {
     // target. On production 773 groups hold 908 such surplus rows. They
     // describe one account, so keep the most recently synced and drop the
     // rest; the survivor is remapped by the UPDATE below.
+    //
+    // The survivor is chosen by ordering, not by matching aggregates: each
+    // re-sync wrote a new row against the newer, higher-numbered node, so the
+    // newest synced_at and the lowest rp_nid never sit on the same row, and a
+    // rule that required both deleted every row in every group. Ties on
+    // synced_at fall to the highest nid, the most recently created node.
     $surplus = $db->query('
-      SELECT a.uid, a.grant_number, a.rp_nid
-      FROM {access_user_rp_account} a
-      INNER JOIN (
-        SELECT uid, grant_number, MAX(synced_at) AS keep_synced, MIN(rp_nid) AS keep_nid
+      SELECT uid, grant_number, rp_nid
+      FROM (
+        SELECT uid, grant_number, rp_nid,
+          ROW_NUMBER() OVER (
+            PARTITION BY uid, grant_number
+            ORDER BY synced_at DESC, rp_nid DESC
+          ) AS rn
         FROM {access_user_rp_account}
         WHERE resource_id = :rid AND rp_nid IN (:dangling[])
-        GROUP BY uid, grant_number
-        HAVING COUNT(*) > 1
-      ) dup
-        ON dup.uid = a.uid AND dup.grant_number = a.grant_number
-      WHERE a.resource_id = :rid2
-        AND a.rp_nid IN (:dangling2[])
-        AND NOT (a.synced_at = dup.keep_synced AND a.rp_nid = dup.keep_nid)
+      ) ranked
+      WHERE rn > 1
     ', [
       ':rid' => $resourceId,
       ':dangling[]' => $danglingNids,
-      ':rid2' => $resourceId,
-      ':dangling2[]' => $danglingNids,
     ])->fetchAll();
 
     foreach ($surplus as $row) {

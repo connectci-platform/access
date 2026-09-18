@@ -56,7 +56,7 @@ class RpAccountNidRemapTest extends KernelTestBase {
     return $node;
   }
 
-  private function insertRow(int $uid, int $rpNid, int $resourceId, string $grant): void {
+  private function insertRow(int $uid, int $rpNid, int $resourceId, string $grant, int $syncedAt = 1750000000): void {
     \Drupal::database()->insert('access_user_rp_account')->fields([
       'uid' => $uid,
       'rp_nid' => $rpNid,
@@ -66,7 +66,7 @@ class RpAccountNidRemapTest extends KernelTestBase {
       'rp_username' => 'someone',
       'account_state' => 'active',
       'is_expired' => 0,
-      'synced_at' => 1750000000,
+      'synced_at' => $syncedAt,
     ])->execute();
   }
 
@@ -255,8 +255,10 @@ class RpAccountNidRemapTest extends KernelTestBase {
     $this->insertRow(1200, (int) $live->id(), 2799, 'OTHER001');
 
     // Same user, same grant, two different dead nids, no live row for them.
-    $this->insertRow(1201, $deadA, 2799, 'BIO250176');
-    $this->insertRow(1201, $deadB, 2799, 'BIO250176');
+    // As on production, the later sync sits on the higher nid, so a survivor
+    // rule that wants the newest sync AND the lowest nid matches neither row.
+    $this->insertRow(1201, $deadA, 2799, 'BIO250176', 1750000000);
+    $this->insertRow(1201, $deadB, 2799, 'BIO250176', 1750000100);
 
     // Must not throw a duplicate-key violation.
     $this->runHook();
