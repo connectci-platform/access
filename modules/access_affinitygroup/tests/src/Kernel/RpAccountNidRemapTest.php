@@ -29,12 +29,12 @@ class RpAccountNidRemapTest extends KernelTestBase {
     NodeType::create(['type' => 'access_active_resources_from_cid', 'name' => 'RP'])->save();
 
     FieldStorageConfig::create([
-      'field_name' => 'field_rp_xdmod_resource_id',
+      'field_name' => 'field_access_global_resource_id',
       'entity_type' => 'node',
-      'type' => 'integer',
+      'type' => 'string',
     ])->save();
     FieldConfig::create([
-      'field_name' => 'field_rp_xdmod_resource_id',
+      'field_name' => 'field_access_global_resource_id',
       'entity_type' => 'node',
       'bundle' => 'access_active_resources_from_cid',
     ])->save();
@@ -42,10 +42,14 @@ class RpAccountNidRemapTest extends KernelTestBase {
     require_once __DIR__ . '/../../../access_affinitygroup.install';
   }
 
-  private function makeResourceNode(string $title, ?int $xdmodId): Node {
-    $values = ['type' => 'access_active_resources_from_cid', 'title' => $title, 'status' => 1];
-    if ($xdmodId !== NULL) {
-      $values['field_rp_xdmod_resource_id'] = $xdmodId;
+  private function makeResourceNode(string $title, ?string $globalId = NULL, bool $published = TRUE): Node {
+    $values = [
+      'type' => 'access_active_resources_from_cid',
+      'title' => $title,
+      'status' => $published ? 1 : 0,
+    ];
+    if ($globalId !== NULL) {
+      $values['field_access_global_resource_id'] = $globalId;
     }
     $node = Node::create($values);
     $node->save();
@@ -83,9 +87,11 @@ class RpAccountNidRemapTest extends KernelTestBase {
    * whole group because the nid does not resolve.
    */
   public function testDanglingRowIsRemappedOntoTheLiveNode(): void {
-    $live = $this->makeResourceNode('Anvil CPU', 3097);
+    $live = $this->makeResourceNode('Anvil CPU', 'anvil.purdue.access-ci.org');
     $deadNid = (int) $live->id() + 5000;
 
+    // A healthy row elsewhere is what lets the resolver identify the resource.
+    $this->insertRow(100, (int) $live->id(), 3097, 'CDA080011');
     $this->insertRow(101, $deadNid, 3097, 'CDA080011');
 
     $this->runHook();
@@ -107,7 +113,8 @@ class RpAccountNidRemapTest extends KernelTestBase {
    * resource cannot be resolved at all; after it, it can.
    */
   public function testResourceBecomesResolvableForTheUser(): void {
-    $live = $this->makeResourceNode('Bridges-2 RM', 2900);
+    $live = $this->makeResourceNode('Bridges-2 RM', 'bridges2-rm.psc.access-ci.org');
+    $this->insertRow(200, (int) $live->id(), 2900, 'CDA080011');
     $this->insertRow(202, (int) $live->id() + 5000, 2900, 'CDA080011');
 
     $this->assertSame(0, $this->resolvableRowCount(202), 'Row should be unresolvable before the hook runs.');
@@ -143,12 +150,11 @@ class RpAccountNidRemapTest extends KernelTestBase {
    * node, which would rewrite healthy data.
    */
   public function testHealthyRowsAreNotRewritten(): void {
-    $live = $this->makeResourceNode('Delta GPU', 3032);
-    $other = $this->makeResourceNode('Delta GPU alternate', NULL);
+    $live = $this->makeResourceNode('Delta GPU', 'delta-gpu.ncsa.access-ci.org');
 
-    // Healthy row on a different live node for the same resource.
-    $this->insertRow(404, (int) $other->id(), 3032, 'CDA080011');
-    // Broken row for the same resource.
+    // Healthy row, already on the live node.
+    $this->insertRow(404, (int) $live->id(), 3032, 'CDA080011');
+    // Broken row for the same resource, different user.
     $this->insertRow(405, (int) $live->id() + 5000, 3032, 'CDA080011');
 
     $this->runHook();
@@ -164,7 +170,7 @@ class RpAccountNidRemapTest extends KernelTestBase {
       ->execute()
       ->fetchField();
 
-    $this->assertEquals((int) $other->id(), (int) $healthy, 'A row on a live node must be left alone.');
+    $this->assertEquals((int) $live->id(), (int) $healthy, 'A row on a live node must be left alone.');
     $this->assertEquals((int) $live->id(), (int) $repaired);
   }
 
@@ -178,8 +184,8 @@ class RpAccountNidRemapTest extends KernelTestBase {
   public function testAmbiguousResourceIsNotGuessed(): void {
     // Two live nodes both legitimately serving resource 4242, and no
     // field_rp_xdmod_resource_id on either, so only the fallback can answer.
-    $a = $this->makeResourceNode('Shared resource A', NULL);
-    $b = $this->makeResourceNode('Shared resource B', NULL);
+    $a = $this->makeResourceNode('Shared resource A', 'shared-a.example.access-ci.org');
+    $b = $this->makeResourceNode('Shared resource B', 'shared-b.example.access-ci.org');
 
     $this->insertRow(606, (int) $a->id(), 4242, 'CDA080011');
     $this->insertRow(607, (int) $b->id(), 4242, 'CDA080011');
@@ -204,27 +210,130 @@ class RpAccountNidRemapTest extends KernelTestBase {
   }
 
   /**
-   * Running the hook twice changes nothing the second time.
+   * The same user holding one grant on both a dead and a live node.
+   *
+   * The primary key is (uid, rp_nid, grant_number), so naively rewriting
+   * rp_nid here produces a key that already exists and MySQL aborts the
+   * update mid-deploy. On production this shape covers 2,661 of the 6,267
+   * affected rows, so it is the common case, not an edge case.
    */
-  public function testHookIsIdempotent(): void {
-    $live = $this->makeResourceNode('Expanse CPU', 2899);
-    $this->insertRow(505, (int) $live->id() + 5000, 2899, 'CDA080011');
+  public function testSameUserOnDeadAndLiveNodeDoesNotCollide(): void {
+    $live = $this->makeResourceNode('Anvil CPU', 'anvil.purdue.access-ci.org');
+    $deadNid = (int) $live->id() + 5000;
+
+    $this->insertRow(700, (int) $live->id(), 3097, 'CDA080011');
+    $this->insertRow(700, $deadNid, 3097, 'CDA080011');
+
+    // Must not throw a duplicate-key violation.
+    $this->runHook();
+
+    $rows = \Drupal::database()->select('access_user_rp_account', 'a')
+      ->fields('a', ['rp_nid'])
+      ->condition('uid', 700)
+      ->execute()
+      ->fetchCol();
+
+    $this->assertCount(1, $rows, 'The redundant duplicate must be removed, not duplicated.');
+    $this->assertEquals((int) $live->id(), (int) reset($rows));
+  }
+
+  /**
+   * A second run is a genuine no-op, asserted against work actually done.
+   *
+   * Comparing the table to itself would pass even if the hook did nothing, so
+   * this pins that the first run repaired the row and the second changed
+   * nothing further.
+   */
+  public function testSecondRunChangesNothingAfterARealRepair(): void {
+    $live = $this->makeResourceNode('Expanse CPU', 'expanse.sdsc.access-ci.org');
+    $this->insertRow(800, (int) $live->id(), 2899, 'CDA080011');
+    $this->insertRow(801, (int) $live->id() + 5000, 2899, 'CDA080011');
+
+    $this->assertSame(0, $this->resolvableRowCount(801), 'Precondition: the row starts broken.');
 
     $this->runHook();
+    $this->assertSame(1, $this->resolvableRowCount(801), 'First run must actually repair the row.');
     $afterFirst = $this->allRows();
 
     $this->runHook();
 
-    $this->assertEquals($afterFirst, $this->allRows());
+    $this->assertEquals($afterFirst, $this->allRows(), 'Second run must change nothing.');
   }
 
   /**
-   * Counts rows a reader could actually resolve to a resource node.
+   * An unpublished node is not a valid remap target.
    *
-   * Mirrors resolveRpNidsToResourceInfo(): inner join plus the bundle and
-   * published conditions. Without those an unpublished or wrong-bundle node
-   * would count as resolvable here while the controller still dropped it.
+   * Unpublishing is a reversible editorial act; treating it as evidence would
+   * let the hook move users onto a resource that is deliberately hidden.
    */
+  public function testUnpublishedNodeIsNotUsedAsATarget(): void {
+    $hidden = $this->makeResourceNode('Hidden resource', 'hidden.example.access-ci.org', FALSE);
+    $brokenNid = (int) $hidden->id() + 5000;
+
+    $this->insertRow(900, (int) $hidden->id(), 5555, 'CDA080011');
+    $this->insertRow(901, $brokenNid, 5555, 'CDA080011');
+
+    $this->runHook();
+
+    $stillBroken = \Drupal::database()->select('access_user_rp_account', 'a')
+      ->fields('a', ['rp_nid'])
+      ->condition('uid', 901)
+      ->execute()
+      ->fetchField();
+
+    $this->assertEquals(
+      $brokenNid,
+      (int) $stillBroken,
+      'An unpublished node must not be used as a remap target.'
+    );
+  }
+
+  /**
+   * Rows for an unrelated resource are untouched by a pass.
+   */
+  public function testOtherResourcesAreNotAffected(): void {
+    $a = $this->makeResourceNode('Anvil CPU', 'anvil.purdue.access-ci.org');
+    $b = $this->makeResourceNode('Delta GPU', 'delta-gpu.ncsa.access-ci.org');
+
+    $this->insertRow(1000, (int) $a->id(), 3097, 'CDA080011');
+    $this->insertRow(1001, (int) $a->id() + 5000, 3097, 'CDA080011');
+
+    $healthyB = (int) $b->id();
+    $this->insertRow(1002, $healthyB, 3032, 'TRA240016');
+
+    $this->runHook();
+
+    $untouched = \Drupal::database()->select('access_user_rp_account', 'a')
+      ->fields('a', ['rp_nid'])
+      ->condition('uid', 1002)
+      ->execute()
+      ->fetchField();
+
+    $this->assertEquals($healthyB, (int) $untouched);
+  }
+
+  /**
+   * The before-image is recorded so the repair can be audited and reversed.
+   */
+  public function testBeforeImageIsRecorded(): void {
+    $live = $this->makeResourceNode('Bridges-2 RM', 'bridges2-rm.psc.access-ci.org');
+    $deadNid = (int) $live->id() + 5000;
+
+    $this->insertRow(1100, (int) $live->id(), 2900, 'CDA080011');
+    $this->insertRow(1101, $deadNid, 2900, 'CDA080011');
+
+    $this->runHook();
+
+    $logged = \Drupal::database()->select('access_user_rp_account_remap_log', 'l')
+      ->fields('l', ['uid', 'rp_nid'])
+      ->condition('uid', 1101)
+      ->execute()
+      ->fetchAssoc();
+
+    $this->assertNotEmpty($logged, 'The pre-repair state must be recorded.');
+    $this->assertEquals($deadNid, (int) $logged['rp_nid'], 'The log must hold the OLD nid.');
+  }
+
   private function resolvableRowCount(int $uid): int {
     $query = \Drupal::database()->select('access_user_rp_account', 'a');
     $query->innerJoin('node_field_data', 'n', 'n.nid = a.rp_nid');
