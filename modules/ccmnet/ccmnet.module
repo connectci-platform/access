@@ -226,8 +226,13 @@ function ccmnet_node_access(NodeInterface $node, string $op, AccountInterface $a
  */
 function ccmnet_form_alter(array &$form, FormStateInterface $form_state, string $form_id): void {
   if ($form_id == 'node_mentorship_engagement_edit_form' || $form_id == 'node_mentorship_engagement_form') {
-    // Set domain source to n/a by default.
-    $form['field_domain_source']['widget']['#default_value'] = '_none';
+    if ($form_id == 'node_mentorship_engagement_form') {
+      // Set domain source to n/a by default on the add form only. The edit
+      // form keeps the stored value's own default so it round-trips safely
+      // instead of being wiped on every edit (was previously restored by an
+      // env-gated submit handler that only ran on the live environment).
+      $form['field_domain_source']['widget']['#default_value'] = '_none';
+    }
 
     $form['title']['widget'][0]['#maxlength'] = 65;
     $form['body']['widget'][0]['summary']['#description'] = t('No html tags allowed in summary. Limit to 275 characters.');
@@ -512,7 +517,6 @@ function ccmnet_add_program_form_submit(array &$form, FormStateInterface $form_s
  *   The form array.
  */
 function ccmnet_set_domain_submit(array $form, FormStateInterface &$form_state): void {
-  $env = getenv('PANTHEON_ENVIRONMENT');
   $cc = SiteTools::DOMAIN_CAMPUS_CHAMPIONS;
   $mentor_program = $form_state->getValue('field_mentorship_program');
   $domain_access = $form_state->getValue('field_domain_access');
@@ -556,10 +560,6 @@ function ccmnet_set_domain_submit(array $form, FormStateInterface &$form_state):
       }
     }
     $form_state->setValue('field_domain_access', $da);
-  }
-
-  if ($env == 'live') {
-    $form_state->setValue('field_domain_source', [['target_id' => SiteTools::DOMAIN_CCMNET]]);
   }
 }
 
