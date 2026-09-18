@@ -893,3 +893,153 @@ function access_affinitygroup_update_10014(): string {
 
   return 'Added access_sub index on openid_connect_authmap.sub for ACCESS-ID lookups.';
 }
+
+/**
+ * Repoints access_user_rp_account rows at resource nodes that still exist.
+ *
+ * A batch of duplicate access_active_resources_from_cid nodes was removed in
+ * mid-2026. Rows written before that (synced 2026-05-13 .. 2026-06-25) still
+ * carry the deleted nids, and nothing repairs them: the prune in
+ * RpAccountService::refreshUserRpAccounts() keys on grant_number, so a row
+ * whose grant is still held survives every refresh no matter where rp_nid
+ * points.
+ *
+ * The rows are not cosmetic. RpAccountController::listAccounts() groups by
+ * rp_nid and skips any group resolveRpNidsToResourceInfo() cannot resolve —
+ * that method inner-joins node_field_data, so a dead nid yields nothing and
+ * the whole group vanishes from /api/1.0/rp-accounts with no error. On
+ * production this hid at least one resource from 897 of the 1,214 affected
+ * users; the other 317 were unaffected only because their dangling rows
+ * duplicated a resource they could already see.
+ *
+ * We remap rather than delete. Deleting fixes the display for anyone whose
+ * resource is also present under a live nid, but silently drops the
+ * allocation for anyone whose ONLY row for that resource is the dangling one,
+ * until their next login refresh happens to rewrite it.
+ *
+ * Each dangling resource_id is resolved to exactly one live node, via
+ * field_rp_xdmod_resource_id where populated, otherwise via a live row that
+ * already maps the same resource_id. On production all 19 affected
+ * resource_ids resolved unambiguously under this rule; any that does not
+ * resolve is left untouched and reported, never guessed at.
+ *
+ * @see \Drupal\access_affinitygroup\Controller\RpAccountController::listAccounts()
+ * @see \Drupal\access_affinitygroup\Service\RpAccountService::refreshUserRpAccounts()
+ */
+function access_affinitygroup_update_10015(array &$sandbox): string {
+  $db = \Drupal::database();
+
+  if (!$db->schema()->tableExists('access_user_rp_account')) {
+    return 'access_user_rp_account does not exist; nothing to remap.';
+  }
+
+  if (!isset($sandbox['targets'])) {
+    // Resource ids on rows whose rp_nid no longer loads.
+    $orphanIds = $db->query('
+      SELECT DISTINCT a.resource_id
+      FROM {access_user_rp_account} a
+      LEFT JOIN {node_field_data} n ON n.nid = a.rp_nid
+      WHERE n.nid IS NULL
+    ')->fetchCol();
+
+    $targets = [];
+    $unresolved = [];
+    foreach ($orphanIds as $resourceId) {
+      $nid = _access_affinitygroup_resolve_resource_nid($db, (int) $resourceId);
+      if ($nid === NULL) {
+        $unresolved[] = $resourceId;
+        continue;
+      }
+      $targets[(int) $resourceId] = $nid;
+    }
+
+    $sandbox['targets'] = $targets;
+    $sandbox['unresolved'] = $unresolved;
+    $sandbox['remaining'] = array_keys($targets);
+    $sandbox['rows'] = 0;
+    $sandbox['max'] = count($targets);
+  }
+
+  if (!$sandbox['max']) {
+    $sandbox['#finished'] = 1;
+    return $sandbox['unresolved']
+      ? 'No dangling rows could be remapped; unresolved resource ids: ' . implode(', ', $sandbox['unresolved']) . '.'
+      : 'No dangling rp_nid rows found; nothing to remap.';
+  }
+
+  // One resource id per pass — each is a single indexed UPDATE.
+  $resourceId = array_shift($sandbox['remaining']);
+  $nid = $sandbox['targets'][$resourceId];
+
+  // Only touch rows that are actually broken. A row already pointing at a
+  // live node is left alone even when it disagrees with $nid, so a resource
+  // legitimately served by more than one node is never flattened here.
+  $danglingNids = $db->query('
+    SELECT DISTINCT a.rp_nid
+    FROM {access_user_rp_account} a
+    LEFT JOIN {node_field_data} n ON n.nid = a.rp_nid
+    WHERE n.nid IS NULL AND a.resource_id = :rid
+  ', [':rid' => $resourceId])->fetchCol();
+
+  if ($danglingNids) {
+    $sandbox['rows'] += $db->update('access_user_rp_account')
+      ->fields(['rp_nid' => $nid])
+      ->condition('resource_id', $resourceId)
+      ->condition('rp_nid', $danglingNids, 'IN')
+      ->execute();
+  }
+
+  $sandbox['#finished'] = $sandbox['remaining']
+    ? 1 - (count($sandbox['remaining']) / $sandbox['max'])
+    : 1;
+
+  if ($sandbox['remaining']) {
+    return '';
+  }
+
+  $message = sprintf(
+    'Remapped %d access_user_rp_account rows across %d resource ids onto live nodes.',
+    $sandbox['rows'],
+    $sandbox['max']
+  );
+  if ($sandbox['unresolved']) {
+    $message .= ' Left untouched (no live node found): ' . implode(', ', $sandbox['unresolved']) . '.';
+  }
+  return $message;
+}
+
+/**
+ * Resolves an allocations resource id to the one live resource node for it.
+ *
+ * Tries field_rp_xdmod_resource_id first, then falls back to a mapping the
+ * table itself already vouches for (a row for the same resource whose rp_nid
+ * still loads). Returns NULL when neither route gives exactly one answer, so
+ * an ambiguous resource is reported rather than guessed at.
+ */
+function _access_affinitygroup_resolve_resource_nid($db, int $resourceId): ?int {
+  $viaField = $db->query('
+    SELECT DISTINCT f.entity_id
+    FROM {node__field_rp_xdmod_resource_id} f
+    INNER JOIN {node_field_data} n ON n.nid = f.entity_id
+    WHERE f.field_rp_xdmod_resource_id_value = :v
+      AND n.type = :type
+      AND n.status = 1
+  ', [':v' => $resourceId, ':type' => 'access_active_resources_from_cid'])->fetchCol();
+
+  if (count($viaField) === 1) {
+    return (int) reset($viaField);
+  }
+  if (count($viaField) > 1) {
+    // Ambiguous by field; don't let the table's usage break the tie.
+    return NULL;
+  }
+
+  $viaTable = $db->query('
+    SELECT DISTINCT a.rp_nid
+    FROM {access_user_rp_account} a
+    INNER JOIN {node_field_data} n ON n.nid = a.rp_nid
+    WHERE a.resource_id = :rid
+  ', [':rid' => $resourceId])->fetchCol();
+
+  return count($viaTable) === 1 ? (int) reset($viaTable) : NULL;
+}
