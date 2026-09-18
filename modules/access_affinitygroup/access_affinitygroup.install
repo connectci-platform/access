@@ -1,5 +1,7 @@
 <?php
 
+use Drupal\Core\Database\Connection;
+
 /**
  * @file
  * Install and update functions for the Access Affinity Group module.
@@ -892,4 +894,211 @@ function access_affinitygroup_update_10014(): string {
   );
 
   return 'Added access_sub index on openid_connect_authmap.sub for ACCESS-ID lookups.';
+}
+
+/**
+ * Repoints access_user_rp_account rows at resource nodes that still exist.
+ *
+ * A batch of duplicate access_active_resources_from_cid nodes was removed in
+ * mid-2026. Rows written before that (synced 2026-05-13 .. 2026-06-25) still
+ * carry the deleted nids, and nothing repairs them: the prune in
+ * RpAccountService::refreshUserRpAccounts() keys on grant_number, so a row
+ * whose grant is still held survives every refresh no matter where rp_nid
+ * points.
+ *
+ * The rows are not cosmetic. RpAccountController::listAccounts() groups by
+ * rp_nid and skips any group resolveRpNidsToResourceInfo() cannot resolve —
+ * that method inner-joins node_field_data, so a dead nid yields nothing and
+ * the whole group vanishes from /api/1.0/rp-accounts with no error. On
+ * production this hid at least one resource from 897 of the 1,214 affected
+ * users; the other 317 were unaffected only because their dangling rows
+ * duplicated a resource they could already see.
+ *
+ * We remap rather than delete. Deleting fixes the display for anyone whose
+ * resource is also present under a live nid, but silently drops the
+ * allocation for anyone whose ONLY row for that resource is the dangling one,
+ * until their next login refresh happens to rewrite it.
+ *
+ * Each dangling resource_id is resolved to exactly one live node by following
+ * the key RpAccountService uses, recovered from the rows that are still
+ * healthy; see _access_affinitygroup_resolve_resource_nid(). On production all
+ * 19 affected resource_ids resolved unambiguously under that rule. Any that
+ * does not resolve is left untouched and reported, never guessed at.
+ *
+ * Because the primary key is (uid, rp_nid, grant_number), remapping rp_nid can
+ * collide with a row the user already has on the live node. Those duplicates
+ * are deleted first — the surviving row carries the same grant on the correct
+ * node — and only the remainder are remapped. On production that split is
+ * 2,661 deleted and 3,606 remapped.
+ *
+ * @see \Drupal\access_affinitygroup\Controller\RpAccountController::listAccounts()
+ * @see \Drupal\access_affinitygroup\Service\RpAccountService::refreshUserRpAccounts()
+ */
+function access_affinitygroup_update_10015(array &$sandbox): string {
+  $db = \Drupal::database();
+
+  if (!$db->schema()->tableExists('access_user_rp_account')) {
+    return 'access_user_rp_account does not exist; nothing to remap.';
+  }
+
+  if (!$db->schema()->tableExists('access_user_rp_account_remap_log')) {
+    $db->schema()->createTable('access_user_rp_account_remap_log', [
+      'description' => 'Before-image of rows repaired by the rp_nid remap, so the repair is auditable and reversible.',
+      'fields' => [
+        'uid' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+        'rp_nid' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE],
+        'grant_number' => ['type' => 'varchar', 'length' => 32, 'not null' => TRUE],
+        'resource_id' => ['type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE],
+      ],
+      'indexes' => ['idx_uid' => ['uid']],
+    ]);
+  }
+
+  if (!isset($sandbox['targets'])) {
+    // Resource ids on rows whose rp_nid no longer loads.
+    $orphanIds = $db->query('
+      SELECT DISTINCT a.resource_id
+      FROM {access_user_rp_account} a
+      LEFT JOIN {node_field_data} n ON n.nid = a.rp_nid
+      WHERE n.nid IS NULL
+    ')->fetchCol();
+
+    $targets = [];
+    $unresolved = [];
+    foreach ($orphanIds as $resourceId) {
+      $nid = _access_affinitygroup_resolve_resource_nid($db, (int) $resourceId);
+      if ($nid === NULL) {
+        $unresolved[] = $resourceId;
+        continue;
+      }
+      $targets[(int) $resourceId] = $nid;
+    }
+
+    $sandbox['targets'] = $targets;
+    $sandbox['unresolved'] = $unresolved;
+    $sandbox['remaining'] = array_keys($targets);
+    $sandbox['rows'] = 0;
+    $sandbox['deleted'] = 0;
+    $sandbox['max'] = count($targets);
+  }
+
+  if (!$sandbox['max']) {
+    $sandbox['#finished'] = 1;
+    return $sandbox['unresolved']
+      ? 'No dangling rows could be remapped; unresolved resource ids: ' . implode(', ', $sandbox['unresolved']) . '.'
+      : 'No dangling rp_nid rows found; nothing to remap.';
+  }
+
+  // One resource id per pass. Peek rather than shift: if this pass throws, the
+  // id stays queued so a resumed run retries it instead of silently skipping
+  // it. There is no index on resource_id or on rp_nid alone (the primary key
+  // leads with uid), so each statement scans the table; at ~20k rows that is
+  // cheap in time but does take broad row locks, which is why the passes are
+  // kept small and separate.
+  $resourceId = reset($sandbox['remaining']);
+  $nid = $sandbox['targets'][$resourceId];
+
+  // Only touch rows that are actually broken. A row already pointing at a
+  // live node is left alone even when it disagrees with $nid, so a resource
+  // legitimately served by more than one node is never flattened here.
+  $danglingNids = $db->query('
+    SELECT DISTINCT a.rp_nid
+    FROM {access_user_rp_account} a
+    LEFT JOIN {node_field_data} n ON n.nid = a.rp_nid
+    WHERE n.nid IS NULL AND a.resource_id = :rid
+  ', [':rid' => $resourceId])->fetchCol();
+
+  if ($danglingNids) {
+    // Before-image, so a bad mapping is diagnosable and reversible. The table
+    // is a current-state cache with no audit column of its own, so without
+    // this the old rp_nid is unrecoverable once the statement commits.
+    $db->insert('access_user_rp_account_remap_log')
+      ->from(
+        $db->select('access_user_rp_account', 'a')
+          ->fields('a', ['uid', 'rp_nid', 'grant_number', 'resource_id'])
+          ->condition('a.resource_id', $resourceId)
+          ->condition('a.rp_nid', $danglingNids, 'IN')
+      )
+      ->execute();
+
+    // The primary key is (uid, rp_nid, grant_number) and rp_nid is the column
+    // being rewritten, so a plain UPDATE would raise a duplicate-key error for
+    // every user who already holds the same grant on the live node — 2,661 of
+    // the 6,267 affected production rows. Those rows are redundant copies of a
+    // row that is already correct, so drop them and remap only the rest.
+    $db->query('
+      DELETE dead
+      FROM {access_user_rp_account} dead
+      INNER JOIN {access_user_rp_account} live
+        ON live.uid = dead.uid
+       AND live.grant_number = dead.grant_number
+       AND live.rp_nid = :target
+      WHERE dead.resource_id = :rid
+        AND dead.rp_nid IN (:dangling[])
+    ', [':target' => $nid, ':rid' => $resourceId, ':dangling[]' => $danglingNids]);
+
+    $sandbox['rows'] += $db->update('access_user_rp_account')
+      ->fields(['rp_nid' => $nid])
+      ->condition('resource_id', $resourceId)
+      ->condition('rp_nid', $danglingNids, 'IN')
+      ->execute();
+  }
+
+  // Work for this id is done and committed; now retire it from the queue.
+  array_shift($sandbox['remaining']);
+
+  $sandbox['#finished'] = $sandbox['remaining']
+    ? 1 - (count($sandbox['remaining']) / $sandbox['max'])
+    : 1;
+
+  if ($sandbox['remaining']) {
+    return '';
+  }
+
+  $message = sprintf(
+    'Repaired access_user_rp_account across %d resource ids: remapped %d rows onto live nodes, removed %d duplicates already present there.',
+    $sandbox['max'],
+    $sandbox['rows'],
+    $sandbox['deleted']
+  );
+  if ($sandbox['unresolved']) {
+    $message .= ' Left untouched (no live node found): ' . implode(', ', $sandbox['unresolved']) . '.';
+  }
+  return $message;
+}
+
+/**
+ * Resolves an allocations resource id to the one live resource node for it.
+ *
+ * Deliberately does NOT use field_rp_xdmod_resource_id. That field holds
+ * hand-entered XDMoD dimension ids, a different and independently assigned
+ * numbering from the xdusage resource_id stored on these rows; the two agree
+ * on today's data by coincidence, not by construction, and a collision would
+ * silently move users onto someone else's resource.
+ *
+ * Instead this follows the key RpAccountService itself uses. That service
+ * assigns rp_nid from info_resource_id via field_access_global_resource_id
+ * (see buildInfoResourceIdToRpNidMap). The table does not persist the IRI, so
+ * we recover it from the rows that are already healthy: a live row for the
+ * same resource points at a node whose global resource id is that IRI.
+ *
+ * Candidates are restricted to published nodes of the resource bundle with
+ * non-deleted field data, and are collapsed by global resource id rather than
+ * by nid, so several nodes describing one resource still count as one answer.
+ * Returns NULL unless exactly one global resource id survives.
+ */
+function _access_affinitygroup_resolve_resource_nid(Connection $db, int $resourceId): ?int {
+  $rows = $db->query('
+    SELECT g.field_access_global_resource_id_value AS gid, MIN(n.nid) AS nid
+    FROM {access_user_rp_account} a
+    INNER JOIN {node_field_data} n ON n.nid = a.rp_nid
+    INNER JOIN {node__field_access_global_resource_id} g
+      ON g.entity_id = n.nid AND g.deleted = 0
+    WHERE a.resource_id = :rid
+      AND n.type = :type
+      AND n.status = 1
+    GROUP BY g.field_access_global_resource_id_value
+  ', [':rid' => $resourceId, ':type' => 'access_active_resources_from_cid'])->fetchAll();
+
+  return count($rows) === 1 ? (int) reset($rows)->nid : NULL;
 }
