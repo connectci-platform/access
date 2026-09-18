@@ -238,6 +238,44 @@ class RpAccountNidRemapTest extends KernelTestBase {
   }
 
   /**
+   * Several dead rows for one user and grant, with no live row anywhere.
+   *
+   * These collide with EACH OTHER rather than with a live row, so the
+   * live-row dedupe does not catch them: every one of them is rewritten to
+   * the same target key. This is the shape that aborted a real updatedb run,
+   * covering 908 rows across 773 groups on production.
+   */
+  public function testMultipleDeadRowsForOneGrantCollapseToOne(): void {
+    $live = $this->makeResourceNode('OSPool', 'osg.ospool.access-ci.org');
+    $deadA = (int) $live->id() + 5000;
+    $deadB = (int) $live->id() + 6000;
+
+    // A healthy row for a DIFFERENT user, so the resolver can identify the
+    // resource without giving this user a live row of their own.
+    $this->insertRow(1200, (int) $live->id(), 2799, 'OTHER001');
+
+    // Same user, same grant, two different dead nids, no live row for them.
+    $this->insertRow(1201, $deadA, 2799, 'BIO250176');
+    $this->insertRow(1201, $deadB, 2799, 'BIO250176');
+
+    // Must not throw a duplicate-key violation.
+    $this->runHook();
+
+    $rows = \Drupal::database()->select('access_user_rp_account', 'a')
+      ->fields('a', ['rp_nid'])
+      ->condition('uid', 1201)
+      ->execute()
+      ->fetchCol();
+
+    $this->assertCount(1, $rows, 'The duplicate dead rows must collapse to one.');
+    $this->assertEquals(
+      (int) $live->id(),
+      (int) reset($rows),
+      'The survivor must be remapped onto the live node.'
+    );
+  }
+
+  /**
    * A second run is a genuine no-op, asserted against work actually done.
    *
    * Comparing the table to itself would pass even if the hook did nothing, so

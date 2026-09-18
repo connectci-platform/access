@@ -1022,10 +1022,13 @@ function access_affinitygroup_update_10015(array &$sandbox): string {
       ->execute();
 
     // The primary key is (uid, rp_nid, grant_number) and rp_nid is the column
-    // being rewritten, so a plain UPDATE would raise a duplicate-key error for
-    // every user who already holds the same grant on the live node — 2,661 of
-    // the 6,267 affected production rows. Those rows are redundant copies of a
-    // row that is already correct, so drop them and remap only the rest.
+    // being rewritten, so a plain UPDATE collides whenever two rows would land
+    // on the same key. Two distinct shapes cause that, and both must be
+    // cleared before the remap or updatedb aborts partway through.
+    //
+    // First: a dead row whose user already holds the same grant on the live
+    // node — 2,661 of the 6,267 affected production rows. The live row is
+    // already correct, so the dead copy is redundant.
     $db->query('
       DELETE dead
       FROM {access_user_rp_account} dead
@@ -1036,6 +1039,42 @@ function access_affinitygroup_update_10015(array &$sandbox): string {
       WHERE dead.resource_id = :rid
         AND dead.rp_nid IN (:dangling[])
     ', [':target' => $nid, ':rid' => $resourceId, ':dangling[]' => $danglingNids]);
+
+    // Second: several dead rows for one user and grant, pointing at different
+    // deleted nids, with no live row anywhere. Nothing above removes those —
+    // they collide with EACH OTHER once all of them are rewritten to the same
+    // target. On production 773 groups hold 908 such surplus rows. They
+    // describe one account, so keep the most recently synced and drop the
+    // rest; the survivor is remapped by the UPDATE below.
+    $surplus = $db->query('
+      SELECT a.uid, a.grant_number, a.rp_nid
+      FROM {access_user_rp_account} a
+      INNER JOIN (
+        SELECT uid, grant_number, MAX(synced_at) AS keep_synced, MIN(rp_nid) AS keep_nid
+        FROM {access_user_rp_account}
+        WHERE resource_id = :rid AND rp_nid IN (:dangling[])
+        GROUP BY uid, grant_number
+        HAVING COUNT(*) > 1
+      ) dup
+        ON dup.uid = a.uid AND dup.grant_number = a.grant_number
+      WHERE a.resource_id = :rid2
+        AND a.rp_nid IN (:dangling2[])
+        AND NOT (a.synced_at = dup.keep_synced AND a.rp_nid = dup.keep_nid)
+    ', [
+      ':rid' => $resourceId,
+      ':dangling[]' => $danglingNids,
+      ':rid2' => $resourceId,
+      ':dangling2[]' => $danglingNids,
+    ])->fetchAll();
+
+    foreach ($surplus as $row) {
+      $db->delete('access_user_rp_account')
+        ->condition('uid', $row->uid)
+        ->condition('grant_number', $row->grant_number)
+        ->condition('rp_nid', $row->rp_nid)
+        ->execute();
+      $sandbox['deleted']++;
+    }
 
     $sandbox['rows'] += $db->update('access_user_rp_account')
       ->fields(['rp_nid' => $nid])
