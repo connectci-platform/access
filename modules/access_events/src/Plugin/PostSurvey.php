@@ -142,7 +142,12 @@ class PostSurvey {
       // survey and stamp it sent. Skip such an instance entirely (no send, no
       // stamp) rather than mis-fire on a date the instance does not have.
       $end_value = $event_instance->date->end_value;
-      $end_date = $end_value ? strtotime($end_value) : FALSE;
+      // Stored values are naive UTC. This runs in cron, where there is no
+      // viewer and the ambient zone is the site default, so parsing without
+      // naming UTC shifts the deadline by the site's offset — four hours in
+      // summer — and a survey due 30 minutes before the end goes out hours
+      // after the event finished.
+      $end_date = $end_value ? strtotime($end_value . ' UTC') : FALSE;
       if ($end_date === FALSE) {
         continue;
       }
@@ -186,7 +191,12 @@ class PostSurvey {
       // false, so the reminder window would compute off a date the instance
       // does not have. Skip such an instance (no send, no stamp).
       $end_value = $event_instance->date->end_value;
-      $end_date = $end_value ? strtotime($end_value) : FALSE;
+      // Stored values are naive UTC. This runs in cron, where there is no
+      // viewer and the ambient zone is the site default, so parsing without
+      // naming UTC shifts the deadline by the site's offset — four hours in
+      // summer — and a survey due 30 minutes before the end goes out hours
+      // after the event finished.
+      $end_date = $end_value ? strtotime($end_value . ' UTC') : FALSE;
       if ($end_date === FALSE) {
         continue;
       }

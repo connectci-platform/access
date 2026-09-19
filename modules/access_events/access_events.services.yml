@@ -81,3 +81,12 @@ services:
         "@entity_type.manager",
         "@string_translation",
       ]
+  access_events.timezone_backfill:
+    class: Drupal\access_events\EventTimezoneBackfill
+    arguments:
+      [
+        "@entity_type.manager",
+        "@config.factory",
+        "@keyvalue",
+        "@database",
+      ]

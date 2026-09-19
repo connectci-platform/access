@@ -14,7 +14,7 @@ use Symfony\Component\HttpFoundation\Request;
 /**
  * Tests the ActingUserAccess gate that guards both event routes.
  *
- * The A2/A3 controller tests call the controller methods directly with
+ * The detail and registration controller tests call those methods directly with
  * `acting_user_uid` pre-set on the request, so they never exercise the
  * actual `_custom_access: 'access_affinitygroup.acting_user_access:check'` gate
  * declared on `access_events.event_detail` and `access_events.event_register`.
@@ -40,7 +40,7 @@ use Symfony\Component\HttpFoundation\Request;
  * non-numeric id yields a 404 from Drupal's routing / param-conversion BEFORE
  * the controller (and this gate) runs. That is a framework guarantee, not custom
  * logic; a kernel test that calls the gate directly bypasses routing and cannot
- * assert it. It is verified live against prod in Task A5 (curl an unknown id →
+ * assert it. It is verified live against prod by hand (curl an unknown id →
  * 404).
  *
  * @covers \Drupal\access_affinitygroup\Access\ActingUserAccess

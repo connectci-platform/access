@@ -179,6 +179,47 @@ class PostSurveyDomainTest extends EventKernelTestBase {
   }
 
   /**
+   * The send deadline is read in UTC, not the ambient zone.
+   *
+   * Instance dates are stored as naive UTC strings. This plugin runs in cron,
+   * where there is no viewer and the ambient zone is the site default, so
+   * parsing an end value without naming UTC reads it as site-local. For a
+   * site behind UTC that makes the parsed instant LATER than the real one —
+   * four hours for US Eastern in summer, five in winter.
+   *
+   * The consequence is not a mislabelled time, it is the wrong moment: the
+   * survey is due 30 minutes before an event ends, and under the ambient read
+   * an event that finished an hour ago is still considered hours away, so the
+   * survey goes out late. Nothing about the mail looks wrong, which is why
+   * only the boundary catches it.
+   *
+   * An event that ended an hour ago is unambiguously past its send window.
+   * Under the ambient misparse its deadline still reads as future and the
+   * survey is withheld, so this fails if the ' UTC' is dropped.
+   */
+  public function testSendDeadlineIsReadInUtcNotTheAmbientZone(): void {
+    $this->config('system.date')->set('timezone.default', 'America/New_York')->save();
+
+    $endedAnHourAgo = (new \DateTime('now', new \DateTimeZone('UTC')))
+      ->modify('-1 hour')
+      ->format('Y-m-d\TH:i:s');
+    $startedEarlier = (new \DateTime('now', new \DateTimeZone('UTC')))
+      ->modify('-2 hours')
+      ->format('Y-m-d\TH:i:s');
+
+    $instance = $this->createRegistrableInstance();
+    $instance->set('date', ['value' => $startedEarlier, 'end_value' => $endedAnHourAgo]);
+    $instance->set('field_post_survey_sent', 0);
+    $instance->save();
+
+    \Drupal::service('access_events.post_survey')->postSurveyEmail();
+
+    $this->assertEquals(1,
+      $this->reloadInstance($instance)->get('field_post_survey_sent')->value,
+      'an event that ended an hour ago is past its send window and the survey goes out');
+  }
+
+  /**
    * Creates a past, unsent, unarchived instance assigned to the event domain.
    *
    * No registrants are attached: sendSurveyToRegistrants() resolves the

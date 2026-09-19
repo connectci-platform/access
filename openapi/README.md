@@ -10,6 +10,7 @@ This directory contains the OpenAPI 3.0.3 specifications for the ACCESS APIs.
 - `events-api-2.2-openapi.yaml` - Events API v2.2 specification (YAML format)
 - `events-api-2.2-openapi.json` - Events API v2.2 specification (JSON format)
 - `events-api-2.3-openapi.yaml` - Events READ API v2.3 specification (YAML format) — public listing plus the event detail endpoint (detail's registration block is partitioned by caller: anonymous vs authenticated acting-user)
+- `events-api-2.4-openapi.yaml` - Events READ API v2.4 specification (YAML format) — start_date/end_date are true UTC instants; earlier versions stamped a `Z` on a site-local clock
 - `event-registration-api-1.0-openapi.yaml` - Event Registration API v1.0 specification (YAML format) — authenticated, acting-user registration endpoints
 
 ## Usage
@@ -20,6 +21,7 @@ These specifications are automatically loaded by the OpenAPI generator plugins:
 - `AccessAnnouncementsV23Generator` - Serves announcements v2.3 spec at `/openapi/access_announcements_v23`
 - `AccessEventsGenerator` - Serves events spec at `/openapi/access_events`
 - `AccessEventsV23Generator` - Serves events v2.3 spec at `/openapi/access_events_v23`
+- `AccessEventsV24Generator` - Serves events v2.4 spec at `/openapi/access_events_v24`
 - `AccessEventRegistrationGenerator` - Serves event registration v1.0 spec at `/openapi/access_event_registration`
 
 ## Endpoints

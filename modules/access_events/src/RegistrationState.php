@@ -65,7 +65,7 @@ final class RegistrationState {
     // mislabeled by the TZ offset.
     // Clone before setTimezone(): reg_close aliases the instance's cached
     // start_date object, and setTimezone() mutates in place — cloning keeps the
-    // conversion from leaking into other reads of the same start_date (e.g. A2).
+    // conversion from leaking into other reads of the same start_date.
     $window = $svc->registrationOpeningClosingTime() ?: [];
     $iso = static fn ($dt): ?string => $dt
       ? (clone $dt)->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z')

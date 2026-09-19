@@ -39,6 +39,47 @@ use Symfony\Component\HttpFoundation\Request;
 class EventCrudApiController extends ControllerBase {
 
   /**
+   * Refuses an explicitly supplied timezone that is not a real IANA zone.
+   *
+   * Omission and an invalid value are different things and must not collapse
+   * into the same behaviour. Omitting the field means "use my default", and
+   * applyContentFields() fills it from the acting user's account zone.
+   * Supplying a value that no timezone database knows means the caller made a
+   * mistake, and quietly substituting the default there would schedule the
+   * event in a zone nobody asked for while returning 200 — the caller, the
+   * agent and the organizer all see success.
+   *
+   * Validating here rather than upstream is deliberate: this is where the
+   * value is consumed and where the authoritative zone list lives, so every
+   * writer gets the same answer instead of each maintaining its own copy.
+   *
+   * @param array $body
+   *   The decoded request body.
+   *
+   * @return \Symfony\Component\HttpFoundation\JsonResponse|null
+   *   A 422 response when the supplied zone is unusable, NULL otherwise.
+   */
+  private function refuseInvalidTimezone(array $body): ?JsonResponse {
+    if (!array_key_exists('field_event_timezone', $body)) {
+      return NULL;
+    }
+    $supplied = $body['field_event_timezone'];
+    // An explicit null or empty string reads as "no opinion", same as omitting
+    // the key: the account default applies and that is not a caller error.
+    if ($supplied === NULL || (is_string($supplied) && trim($supplied) === '')) {
+      return NULL;
+    }
+    if (!is_string($supplied) || !in_array(trim($supplied), \DateTimeZone::listIdentifiers(), TRUE)) {
+      return $this->refuse(
+        'validation_error',
+        sprintf('field_event_timezone must be a valid IANA timezone name, for example America/Chicago. Got: %s', is_string($supplied) ? $supplied : gettype($supplied)),
+        422
+      );
+    }
+    return NULL;
+  }
+
+  /**
    * The whitelisted content fields the create endpoint copies from the body.
    *
    * moderation_state / status are deliberately absent: create locks the series
@@ -52,6 +93,8 @@ class EventCrudApiController extends ControllerBase {
     'field_tags',
     'field_event_speakers',
     'field_event_virtual_meeting_link',
+    'field_event_timezone',
+    'field_event_in_person',
     'domain_access',
   ];
 
@@ -218,6 +261,9 @@ class EventCrudApiController extends ControllerBase {
     if (empty($body['recur_type'])) {
       return $this->refuse('validation_error', 'recur_type is required.', 422);
     }
+    if ($refusal = $this->refuseInvalidTimezone($body)) {
+      return $refusal;
+    }
 
     // Affinity group is OPTIONAL. A group is only supplied when the creator
     // wants to publish the event to it, and coordinator status is required only
@@ -343,6 +389,9 @@ class EventCrudApiController extends ControllerBase {
     if (empty($body['recur_type'])) {
       return $this->refuse('validation_error', 'recur_type is required.', 422);
     }
+    if ($refusal = $this->refuseInvalidTimezone($body)) {
+      return $refusal;
+    }
 
     // Defense in depth: reject an over-large custom-date list from the RAW
     // body, before storage->create()/convertEntityConfigToArray() materializes
@@ -459,6 +508,9 @@ class EventCrudApiController extends ControllerBase {
     }
 
     $body = json_decode($request->getContent(), TRUE) ?: [];
+    if ($refusal = $this->refuseInvalidTimezone($body)) {
+      return $refusal;
+    }
 
     // Content fields ONLY — never moderation_state, never recur config. Any
     // caller moderation_state in $body is ignored (applyContentFields does not
@@ -1725,6 +1777,21 @@ class EventCrudApiController extends ControllerBase {
       $bodyIn = $body['body'];
       $value = is_array($bodyIn) ? ($bodyIn['value'] ?? '') : (string) $bodyIn;
       $values['body'] = ['value' => $value, 'format' => 'basic_html'];
+    }
+    // The browser form pre-selects the author's account zone, but that is a
+    // form-layer default this path never runs. Without it every API-created
+    // event — which is how the MCP agent creates them — would carry no zone,
+    // and that is the population most likely to need one.
+    // Only when the field actually exists. Setting an unknown field throws on
+    // save, so an environment that has not yet imported the config — a fresh
+    // install, a test fixture, a deploy where code precedes config — would get
+    // a broken create API rather than one without timezones.
+    $seriesFields = $this->entityTypeManager
+      ->getStorage('eventseries')
+      ->create(['type' => 'default'])
+      ->getFieldDefinitions();
+    if (isset($seriesFields['field_event_timezone']) && empty($values['field_event_timezone'])) {
+      $values['field_event_timezone'] = _access_events_api_default_timezone($this->currentUser());
     }
   }
 

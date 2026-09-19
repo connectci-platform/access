@@ -11,6 +11,10 @@ services:
     class: Drupal\access_misc\Plugin\NodeAddTags
     arguments: ["@renderer"]
 
+  access_misc.tag_suggester:
+    class: Drupal\access_misc\Plugin\TagSuggester
+    arguments: ["@access_misc.addtags"]
+
   access_misc.skillLevel:
     class: Drupal\access_misc\Plugin\SkillLevel
 
@@ -61,6 +65,18 @@ services:
   access_misc.viewstools:
     class: Drupal\access_misc\Plugin\Util\ViewsTools
     arguments: ["@entity_type.manager"]
+
+  access_misc.flag_link_builder:
+    class: Drupal\access_misc\FlagLinkBuilderDecorator
+    decorates: flag.link_builder
+    # Kernel tests enable access_misc without flag, and Symfony resolves
+    # decorates: at compile time, so a missing flag.link_builder would throw
+    # ServiceNotFoundException. With no flag module there are no flag links,
+    # so dropping the decorator is the correct behaviour.
+    decoration_on_invalid: ignore
+    arguments:
+      - '@access_misc.flag_link_builder.inner'
+      - '@current_user'
 
 parameters:
   access_misc.verbose: FALSE
