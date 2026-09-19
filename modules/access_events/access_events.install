@@ -532,6 +532,43 @@ function access_events_update_10008() {
 }
 
 /**
+ * Backfill event timezones and repair their field inheritance.
+ *
+ * 10008 belongs to the field_inheritance cleanup that ships with the
+ * recurring_events 3.x upgrade.
+ */
+function access_events_update_10009() {
+  // `drush deploy` runs updatedb BEFORE config:import, and the timezone field
+  // arrives with configuration — so on a normal deploy this hook runs before
+  // the field exists and has nothing to write to. That is expected, not a
+  // failure: access_events_deploy_0004_backfill_event_timezones() does the
+  // work afterwards, once the import has created the field.
+  //
+  // This hook stays for the environments that updb without a full deploy, and
+  // says plainly when it could do nothing rather than reporting a zero that
+  // reads like the work is finished.
+  $definitions = \Drupal::service('entity_field.manager')
+    ->getFieldStorageDefinitions('eventseries');
+  if (!isset($definitions['field_event_timezone'])) {
+    return t('The event timezone field is not installed yet; the deploy hook backfills after configuration import.');
+  }
+
+  $backfill = \Drupal::service('access_events.timezone_backfill');
+  $result = $backfill->backfill();
+  $written = $result['author_zone'] + $result['site_default'];
+
+  $message = t('Wrote @n event timezones.', ['@n' => $written]);
+  if (!empty($result['review'])) {
+    // Not a failure: these are rows where the data disagrees with the derived
+    // default. Run the drush command to list them.
+    $message .= ' ' . t('@c series need review — run `drush access-events:backfill-timezones` to list them.', [
+      '@c' => count($result['review']),
+    ]);
+  }
+  return $message;
+}
+
+/**
  * Implements hook_update_dependencies().
  */
 function access_events_update_dependencies() {

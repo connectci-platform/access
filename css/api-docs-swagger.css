@@ -59,7 +59,9 @@
 }
 
 .api-docs-index .api-docs__meta select {
-  padding: 4px 8px;
+  /* The right padding has to clear the native dropdown arrow, which the UA
+     paints inside the control — 8px let the version text run under it. */
+  padding: 4px 26px 4px 8px;
   border: 1px solid #d2d2d2;
   border-radius: 4px;
 }

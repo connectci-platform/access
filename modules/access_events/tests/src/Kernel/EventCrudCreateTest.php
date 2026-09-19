@@ -193,6 +193,56 @@ class EventCrudCreateTest extends EventKernelTestBase {
   }
 
   /**
+   * An explicitly supplied timezone that is not a real IANA zone is refused.
+   *
+   * Omission and a bad value are different things. Omitting the field means
+   * "use my default", and the API fills it from the acting user's account
+   * zone. Supplying "Mars/Olympus" means the caller got it wrong, and quietly
+   * substituting the default turns that mistake into an event scheduled in a
+   * timezone nobody asked for — with no signal to the caller, the agent or the
+   * organizer, and looking for all the world like success.
+   *
+   * It matters most for the agent path: an LLM will occasionally produce a
+   * wrong zone string, and a loud refusal lets it self-correct on the next
+   * attempt where a silent fallback cannot.
+   */
+  public function testCreateEventRejectsAnInvalidExplicitTimezone(): void {
+    $user = $this->createUser();
+    $body = [
+      'title' => 'Bad Zone Event',
+      'recur_type' => 'custom',
+      'field_event_timezone' => 'Mars/Olympus',
+      'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
+    ];
+    $response = $this->doCrud('create', NULL, $user, $body, ['confirmed' => 'true']);
+
+    $this->assertSame(422, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertSame('validation_error', $data['error']);
+    $this->assertStringContainsString('field_event_timezone', $data['message'] ?? '',
+      'the message names the field so the caller knows what to correct');
+  }
+
+  /**
+   * Omitting the timezone is not an error; it takes the account default.
+   *
+   * The other arm of the same split. If this ever starts refusing, every
+   * caller that legitimately has no opinion about the zone breaks.
+   */
+  public function testCreateEventWithoutATimezoneSucceeds(): void {
+    $user = $this->createUser();
+    $body = [
+      'title' => 'No Zone Event',
+      'recur_type' => 'custom',
+      'custom_dates' => [['start_date' => '2099-06-15T14:00:00', 'end_date' => '2099-06-15T16:00:00']],
+    ];
+    $response = $this->doCrud('create', NULL, $user, $body, ['confirmed' => 'true']);
+
+    $this->assertNotSame(422, $response->getStatusCode(),
+      'an absent timezone is a legitimate absence, not a caller mistake');
+  }
+
+  /**
    * A supplied affinity group that resolves to nothing is a validation error,
    * not a silent group-less create.
    */

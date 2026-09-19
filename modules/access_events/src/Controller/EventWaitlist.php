@@ -205,13 +205,25 @@ class EventWaitlist extends ControllerBase {
     // missing date leaves its interpolated fields blank rather than fataling
     // the approval email — the registrant still gets confirmed, just without
     // the date/time line.
-    $start_date_obj = $event_instance->get('date')->start_date;
-    $end_date_obj = $event_instance->get('date')->end_date;
-    $og_start_date = $start_date_obj ? $start_date_obj->__toString() : '';
-    $end_date = $end_date_obj ? $end_date_obj->__toString() : '';
-    $start_date = $og_start_date ? date('F j, Y', strtotime($og_start_date)) : '';
-    $event_start_time = $og_start_date ? date('g:iA', strtotime($og_start_date)) : '';
-    $event_end_time = $end_date ? date('g:iA T', strtotime($end_date)) : '';
+    // Approval mail is sent from a queue or cron run, where there is no viewer
+    // and the ambient zone is the site default. Formatting through the ambient
+    // zone therefore renders a Chicago event as Eastern — a plausible-looking
+    // time in the wrong zone, which is why it has gone unnoticed. Use the
+    // event's own zone so every recipient reads the organizer's time.
+    $stored_start = $event_instance->get('date')->value ?? '';
+    $stored_end = $event_instance->get('date')->end_value ?? '';
+    $event_zone = $event_instance->hasField('event_timezone')
+      ? trim((string) ($event_instance->get('event_timezone')->value ?? ''))
+      : '';
+    $start_date = $stored_start
+      ? _access_events_format_event_time($stored_start, $event_zone, 'F j, Y')
+      : '';
+    $event_start_time = $stored_start
+      ? _access_events_format_event_time($stored_start, $event_zone, 'g:iA')
+      : '';
+    $event_end_time = $stored_end
+      ? _access_events_format_event_time($stored_end, $event_zone, 'g:iA T')
+      : '';
 
     // Turn $series_title into a link to the event with correct domain.
     $event_url = _access_misc_get_event_domain_url($event_instance_id);

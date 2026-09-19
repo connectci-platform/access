@@ -493,17 +493,11 @@ function access_misc_entity_view(array &$build, EntityInterface $entity, EntityV
       }
       break;
 
-    case 'eventinstance':
-      $date = $build['date'][0];
-      $convert_date = new EventDateConvert($date['start_date']['#markup'], $date['end_date']['#markup']);
-
-      if (!$convert_date->sameDay ) {
-        $build['date'][0]['separator']['#plain_text'] = ' to ';
-      }
-
-      $build['date'][0]['start_date']['#markup'] = $convert_date->getStart();
-      $build['date'][0]['end_date']['#markup'] = $convert_date->getEnd();
-      break;
+    // The eventinstance arm used to re-parse the formatter's rendered markup
+    // and overwrite it. That made the field formatter's output irrelevant on
+    // this page — including the venue-timezone rendering an in-person event
+    // now depends on — so the date field is left to its formatter, which the
+    // view display configures as 'n/j/Y g:i A T'.
   }
 }
 
@@ -1130,8 +1124,18 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
   $series_title = $series->get('title')->value;
   $series_contact = $series->get('field_contact')->getValue();
   $contact = !empty($series_contact) ? t('In the meantime, if you have any questions or wish to withdraw from the waitlist, please contact us at ') . $series_contact[0]['value']  . '.': '';
-  $start_date = $event_instance->get('date')->start_date->__toString();
-  $start_date = date('F j, Y', strtotime($start_date));
+  // This mail is sent from cron or a queue run, where there is no viewer and
+  // the ambient zone is the site default — so formatting through it renders a
+  // Chicago event's date in Eastern, and for an evening event that is the
+  // wrong calendar day for every recipient east of the venue. Use the event's
+  // own zone, as the waitlist approval mail already does.
+  $stored_start = $event_instance->get('date')->value ?? '';
+  $event_zone = $event_instance->hasField('event_timezone')
+    ? trim((string) ($event_instance->get('event_timezone')->value ?? ''))
+    : '';
+  $start_date = $stored_start
+    ? _access_events_format_event_time($stored_start, $event_zone, 'F j, Y')
+    : '';
   // Turn $series_title into a link to the event with correct domain.
   $event_url = _access_misc_get_event_domain_url($event_instance_id);
   $series_title_url = "<a href='$event_url'>$series_title</a>";
@@ -1957,8 +1961,16 @@ function _access_misc_build_json_ld($entity) {
 
         if ($entity->hasField('date') && !$entity->get('date')->isEmpty()) {
           $date_value = $entity->get('date')->getValue()[0];
-          $json_ld['startDate'] = date('c', strtotime($date_value['value']));
-          $json_ld['endDate'] = date('c', strtotime($date_value['end_value']));
+          // The stored value is naive UTC. strtotime() parsed it as if it were
+          // local and date('c') then stamped a local offset, so the emitted
+          // instant was wrong by the full offset — and Google reads that
+          // offset literally. The event's own zone gives the offset that is
+          // correct for the event's own date.
+          $event_zone = $entity->hasField('event_timezone')
+            ? trim((string) ($entity->get('event_timezone')->value ?? ''))
+            : '';
+          $json_ld['startDate'] = _access_events_iso8601_event_time($date_value['value'], $event_zone);
+          $json_ld['endDate'] = _access_events_iso8601_event_time($date_value['end_value'], $event_zone);
         }
       }
       else {

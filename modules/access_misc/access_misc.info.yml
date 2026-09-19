@@ -6,6 +6,7 @@ package: Custom
 dependencies:
   - access
   - access_events
+  - drupal:flag
   - operations_cider
 
 libraries:
