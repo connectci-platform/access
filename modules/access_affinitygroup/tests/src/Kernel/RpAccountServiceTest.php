@@ -535,6 +535,77 @@ class RpAccountServiceTest extends KernelTestBase {
     );
   }
 
+  /**
+   * The login path must refresh under the lock, as the read path does.
+   *
+   * hook_user_login registers its refresh in a shutdown function, which never
+   * fires under PHPUnit, and the hook itself pulls in Constant Contact work
+   * that is irrelevant here. So this asserts the contract at the seam that
+   * matters: the service method the hook names must honour a held lock.
+   *
+   * Guarding against the regression itself — the hook calling the unguarded
+   * refreshUserRpAccounts() — is done by reading the hook source, since no
+   * runtime seam exposes which method it picked.
+   *
+   * @see access_affinitygroup_user_login()
+   */
+  public function testLoginRefreshHonoursTheLock(): void {
+    $user = User::create([
+      'name' => 'logintest@access-ci.org',
+      'mail' => 'lt@example.com',
+      'status' => 1,
+    ]);
+    $user->save();
+    $uid = (int) $user->id();
+
+    $lock = \Drupal::service('lock');
+    $this->assertTrue($lock->acquire('rp_account_refresh:' . $uid));
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $alloc->getProjectsForUser(\Prophecy\Argument::any())->shouldNotBeCalled();
+    $xd = $this->prophesize(XdusageClient::class);
+    $service = $this->makeService($alloc->reveal(), $xd->reveal());
+
+    $service->runGuardedRefresh($uid);
+
+    $lock->release('rp_account_refresh:' . $uid);
+  }
+
+  /**
+   * hook_user_login schedules the GUARDED refresh, not the bare one.
+   *
+   * The two differ only in whether a per-uid lock is taken, and the shutdown
+   * function that runs it cannot be invoked from a kernel test, so there is no
+   * behavioural seam to assert against. Reading the source is the only way to
+   * pin this, and it is worth pinning: the login path called the unguarded
+   * method for its whole life, so two overlapping logins for one uid could
+   * both run a refresh whose final prune deletes by grant_number.
+   */
+  public function testLoginHookSchedulesTheGuardedRefresh(): void {
+    // Ask Drupal where the module lives rather than walking up from __DIR__:
+    // the test runs from a symlinked path in some environments, where
+    // relative arithmetic lands outside the module.
+    $path = \Drupal::service('extension.list.module')->getPath('access_affinitygroup');
+    $module = DRUPAL_ROOT . '/' . $path . '/access_affinitygroup.module';
+    $this->assertFileExists($module);
+    $source = file_get_contents($module);
+
+    $hookStart = strpos($source, 'function access_affinitygroup_user_login(');
+    $this->assertNotFalse($hookStart, 'hook_user_login not found.');
+    $hook = substr($source, $hookStart);
+
+    $this->assertStringContainsString(
+      '->runGuardedRefresh($uid)',
+      $hook,
+      'The login hook must schedule runGuardedRefresh() so concurrent logins cannot refresh the same user at once.'
+    );
+    $this->assertStringNotContainsString(
+      '->refreshUserRpAccounts($uid)',
+      $hook,
+      'The login hook must not call refreshUserRpAccounts() directly — that bypasses the per-uid lock.'
+    );
+  }
+
   public function testGuardedRefreshSkipsWhenLockHeld(): void {
     $lock = \Drupal::service('lock');
     $this->assertTrue($lock->acquire('rp_account_refresh:42'));
