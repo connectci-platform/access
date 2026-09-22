@@ -20,10 +20,10 @@ use Drupal\user\Entity\User;
  * mentorship_engagement nodes, and only ccmnet_set_domain_submit() restored
  * the real value — but only when PANTHEON_ENVIRONMENT == 'live'. On
  * dev/test/multidev that restore never ran, so every non-production edit
- * silently wiped field_domain_source. The fix scopes the '_none' default to
- * the add form only (the edit form now keeps the field's own stored-value
- * default, set by the entity form widget itself — untouched by this hook)
- * and removes the env-gated restore entirely, since it is no longer needed.
+ * silently wiped field_domain_source. The fix defaults the add form to
+ * ccmnet_org (the add form is only reachable on the ccmnet domain), leaves
+ * the edit form's stored-value default alone, and removes the env-gated
+ * restore entirely, since it is no longer needed.
  */
 class CcmnetFormAlterTest extends KernelTestBase {
 
@@ -97,6 +97,17 @@ class CcmnetFormAlterTest extends KernelTestBase {
       }
 
     });
+
+    // Likewise stub access_misc.tag_suggester, which ccmnet_form_alter()
+    // calls to attach the tag suggestion panel — unrelated to what's tested.
+    \Drupal::getContainer()->set('access_misc.tag_suggester', new class {
+
+      /**
+       * Stub replacing TagSuggester::build(), unrelated to what's tested.
+       */
+      public function build(array &$form, array $options = []): void {}
+
+    });
   }
 
   /**
@@ -122,17 +133,20 @@ class CcmnetFormAlterTest extends KernelTestBase {
   }
 
   /**
-   * The ADD form still defaults field_domain_source to '_none'.
+   * The ADD form defaults field_domain_source to ccmnet_org.
+   *
+   * With the submit-time restore removed, this default is the only thing
+   * that gives new mentorships their ccmnet_org domain source.
    */
-  public function testAddFormDefaultsDomainSourceToNone(): void {
+  public function testAddFormDefaultsDomainSourceToCcmnet(): void {
     $form = $this->baseForm();
     ccmnet_form_alter($form, new FormState(), 'node_mentorship_engagement_form');
 
-    $this->assertSame('_none', $form['field_domain_source']['widget']['#default_value']);
+    $this->assertSame('ccmnet_org', $form['field_domain_source']['widget']['#default_value']);
   }
 
   /**
-   * The EDIT form no longer forces field_domain_source to '_none'.
+   * The EDIT form no longer forces field_domain_source's default.
    *
    * This is the core regression guard: previously this ran unconditionally
    * for the edit form too, wiping the field's real stored value on every

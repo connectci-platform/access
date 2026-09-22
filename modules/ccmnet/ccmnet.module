@@ -226,11 +226,12 @@ function ccmnet_node_access(NodeInterface $node, string $op, AccountInterface $a
 function ccmnet_form_alter(array &$form, FormStateInterface $form_state, string $form_id): void {
   if ($form_id == 'node_mentorship_engagement_edit_form' || $form_id == 'node_mentorship_engagement_form') {
     if ($form_id == 'node_mentorship_engagement_form') {
-      // Set domain source to n/a by default on the add form only. The edit
-      // form keeps the stored value's own default so it round-trips safely
-      // instead of being wiped on every edit (was previously restored by an
-      // env-gated submit handler that only ran on the live environment).
-      $form['field_domain_source']['widget']['#default_value'] = '_none';
+      // Default domain source to ccmnet_org on the add form only; the form
+      // is only reachable on the ccmnet domain (see the access check below).
+      // The edit form keeps the stored value's own default so it round-trips
+      // safely instead of being wiped on every edit (was previously restored
+      // by an env-gated submit handler that only ran on the live environment).
+      $form['field_domain_source']['widget']['#default_value'] = SiteTools::DOMAIN_CCMNET;
     }
 
     $form['title']['widget'][0]['#maxlength'] = 65;
