@@ -277,6 +277,70 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/QueueSpec'
+        queue_metrics:
+          type: object
+          description: >-
+            XDMoD wait time, wall time and job counts over the last 30 days,
+            keyed by queue name. Keyed rather than attached to queue_specs
+            because XDMoD measures per queue while a queue_specs row is one
+            node type within a queue, so a queue offered on several node types
+            has one entry here and several rows there. Join on the row's name.
+            Empty when the resource has no metrics. Refreshed nightly and
+            excluded from content_hash.
+          additionalProperties:
+            $ref: '#/components/schemas/QueueMetrics'
+        queue_metrics_updated:
+          type: string
+          nullable: true
+          description: >-
+            Date the queue metrics were last refreshed. Excluded from
+            content_hash, since it moves on every nightly refresh.
+          example: '2026-09-21'
+        documentation_links:
+          type: object
+          description: >-
+            Per-section link to the resource provider's own documentation, as
+            shown on the resource page. Every key is always present, with null
+            where no link is set. Values inherited from the resource's group
+            when the resource itself sets none. Included in content_hash: an
+            editor changing one of these is a content change.
+          properties:
+            login:
+              type: string
+              nullable: true
+            ssh_login:
+              type: string
+              nullable: true
+            ondemand_login:
+              type: string
+              nullable: true
+            submitting_jobs:
+              type: string
+              nullable: true
+            queue_specs:
+              type: string
+              nullable: true
+            software:
+              type: string
+              nullable: true
+            top_software:
+              type: string
+              nullable: true
+            storage:
+              type: string
+              nullable: true
+            file_system:
+              type: string
+              nullable: true
+            external_storage:
+              type: string
+              nullable: true
+            file_transfer:
+              type: string
+              nullable: true
+            datasets:
+              type: string
+              nullable: true
         datasets:
           type: array
           items:
@@ -401,6 +465,35 @@ components:
           type: string
           nullable: true
           description: Derived human-readable one-line summary (e.g. "25 GB, 1,000,000 files").
+
+    QueueMetrics:
+      type: object
+      description: >-
+        XDMoD measurements for one queue over the last 30 days. Members are
+        null when XDMoD reported no value for that statistic.
+      properties:
+        wait_time:
+          type: number
+          nullable: true
+          description: Mean wait time in hours.
+        wall_time:
+          type: number
+          nullable: true
+          description: Mean wall time in hours.
+        job_count:
+          type: integer
+          nullable: true
+          description: Jobs completed in the period.
+        daily_wait:
+          type: array
+          description: Daily mean wait time, oldest first. Empty when unavailable.
+          items:
+            type: number
+        daily_wall:
+          type: array
+          description: Daily mean wall time, oldest first. Empty when unavailable.
+          items:
+            type: number
 
     QueueSpec:
       type: object
