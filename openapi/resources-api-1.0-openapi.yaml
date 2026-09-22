@@ -237,6 +237,14 @@ components:
           type: string
           nullable: true
           description: Rich text displayed above the file transfer methods table.
+        storage_text:
+          type: string
+          nullable: true
+          description: Rich text displayed above the storage filesystems table.
+        datasets_text:
+          type: string
+          nullable: true
+          description: Rich text displayed above the datasets table.
         jobs_info:
           type: string
           nullable: true
@@ -366,6 +374,11 @@ components:
                 type: string
                 format: uri
                 nullable: true
+              documentation:
+                type: string
+                format: uri
+                nullable: true
+                description: Link to the software's own documentation.
         ood_software:
           type: array
           description: >-
