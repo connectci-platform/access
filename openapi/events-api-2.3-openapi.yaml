@@ -52,13 +52,18 @@ paths:
 
         **Default behavior:** Returns future events only, sorted by start date ascending (nearest first).
 
-        To retrieve past events, pass `upcoming_only=` with an empty value to
-        lift the upcoming-only default, then use the date parameters to select
-        the window you want. For example
-        `?upcoming_only=&beginning_date=2024-01-01&end_date=2024-06-01`.
-        Without `upcoming_only=`, a window wholly in the past returns an empty
-        array: the upcoming-only default is combined with your dates, and
-        nothing satisfies both.
+        To retrieve past events, move the floor with `upcoming_only`. It takes
+        a date or a relative offset, and defaults to `today`, which is what
+        limits a bare request to upcoming events. Set it to a date far enough
+        back to cover what you want, then narrow with the other date
+        parameters. For example
+        `?upcoming_only=2020-01-01&beginning_date=2024-01-01&end_date=2024-06-01`
+        returns the first half of 2024.
+
+        Without `upcoming_only`, a window wholly in the past returns an empty
+        array: the default floor of today is combined with your dates and
+        nothing satisfies both. `beginning_date_relative` with a negative
+        offset does not lift the floor on its own.
 
         Note that the ascending sort still applies, so a request for past
         events returns the oldest of the requested window first.
@@ -149,20 +154,25 @@ paths:
         - name: upcoming_only
           in: query
           description: |
-            Controls the upcoming-only default. Omit it and only future events
-            are returned, whatever date range you also supply. Pass it with an
-            empty value to lift that default, so the date parameters alone
-            decide the window and past events become reachable.
+            The earliest event date the response can include. Defaults to
+            `today`, which is why a bare request returns only upcoming events.
+            Accepts an absolute date (`2020-01-01`) or a relative offset
+            (`-1year`).
 
-            This is the only way to retrieve past events. A date range wholly
-            in the past returns an empty array without it.
+            This is the only way to reach past events: the other date
+            parameters narrow within this floor rather than moving it, so a
+            window wholly in the past returns an empty array unless
+            `upcoming_only` is set back far enough to contain it.
           required: false
           schema:
             type: string
           examples:
             past_window:
-              value: ""
-              summary: Lift the default so past events are returned
+              value: "2020-01-01"
+              summary: Move the floor back so past events are returned
+            last_year:
+              value: "-1year"
+              summary: Events from the past year onwards
         - name: beginning_date_relative
           in: query
           description: |
