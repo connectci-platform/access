@@ -51,7 +51,17 @@ paths:
         Retrieve a list of events with optional filtering and pagination.
 
         **Default behavior:** Returns future events only, sorted by start date ascending (nearest first).
-        To retrieve past events, use `beginning_date_relative` with a negative offset (e.g., `-1year`).
+
+        To retrieve past events, pass `upcoming_only=` with an empty value to
+        lift the upcoming-only default, then use the date parameters to select
+        the window you want. For example
+        `?upcoming_only=&beginning_date=2024-01-01&end_date=2024-06-01`.
+        Without `upcoming_only=`, a window wholly in the past returns an empty
+        array: the upcoming-only default is combined with your dates, and
+        nothing satisfies both.
+
+        Note that the ascending sort still applies, so a request for past
+        events returns the oldest of the requested window first.
 
         ## Pagination
         - Default: 100 events per page
@@ -136,6 +146,23 @@ paths:
               summary: Filter by AI-related events
               
         # Date Filtering Parameters
+        - name: upcoming_only
+          in: query
+          description: |
+            Controls the upcoming-only default. Omit it and only future events
+            are returned, whatever date range you also supply. Pass it with an
+            empty value to lift that default, so the date parameters alone
+            decide the window and past events become reachable.
+
+            This is the only way to retrieve past events. A date range wholly
+            in the past returns an empty array without it.
+          required: false
+          schema:
+            type: string
+          examples:
+            past_window:
+              value: ""
+              summary: Lift the default so past events are returned
         - name: beginning_date_relative
           in: query
           description: |
