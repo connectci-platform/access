@@ -570,52 +570,14 @@ function access_cilink_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['#attached']['library'][] = 'access_misc/add_select';
     $form['#attached']['library'][] = 'access_cilink/kb_select_ag';
 
-    $form['field_tags_replace'] = [
-      '#type' => 'container',
-      '#attributes' => [
-        'id' => 'field-tags-replace',
-        'data-suggest' => '0',
-      ],
-      '#weight' => 2,
-    ];
+    \Drupal::service('access_misc.tag_suggester')->build($form, [
+      'weight' => 2,
+      'body_field' => 'description',
+      'tags_field' => 'tags',
+      'library' => 'access_misc/custom_tags',
+      'panel_intro' => "<label for='edit-field-ag-nodes-select'>Tags</label>Get tag suggestions based on your description and then curate as necessary. Limited to 6 tags.",
+    ]);
 
-    $form['field_tags_replace']['field_suggest'] = [
-      '#type' => 'container',
-      '#attributes' => [
-        'class' => [
-          'bg-light-teal',
-          'my-5',
-          'p-5'
-        ]
-      ],
-    ];
-
-    $form['field_tags_replace']['field_suggest']['tag_list'] = [
-      '#markup' => "<label for='edit-field-ag-nodes-select'>Tags</label><div id='match-tag-list' class='mb-3'>Get tag suggestions based on your description and then curate as necessary. Limited to 6 tags.</div>",
-      '#allowed_tags' => [
-        'label',
-        'div',
-      ],
-    ];
-    $form['field_tags_replace']['field_suggest']['replace_button'] = [
-      '#type' => 'button',
-      '#value' => t('Suggest Tags'),
-      '#limit_validation_errors' => array(),
-      '#attributes' => [
-        'class' => [
-          'ml-0'
-        ],
-      ],
-      '#ajax' => [
-        'callback' => 'access_misc_replace_section_callback',
-        'wrapper' => 'field-tags-replace',
-      ],
-    ];
-    $form['field_tags_replace']['user_message'] = [
-      '#markup' => "",
-    ];
-
-    $form['#attached']['library'][] = 'access_misc/custom_tags';
     $add_tags = \Drupal::service('access_misc.addtags');
     $output = $add_tags->getView();
     $form['custom_tags'] = [
