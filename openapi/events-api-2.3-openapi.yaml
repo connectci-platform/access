@@ -52,18 +52,21 @@ paths:
 
         **Default behavior:** Returns future events only, sorted by start date ascending (nearest first).
 
-        To retrieve past events, move the floor with `upcoming_only`. It takes
+        To retrieve past events, move the floor with `earliest_date`. It takes
         a date or a relative offset, and defaults to `today`, which is what
         limits a bare request to upcoming events. Set it to a date far enough
         back to cover what you want, then narrow with the other date
         parameters. For example
-        `?upcoming_only=2020-01-01&beginning_date=2024-01-01&end_date=2024-06-01`
+        `?earliest_date=2020-01-01&beginning_date=2024-01-01&end_date=2024-06-01`
         returns the first half of 2024.
 
-        Without `upcoming_only`, a window wholly in the past returns an empty
+        Without `earliest_date`, a window wholly in the past returns an empty
         array: the default floor of today is combined with your dates and
-        nothing satisfies both. `beginning_date_relative` with a negative
-        offset does not lift the floor on its own.
+        nothing satisfies both. For example
+        `?beginning_date=2024-01-01&end_date=2024-06-01` returns `[]`, because
+        the floor is still today. `beginning_date_relative` with a negative
+        offset does not lift the floor on its own either, so
+        `?beginning_date_relative=-1year` still returns only upcoming events.
 
         Note that the ascending sort still applies, so a request for past
         events returns the oldest of the requested window first.
@@ -151,7 +154,7 @@ paths:
               summary: Filter by AI-related events
               
         # Date Filtering Parameters
-        - name: upcoming_only
+        - name: earliest_date
           in: query
           description: |
             The earliest event date the response can include. Defaults to
@@ -162,7 +165,7 @@ paths:
             This is the only way to reach past events: the other date
             parameters narrow within this floor rather than moving it, so a
             window wholly in the past returns an empty array unless
-            `upcoming_only` is set back far enough to contain it.
+            `earliest_date` is set back far enough to contain it.
           required: false
           schema:
             type: string
@@ -180,6 +183,11 @@ paths:
             - `today` - Events starting today
             - `+1day`, `+1week`, `+1month` - Events starting in the future
             - `-1month` - Events that started in the past month
+
+            A negative offset here does NOT reach past events on its own. It
+            narrows within the `earliest_date` floor, which defaults to today,
+            so `beginning_date_relative=-1month` alone still returns only
+            upcoming events. To include past events, set `earliest_date` too.
           required: false
           schema:
             type: string
