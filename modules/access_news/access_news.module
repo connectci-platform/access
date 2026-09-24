@@ -85,24 +85,8 @@ function access_news_views_pre_view(ViewExecutable $view, string $display_id, ar
  * @phpstan-param array<string, mixed> $form
  */
 function access_news_form_alter(array &$form, FormStateInterface $form_state, string $form_id): void {
-  $domain = \Drupal::service('access_misc.sitetools')->getDomain();
-
-  if ($domain != 'access-support' && ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form')) {
-    $form['field_affiliation']['#access'] = FALSE;
-  }
-
   if ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form') {
-    // Hide options this editor's domain context may not set (the
-    // bi-weekly-digest share option off the ACCESS Support domain). The SAME
-    // map drives the presave strip guard below, which restores stored values
-    // an editor could not see — a hidden checkbox is round-tripped unchecked
-    // by the form, and without the guard the save would silently strip the
-    // value. Shared with access_events; see D8-2824.
-    foreach (_access_news_hidden_options() as $hiddenField => $hiddenValues) {
-      foreach ($hiddenValues as $hiddenValue) {
-        unset($form[$hiddenField]['widget']['#options'][$hiddenValue]);
-      }
-    }
+    _access_news_apply_domain_gating($form);
   }
 
   // Suggest tags for announcements.
@@ -338,6 +322,37 @@ function access_news_validate(array &$form, FormStateInterface $form_state): voi
  */
 function _access_news_hidden_options() {
   return \Drupal::service('access.hidden_field_options')->getHiddenDigestOptions();
+}
+
+/**
+ * Applies domain gating to the news form's affiliation and digest fields.
+ *
+ * Pulled out of access_news_form_alter() so the gating logic — unlike the
+ * rest of the alter, which touches widget titles, field_news_external_link
+ * and the tag_suggester build — can run in a kernel test without faking the
+ * whole form; see NewsFormDomainGatingTest. Both rules come from the shared
+ * access.hidden_field_options service so the alter itself carries no domain
+ * logic of its own; see D8-2848.
+ *
+ * @param array<string, mixed> $form
+ *   The news node form, altered by reference.
+ */
+function _access_news_apply_domain_gating(array &$form): void {
+  if (\Drupal::service('access.hidden_field_options')->hidesAffiliationWidget()) {
+    $form['field_affiliation']['#access'] = FALSE;
+  }
+
+  // Hide options this editor's domain context may not set (the
+  // bi-weekly-digest share option off the ACCESS Support domain). The SAME
+  // map drives the presave strip guard below, which restores stored values
+  // an editor could not see — a hidden checkbox is round-tripped unchecked
+  // by the form, and without the guard the save would silently strip the
+  // value. Shared with access_events; see D8-2824.
+  foreach (_access_news_hidden_options() as $hiddenField => $hiddenValues) {
+    foreach ($hiddenValues as $hiddenValue) {
+      unset($form[$hiddenField]['widget']['#options'][$hiddenValue]);
+    }
+  }
 }
 
 /**

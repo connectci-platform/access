@@ -706,12 +706,6 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     }
   }
 
-  $domain = \Drupal::service('access_misc.sitetools')->getDomain();
-
-  if ($domain != 'access-support' && ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form')) {
-    $form['field_affiliation']['#access'] = FALSE;
-  }
-
   if ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form') {
     // If domain doesn't get set, force current domain after submit.
     array_unshift($form['actions']['submit']['#submit'], 'access_announcements_domain_submit');

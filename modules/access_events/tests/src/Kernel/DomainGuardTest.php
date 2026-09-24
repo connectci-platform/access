@@ -8,6 +8,7 @@ use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\recurring_events\Entity\EventSeries;
+use Drupal\Tests\access\Traits\ActiveDomainStubTrait;
 
 /**
  * The eventseries presave domain guard.
@@ -24,6 +25,8 @@ use Drupal\recurring_events\Entity\EventSeries;
  * @group access_events
  */
 class DomainGuardTest extends EventKernelTestBase {
+
+  use ActiveDomainStubTrait;
 
   /**
    * {@inheritdoc}
@@ -47,31 +50,6 @@ class DomainGuardTest extends EventKernelTestBase {
         'bundle' => 'affinity_group',
       ])->save();
     }
-  }
-
-  /**
-   * Registers a stub domain negotiator returning a fixed active domain.
-   */
-  private function stubActiveDomain(string $id): void {
-    $domain = new class($id) {
-
-      public function __construct(private string $id) {}
-
-      public function id(): string {
-        return $this->id;
-      }
-
-    };
-    $negotiator = new class($domain) {
-
-      public function __construct(private object $domain) {}
-
-      public function getActiveDomain(): object {
-        return $this->domain;
-      }
-
-    };
-    \Drupal::getContainer()->set('domain.negotiator', $negotiator);
   }
 
   /**
