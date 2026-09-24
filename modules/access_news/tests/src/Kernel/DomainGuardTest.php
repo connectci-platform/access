@@ -9,6 +9,7 @@ use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\node\Entity\Node;
 use Drupal\node\Entity\NodeType;
+use Drupal\Tests\access\Traits\ActiveDomainStubTrait;
 use Drupal\Tests\user\Traits\UserCreationTrait;
 
 /**
@@ -19,13 +20,14 @@ use Drupal\Tests\user\Traits\UserCreationTrait;
  * off-domain submission round-trips without it; without a guard the save
  * silently drops the value (D8-2824 — the same class of bug already fixed
  * for eventseries, see access_events's DomainGuardTest). This test pins the
- * entity-layer contract; the form-level option removal is out of kernel
- * reach.
+ * entity-layer contract; form-level option removal is covered by
+ * NewsFormDomainGatingTest.
  *
  * @group access_news
  */
 class DomainGuardTest extends KernelTestBase {
 
+  use ActiveDomainStubTrait;
   use UserCreationTrait;
 
   /**
@@ -100,37 +102,6 @@ class DomainGuardTest extends KernelTestBase {
     ])->save();
 
     $this->setCurrentUser($this->createUser());
-  }
-
-  /**
-   * Registers a stub domain negotiator returning a fixed active domain.
-   */
-  private function stubActiveDomain(string $id): void {
-    $domain = new class($id) {
-
-      public function __construct(private string $id) {}
-
-      /**
-       * Returns the stubbed domain ID.
-       */
-      public function id(): string {
-        return $this->id;
-      }
-
-    };
-    $negotiator = new class($domain) {
-
-      public function __construct(private object $domain) {}
-
-      /**
-       * Returns the stubbed active domain.
-       */
-      public function getActiveDomain(): object {
-        return $this->domain;
-      }
-
-    };
-    \Drupal::getContainer()->set('domain.negotiator', $negotiator);
   }
 
   /**
