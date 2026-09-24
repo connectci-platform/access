@@ -1074,8 +1074,10 @@ function access_affinitygroup_user_login(UserInterface $account) {
   // smaller than FRESHNESS_TTL — login traffic helps keep RP data fresh
   // between page renders. Note: the gate is best-effort; two concurrent
   // logins for the same uid can both pass before either writes the
-  // marker. The refresh is idempotent (DB upserts), so duplicate runs
-  // are safe.
+  // marker, which is why the refresh itself runs under a per-uid lock —
+  // the upserts tolerate a duplicate run, but the prune at the end of
+  // refreshUserRpAccounts deletes by grant_number and can remove rows a
+  // concurrent run has just written.
   $uid = (int) $account->id();
   $cache = \Drupal::cache();
   $marker = $cache->get(\Drupal\access_affinitygroup\Service\RpAccountService::SYNC_MARKER_PREFIX . $uid);
@@ -1084,7 +1086,7 @@ function access_affinitygroup_user_login(UserInterface $account) {
     register_shutdown_function(static function () use ($uid) {
       try {
         \Drupal::service('access_affinitygroup.rp_account')
-          ->refreshUserRpAccounts($uid);
+          ->runGuardedRefresh($uid);
       }
       catch (\Throwable $e) {
         \Drupal::logger('access_affinitygroup')
