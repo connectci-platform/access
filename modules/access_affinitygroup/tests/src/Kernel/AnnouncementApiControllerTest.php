@@ -3,6 +3,7 @@
 namespace Drupal\Tests\access_affinitygroup\Kernel;
 
 use Drupal\access_affinitygroup\Controller\AnnouncementApiController;
+use Drupal\access_misc\Plugin\Util\SiteTools;
 use Drupal\Core\DependencyInjection\ContainerBuilder;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
@@ -47,6 +48,7 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     'access_affinitygroup',
     'access_news',
     'key',
+    'domain',
   ];
 
   /**
@@ -200,6 +202,22 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     ])->save();
     FieldConfig::create([
       'field_name' => 'field_choose_where_to_share_this',
+      'entity_type' => 'node',
+      'bundle' => 'access_news',
+    ])->save();
+
+    // field_domain_access (on access_news, ref domain) — the endpoint pins
+    // every announcement to the ACCESS Support domain. domain_access itself is
+    // not enabled: only the stored reference is under test, not the grants.
+    FieldStorageConfig::create([
+      'field_name' => 'field_domain_access',
+      'entity_type' => 'node',
+      'type' => 'entity_reference',
+      'cardinality' => -1,
+      'settings' => ['target_type' => 'domain'],
+    ])->save();
+    FieldConfig::create([
+      'field_name' => 'field_domain_access',
       'entity_type' => 'node',
       'bundle' => 'access_news',
     ])->save();
@@ -439,6 +457,12 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     $this->assertSame('draft', $node->get('moderation_state')->value);
     $this->assertFalse($node->isPublished());
     $this->assertSame((int) $coordinator->id(), (int) $node->getOwnerId());
+    // Domain 3.x no longer defaults the domain outside entity forms, so the
+    // endpoint must set it or the announcement drops out of the news views.
+    $this->assertSame(
+      [SiteTools::DOMAIN_ACCESS_SUPPORT],
+      array_column($node->get('field_domain_access')->getValue(), 'target_id'),
+    );
   }
 
   public function testCreateSetsTagsFromUuids(): void {
