@@ -18,6 +18,8 @@
  * cancelled).
  */
 
+use Drupal\search_api\Entity\Index;
+
 /**
  * Re-keys stale eventinstance moderation-state rows onto the instance workflow.
  *
@@ -476,4 +478,35 @@ function access_events_deploy_0004_backfill_event_timezones() {
     ]);
   }
   return $message;
+}
+
+/**
+ * Reindexes the events index so event_timezone is populated.
+ *
+ * D8-2870 adds an event_timezone field to the events index, the inherited
+ * per-series IANA zone, so api/2.3 and api/2.4 can emit it. A new index field
+ * stays empty until its items are reindexed, so mark the index here, after
+ * config:import has added the field.
+ *
+ * This calls reindex() and not indexItems(): the index tracks around 1,800
+ * instances and indexing them synchronously would slow the deploy. reindex()
+ * only marks every item as needing reindex, it does not delete anything from
+ * the server, so each item keeps serving its previously indexed values until
+ * cron reaches it. Results stay complete throughout, with event_timezone
+ * filling in per item as the queue drains, rather than the API going empty.
+ *
+ * This is not redundant with config:import, which is the obvious reason to
+ * delete it. search_api_db does call Index::reindex() itself when a field is
+ * added, but importing this index's config leaves
+ * search_api.index.events.has_reindexed unset, so nothing is actually
+ * scheduled. Verified against a real ConfigImporter run: the field arrives,
+ * isReindexing() stays FALSE, and this hook is what flips it to TRUE.
+ */
+function access_events_deploy_0005_reindex_event_timezone() {
+  $index = Index::load('events');
+  if (!$index) {
+    return t('events index not found; skipped reindex. Reindex manually if the API returns empty event timezones.');
+  }
+  $index->reindex();
+  return t('events index marked for reindexing to populate event_timezone; cron will process the tracked items.');
 }
