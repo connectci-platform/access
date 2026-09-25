@@ -20,7 +20,10 @@ use Drupal\views\ViewExecutable;
 use Drupal\views\Plugin\views\query\QueryPluginBase;
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Entity\EntityTypeInterface;
+use Drupal\access_events\CancellationNotifier;
 use Drupal\access_events\EffectiveCreationSet;
+use Drupal\access_events\EventDomainContext;
+use Drupal\access_events\Plugin\QueueWorker\DomainAwareEmailNotificationsQueueWorker;
 use Drupal\access_events\Plugin\EventInstanceCreator\PastPreservingEventInstanceCreator;
 use Drupal\access_events\Plugin\Validation\Constraint\EventInstancePublishGuardConstraint;
 use Drupal\access_events\Plugin\Validation\Constraint\EventInstancePublishGuardConstraintValidator;
@@ -1972,6 +1975,17 @@ function access_events_recurring_events_pre_delete_instance(EventInstance $insta
  * possible. The id is read from the registrant's own eventinstance_id/
  * eventseries_id references, so it is correct regardless of which notification
  * key the item carries.
+ *
+ * Also stamps the occurrence's own domain id (D8-2835), for the SAME
+ * queue-table reason: a queued notice is rendered here at enqueue time, in
+ * the occurrence's domain context (see CancellationNotifier::enqueueGated()/
+ * enqueueModificationGated()), but actually SENT later, when cron drains the
+ * queue — and by then \Drupal::service('domain.negotiator') is on cron's
+ * domain, not the event's, so hook_mailer_build() (access_misc_mailer_build())
+ * would pick the wrong From/Reply-To/transport. Stamping the domain id here
+ * lets DomainAwareEmailNotificationsQueueWorker put the right domain active
+ * again around the send. Only a scalar id is stamped — never the Domain
+ * entity — because the queue item is serialized to the DB.
  */
 function access_events_recurring_events_registration_message_params_alter(array &$params, $registrant): void {
   if (!is_object($registrant) || !method_exists($registrant, 'get')) {
@@ -1979,7 +1993,15 @@ function access_events_recurring_events_registration_message_params_alter(array 
   }
   $instanceId = $registrant->get('eventinstance_id')->target_id ?? NULL;
   if ($instanceId !== NULL) {
-    $params[\Drupal\access_events\CancellationNotifier::INSTANCE_PARAM] = (int) $instanceId;
+    $params[CancellationNotifier::INSTANCE_PARAM] = (int) $instanceId;
+
+    $instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($instanceId);
+    if ($instance instanceof EventInstance) {
+      $domain = \Drupal::service('access_events.domain_context')->resolveDomain($instance);
+      if ($domain !== NULL) {
+        $params[EventDomainContext::DOMAIN_PARAM] = $domain->id();
+      }
+    }
   }
   $seriesId = $registrant->get('eventseries_id')->target_id ?? NULL;
   if ($seriesId !== NULL) {
@@ -3259,5 +3281,35 @@ function access_events_views_data_alter(array &$data) {
   $table = 'search_api_datasource_events_entity_eventinstance';
   if (isset($data[$table]['event_summary']['field']['id']) && $data[$table]['event_summary']['field']['id'] === 'search_api') {
     $data[$table]['event_summary']['field']['id'] = 'access_events_search_api_plain_text';
+  }
+}
+
+/**
+ * Implements hook_queue_info_alter().
+ *
+ * Swaps contrib's registration-notification queue worker for a
+ * domain-aware subclass (D8-2835). Contrib's EmailNotificationsQueueWorker
+ * only sends whatever subject/body cron finds in the queue item — it never
+ * touches the active domain, so hook_mailer_build() (access_misc_mailer_
+ * build()) resolves From/Reply-To/transport off CRON's active domain rather
+ * than the event's. DomainAwareEmailNotificationsQueueWorker reads the
+ * domain id access_events_recurring_events_registration_message_params_
+ * alter() stamped at enqueue time and puts that domain active for the
+ * duration of the send.
+ *
+ * QueueWorkerManager (Drupal\Core\Queue\QueueWorkerManager) is a plain
+ * DefaultPluginManager that calls $this->alterInfo('queue_info') in its
+ * constructor, so — despite this module's queue worker being attribute-
+ * discovered, not declared via the legacy hook_queue_info() — the discovered
+ * definitions still pass through hook_queue_info_alter() like any other
+ * annotated/attributed plugin type's definitions do.
+ *
+ * @param array<string, array<string, mixed>> $queues
+ *   The discovered queue worker plugin definitions, keyed by plugin id.
+ */
+function access_events_queue_info_alter(array &$queues): void {
+  $id = 'recurring_events_registration_email_notifications_queue_worker';
+  if (isset($queues[$id])) {
+    $queues[$id]['class'] = DomainAwareEmailNotificationsQueueWorker::class;
   }
 }
