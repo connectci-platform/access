@@ -16,7 +16,9 @@ use Drupal\views\Plugin\views\style\Table;
  * order was requested, so the table's default sort applies.
  *
  * Swapped in for core's table plugin by
- * access_misc_views_plugins_style_alter().
+ * access_misc_views_plugins_style_alter(), so it applies to every table-style
+ * view on the site, not just the resources view. That breadth is deliberate:
+ * any table view with a non-sortable or unqueried field can hit the same bug.
  */
 class ClickSortGuardedTable extends Table {
 
