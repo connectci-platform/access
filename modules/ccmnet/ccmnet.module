@@ -934,8 +934,8 @@ function ccmnet_cron(): void {
 
   // Allow testing mode to bypass environment and time restrictions.
   if ($env == 'live' || $cypress_test == 'true') {
-    // Set the active domain so hook_mailer_init() routes emails through
-    // the CCMNet SMTP transport.
+    // Set the active domain so hook_mailer_build() (access_misc_mailer_
+    // build()) routes emails through the CCMNet SMTP transport.
     $negotiator = \Drupal::service('domain.negotiator');
     $original_domain = $negotiator->getActiveDomain();
     $domain = Domain::load('ccmnet_org');

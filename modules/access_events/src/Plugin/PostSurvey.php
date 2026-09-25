@@ -103,8 +103,9 @@ class PostSurvey {
    * Get the hostname to build post-survey links on.
    *
    * Falls back to the current request host if no domain is assigned. The
-   * active-domain switch that used to live here (so hook_mailer_init() routes
-   * through the correct SMTP transport) now belongs to EventDomainContext,
+   * active-domain switch that used to live here (so hook_mailer_build(),
+   * i.e. access_misc_mailer_build(), routes through the correct SMTP
+   * transport) now belongs to EventDomainContext,
    * which wraps the whole per-instance send and restores the previous domain
    * afterwards — the old version mutated the negotiator from inside a getter
    * and left the last event's domain active for the rest of the request.
