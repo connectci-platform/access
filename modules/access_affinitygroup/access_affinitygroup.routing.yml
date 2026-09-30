@@ -104,3 +104,13 @@ access_affinitygroup.announcement_delete:
   options:
     no_cache: TRUE
 
+access_affinitygroup.profile:
+  path: '/api/1.0/profile'
+  methods: [GET]
+  defaults:
+    _controller: '\Drupal\access_affinitygroup\Controller\ProfileController::get'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+  options:
+    no_cache: TRUE
