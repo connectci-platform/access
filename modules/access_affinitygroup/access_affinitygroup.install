@@ -1143,3 +1143,18 @@ function _access_affinitygroup_resolve_resource_nid(Connection $db, int $resourc
 
   return count($rows) === 1 ? (int) reset($rows)->nid : NULL;
 }
+
+/**
+ * Add the assistant-personalization consent widget to the user form display.
+ */
+function access_affinitygroup_update_10016(): void {
+  $display = \Drupal::entityTypeManager()
+    ->getStorage('entity_form_display')
+    ->load('user.user.default');
+  if ($display && !$display->getComponent('field_assistant_consent')) {
+    $display->setComponent('field_assistant_consent', [
+      'type' => 'options_buttons',
+      'weight' => 50,
+    ])->save();
+  }
+}
