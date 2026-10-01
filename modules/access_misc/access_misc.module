@@ -328,9 +328,45 @@ function access_misc_views_post_render(ViewExecutable $view) {
 }
 
 /**
+ * View, display, marker and filter identifiers for the PA Science queue.
+ */
+const ACCESS_MISC_PS_VIEW = 'project_submissions';
+const ACCESS_MISC_PS_DISPLAY = 'page_pa_science_submissions';
+const ACCESS_MISC_PS_MARKER = 'ps';
+const ACCESS_MISC_PS_FILTER = 'webform_submission_value_1';
+
+/**
+ * Normalizes exposed input for the PA Science project submissions queue.
+ *
+ * An empty multi-select sends no query parameter, so applying the exposed form
+ * with nothing selected looks identical to a first page load and the filter
+ * default (Declined) is re-applied. The form adds a marker to every
+ * submission; when the marker is present without the status filter, the
+ * filter is set to an empty selection so the default does not apply.
+ *
+ * @param array<string, mixed> $input
+ *   The exposed input.
+ *
+ * @return array<string, mixed>
+ *   The normalized exposed input.
+ */
+function _access_misc_project_submissions_normalize_input(array $input): array {
+  if (!empty($input[ACCESS_MISC_PS_MARKER]) && !isset($input[ACCESS_MISC_PS_FILTER])) {
+    $input[ACCESS_MISC_PS_FILTER] = [];
+  }
+  return $input;
+}
+
+/**
  * Implements hook_views_pre_view() for node templates.
  */
 function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
+  // PA Science submissions queue: an "Apply" with nothing selected in the
+  // status filter must not fall back to the filter's default value.
+  if ($view->id() == ACCESS_MISC_PS_VIEW && $display_id == ACCESS_MISC_PS_DISPLAY) {
+    $view->setExposedInput(_access_misc_project_submissions_normalize_input($view->getExposedInput()));
+  }
+
   $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
 
   $view_element = $view->element;
@@ -682,6 +718,19 @@ function access_misc_datalayer_alter(&$data_layer) {
  * Implements hook_form_alter().
  */
 function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  // PA Science submissions queue: mark every Apply so an empty status
+  // selection is distinguishable from a first load.
+  if ($form_id == 'views_exposed_form') {
+    $view = $form_state->get('view');
+    $display = $form_state->get('display');
+    if ($view instanceof ViewExecutable && $view->id() == ACCESS_MISC_PS_VIEW && ($display['id'] ?? '') == ACCESS_MISC_PS_DISPLAY) {
+      $form[ACCESS_MISC_PS_MARKER] = [
+        '#type' => 'hidden',
+        '#value' => 1,
+      ];
+    }
+  }
+
   // Project tweak: /form/project
   if ($form_id == 'webform_submission_project_add_form') {
     $program = \Drupal::service('access_misc.sitetools')->getProgram();
