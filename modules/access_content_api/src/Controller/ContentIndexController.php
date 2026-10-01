@@ -103,12 +103,44 @@ final class ContentIndexController extends ControllerBase {
       'version' => 1,
       'generated_at' => date('c'),
       'pages' => $pages,
+      'collections' => $this->buildCollections($cacheMetadata),
     ];
 
     $response = new CacheableJsonResponse($data);
     $response->addCacheableDependency($cacheMetadata);
 
     return $response;
+  }
+
+  /**
+   * Builds the non-page collections advertised in the index.
+   *
+   * The Knowledge Base resources collection is only listed when access_cilink
+   * is enabled; access_content_api does not depend on it.
+   *
+   * @param \Drupal\Core\Cache\CacheableMetadata $cacheMetadata
+   *   Cacheability to extend with the collections' cache tags.
+   *
+   * @return array<int, array<string, string|null>>
+   *   The collection entries.
+   */
+  protected function buildCollections(CacheableMetadata $cacheMetadata): array {
+    $collections = [];
+    if ($this->moduleHandler()->moduleExists('access_cilink')) {
+      /** @var \Drupal\access_cilink\KbResourceRepository $repository */
+      // Optional integration, so not a constructor dependency.
+      // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+      $repository = \Drupal::service('access_cilink.kb_resource_repository'); // @phpstan-ignore-line
+      $collections[] = [
+        'name' => 'kb_resources',
+        'description' => 'Knowledge Base resources (CI links): curated external links with category, tags and skill level.',
+        'url' => $this->eligibility->supportDomainUrl('/api/1.0/kb-resources'),
+        'spec_url' => $this->eligibility->supportDomainUrl('/openapi/access_kb_resources'),
+        'last_modified' => $repository->getLastModified('access-support'),
+      ];
+      $cacheMetadata->addCacheTags(['webform_submission_list:resource']);
+    }
+    return $collections;
   }
 
 }
