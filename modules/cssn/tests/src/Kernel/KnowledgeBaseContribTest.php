@@ -101,4 +101,21 @@ class KnowledgeBaseContribTest extends KbResourceKernelTestBase {
     $this->assertStringContainsString('Private Resource (private)</a>', $html);
   }
 
+  /**
+   * Titles are escaped, since the list is output as raw markup.
+   */
+  public function testTitlesAreEscaped(): void {
+    $owner = $this->createUser();
+    $submission = $this->createResource([
+      'title' => '<script>alert(1)</script>Evil',
+    ], (int) $owner->id());
+    $submission->set('uri', '/form/resource')->save();
+
+    foreach ([TRUE, FALSE] as $public) {
+      $html = (string) $this->controller()->knowledgeBaseContrib($owner, $public);
+      $this->assertStringNotContainsString('<script>', $html);
+      $this->assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;Evil</a>', $html);
+    }
+  }
+
 }

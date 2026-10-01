@@ -278,7 +278,8 @@ class CommunityPersonaController extends ControllerBase {
         $stripe_class = $n % 2 == 0 ? 'bg-light bg-light-teal' : '';
         $url = '/knowledge-base/resources/' . $ws->id();
         $ws_data = $ws->getData();
-        $label = $ws_data['title'];
+        // The list is output as raw markup, so escape the user-entered title.
+        $label = Html::escape((string) ($ws_data['title'] ?? ''));
         if ($public === FALSE && $repository !== NULL) {
           // The owner sees everything, with the reason a resource is hidden.
           if ((int) ($ws_data['approved'] ?? 0) !== 1) {
