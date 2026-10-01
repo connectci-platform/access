@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\ccmnet\Kernel;
 
+use Drupal\Core\Entity\EntityFormInterface;
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Form\FormInterface;
 use Drupal\Core\Form\FormState;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
@@ -18,12 +21,16 @@ use Drupal\user\Entity\User;
  * Before the fix, ccmnet_form_alter() forced field_domain_source's widget
  * default to '_none' on BOTH the add and edit forms for
  * mentorship_engagement nodes, and only ccmnet_set_domain_submit() restored
- * the real value — but only when PANTHEON_ENVIRONMENT == 'live'. On
+ * the real value, and only when PANTHEON_ENVIRONMENT == 'live'. On
  * dev/test/multidev that restore never ran, so every non-production edit
- * silently wiped field_domain_source. The fix defaults the add form to
- * ccmnet_org (the add form is only reachable on the ccmnet domain), leaves
- * the edit form's stored-value default alone, and removes the env-gated
- * restore entirely, since it is no longer needed.
+ * silently wiped field_domain_source. A later attempt defaulted the add form
+ * to ccmnet_org, but that broke real saves for non-admins:
+ * domain_source_form_validate() requires the source to be in
+ * field_domain_access at validate time, and domain_access only merges the
+ * hidden current domain in during submit. So the form alter sets no widget
+ * default on either form, and ccmnet_set_domain_submit() defaults an empty
+ * field_domain_source to ccmnet_org for NEW nodes only, with no env gate.
+ * Existing nodes and explicitly chosen sources are left alone.
  */
 class CcmnetFormAlterTest extends KernelTestBase {
 
@@ -133,16 +140,15 @@ class CcmnetFormAlterTest extends KernelTestBase {
   }
 
   /**
-   * The ADD form defaults field_domain_source to ccmnet_org.
+   * The ADD form no longer sets a default on the domain source widget.
    *
-   * With the submit-time restore removed, this default is the only thing
-   * that gives new mentorships their ccmnet_org domain source.
+   * The ccmnet_org default is applied at submit time instead (see below).
    */
-  public function testAddFormDefaultsDomainSourceToCcmnet(): void {
+  public function testAddFormLeavesDomainSourceDefaultUnset(): void {
     $form = $this->baseForm();
     ccmnet_form_alter($form, new FormState(), 'node_mentorship_engagement_form');
 
-    $this->assertSame('ccmnet_org', $form['field_domain_source']['widget']['#default_value']);
+    $this->assertArrayNotHasKey('#default_value', $form['field_domain_source']['widget']);
   }
 
   /**
@@ -160,26 +166,91 @@ class CcmnetFormAlterTest extends KernelTestBase {
   }
 
   /**
-   * Ccmnet_set_domain_submit() no longer touches field_domain_source at all.
+   * Runs ccmnet_set_domain_submit() and returns the resulting source value.
    *
-   * Previously this restored field_domain_source to ccmnet_org, but only
-   * when PANTHEON_ENVIRONMENT == 'live' — the env-gated restore that made
-   * the add/edit default-value bug above invisible in production while
-   * silently wiping the field everywhere else. The restore (and the gate)
-   * is now removed entirely, since the edit form no longer needs undoing.
+   * @param bool $isNew
+   *   Whether the mocked form entity is new.
+   * @param mixed $value
+   *   The submitted field_domain_source value.
+   *
+   * @return mixed
+   *   The field_domain_source value after the handler ran.
    */
-  public function testSetDomainSubmitNoLongerTouchesDomainSource(): void {
+  private function runSubmit(bool $isNew, mixed $value): mixed {
+    $entity = $this->createMock(EntityInterface::class);
+    $entity->method('isNew')->willReturn($isNew);
+    $formObject = $this->createMock(EntityFormInterface::class);
+    $formObject->method('getEntity')->willReturn($entity);
+
     $formState = new FormState();
-    $formState->setValue('field_domain_source', [['target_id' => 'original_value']]);
+    $formState->setFormObject($formObject);
+    $formState->setValue('field_domain_source', $value);
     $formState->setValue('field_mentorship_program', NULL);
     $formState->setValue('field_domain_access', []);
 
     ccmnet_set_domain_submit([], $formState);
 
-    $this->assertSame(
-      [['target_id' => 'original_value']],
-      $formState->getValue('field_domain_source'),
-    );
+    return $formState->getValue('field_domain_source');
+  }
+
+  /**
+   * Empty submitted values for field_domain_source.
+   */
+  public static function emptyValueProvider(): array {
+    return [
+      'no value' => [[]],
+      'empty target_id' => [[['target_id' => '']]],
+      'null target_id' => [[['target_id' => NULL]]],
+    ];
+  }
+
+  /**
+   * A NEW node with an empty domain source gets ccmnet_org on submit.
+   *
+   * @dataProvider emptyValueProvider
+   */
+  public function testSetDomainSubmitDefaultsNewEntityToCcmnet(array $value): void {
+    $this->assertSame([['target_id' => 'ccmnet_org']], $this->runSubmit(TRUE, $value));
+  }
+
+  /**
+   * A NEW node with an explicitly chosen domain source is left alone.
+   */
+  public function testSetDomainSubmitKeepsExplicitValueOnNewEntity(): void {
+    $value = [['target_id' => 'other_org']];
+    $this->assertSame($value, $this->runSubmit(TRUE, $value));
+  }
+
+  /**
+   * An EXISTING node with an empty domain source is not defaulted.
+   *
+   * @dataProvider emptyValueProvider
+   */
+  public function testSetDomainSubmitLeavesEmptyValueOnExistingEntity(array $value): void {
+    $this->assertSame($value, $this->runSubmit(FALSE, $value));
+  }
+
+  /**
+   * An EXISTING node keeps its stored domain source.
+   */
+  public function testSetDomainSubmitKeepsStoredValueOnExistingEntity(): void {
+    $value = [['target_id' => 'original_value']];
+    $this->assertSame($value, $this->runSubmit(FALSE, $value));
+  }
+
+  /**
+   * With a non-entity form object the handler leaves the field alone.
+   */
+  public function testSetDomainSubmitWithNonEntityFormDoesNothing(): void {
+    $formState = new FormState();
+    $formState->setFormObject($this->createMock(FormInterface::class));
+    $formState->setValue('field_domain_source', []);
+    $formState->setValue('field_mentorship_program', NULL);
+    $formState->setValue('field_domain_access', []);
+
+    ccmnet_set_domain_submit([], $formState);
+
+    $this->assertSame([], $formState->getValue('field_domain_source'));
   }
 
 }
