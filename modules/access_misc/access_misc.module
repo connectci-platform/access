@@ -1377,7 +1377,8 @@ function access_misc_cron() {
 
         try {
           // Set the active domain from the stored domain_id so
-          // hook_mailer_init() routes through the correct transport.
+          // hook_mailer_build() (access_misc_mailer_build() above) routes
+          // through the correct transport.
           if (!empty($digest_event['domain_id'])) {
             $domain = \Drupal::entityTypeManager()
               ->getStorage('domain')
