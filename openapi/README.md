@@ -7,11 +7,13 @@ This directory contains the OpenAPI 3.0.3 specifications for the ACCESS APIs.
 - `announcements-api-2.2-openapi.yaml` - Announcements API v2.2 specification (YAML format)
 - `announcements-api-2.2-openapi.json` - Announcements API v2.2 specification (JSON format)
 - `announcements-api-2.3-openapi.yaml` - Announcements API v2.3 specification (YAML format) — acting-user authoring endpoints
+- `content-api-1.0-openapi.yaml` - Content API v1.0 specification (YAML format) — support page content and discovery index
 - `events-api-2.2-openapi.yaml` - Events API v2.2 specification (YAML format)
 - `events-api-2.2-openapi.json` - Events API v2.2 specification (JSON format)
 - `events-api-2.3-openapi.yaml` - Events READ API v2.3 specification (YAML format) — public listing plus the event detail endpoint (detail's registration block is partitioned by caller: anonymous vs authenticated acting-user)
 - `events-api-2.4-openapi.yaml` - Events READ API v2.4 specification (YAML format) — start_date/end_date are true UTC instants; earlier versions stamped a `Z` on a site-local clock
 - `event-registration-api-1.0-openapi.yaml` - Event Registration API v1.0 specification (YAML format) — authenticated, acting-user registration endpoints
+- `kb-resources-api-1.0-openapi.yaml` - KB Resources API v1.0 specification (YAML format) — Knowledge Base resources (CI links) listing
 
 ## Usage
 
@@ -19,10 +21,12 @@ These specifications are automatically loaded by the OpenAPI generator plugins:
 
 - `AccessAnnouncementsGenerator` - Serves announcements spec at `/openapi/access_announcements`
 - `AccessAnnouncementsV23Generator` - Serves announcements v2.3 spec at `/openapi/access_announcements_v23`
+- `AccessContentGenerator` - Serves content spec at `/openapi/access_content`
 - `AccessEventsGenerator` - Serves events spec at `/openapi/access_events`
 - `AccessEventsV23Generator` - Serves events v2.3 spec at `/openapi/access_events_v23`
 - `AccessEventsV24Generator` - Serves events v2.4 spec at `/openapi/access_events_v24`
 - `AccessEventRegistrationGenerator` - Serves event registration v1.0 spec at `/openapi/access_event_registration`
+- `AccessKbResourcesGenerator` - Serves KB resources spec at `/openapi/access_kb_resources`
 
 ## Endpoints
 
@@ -32,6 +36,10 @@ These specifications are automatically loaded by the OpenAPI generator plugins:
   - `PATCH /api/2.3/announcements/{uuid}` - update an announcement
   - `DELETE /api/2.3/announcements/{uuid}` - delete an announcement
   - `GET /api/2.3/announcements/mine` - list the acting user's own announcements
+- **Content API (v1.0, public)**: `/api/1.0`
+  - `GET /api/1.0/content/{id}` - fetch a single support page by node ID
+  - `GET /api/1.0/content?path=...` - fetch a single support page by URL alias
+  - `GET /.well-known/content-index.json` - content discovery index with collections list
 - **Events API**: `/api/2.2/events`
 - **Events READ API (v2.3, public)**: `/api/2.3/events`
   - `GET /api/2.3/events` - public events listing
@@ -40,22 +48,28 @@ These specifications are automatically loaded by the OpenAPI generator plugins:
   - `POST /api/1.0/events/{eventinstance}/register` - register (preview or commit)
   - `GET /api/1.0/registrations` - list the acting user's own registrations
   - `DELETE /api/1.0/registrations/{registrant_id}` - cancel a registration
+- **KB Resources API (v1.0, public)**: `/api/1.0`
+  - `GET /api/1.0/kb-resources` - list all approved Knowledge Base resources (CI links) for the requesting domain
 
 ## OpenAPI Documentation
 
 - **JSON endpoints**: 
   - `/openapi/access_announcements`
   - `/openapi/access_announcements_v23`
+  - `/openapi/access_content`
   - `/openapi/access_events`
   - `/openapi/access_events_v23`
   - `/openapi/access_event_registration`
+  - `/openapi/access_kb_resources`
 
 - **Swagger UI**:
   - `/admin/config/services/openapi/swagger/access_announcements`
   - `/admin/config/services/openapi/swagger/access_announcements_v23`
+  - `/admin/config/services/openapi/swagger/access_content`
   - `/admin/config/services/openapi/swagger/access_events`
   - `/admin/config/services/openapi/swagger/access_events_v23`
   - `/admin/config/services/openapi/swagger/access_event_registration`
+  - `/admin/config/services/openapi/swagger/access_kb_resources`
 
 ## Maintenance
 

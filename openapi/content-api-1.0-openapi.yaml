@@ -241,6 +241,40 @@ components:
           type: string
           description: Drupal bundle/content type (e.g. `page`).
 
+    CollectionEntry:
+      type: object
+      description: |
+        A collection of resources (e.g. Knowledge Base resources) with title,
+        description, endpoint URL, and specification URL.
+      properties:
+        name:
+          type: string
+          description: Machine-readable collection name (e.g. `kb_resources`).
+          example: kb_resources
+        description:
+          type: string
+          description: Human-readable collection description.
+          example: "Knowledge Base resources (CI links): curated external links with category, tags and skill level."
+        url:
+          type: string
+          format: uri
+          description: Absolute URL of the collection endpoint.
+          example: "https://support.access-ci.org/api/1.0/kb-resources"
+        spec_url:
+          type: string
+          format: uri
+          description: Absolute URL of the collection's OpenAPI specification page.
+          example: "https://support.access-ci.org/openapi/access_kb_resources"
+        last_modified:
+          type: string
+          format: date-time
+          description: |
+            ISO 8601 timestamp of the newest resource in the collection (or null if
+            the collection is empty). Only tracks resource saves; metadata changes
+            (vote counts, term name changes) do not bump this timestamp.
+          nullable: true
+          example: "2026-09-01T12:00:00-05:00"
+
     ContentIndex:
       type: object
       properties:
@@ -257,6 +291,14 @@ components:
           description: All eligible published support pages, sorted by path alias.
           items:
             $ref: '#/components/schemas/ContentIndexEntry'
+        collections:
+          type: array
+          description: |
+            Collections of resources (e.g. Knowledge Base resources) with metadata
+            and endpoint URLs for discovery and ingestion. Optional; may be empty if
+            no collections are available.
+          items:
+            $ref: '#/components/schemas/CollectionEntry'
 
     ErrorResponse:
       type: object
