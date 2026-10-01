@@ -129,6 +129,8 @@ class ProjectLookup {
    * Function to sort by status.
    */
   public function sortStatusProjects(): void {
+    // Declined is intentionally excluded here so declined projects drop off
+    // community persona pages by omission; do not add it back.
     $projects = $this->projects;
     $recruiting = $this->arrayPickSort($projects, 'Recruiting');
     $in_progress = $this->arrayPickSort($projects, 'In Progress');
