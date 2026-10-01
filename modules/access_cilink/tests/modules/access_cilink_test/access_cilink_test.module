@@ -1,0 +1,32 @@
+<?php
+
+/**
+ * @file
+ * Test support for access_cilink kernel tests.
+ */
+
+use Drupal\Core\Access\AccessResult;
+use Drupal\Core\Session\AccountInterface;
+use Drupal\node\NodeInterface;
+
+/**
+ * Implements hook_node_access().
+ *
+ * Mimics the private affinity group rule of access_affinitygroup: deny "view"
+ * on an affinity_group node with field_ag_private = 1 unless the user is
+ * listed in field_ag_private_users.
+ */
+function access_cilink_test_node_access(NodeInterface $node, $op, AccountInterface $account) {
+  if ($op !== 'view' || $node->bundle() !== 'affinity_group') {
+    return AccessResult::neutral();
+  }
+  $private = (int) $node->get('field_ag_private')->value === 1;
+  if (!$private) {
+    return AccessResult::neutral()->addCacheableDependency($node);
+  }
+  $members = array_column($node->get('field_ag_private_users')->getValue(), 'target_id');
+  $is_member = $account->isAuthenticated() && in_array($account->id(), $members);
+  return $is_member
+    ? AccessResult::neutral()->addCacheableDependency($node)->cachePerUser()
+    : AccessResult::forbidden()->addCacheableDependency($node)->cachePerUser();
+}
