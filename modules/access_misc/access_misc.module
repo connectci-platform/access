@@ -1309,12 +1309,16 @@ function get_domain_email() {
  *
  * The contrib content_moderation_notifications module has no domain
  * awareness: it emails every active holder of any role listed on a
- * notification. Some roles (match_pm, ondemand_pm) should only be notified
- * about content on their own domain, but role holders don't carry
- * a matching field_domain_access value on their user accounts, so the
- * scoping can't be based on the user. Instead, delegate to
- * NotificationDomainScoper, which filters the recipient list using an
- * explicit role => domain map (D8-2809).
+ * notification. For selected notifications (currently review_requested) each
+ * domain has its own roles that should only be notified about content on that
+ * domain, but role holders don't carry a matching field_domain_access value
+ * on their user accounts, so the scoping can't be based on the user. Instead,
+ * delegate to NotificationDomainScoper, which filters the recipient list using
+ * an explicit per-notification domain => roles map (D8-2809). The map is keyed
+ * per notification on purpose: role-global scoping would rescope match_pm on
+ * other notifications (engagement_draft, engagement_review_requested). Content
+ * with no domain or an unmapped domain goes to the fallback role
+ * (site_developer), and a non-empty recipient list is never emptied.
  */
 function access_misc_content_moderation_notification_mail_data_alter(EntityInterface $entity, array &$data): void {
   if (empty($data['notification']) || !$data['notification'] instanceof ContentModerationNotificationInterface || empty($data['to'])) {

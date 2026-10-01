@@ -14,25 +14,47 @@ use Drupal\user\RoleInterface;
  *
  * The contrib content_moderation_notifications module emails every active
  * holder of any role listed on a notification, with no awareness of the
- * Domain Access module. Some roles (match_pm, ondemand_pm) are scoped to a
- * single ACCESS sub-site by job function, but role holders do NOT carry a
+ * Domain Access module. Some roles (match_pm, ondemand_pm, ...) are scoped to
+ * a single sub-site by job function, but role holders do NOT carry a
  * matching field_domain_access value on their user accounts, so recipients
  * can't be filtered by comparing the user's own domain assignment. Instead
- * we maintain an explicit role => allowed domain ids map and filter the
- * "to" list built by \Drupal\content_moderation_notifications\Notification
- * so that scoped roles only receive notifications for content assigned to
- * their domain (D8-2809).
+ * we maintain an explicit domain => roles map and filter the "to" list built
+ * by \Drupal\content_moderation_notifications\Notification so that each
+ * domain's roles only receive the notification for content assigned to that
+ * domain (D8-2809).
+ *
+ * The map is keyed per notification on purpose. A role-global map would
+ * rescope roles such as match_pm on every notification that lists them
+ * (e.g. engagement_draft, engagement_review_requested), which is not wanted.
+ *
+ * Content on a domain that is not in the map (or with no domain at all) is
+ * routed to the notification's fallback roles, so a renamed or new domain
+ * does not orphan its notifications. Unmapped domains are deliberately not
+ * enumerated. As a last guard, scoping never empties a non-empty recipient
+ * list.
  */
 class NotificationDomainScoper {
 
   /**
-   * Map of role id to the domain ids that role should receive mail for.
+   * Per-notification domain scoping, keyed by notification id.
    *
-   * Roles not present in this map are unaffected by domain scoping.
+   * 'domains' maps a domain id to the role ids that should receive the
+   * notification for content on that domain. 'fallback' lists the role ids
+   * that receive it for content with no domain, or on any domain missing
+   * from 'domains'. Notifications not listed here are never scoped.
    */
-  public const ROLE_DOMAIN_SCOPE = [
-    'match_pm' => ['amp_cyberinfrastructure_org'],
-    'ondemand_pm' => ['openondemand_cyberinfrastructure_org'],
+  public const NOTIFICATION_SCOPE = [
+    'review_requested' => [
+      'domains' => [
+        'amp_cyberinfrastructure_org' => ['match_pm'],
+        'openondemand_cyberinfrastructure_org' => ['ondemand_pm'],
+        'campuschampions_cyberinfrastructure_org' => ['campuschampionsadmin'],
+        'ccmnet_org' => ['ccmnet_pm'],
+        'coco_cyberinfrastructure_org' => ['coco_pm'],
+        'pasciencedmz_connectci_org' => ['pascience_manager'],
+      ],
+      'fallback' => ['site_developer'],
+    ],
   ];
 
   public function __construct(
@@ -77,13 +99,18 @@ class NotificationDomainScoper {
   }
 
   /**
-   * Filters a notification's recipient list by role-to-domain scoping.
+   * Filters a notification's recipient list by domain scoping.
    *
-   * Removes recipients who only qualify via a role that is scoped to a
-   * domain the entity is not assigned to (see ROLE_DOMAIN_SCOPE), while
-   * preserving recipients who also qualify another way (as the entity
-   * owner, via an unscoped or in-scope role, or via a literal ad hoc
-   * address on the notification).
+   * Only notifications listed in NOTIFICATION_SCOPE are touched. Removes
+   * recipients who only qualify via a managed role (a mapped or fallback
+   * role) that is out of scope for the entity's domains, while preserving
+   * recipients who also qualify another way (as the entity owner, via an
+   * unmanaged or in-scope role, or via a literal ad hoc address on the
+   * notification). Content with no domain, or on any domain missing from the
+   * map, also brings the fallback roles into scope. If filtering would leave
+   * nobody, the fallback role holders from the original list are returned
+   * instead, and failing that the original list; a non-empty list is never
+   * emptied.
    *
    * @param \Drupal\Core\Entity\EntityInterface $entity
    *   The entity the notification is about.
@@ -96,51 +123,60 @@ class NotificationDomainScoper {
    *   The filtered, re-indexed recipient list.
    */
   public function scopeRecipients(EntityInterface $entity, ContentModerationNotificationInterface $notification, array $to): array {
-    $scoped_roles = array_intersect($notification->getRoleIds(), array_keys(self::ROLE_DOMAIN_SCOPE));
-    if (!$scoped_roles) {
+    $scope = self::NOTIFICATION_SCOPE[$notification->id()] ?? NULL;
+    if (!$scope) {
       return $to;
     }
 
+    $notification_roles = $notification->getRoleIds();
+
     // Contrib treats the authenticated role as "every active user," so any
-    // holder of a scoped role already qualifies for the mail independently
+    // holder of a managed role already qualifies for the mail independently
     // of that role; there is nothing to scope.
-    if (in_array(RoleInterface::AUTHENTICATED_ID, $notification->getRoleIds(), TRUE)) {
+    if (in_array(RoleInterface::AUTHENTICATED_ID, $notification_roles, TRUE)) {
+      return $to;
+    }
+
+    $mapped_roles = array_merge(...array_values($scope['domains']));
+    $managed_roles = array_intersect(array_unique(array_merge($mapped_roles, $scope['fallback'])), $notification_roles);
+    if (!$managed_roles) {
       return $to;
     }
 
     $content_domains = $this->getEntityDomainIds($entity);
 
-    $out_of_scope_roles = [];
-    foreach ($scoped_roles as $role) {
-      if (!array_intersect(self::ROLE_DOMAIN_SCOPE[$role], $content_domains)) {
-        $out_of_scope_roles[] = $role;
+    $in_scope_roles = [];
+    $use_fallback = !$content_domains;
+    foreach ($content_domains as $domain_id) {
+      if (isset($scope['domains'][$domain_id])) {
+        $in_scope_roles = array_merge($in_scope_roles, $scope['domains'][$domain_id]);
+      }
+      else {
+        $use_fallback = TRUE;
       }
     }
+    if ($use_fallback) {
+      $in_scope_roles = array_merge($in_scope_roles, $scope['fallback']);
+    }
 
+    $out_of_scope_roles = array_values(array_diff($managed_roles, $in_scope_roles));
     if (!$out_of_scope_roles) {
       return $to;
     }
 
-    $keep = $this->buildKeepSet($entity, $notification, $out_of_scope_roles);
+    $role_emails = [];
+    $keep = $this->buildKeepSet($entity, $notification, $out_of_scope_roles, $role_emails);
 
-    $user_storage = $this->entityTypeManager->getStorage('user');
     $exclude = [];
     foreach ($out_of_scope_roles as $role) {
-      /** @var \Drupal\user\UserInterface[] $role_users */
-      $role_users = $user_storage->loadByProperties(['roles' => $role]);
-      foreach ($role_users as $role_user) {
-        $email = $role_user->getEmail();
-        if ($email) {
-          $exclude[mb_strtolower($email)] = TRUE;
-        }
-      }
+      $exclude += $this->getRoleEmails($role, $role_emails);
     }
 
     if (!$exclude) {
       return $to;
     }
 
-    $filtered = array_filter($to, function ($email) use ($exclude, $keep) {
+    $filtered = array_values(array_filter($to, function ($email) use ($exclude, $keep) {
       if (!is_string($email) || $email === '') {
         return TRUE;
       }
@@ -149,9 +185,48 @@ class NotificationDomainScoper {
         return TRUE;
       }
       return isset($keep[$lower]);
-    });
+    }));
 
-    return array_values($filtered);
+    if ($filtered) {
+      return $filtered;
+    }
+
+    // Never leave a notification with no recipients: fall back to the
+    // fallback role holders who were already on the list, then to the
+    // original list.
+    $fallback_emails = [];
+    foreach ($scope['fallback'] as $role) {
+      $fallback_emails += $this->getRoleEmails($role, $role_emails);
+    }
+    $fallback_to = array_values(array_filter($to, static fn ($email) => is_string($email) && isset($fallback_emails[mb_strtolower($email)])));
+
+    return $fallback_to ?: $to;
+  }
+
+  /**
+   * Gets the emails of a role's holders, loading each role at most once.
+   *
+   * @param string $role
+   *   The role id.
+   * @param array<string, array<string, bool>> $cache
+   *   Per-call cache of role id => set of lowercased emails.
+   *
+   * @return array<string, bool>
+   *   A set (lowercased email => TRUE) of the role holders' addresses.
+   */
+  protected function getRoleEmails(string $role, array &$cache): array {
+    if (!isset($cache[$role])) {
+      $cache[$role] = [];
+      /** @var \Drupal\user\UserInterface[] $role_users */
+      $role_users = $this->entityTypeManager->getStorage('user')->loadByProperties(['roles' => $role]);
+      foreach ($role_users as $role_user) {
+        $email = $role_user->getEmail();
+        if ($email) {
+          $cache[$role][mb_strtolower($email)] = TRUE;
+        }
+      }
+    }
+    return $cache[$role];
   }
 
   /**
@@ -163,11 +238,13 @@ class NotificationDomainScoper {
    *   The notification being sent.
    * @param string[] $out_of_scope_roles
    *   The role ids that are out of scope for this content.
+   * @param array<string, array<string, bool>> $role_emails
+   *   Per-call cache of role id => emails, see getRoleEmails().
    *
    * @return array<string, bool>
    *   A set (lowercased email => TRUE) of protected addresses.
    */
-  protected function buildKeepSet(EntityInterface $entity, ContentModerationNotificationInterface $notification, array $out_of_scope_roles): array {
+  protected function buildKeepSet(EntityInterface $entity, ContentModerationNotificationInterface $notification, array $out_of_scope_roles, array &$role_emails): array {
     $keep = [];
 
     if ($notification->sendToAuthor() && $entity instanceof EntityOwnerInterface) {
@@ -177,19 +254,8 @@ class NotificationDomainScoper {
       }
     }
 
-    $in_scope_roles = array_diff($notification->getRoleIds(), $out_of_scope_roles);
-    if ($in_scope_roles) {
-      $user_storage = $this->entityTypeManager->getStorage('user');
-      foreach ($in_scope_roles as $role) {
-        /** @var \Drupal\user\UserInterface[] $role_users */
-        $role_users = $user_storage->loadByProperties(['roles' => $role]);
-        foreach ($role_users as $role_user) {
-          $email = $role_user->getEmail();
-          if ($email) {
-            $keep[mb_strtolower($email)] = TRUE;
-          }
-        }
-      }
+    foreach (array_diff($notification->getRoleIds(), $out_of_scope_roles) as $role) {
+      $keep += $this->getRoleEmails($role, $role_emails);
     }
 
     // Ad hoc addresses are a Twig template; only literal, already-resolved

@@ -21,10 +21,11 @@ use Drupal\user\RoleInterface;
  * Tests domain scoping of content_moderation_notifications recipients.
  *
  * D8-2809: content_moderation_notifications emails every active holder of a
- * notification's roles, with no awareness of Domain Access. match_pm and
- * ondemand_pm are scoped roles: their holders should only be notified about
- * content assigned to their own ACCESS sub-site (amp_cyberinfrastructure_org
- * and openondemand_cyberinfrastructure_org respectively).
+ * notification's roles, with no awareness of Domain Access. For the
+ * review_requested notification, each domain's role (match_pm, ondemand_pm,
+ * campuschampionsadmin, ...) should only be notified about content assigned to
+ * its own sub-site; content with no domain or an unmapped domain goes to
+ * site_developer. Other notifications are never scoped.
  * NotificationDomainScoper::scopeRecipients() implements the filtering, and
  * access_misc_content_moderation_notification_mail_data_alter() wires it into
  * contrib's hook_content_moderation_notification_mail_data_alter().
@@ -37,14 +38,29 @@ class ReviewRequestedDomainScopeTest extends KernelTestBase {
   use AssertMailTrait;
 
   /**
-   * The ACCESS domain id, matching ROLE_DOMAIN_SCOPE.
+   * Every managed role placed on the review_requested notification.
+   */
+  private const ALL_ROLES = ['match_pm', 'ondemand_pm', 'campuschampionsadmin', 'site_developer'];
+
+  /**
+   * The ACCESS domain id, matching NOTIFICATION_SCOPE.
    */
   private const DOMAIN_ACCESS = 'amp_cyberinfrastructure_org';
 
   /**
-   * The OnDemand domain id, matching ROLE_DOMAIN_SCOPE.
+   * The OnDemand domain id, matching NOTIFICATION_SCOPE.
    */
   private const DOMAIN_OOD = 'openondemand_cyberinfrastructure_org';
+
+  /**
+   * The Campus Champions domain id, matching NOTIFICATION_SCOPE.
+   */
+  private const DOMAIN_CC = 'campuschampions_cyberinfrastructure_org';
+
+  /**
+   * A domain that is deliberately absent from NOTIFICATION_SCOPE.
+   */
+  private const DOMAIN_UNMAPPED = 'kycyberteam_cyberinfrastructure_org';
 
   /**
    * {@inheritdoc}
@@ -98,6 +114,16 @@ class ReviewRequestedDomainScopeTest extends KernelTestBase {
   protected User $ownerMatchPmUser;
 
   /**
+   * A user holding only campuschampionsadmin.
+   */
+  protected User $campusChampionsUser;
+
+  /**
+   * A user holding only site_developer.
+   */
+  protected User $siteDeveloperUser;
+
+  /**
    * {@inheritdoc}
    */
   protected function setUp(): void {
@@ -106,6 +132,7 @@ class ReviewRequestedDomainScopeTest extends KernelTestBase {
     $this->installEntitySchema('user');
     $this->installEntitySchema('node');
     $this->installSchema('node', ['node_access']);
+    $this->installSchema('user', ['users_data']);
     $this->installConfig(['filter']);
     $this->installConfig(['user']);
     $this->installConfig(['domain']);
@@ -149,7 +176,22 @@ class ReviewRequestedDomainScopeTest extends KernelTestBase {
       'status' => 1,
     ])->save();
 
-    foreach (['match_pm', 'ondemand_pm', 'appverse_pm'] as $roleId) {
+    Domain::create([
+      'id' => self::DOMAIN_CC,
+      'hostname' => 'cc.example.com',
+      'name' => 'Campus Champions',
+      'scheme' => 'https',
+      'status' => 1,
+    ])->save();
+    Domain::create([
+      'id' => self::DOMAIN_UNMAPPED,
+      'hostname' => 'ky.example.com',
+      'name' => 'KY Cyberteam',
+      'scheme' => 'https',
+      'status' => 1,
+    ])->save();
+
+    foreach (['match_pm', 'ondemand_pm', 'appverse_pm', 'campuschampionsadmin', 'site_developer'] as $roleId) {
       Role::create(['id' => $roleId, 'label' => $roleId])->save();
     }
 
@@ -158,41 +200,118 @@ class ReviewRequestedDomainScopeTest extends KernelTestBase {
     $this->bothRolesUser = $this->createTestUser(['match_pm', 'ondemand_pm'], 'both-roles@example.com');
     $this->appversePmUser = $this->createTestUser(['appverse_pm'], 'appverse-pm@example.com');
     $this->ownerMatchPmUser = $this->createTestUser(['match_pm'], 'owner-match-pm@example.com');
+    $this->campusChampionsUser = $this->createTestUser(['campuschampionsadmin'], 'cc-admin@example.com');
+    $this->siteDeveloperUser = $this->createTestUser(['site_developer'], 'site-dev@example.com');
   }
 
   /**
-   * OOD-domain content: ondemand_pm is included, match_pm is excluded.
+   * OOD-domain content: only ondemand_pm holders remain.
    */
-  public function testOodDomainContentIncludesOndemandPmExcludesMatchPm(): void {
+  public function testOodDomainContentIncludesOndemandPmExcludesOthers(): void {
     $node = $this->createTestNode([self::DOMAIN_OOD]);
-    $notification = $this->createTestNotification('review_requested', ['match_pm', 'ondemand_pm']);
-    $to = [$this->matchPmUser->getEmail(), $this->ondemandPmUser->getEmail()];
+    $notification = $this->createTestNotification('review_requested', self::ALL_ROLES);
 
-    $filtered = $this->scoper()->scopeRecipients($node, $notification, $to);
+    $filtered = $this->scoper()->scopeRecipients($node, $notification, $this->allEmails());
 
     $this->assertSame([$this->ondemandPmUser->getEmail()], $filtered);
   }
 
   /**
-   * ACCESS-domain content: match_pm is included, ondemand_pm is excluded.
+   * ACCESS-domain content: only match_pm holders remain.
    */
-  public function testAccessDomainContentIncludesMatchPmExcludesOndemandPm(): void {
+  public function testAccessDomainContentIncludesMatchPmExcludesOthers(): void {
     $node = $this->createTestNode([self::DOMAIN_ACCESS]);
-    $notification = $this->createTestNotification('review_requested', ['match_pm', 'ondemand_pm']);
-    $to = [$this->matchPmUser->getEmail(), $this->ondemandPmUser->getEmail()];
+    $notification = $this->createTestNotification('review_requested', self::ALL_ROLES);
 
-    $filtered = $this->scoper()->scopeRecipients($node, $notification, $to);
+    $filtered = $this->scoper()->scopeRecipients($node, $notification, $this->allEmails());
 
     $this->assertSame([$this->matchPmUser->getEmail()], $filtered);
   }
 
   /**
-   * Content assigned to both domains keeps both scoped roles' recipients.
+   * Campus Champions content: only campuschampionsadmin holders remain.
+   */
+  public function testCampusChampionsContentIncludesOnlyCampusChampionsAdmin(): void {
+    $node = $this->createTestNode([self::DOMAIN_CC]);
+    $notification = $this->createTestNotification('review_requested', self::ALL_ROLES);
+
+    $filtered = $this->scoper()->scopeRecipients($node, $notification, $this->allEmails());
+
+    $this->assertSame([$this->campusChampionsUser->getEmail()], $filtered);
+  }
+
+  /**
+   * Content assigned to both domains keeps both domains' recipients.
    */
   public function testContentOnBothDomainsIncludesBothRoles(): void {
     $node = $this->createTestNode([self::DOMAIN_ACCESS, self::DOMAIN_OOD]);
-    $notification = $this->createTestNotification('review_requested', ['match_pm', 'ondemand_pm']);
-    $to = [$this->matchPmUser->getEmail(), $this->ondemandPmUser->getEmail()];
+    $notification = $this->createTestNotification('review_requested', self::ALL_ROLES);
+
+    $filtered = $this->scoper()->scopeRecipients($node, $notification, $this->allEmails());
+
+    $this->assertSame([$this->matchPmUser->getEmail(), $this->ondemandPmUser->getEmail()], $filtered);
+  }
+
+  /**
+   * Content with no domain goes to site_developer only.
+   */
+  public function testContentWithNoDomainGoesToSiteDeveloperOnly(): void {
+    $node = $this->createTestNode([]);
+    $notification = $this->createTestNotification('review_requested', self::ALL_ROLES);
+
+    $filtered = $this->scoper()->scopeRecipients($node, $notification, $this->allEmails());
+
+    $this->assertSame([$this->siteDeveloperUser->getEmail()], $filtered);
+  }
+
+  /**
+   * Content on an unmapped domain goes to site_developer only.
+   */
+  public function testUnmappedDomainContentGoesToSiteDeveloperOnly(): void {
+    $node = $this->createTestNode([self::DOMAIN_UNMAPPED]);
+    $notification = $this->createTestNotification('review_requested', self::ALL_ROLES);
+
+    $filtered = $this->scoper()->scopeRecipients($node, $notification, $this->allEmails());
+
+    $this->assertSame([$this->siteDeveloperUser->getEmail()], $filtered);
+  }
+
+  /**
+   * ACCESS plus an unmapped domain keeps match_pm and site_developer.
+   */
+  public function testAccessPlusUnmappedDomainKeepsMatchPmAndSiteDeveloper(): void {
+    $node = $this->createTestNode([self::DOMAIN_ACCESS, self::DOMAIN_UNMAPPED]);
+    $notification = $this->createTestNotification('review_requested', self::ALL_ROLES);
+
+    $filtered = $this->scoper()->scopeRecipients($node, $notification, $this->allEmails());
+
+    $this->assertSame([$this->matchPmUser->getEmail(), $this->siteDeveloperUser->getEmail()], $filtered);
+  }
+
+  /**
+   * An empty result falls back to site_developer holders on the list.
+   */
+  public function testGuardReturnsSiteDeveloperWhenDomainRoleHasNoHolders(): void {
+    $this->ondemandPmUser->delete();
+    $this->bothRolesUser->delete();
+    $node = $this->createTestNode([self::DOMAIN_OOD]);
+    $notification = $this->createTestNotification('review_requested', self::ALL_ROLES);
+    $to = [$this->matchPmUser->getEmail(), $this->siteDeveloperUser->getEmail()];
+
+    $filtered = $this->scoper()->scopeRecipients($node, $notification, $to);
+
+    $this->assertSame([$this->siteDeveloperUser->getEmail()], $filtered);
+  }
+
+  /**
+   * With no fallback holders either, the original list is returned.
+   */
+  public function testGuardReturnsOriginalListWhenFallbackAlsoEmpty(): void {
+    $this->ondemandPmUser->delete();
+    $this->bothRolesUser->delete();
+    $node = $this->createTestNode([self::DOMAIN_OOD]);
+    $notification = $this->createTestNotification('review_requested', self::ALL_ROLES);
+    $to = [$this->matchPmUser->getEmail()];
 
     $filtered = $this->scoper()->scopeRecipients($node, $notification, $to);
 
@@ -200,24 +319,24 @@ class ReviewRequestedDomainScopeTest extends KernelTestBase {
   }
 
   /**
-   * Content with no domain excludes both scoped roles.
+   * A notification not listed in NOTIFICATION_SCOPE is never scoped.
    */
-  public function testContentWithNoDomainExcludesBothScopedRoles(): void {
-    $node = $this->createTestNode([]);
-    $notification = $this->createTestNotification('review_requested', ['match_pm', 'ondemand_pm']);
-    $to = [$this->matchPmUser->getEmail(), $this->ondemandPmUser->getEmail()];
+  public function testNonScopedNotificationUnaffectedEvenWithMatchPm(): void {
+    $node = $this->createTestNode([self::DOMAIN_OOD]);
+    $notification = $this->createTestNotification('engagement_review_requested', ['match_pm']);
+    $to = [$this->matchPmUser->getEmail()];
 
     $filtered = $this->scoper()->scopeRecipients($node, $notification, $to);
 
-    $this->assertSame([], $filtered);
+    $this->assertSame($to, $filtered);
   }
 
   /**
-   * A notification whose roles are all unscoped is unaffected.
+   * A review_requested notification with no managed roles is unaffected.
    */
-  public function testUnscopedRoleNotificationUnaffectedByDomainScoping(): void {
+  public function testUnmanagedRoleNotificationUnaffectedByDomainScoping(): void {
     $node = $this->createTestNode([self::DOMAIN_OOD]);
-    $notification = $this->createTestNotification('appverse_notify', ['appverse_pm']);
+    $notification = $this->createTestNotification('review_requested', ['appverse_pm']);
     $to = [$this->appversePmUser->getEmail()];
 
     $filtered = $this->scoper()->scopeRecipients($node, $notification, $to);
@@ -229,12 +348,12 @@ class ReviewRequestedDomainScopeTest extends KernelTestBase {
    * A notification that also targets the authenticated role is not scoped.
    *
    * Contrib treats the authenticated role as "every active user," so any
-   * holder of a scoped role already qualifies for the mail independently of
-   * that role — scopeRecipients() short-circuits and returns $to unchanged.
+   * holder of a managed role already qualifies for the mail independently of
+   * that role, and scopeRecipients() returns $to unchanged.
    */
   public function testAuthenticatedRoleNotificationIsNotScoped(): void {
     $node = $this->createTestNode([self::DOMAIN_OOD]);
-    $notification = $this->createTestNotification('review_requested_auth', [RoleInterface::AUTHENTICATED_ID, 'match_pm']);
+    $notification = $this->createTestNotification('review_requested', [RoleInterface::AUTHENTICATED_ID, 'match_pm']);
     $to = [$this->matchPmUser->getEmail()];
 
     $filtered = $this->scoper()->scopeRecipients($node, $notification, $to);
@@ -243,11 +362,11 @@ class ReviewRequestedDomainScopeTest extends KernelTestBase {
   }
 
   /**
-   * A user holding BOTH scoped roles is kept when either role is in scope.
+   * A user holding BOTH roles is kept when either role is in scope.
    */
   public function testUserHoldingBothScopedRolesIsKept(): void {
     $node = $this->createTestNode([self::DOMAIN_OOD]);
-    $notification = $this->createTestNotification('review_requested', ['match_pm', 'ondemand_pm']);
+    $notification = $this->createTestNotification('review_requested', self::ALL_ROLES);
     $to = [$this->bothRolesUser->getEmail()];
 
     $filtered = $this->scoper()->scopeRecipients($node, $notification, $to);
@@ -260,12 +379,12 @@ class ReviewRequestedDomainScopeTest extends KernelTestBase {
    */
   public function testAuthorNotificationKeepsOwnerHoldingOutOfScopeRole(): void {
     $node = $this->createTestNode([self::DOMAIN_OOD], (int) $this->ownerMatchPmUser->id());
-    $notification = $this->createTestNotification('review_requested_author', ['match_pm'], TRUE);
-    $to = [$this->ownerMatchPmUser->getEmail()];
+    $notification = $this->createTestNotification('review_requested', ['match_pm', 'ondemand_pm'], TRUE);
+    $to = [$this->ownerMatchPmUser->getEmail(), $this->matchPmUser->getEmail(), $this->ondemandPmUser->getEmail()];
 
     $filtered = $this->scoper()->scopeRecipients($node, $notification, $to);
 
-    $this->assertSame([$this->ownerMatchPmUser->getEmail()], $filtered);
+    $this->assertSame([$this->ownerMatchPmUser->getEmail(), $this->ondemandPmUser->getEmail()], $filtered);
   }
 
   /**
@@ -273,8 +392,8 @@ class ReviewRequestedDomainScopeTest extends KernelTestBase {
    */
   public function testLiteralAdhocEmailMatchingOutOfScopeUserIsKept(): void {
     $node = $this->createTestNode([self::DOMAIN_OOD]);
-    $notification = $this->createTestNotification('review_requested_adhoc', ['match_pm'], FALSE, $this->matchPmUser->getEmail());
-    $to = [$this->matchPmUser->getEmail()];
+    $notification = $this->createTestNotification('review_requested', self::ALL_ROLES, FALSE, $this->matchPmUser->getEmail());
+    $to = [$this->matchPmUser->getEmail(), $this->siteDeveloperUser->getEmail()];
 
     $filtered = $this->scoper()->scopeRecipients($node, $notification, $to);
 
@@ -286,12 +405,12 @@ class ReviewRequestedDomainScopeTest extends KernelTestBase {
    */
   public function testCaseInsensitiveEmailMatchingIsExcluded(): void {
     $node = $this->createTestNode([self::DOMAIN_OOD]);
-    $notification = $this->createTestNotification('review_requested', ['match_pm']);
-    $to = [mb_strtoupper($this->matchPmUser->getEmail())];
+    $notification = $this->createTestNotification('review_requested', ['match_pm', 'ondemand_pm']);
+    $to = [mb_strtoupper($this->matchPmUser->getEmail()), $this->ondemandPmUser->getEmail()];
 
     $filtered = $this->scoper()->scopeRecipients($node, $notification, $to);
 
-    $this->assertSame([], $filtered);
+    $this->assertSame([$this->ondemandPmUser->getEmail()], $filtered);
   }
 
   /**
@@ -299,10 +418,10 @@ class ReviewRequestedDomainScopeTest extends KernelTestBase {
    */
   public function testHookFiltersMailDataSameAsService(): void {
     $node = $this->createTestNode([self::DOMAIN_OOD]);
-    $notification = $this->createTestNotification('review_requested', ['match_pm', 'ondemand_pm']);
+    $notification = $this->createTestNotification('review_requested', self::ALL_ROLES);
     $data = [
       'notification' => $notification,
-      'to' => [$this->matchPmUser->getEmail(), $this->ondemandPmUser->getEmail()],
+      'to' => $this->allEmails(),
     ];
 
     \Drupal::moduleHandler()->alter('content_moderation_notification_mail_data', $node, $data);
@@ -321,17 +440,57 @@ class ReviewRequestedDomainScopeTest extends KernelTestBase {
    * proving the whole chain is wired correctly end to end.
    */
   public function testFullNotificationPipelineFiltersRecipientsViaMailCollector(): void {
-    $node = $this->createTestNode([self::DOMAIN_OOD]);
-    $notification = $this->createTestNotification('review_requested', ['match_pm', 'ondemand_pm']);
+    $cases = [
+      self::DOMAIN_OOD => [$this->ondemandPmUser],
+      self::DOMAIN_CC => [$this->campusChampionsUser],
+    ];
+    foreach ($cases as $domain => $expected_users) {
+      \Drupal::state()->set('system.test_mail_collector', []);
+      $node = $this->createTestNode([$domain]);
+      $notification = ContentModerationNotification::load('review_requested')
+        ?? $this->createTestNotification('review_requested', self::ALL_ROLES);
 
-    \Drupal::service('content_moderation_notifications.notification')
-      ->sendNotification($node, [$notification]);
+      \Drupal::service('content_moderation_notifications.notification')
+        ->sendNotification($node, [$notification]);
 
-    $mails = $this->getMails();
-    $this->assertCount(1, $mails, 'One notification email was sent.');
-    $bcc = $mails[0]['params']['headers']['Bcc'] ?? '';
-    $this->assertStringContainsString($this->ondemandPmUser->getEmail(), $bcc);
-    $this->assertStringNotContainsString($this->matchPmUser->getEmail(), $bcc);
+      $mails = $this->getMails();
+      $this->assertCount(1, $mails, "One notification email was sent for $domain.");
+      $bcc = $mails[0]['params']['headers']['Bcc'] ?? '';
+      $expected = array_map(static fn (User $user) => $user->getEmail(), $expected_users);
+      foreach ($this->allUsers() as $user) {
+        if (in_array($user->getEmail(), $expected, TRUE)) {
+          $this->assertStringContainsString($user->getEmail(), $bcc, "$domain Bcc includes {$user->getEmail()}.");
+        }
+        else {
+          $this->assertStringNotContainsString($user->getEmail(), $bcc, "$domain Bcc excludes {$user->getEmail()}.");
+        }
+      }
+    }
+  }
+
+  /**
+   * All role-holder fixture users that are not the content owner.
+   *
+   * @return \Drupal\user\Entity\User[]
+   *   The users.
+   */
+  private function allUsers(): array {
+    return [
+      $this->matchPmUser,
+      $this->ondemandPmUser,
+      $this->campusChampionsUser,
+      $this->siteDeveloperUser,
+    ];
+  }
+
+  /**
+   * Emails of the users holding a managed role, in contrib's role order.
+   *
+   * @return string[]
+   *   The email addresses.
+   */
+  private function allEmails(): array {
+    return array_map(static fn (User $user) => $user->getEmail(), $this->allUsers());
   }
 
   /**
