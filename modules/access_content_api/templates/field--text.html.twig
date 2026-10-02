@@ -1,0 +1,16 @@
+{#
+/**
+ * @file
+ * Plain field output for the content API text view mode.
+ *
+ * Shows "Label: item, item" when the label is visible, otherwise one block per
+ * item. Independent of the active theme so extracted text is stable.
+ */
+#}
+{% if not label_hidden %}
+  <p>{{ label }}: {% for item in items %}{{ item.content }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+{% else %}
+  {% for item in items %}
+    <div>{{ item.content }}</div>
+  {% endfor %}
+{% endif %}

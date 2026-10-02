@@ -40,6 +40,7 @@ class ContentEndpointTest extends ContentApiKernelTestBase {
     'access_content_api',
     'block',
     'block_content',
+    'options',
     'shortcode',
     'shortcode_basic_tags',
   ];
@@ -564,6 +565,90 @@ class ContentEndpointTest extends ContentApiKernelTestBase {
     $this->assertStringContainsString('Normal component content', $data['text']);
     // The denylist component was skipped; no views block output should appear.
     $this->assertStringNotContainsString('views_block', $data['text']);
+  }
+
+  /**
+   * A page without a per-node override renders body through the text display.
+   *
+   * The page default display has Layout Builder enabled and places an extra
+   * "internal" field that the text display does not. Without an override the
+   * API must use the text display, so the internal value must not leak and
+   * the node template (title heading) must not wrap the output.
+   */
+  public function testPageWithoutOverrideRendersBodyViaTextDisplay(): void {
+    $this->addField('page', 'field_internal', ['type' => 'string', 'label' => 'Internal']);
+    $default = EntityViewDisplay::load('node.page.default') ?: EntityViewDisplay::create([
+      'targetEntityType' => 'node',
+      'bundle' => 'page',
+      'mode' => 'default',
+      'status' => TRUE,
+    ]);
+    $default->setComponent('body', ['type' => 'text_default', 'label' => 'hidden', 'weight' => 0]);
+    $default->setComponent('field_internal', ['type' => 'string', 'label' => 'inline', 'weight' => 1]);
+    $default->enableLayoutBuilder();
+    $default->save();
+    \Drupal::service('plugin.manager.block')->clearCachedDefinitions();
+    \Drupal::service('entity_field.manager')->clearCachedFieldDefinitions();
+
+    $node = $this->createPage([
+      'title' => 'Plain Page Title',
+      'body' => ['value' => '<p>Text display body</p>', 'format' => 'basic_html'],
+      'field_internal' => 'Internal layout-only value',
+    ]);
+    $this->assertFalse($node->hasField('layout_builder__layout') && !$node->get('layout_builder__layout')->isEmpty(), 'Node has no override.');
+
+    $response = $this->requestById($node->id());
+    $this->assertSame(200, $response->getStatusCode());
+    $text = $this->decode($response)['text'];
+    $this->assertStringContainsString('Text display body', $text);
+    $this->assertStringNotContainsString('Internal layout-only value', $text);
+    $this->assertStringNotContainsString('Plain Page Title', $text);
+  }
+
+  /**
+   * A bundle with a default Layout Builder layout but no text display is 404.
+   */
+  public function testBundleWithoutTextDisplayIs404EvenWithLayout(): void {
+    $this->createTextBundle('article', ['body' => 'text_long']);
+    EntityViewDisplay::load('node.article.text')->delete();
+    $node = $this->createContentNode('article', [
+      'body' => ['value' => '<p>Article body</p>', 'format' => 'basic_html'],
+    ]);
+    $this->assertSame(404, $this->requestById($node->id())->getStatusCode());
+  }
+
+  /**
+   * A declined MATCH engagement is served by id (per-id mirrors the page).
+   */
+  public function testDeclinedMatchEngagementIs200ById(): void {
+    $this->createMatchBundle();
+    $node = $this->createContentNode('match_engagement', [
+      'body' => ['value' => '<p>Declined proposal</p>', 'format' => 'basic_html'],
+      'field_status' => 'declined',
+    ]);
+
+    $response = $this->requestById($node->id());
+    $this->assertSame(200, $response->getStatusCode());
+    $data = $this->decode($response);
+    $this->assertSame('match_engagement', $data['content_type']);
+    $this->assertStringContainsString('Declined proposal', $data['text']);
+    $this->assertStringContainsString('Status: Declined', $data['text']);
+  }
+
+  /**
+   * An access_news node is served by id, even though the index excludes it.
+   */
+  public function testAccessNewsIs200ById(): void {
+    $this->createTextBundle('access_news', ['body' => 'text_long']);
+    $node = $this->createContentNode('access_news', [
+      'body' => ['value' => '<p>News story body</p>', 'format' => 'basic_html'],
+    ]);
+
+    $response = $this->requestById($node->id());
+    $this->assertSame(200, $response->getStatusCode());
+    $data = $this->decode($response);
+    $this->assertSame('access_news', $data['content_type']);
+    $this->assertStringContainsString('News story body', $data['text']);
   }
 
 }

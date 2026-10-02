@@ -3,6 +3,8 @@
 namespace Drupal\Tests\access_content_api\Kernel;
 
 use Drupal\access_content_api\Controller\ContentIndexController;
+use Drupal\Core\Entity\Entity\EntityViewDisplay;
+use Drupal\Core\Session\AnonymousUserSession;
 use Drupal\domain\Entity\Domain;
 use Drupal\node\Entity\NodeType;
 use Drupal\path_alias\Entity\PathAlias;
@@ -313,6 +315,184 @@ class ContentIndexTest extends ContentApiKernelTestBase {
     $helperHash = $renderHash->contentHash($node, new \Drupal\Core\Cache\CacheableMetadata());
 
     $this->assertSame($endpointData['content_hash'], $helperHash);
+  }
+
+  /**
+   * Returns the index entries keyed by node ID.
+   *
+   * @return array<int, array>
+   *   Index entries.
+   */
+  private function indexEntries(): array {
+    $entries = [];
+    $response = $this->requestIndex();
+    foreach ($this->decode($response)['pages'] as $i => $page) {
+      $entries[$this->indexedNids($response)[$i]] = $page;
+    }
+    return $entries;
+  }
+
+  /**
+   * Eligible affinity groups and MATCH engagements are listed by type.
+   */
+  public function testIndexListsAffinityGroupsAndMatchEngagements(): void {
+    $this->createAffinityGroupBundle();
+    $this->createMatchBundle();
+    $group = $this->createContentNode('affinity_group', ['title' => 'Indexed Group']);
+    $match = $this->createContentNode('match_engagement', [
+      'title' => 'Indexed Match',
+      'field_status' => 'complete',
+    ]);
+    $page = $this->createPage(['title' => 'Indexed Page']);
+
+    $entries = $this->indexEntries();
+    $this->assertSame('affinity_group', $entries[(int) $group->id()]['content_type']);
+    $this->assertSame('match_engagement', $entries[(int) $match->id()]['content_type']);
+    $this->assertSame('page', $entries[(int) $page->id()]['content_type']);
+    $this->assertSame('Indexed Group', $entries[(int) $group->id()]['title']);
+  }
+
+  /**
+   * An access_news node is absent from the index although it has a text mode.
+   */
+  public function testIndexExcludesAccessNews(): void {
+    $this->createTextBundle('access_news', ['body' => 'text_long']);
+    $news = $this->createContentNode('access_news');
+    $page = $this->createPage();
+
+    // Precondition: the news bundle is otherwise eligible.
+    $this->assertTrue(\Drupal::service('access_content_api.eligibility')->hasTextViewMode('access_news'));
+    $nids = $this->indexedNids($this->requestIndex());
+    $this->assertContains((int) $page->id(), $nids);
+    $this->assertNotContains((int) $news->id(), $nids);
+    $this->assertSame(200, $this->requestById($news->id())->getStatusCode(), 'Still served by id.');
+  }
+
+  /**
+   * Only in-progress and complete MATCH engagements are indexed.
+   */
+  public function testIndexMatchStateAllowlist(): void {
+    $this->createMatchBundle();
+    $nodes = [];
+    foreach (['in_review', 'declined', 'in_progress', 'complete'] as $state) {
+      $nodes[$state] = (int) $this->createContentNode('match_engagement', [
+        'title' => "Match $state",
+        'field_status' => $state,
+      ])->id();
+    }
+
+    $nids = $this->indexedNids($this->requestIndex());
+    $this->assertNotContains($nodes['in_review'], $nids);
+    $this->assertNotContains($nodes['declined'], $nids);
+    $this->assertContains($nodes['in_progress'], $nids);
+    $this->assertContains($nodes['complete'], $nids);
+    // Excluded states stay reachable by id.
+    $this->assertSame(200, $this->requestById($nodes['declined'])->getStatusCode());
+    $this->assertSame(200, $this->requestById($nodes['in_review'])->getStatusCode());
+  }
+
+  /**
+   * Changing a match from declined to complete adds it to a cached index.
+   */
+  public function testMatchAppearsAfterStateChangeToComplete(): void {
+    $this->createMatchBundle();
+    $match = $this->createContentNode('match_engagement', ['field_status' => 'declined']);
+    $nid = (int) $match->id();
+
+    $index = $this->requestIndex();
+    $this->assertNotContains($nid, $this->indexedNids($index));
+    $cid = $this->cacheResponse($index, 'access_content_api_test:index');
+
+    $match->set('field_status', 'complete');
+    $match->save();
+
+    $this->assertFalse($this->isCached($cid), 'Cached index is invalidated by the state change.');
+    $this->assertContains($nid, $this->indexedNids($this->requestIndex()));
+  }
+
+  /**
+   * A bundle without a text display is not listed, even if otherwise eligible.
+   */
+  public function testIndexExcludesBundleWithoutTextDisplay(): void {
+    $this->createTextBundle('article', ['body' => 'text_long']);
+    EntityViewDisplay::load('node.article.text')->delete();
+    $article = $this->createContentNode('article');
+    $page = $this->createPage();
+
+    $nids = $this->indexedNids($this->requestIndex());
+    $this->assertContains((int) $page->id(), $nids);
+    $this->assertNotContains((int) $article->id(), $nids);
+  }
+
+  /**
+   * The index carries one list tag per index bundle and the display list tag.
+   */
+  public function testIndexCacheTags(): void {
+    $this->createAffinityGroupBundle();
+    $this->createMatchBundle();
+    $this->createTextBundle('access_news', ['body' => 'text_long']);
+
+    $tags = $this->requestIndex()->getCacheableMetadata()->getCacheTags();
+    $this->assertContains('node_list:page', $tags);
+    $this->assertContains('node_list:affinity_group', $tags);
+    $this->assertContains('node_list:match_engagement', $tags);
+    $this->assertContains('config:entity_view_display_list', $tags);
+    $this->assertNotContains('node_list:access_news', $tags);
+  }
+
+  /**
+   * Creating a new affinity group invalidates the cached index.
+   */
+  public function testNewAffinityGroupInvalidatesCachedIndex(): void {
+    $this->createAffinityGroupBundle();
+    $before = $this->requestIndex();
+    $cid = $this->cacheResponse($before, 'access_content_api_test:index');
+
+    $group = $this->createContentNode('affinity_group', ['title' => 'Brand New Group']);
+
+    $this->assertFalse($this->isCached($cid), 'Cached index is invalidated by a new group.');
+    $this->assertContains((int) $group->id(), $this->indexedNids($this->requestIndex()));
+  }
+
+  /**
+   * Adding a text display invalidates the cached index.
+   */
+  public function testAddingTextDisplayInvalidatesCachedIndex(): void {
+    $this->createTextBundle('article', ['body' => 'text_long']);
+    EntityViewDisplay::load('node.article.text')->delete();
+    $cid = $this->cacheResponse($this->requestIndex(), 'access_content_api_test:index');
+
+    EntityViewDisplay::create([
+      'targetEntityType' => 'node',
+      'bundle' => 'article',
+      'mode' => 'text',
+      'status' => TRUE,
+    ])->setComponent('body', ['type' => 'text_default', 'label' => 'hidden'])->save();
+
+    $this->assertFalse($this->isCached($cid), 'Cached index is invalidated by a new text display.');
+  }
+
+  /**
+   * A node denied to anonymous by hook_node_access is absent from the index.
+   *
+   * The index query's accessCheck relies on node grants, which do not see
+   * hook_node_access; only the loop's explicit anonymous access check does.
+   */
+  public function testIndexExcludesNodeDeniedToAnonymousByHook(): void {
+    $this->enableModules(['access_content_api_test_access']);
+    // Rebuilding the container drops the negotiated domain.
+    \Drupal::service('domain.negotiator')->setActiveDomain(Domain::load(self::SUPPORT_DOMAIN_ID));
+
+    $denied = $this->createPage(['title' => 'Denied For Anonymous Sentinel']);
+    $allowed = $this->createPage(['title' => 'Allowed Page']);
+    // Precondition: the hook denies exactly the sentinel, for anonymous only.
+    $this->assertFalse($denied->access('view', new AnonymousUserSession()));
+    $this->assertTrue($allowed->access('view', new AnonymousUserSession()));
+
+    $nids = $this->indexedNids($this->requestIndex());
+    $this->assertContains((int) $allowed->id(), $nids);
+    $this->assertNotContains((int) $denied->id(), $nids);
+    $this->assertSame(404, $this->requestById($denied->id())->getStatusCode());
   }
 
 }
