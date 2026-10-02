@@ -28,6 +28,12 @@ class ContentBundleCoverageTest extends ContentApiKernelTestBase {
   public static function bundleProvider(): array {
     $long = fn(string $label) => ['type' => 'text_long', 'label' => $label];
     $short = fn(string $label) => ['type' => 'string', 'label' => $label];
+    $term = fn(string $label) => [
+      'type' => 'entity_reference',
+      'label' => $label,
+      'target_type' => 'taxonomy_term',
+    ];
+    $link = fn(string $label) => ['type' => 'link', 'label' => $label];
     return [
       'affinity_group' => [
         'affinity_group',
@@ -43,7 +49,8 @@ class ContentBundleCoverageTest extends ContentApiKernelTestBase {
         'mentorship_engagement',
         [
           'body' => [['type' => 'text_long'], 'Mentorship body sentinel text'],
-          'field_me_state' => [$short('State'), 'Mentorship state sentinel'],
+          // The value is the term name; buildFixture() creates the term.
+          'field_me_state' => [$term('State'), 'Mentorship state sentinel'],
         ],
         [
           'field_mentor_name' => [$short('Mentor'), 'Mentor Secret Person'],
@@ -73,7 +80,7 @@ class ContentBundleCoverageTest extends ContentApiKernelTestBase {
         'appverse_app',
         [
           'body' => [['type' => 'text_long'], 'App body sentinel text'],
-          'field_appverse_github_url' => [$short('GitHub'), 'app-github-sentinel'],
+          'field_appverse_github_url' => [$link('GitHub'), 'https://github.com/example/app-github-sentinel'],
         ],
         [
           'field_appverse_maintainer_name' => [$short('Maintainer'), 'Maintainer Secret Person'],
@@ -95,9 +102,12 @@ class ContentBundleCoverageTest extends ContentApiKernelTestBase {
       $specs[$group] = [];
       foreach ($fields as $name => [$spec, $value]) {
         $specs[$group][$name] = $spec;
-        $values[$name] = $spec['type'] === 'text_long'
-          ? ['value' => '<p>' . $value . '</p>', 'format' => 'basic_html']
-          : $value;
+        $values[$name] = match ($spec['type']) {
+          'text_long' => ['value' => '<p>' . $value . '</p>', 'format' => 'basic_html'],
+          'link' => ['uri' => $value, 'title' => ''],
+          'entity_reference' => [['target_id' => $this->createTerm($value)->id()]],
+          default => $value,
+        };
       }
     }
     return [$specs['public'], $specs['private'], $values];
@@ -123,8 +133,12 @@ class ContentBundleCoverageTest extends ContentApiKernelTestBase {
     $data = $this->decode($response);
     $this->assertSame($bundle, $data['content_type']);
 
-    foreach ($public as $name => [, $value]) {
+    foreach ($public as $name => [$spec, $value]) {
       $this->assertStringContainsString($value, $data['text'], "Public field $name is in the text.");
+      // Term references use the configured inline label ("State: value").
+      if ($spec['type'] === 'entity_reference') {
+        $this->assertStringContainsString($spec['label'] . ': ' . $value, $data['text'], "Reference field $name reads Label: value.");
+      }
     }
     foreach ($private as $name => [, $value]) {
       $this->assertStringNotContainsString($value, $data['text'], "Private field $name is not in the text.");
@@ -163,9 +177,9 @@ class ContentBundleCoverageTest extends ContentApiKernelTestBase {
   }
 
   /**
-   * An inline-labeled long-text field also reads "Label: value".
+   * A long-text field with an "above" label reads as a "### Label" heading.
    */
-  public function testInlineLabelOnTextField(): void {
+  public function testAboveLabelOnTextFieldRendersHeading(): void {
     $this->createMatchBundle();
     $node = $this->createContentNode('match_engagement', [
       'body' => ['value' => '<p>Body</p>', 'format' => 'basic_html'],
@@ -173,7 +187,7 @@ class ContentBundleCoverageTest extends ContentApiKernelTestBase {
     ]);
 
     $data = $this->decode($this->requestById($node->id()));
-    $this->assertMatchesRegularExpression('/Qualifications: ?\s*Knows Python/', $data['text']);
+    $this->assertStringContainsString("### Qualifications\n\nKnows Python", $data['text']);
   }
 
   /**

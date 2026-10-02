@@ -5,8 +5,6 @@ namespace Drupal\access_content_api;
 use Drupal\Core\Block\BlockManagerInterface;
 use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Entity\Entity\EntityViewDisplay;
-use Drupal\Core\Entity\EntityDisplayRepositoryInterface;
-use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Render\RenderContext;
 use Drupal\Core\Render\RendererInterface;
 use Drupal\layout_builder\SectionComponent;
@@ -36,8 +34,6 @@ class LayoutWalker {
   ];
 
   public function __construct(
-    protected EntityTypeManagerInterface $entityTypeManager,
-    protected EntityDisplayRepositoryInterface $entityDisplayRepository,
     protected BlockManagerInterface $blockManager,
     protected RendererInterface $renderer,
     protected LoggerInterface $logger,

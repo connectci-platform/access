@@ -15,6 +15,8 @@ use Drupal\filter\Entity\FilterFormat;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\node\Entity\Node;
 use Drupal\node\Entity\NodeType;
+use Drupal\taxonomy\Entity\Term;
+use Drupal\taxonomy\Entity\Vocabulary;
 use Drupal\user\Entity\Role;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -54,6 +56,8 @@ abstract class ContentApiKernelTestBase extends KernelTestBase {
     'block',
     'block_content',
     'options',
+    'link',
+    'taxonomy',
     'domain',
     'domain_access',
     'access_content_api',
@@ -67,6 +71,7 @@ abstract class ContentApiKernelTestBase extends KernelTestBase {
     $this->installEntitySchema('node');
     $this->installEntitySchema('user');
     $this->installEntitySchema('path_alias');
+    $this->installEntitySchema('taxonomy_term');
     // Layout Builder's InlineBlockEntityOperations needs this when a display
     // with Layout Builder enabled is saved.
     $this->installEntitySchema('block_content');
@@ -179,8 +184,10 @@ abstract class ContentApiKernelTestBase extends KernelTestBase {
    * @param array $public_fields
    *   Fields shown in the text display, keyed by field name. Each value is a
    *   field type string or an array with keys: type (string, text_long,
-   *   list_string, boolean or entity_reference), label, inline (bool, default
-   *   TRUE for everything but "body"), allowed_values (list_string).
+   *   list_string, boolean, link or entity_reference), label, label_display
+   *   (inline, above, hidden or visually_hidden; default "inline" for
+   *   everything but "body", which defaults to "hidden"), allowed_values
+   *   (list_string), target_type (entity_reference; default "user").
    * @param array $private_fields
    *   Fields that only appear in the Layout Builder default layout. Same
    *   format as $public_fields.
@@ -200,19 +207,18 @@ abstract class ContentApiKernelTestBase extends KernelTestBase {
         $spec = is_string($spec) ? ['type' => $spec] : $spec;
         if ($name === 'body') {
           node_add_body_field(NodeType::load($bundle));
-          $spec += ['inline' => FALSE];
+          $spec += ['label_display' => 'hidden'];
           $field_type = 'text_long';
         }
         else {
           $this->addField($bundle, $name, $spec);
           $field_type = $spec['type'];
         }
-        $inline = $spec['inline'] ?? TRUE;
         $component = [
           'type' => self::FORMATTERS[$field_type],
-          'label' => $inline ? 'inline' : 'hidden',
+          'label' => $spec['label_display'] ?? 'inline',
           'weight' => $weight++,
-          'settings' => [],
+          'settings' => $field_type === 'entity_reference' ? ['link' => FALSE] : [],
         ];
         $components[$name] = [$group, $component];
       }
@@ -268,6 +274,7 @@ abstract class ContentApiKernelTestBase extends KernelTestBase {
     'list_string' => 'list_default',
     'boolean' => 'boolean',
     'entity_reference' => 'entity_reference_label',
+    'link' => 'link',
   ];
 
   /**
@@ -288,8 +295,16 @@ abstract class ContentApiKernelTestBase extends KernelTestBase {
       $storage_settings['allowed_values'] = $spec['allowed_values'];
     }
     if ($type === 'entity_reference') {
-      $storage_settings['target_type'] = 'user';
-      $field_settings['handler'] = 'default:user';
+      $target_type = $spec['target_type'] ?? 'user';
+      $storage_settings['target_type'] = $target_type;
+      $field_settings['handler'] = 'default:' . $target_type;
+      if ($target_type === 'taxonomy_term') {
+        $vid = $spec['vocabulary'] ?? 'tags';
+        if (!Vocabulary::load($vid)) {
+          Vocabulary::create(['vid' => $vid, 'name' => $vid])->save();
+        }
+        $field_settings['handler_settings'] = ['target_bundles' => [$vid => $vid]];
+      }
     }
     if (!FieldStorageConfig::loadByName('node', $name)) {
       FieldStorageConfig::create([
@@ -307,6 +322,23 @@ abstract class ContentApiKernelTestBase extends KernelTestBase {
       'label' => $spec['label'] ?? $name,
       'settings' => $field_settings,
     ])->save();
+  }
+
+  /**
+   * Creates and saves a taxonomy term, creating its vocabulary if needed.
+   *
+   * @param string $name
+   *   The term name.
+   * @param string $vid
+   *   The vocabulary machine name.
+   */
+  protected function createTerm(string $name, string $vid = 'tags'): Term {
+    if (!Vocabulary::load($vid)) {
+      Vocabulary::create(['vid' => $vid, 'name' => $vid])->save();
+    }
+    $term = Term::create(['vid' => $vid, 'name' => $name]);
+    $term->save();
+    return $term;
   }
 
   /**
@@ -337,7 +369,11 @@ abstract class ContentApiKernelTestBase extends KernelTestBase {
   protected function createMatchBundle(): void {
     $this->createTextBundle('match_engagement', [
       'body' => 'text_long',
-      'field_qualifications' => ['type' => 'text_long', 'label' => 'Qualifications'],
+      'field_qualifications' => [
+        'type' => 'text_long',
+        'label' => 'Qualifications',
+        'label_display' => 'above',
+      ],
       'field_status' => [
         'type' => 'list_string',
         'label' => 'Status',

@@ -43,6 +43,8 @@ class ContentPrivateAffinityGroupTest extends ContentApiKernelTestBase {
     'block',
     'block_content',
     'options',
+    'link',
+    'taxonomy',
     'domain',
     'domain_access',
     'access_content_api',

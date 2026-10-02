@@ -7,12 +7,19 @@
 
 /**
  * Implements hook_theme().
+ *
+ * The hook is deliberately not named field__text. Core already suggests
+ * field__<field_type>, so a field of type "text" resolves to field__text on
+ * every page. A theme that ships field--text.html.twig would take over a
+ * field__text hook (silently replacing this module's template), and a module
+ * template of that name would be used for public "text" fields. A unique name
+ * avoids both collisions.
  */
 function access_content_api_theme(): array {
   return [
-    'field__text' => [
+    'field__access_content_api' => [
       'base hook' => 'field',
-      'template' => 'field--text',
+      'template' => 'field--access-content-api',
     ],
   ];
 }
@@ -25,6 +32,6 @@ function access_content_api_theme_suggestions_field_alter(array &$suggestions, a
   if (($variables['element']['#view_mode'] ?? NULL) === $text_view_mode) {
     // Appended last so it outranks the more specific core suggestions (such
     // as field__node__body__page); Drupal uses the last existing suggestion.
-    $suggestions[] = 'field__text';
+    $suggestions[] = 'field__access_content_api';
   }
 }

@@ -41,6 +41,8 @@ class ContentEndpointTest extends ContentApiKernelTestBase {
     'block',
     'block_content',
     'options',
+    'link',
+    'taxonomy',
     'shortcode',
     'shortcode_basic_tags',
   ];
