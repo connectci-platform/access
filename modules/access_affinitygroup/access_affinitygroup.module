@@ -246,82 +246,139 @@ function access_affinitygroup_entity_presave(EntityInterface $entity) {
         return;
       }
 
-      $cca = new ConstantContactApi();
-      $title = $entity->getTitle();
-
-      // If this AG already has a CC list id, try to update it in place
-      // rather than searching by name (which breaks on rename).
-      $storedListIdValue = $entity->get('field_list_id')->getValue();
-      $storedListId = !empty($storedListIdValue) ? $storedListIdValue[0]['value'] : '';
-
-      if (!empty($storedListId)) {
-        $existing = $cca->apiCall("/contact_lists/$storedListId");
-        $responseCode = $cca->getResponseCode();
-
-        if (!empty($existing)) {
-          if ($existing->name != $title) {
-            $put_data = json_encode([
-              'name' => $title,
-              'favorite' => $existing->favorite,
-            ]);
-            $updated = $cca->apiCall("/contact_lists/$storedListId", $put_data, 'PUT');
-            if (empty($updated)) {
-              showStatus('Constant Contact list rename failed; field_list_id left unchanged.');
-            }
-          }
-          return;
-        }
-        elseif ($responseCode != 404) {
-          // Transient/other error - abort without creating a duplicate.
-          showStatus('Could not verify Constant Contact list; skipping to avoid duplicate.');
-          return;
-        }
-        // else: 404, the list was deleted upstream - fall through to
-        // lookup-or-create below.
+      if ($entity instanceof NodeInterface) {
+        access_affinitygroup_sync_cc_list($entity, new ConstantContactApi());
       }
+    }
+  }
+}
 
-      // Get all existing CC lists.
-      $lists = $cca->apiCall('/contact_lists');
-      if (empty($lists)) {
-        return;
-      }
+/**
+ * Syncs an affinity group's Constant Contact list on admin save.
+ *
+ * If the stored list id still exists, renames the list in place when the
+ * title changed. If it was deleted upstream (404), relinks to an existing list
+ * with the same name or creates a new one, and updates field_list_id.
+ *
+ * @param \Drupal\node\NodeInterface $entity
+ *   The affinity group node being saved.
+ * @param \Drupal\access_affinitygroup\Plugin\ConstantContactApi $cca
+ *   The Constant Contact API client.
+ */
+function access_affinitygroup_sync_cc_list(NodeInterface $entity, ConstantContactApi $cca): void {
+  $title = $entity->getTitle();
+  $nid = $entity->id() ?? 'new';
+  $logger = \Drupal::logger('access_affinitygroup');
 
-      // Debug info: here you can see all lists CC knows about along with their List IDs
-      // kint($lists);
-      // look for this AG in the list of CC lists (title== listname)
-      $list_exists = FALSE;
-      foreach ($lists->lists as $list) {
-        if ($list->name == $title) {
-          $list_exists = TRUE;
-          break;
-        }
-      }
-      // We didn't find an email list id for this AG - make it now.
-      if (!$list_exists) {
-        $get_fields = $entity->getFields();
-        $summary = $get_fields['body']->summary;
-        // Api max is 255 characters.
-        $summary = (strlen($summary) > 255) ? substr($summary, 0, 255) : $summary;
-        $post_data = [
+  // If this AG already has a CC list id, try to update it in place
+  // rather than searching by name (which breaks on rename).
+  $storedListIdValue = $entity->get('field_list_id')->getValue();
+  $storedListId = !empty($storedListIdValue) ? $storedListIdValue[0]['value'] : '';
+
+  if (!empty($storedListId)) {
+    // A 404 is expected when the list was deleted upstream, so keep it from
+    // showing as an error to the editor.
+    $prevSupress = $cca->getSupressErrDisplay();
+    $cca->setSupressErrDisplay(TRUE);
+    $existing = $cca->apiCall("/contact_lists/$storedListId");
+    $cca->setSupressErrDisplay($prevSupress);
+    $responseCode = $cca->getResponseCode();
+
+    if (!empty($existing)) {
+      if ($existing->name != $title) {
+        $put_data = json_encode([
           'name' => $title,
-          'favorite' => 0,
-          'description' => $summary,
-        ];
-        $post_data = json_encode($post_data);
-
-        // Create Constant contact list named with AG title.
-        $created_list = $cca->apiCall('/contact_lists', $post_data, 'POST');
-
-        if (!empty($created_list)) {
-          $list_id = $created_list->list_id ? Xss::filter($created_list->list_id) : '';
-        }
-
-        if (!empty($list_id)) {
-          $entity->set('field_list_id', $list_id);
-        } else {
-          showStatus('Bad list id received from Constant Contact.');
+          'favorite' => $existing->favorite,
+        ]);
+        $updated = $cca->apiCall("/contact_lists/$storedListId", $put_data, 'PUT');
+        if (empty($updated)) {
+          showStatus('Constant Contact list rename failed; field_list_id left unchanged.');
         }
       }
+      return;
+    }
+    elseif ($responseCode != 404) {
+      // Transient/other error - abort without creating a duplicate.
+      $logger->error('Could not verify Constant Contact list @list_id for affinity group "@title" (nid @nid): HTTP @code.', [
+        '@list_id' => $storedListId,
+        '@title' => $title,
+        '@nid' => $nid,
+        '@code' => $responseCode,
+      ]);
+      \Drupal::messenger()->addError(t('Could not verify Constant Contact list; skipping to avoid duplicate.'));
+      return;
+    }
+    // 404: the list was deleted upstream - fall through to lookup-or-create.
+    $logger->notice('Affinity group "@title" (nid @nid): stored Constant Contact list @old_id was not found; relinking.', [
+      '@title' => $title,
+      '@nid' => $nid,
+      '@old_id' => $storedListId,
+    ]);
+  }
+
+  // Get all existing CC lists.
+  $lists = $cca->apiCall('/contact_lists');
+  if (empty($lists)) {
+    return;
+  }
+
+  // Look for this AG in the list of CC lists (title == list name).
+  $found_list = NULL;
+  foreach ($lists->lists ?? [] as $list) {
+    if ($list->name == $title) {
+      $found_list = $list;
+      break;
+    }
+  }
+
+  $list_id = '';
+  $action = 'created';
+  if ($found_list) {
+    // Relink to the existing list with the same name.
+    $action = 'relinked';
+    $list_id = !empty($found_list->list_id) ? Xss::filter($found_list->list_id) : '';
+  }
+  else {
+    // We didn't find an email list id for this AG - make it now.
+    $get_fields = $entity->getFields();
+    $summary = (string) ($get_fields['body']->summary ?? '');
+    // Api max is 255 characters.
+    if (mb_strlen($summary) > 255) {
+      $summary = mb_substr($summary, 0, 255);
+    }
+    $post_data = json_encode([
+      'name' => $title,
+      'favorite' => 0,
+      'description' => $summary,
+    ]);
+
+    // Create Constant contact list named with AG title.
+    $created_list = $cca->apiCall('/contact_lists', $post_data, 'POST');
+
+    if (!empty($created_list)) {
+      $created_id = $created_list->list_id ?? '';
+      $list_id = $created_id ? Xss::filter($created_id) : '';
+    }
+  }
+
+  if (empty($list_id)) {
+    showStatus('Bad list id received from Constant Contact.');
+    return;
+  }
+
+  if ($list_id !== $storedListId) {
+    $entity->set('field_list_id', $list_id);
+    if ($action === 'relinked') {
+      showStatus(t('Constant Contact list relinked for @title: @list_id', [
+        '@title' => $title,
+        '@list_id' => $list_id,
+      ]));
+    }
+    else {
+      showStatus(t('Constant Contact list created for @title: @list_id', [
+        '@title' => $title,
+        '@list_id' => $list_id,
+      ]));
     }
   }
 }
@@ -1528,7 +1585,12 @@ function sendEmailCampaign($campaignId, $campaignActivityId, $ccListIds) {
     $cca->apiCall("/emails/activities/$campaignActivityId", $ccActivity, 'PUT');
 
     // The PUT must succeed (2xx) before we schedule.
-    if (CcLogic::httpSucceeded($cca->getHttpResponseCode())) {
+    if (!CcLogic::httpSucceeded($cca->getHttpResponseCode())) {
+      if (stripos((string) $cca->getErrorMessage(), 'invalid contact list') !== FALSE) {
+        access_affinitygroup_log_invalid_list_ids($ccListIds);
+      }
+    }
+    else {
       // Finally, send it, scheduled with 0 signifying: now.
       $schedule = ['scheduled_date' => '0'];
       $schedule = json_encode($schedule);
@@ -1555,6 +1617,42 @@ function sendEmailCampaign($campaignId, $campaignActivityId, $ccListIds) {
     showStatus("We could not confirm your message was sent. It has NOT been re-sent automatically. Please wait a few minutes and check, or contact a site administrator before trying again, so the group does not receive duplicate emails.");
   }
   return $sent;
+}
+
+/**
+ * Logs the affinity groups behind a campaign send rejected for bad list ids.
+ *
+ * @param string[] $ccListIds
+ *   The Constant Contact list ids that were sent in the campaign.
+ */
+function access_affinitygroup_log_invalid_list_ids(array $ccListIds): void {
+  if (empty($ccListIds)) {
+    return;
+  }
+
+  $storage = \Drupal::entityTypeManager()->getStorage('node');
+  $nids = $storage->getQuery()
+    ->accessCheck(FALSE)
+    ->condition('type', 'affinity_group')
+    ->condition('field_list_id', $ccListIds, 'IN')
+    ->execute();
+
+  $groups = [];
+  $matched = [];
+  foreach ($storage->loadMultiple($nids) as $node) {
+    $list_id = $node->get('field_list_id')->value;
+    $matched[] = $list_id;
+    $groups[] = '"' . $node->getTitle() . '" (nid ' . $node->id() . ', ' . $list_id . ')';
+  }
+
+  $unmatched = array_diff($ccListIds, $matched);
+  if ($unmatched) {
+    $groups[] = 'unmatched list ids: ' . implode(', ', $unmatched);
+  }
+
+  \Drupal::logger('access_affinitygroup')->warning('Campaign send failed with invalid contact list ids. Affinity groups in this send: @groups', [
+    '@groups' => implode(', ', $groups),
+  ]);
 }
 
 /**
