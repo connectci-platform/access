@@ -2,12 +2,14 @@
 
 namespace Drupal\Tests\cssn\Kernel;
 
+use Drupal\Core\Database\Database;
 use Drupal\Core\Entity\Plugin\DataType\EntityAdapter;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\Tests\flag\Traits\FlagCreateTrait;
 use Drupal\flag\Entity\Flagging;
 use Drupal\Tests\user\Traits\UserCreationTrait;
 use Drupal\cssn\Plugin\search_api\processor\UserAffinityGroups;
+use Drupal\entity_test\Entity\EntityTest;
 use Drupal\search_api\Entity\Index;
 use Drupal\search_api\Item\Item;
 use Drupal\taxonomy\Entity\Term;
@@ -32,7 +34,7 @@ class UserAffinityGroupsProcessorTest extends KernelTestBase {
    * @var array
    */
   protected static $modules = [
-    'field', 'filter', 'flag', 'taxonomy', 'text', 'user', 'system', 'search_api',
+    'entity_test', 'field', 'filter', 'flag', 'taxonomy', 'text', 'user', 'system', 'search_api',
   ];
 
   /**
@@ -55,6 +57,7 @@ class UserAffinityGroupsProcessorTest extends KernelTestBase {
   protected function setUp(): void {
     parent::setUp();
     $this->installEntitySchema('user');
+    $this->installEntitySchema('entity_test');
     $this->installEntitySchema('flagging');
     $this->installEntitySchema('taxonomy_term');
     $this->installSchema('flag', ['flag_counts']);
@@ -99,10 +102,23 @@ class UserAffinityGroupsProcessorTest extends KernelTestBase {
   }
 
   /**
+   * Creates an index with the given datasources.
+   *
+   * @param string[] $datasource_ids
+   *   The datasource plugin IDs.
+   */
+  private function createIndex(array $datasource_ids): Index {
+    return Index::create([
+      'id' => 'test_index',
+      'datasource_settings' => array_fill_keys($datasource_ids, []),
+    ]);
+  }
+
+  /**
    * Builds a search_api item for the given user and runs the processor on it.
    */
   private function extract($account): array {
-    $index = Index::create(['id' => 'test_index']);
+    $index = $this->createIndex(['entity:user']);
     $item = new Item($index, 'entity:user/' . $account->id());
     $item->setOriginalObject(EntityAdapter::createFromEntity($account));
 
@@ -177,6 +193,47 @@ class UserAffinityGroupsProcessorTest extends KernelTestBase {
    */
   public function testPluginIdStillResolves(): void {
     $this->assertSame('user_affinity_groups', $this->processor->getPluginId());
+  }
+
+  /**
+   * Tests that a non-user item yields no values and runs no flagging query.
+   */
+  public function testNonUserItemProducesNoValuesAndNoQuery(): void {
+    $flag = $this->makeFlag();
+    $userA = $this->createUser();
+    $term = $this->makeTerm('Neuroscience');
+    $this->flagService->flag($flag, $term, $userA);
+
+    // Create an entity_test entity whose ID matches the flagging user's ID.
+    $entity = NULL;
+    for ($i = 0; $i < 50; $i++) {
+      $entity = EntityTest::create(['name' => 'Test ' . $i]);
+      $entity->save();
+      if ($entity->id() == $userA->id()) {
+        break;
+      }
+    }
+    $this->assertEquals($userA->id(), $entity->id());
+
+    $index = $this->createIndex(['entity:entity_test', 'entity:user']);
+    $item = new Item($index, 'entity:entity_test/' . $entity->id());
+    $item->setOriginalObject(EntityAdapter::createFromEntity($entity));
+    $field = \Drupal::service('search_api.fields_helper')
+      ->createField($index, 'search_api_user_affinity_groups', [
+        'property_path' => 'search_api_user_affinity_groups',
+        'type' => 'string',
+      ]);
+    $item->setField('search_api_user_affinity_groups', $field);
+    $item->setFieldsExtracted(TRUE);
+
+    Database::startLog('d8_2837');
+    $this->processor->addFieldValues($item);
+    $log = Database::getLog('d8_2837');
+
+    $this->assertSame([], $field->getValues());
+    foreach ($log as $entry) {
+      $this->assertStringNotContainsString('flagging', $entry['query']);
+    }
   }
 
 }
