@@ -131,6 +131,26 @@ class ConstantContactApi {
   }
 
   /**
+   * Whether API error display to the messenger is currently suppressed.
+   *
+   * @return bool
+   *   TRUE if error display is suppressed.
+   */
+  public function getSupressErrDisplay() {
+    return (bool) $this->supressErrDisplay;
+  }
+
+  /**
+   * The Constant Contact error message from the most recent apiCall().
+   *
+   * @return string|null
+   *   The error message, or NULL if the last call had none.
+   */
+  public function getErrorMessage() {
+    return $this->errorMessage;
+  }
+
+  /**
    * The HTTP status code from the most recent apiCall().
    */
   public function getHttpResponseCode() {
@@ -453,6 +473,9 @@ class ConstantContactApi {
    */
   public function apiCall($endpoint, $post_data = NULL, $type = 'GET', $retryCount = 0) {
     $maxRetries = 3;
+
+    // Reset so a stale message from a previous call cannot leak.
+    $this->errorMessage = NULL;
 
     $access_token = $this->accessToken;
     // Use cURL to get a new access token and refresh token.
