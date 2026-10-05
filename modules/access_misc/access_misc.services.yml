@@ -78,5 +78,9 @@ services:
       - '@access_misc.flag_link_builder.inner'
       - '@current_user'
 
+  access_misc.notification_domain_scoper:
+    class: Drupal\access_misc\Services\NotificationDomainScoper
+    arguments: ["@entity_type.manager"]
+
 parameters:
   access_misc.verbose: FALSE
