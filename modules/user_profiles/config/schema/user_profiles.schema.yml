@@ -1,0 +1,7 @@
+user_profiles.settings:
+  type: config_object
+  label: 'User Profiles settings'
+  mapping:
+    check_suspended_users:
+      type: boolean
+      label: 'Check the ACCESS identity API for suspended users before saving entities'
