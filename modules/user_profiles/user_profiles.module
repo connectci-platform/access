@@ -12,7 +12,6 @@ use Drupal\Core\Url;
 use Drupal\user\Entity\User;
 use Drupal\user\UserInterface;
 use Drupal\user_profiles\Exception\UserMergeException;
-use GuzzleHttp\Client;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
 /**
@@ -131,6 +130,10 @@ function user_profiles_form_alter(array &$form, FormStateInterface $form_state, 
  * config split (web/sites/default/config/default/user_profile.settings.yml).
  *
  * Also bypass this step if doing an affinity group allocations run.
+ *
+ * Non-ACCESS accounts (names without the "@access-ci.org" suffix) are
+ * skipped. The API is queried with the bare handle, i.e. the account name
+ * with that suffix removed.
  */
 function user_profiles_entity_presave(object $entity): void {
   if ($entity->getEntityTypeId() == 'user') {
@@ -225,7 +228,13 @@ function user_profiles_entity_presave(object $entity): void {
     return;
   }
   $account_name = $current_user->getAccountName();
-  $userinfo = user_profiles_get_account_data_from_api($account_name);
+  $access_suffix = '@access-ci.org';
+  // Only ACCESS accounts exist in the identity API.
+  if (!str_ends_with($account_name, $access_suffix)) {
+    return;
+  }
+  $handle = substr($account_name, 0, -strlen($access_suffix));
+  $userinfo = user_profiles_get_account_data_from_api($handle);
   $is_suspended = $userinfo && array_key_exists('isSuspended', $userinfo) && $userinfo['isSuspended'];
   if ($is_suspended) {
     throw new Exception("Cannot save because the user '$account_name' has been suspended");
@@ -329,6 +338,8 @@ function user_profiles_cilogon_auth_userinfo_save(UserInterface $account, array 
 /**
  * Pull account info from the api.
  *
+ * Results are statically cached per request, keyed by username.
+ *
  * @param string $username
  *   The username to look up.
  *
@@ -336,17 +347,22 @@ function user_profiles_cilogon_auth_userinfo_save(UserInterface $account, array 
  *   An array of account info, or FALSE if unable to get data.
  */
 function user_profiles_get_account_data_from_api(string $username): array|false {
+  $cache = &drupal_static(__FUNCTION__, []);
+  if (array_key_exists($username, $cache)) {
+    return $cache[$username];
+  }
 
   // ACCESS production URL for the profile API.
   $base_url = 'https://allocations-api.access-ci.org/identity/profiles/v1/'
     . 'people';
-  $request_url = $base_url . '/' . $username;
+  $request_url = $base_url . '/' . rawurlencode($username);
 
   // Look for the ramps key in file system.
   $path = \Drupal::service('file_system')->realpath("private://") . '/.keys/secrets.json';
   if (!file_exists($path)) {
     $msg = "[User Profiles] Unable to find key file";
     \Drupal::messenger()->addError($msg);
+    $cache[$username] = FALSE;
     return FALSE;
   }
   $secrets_json_text = file_get_contents($path);
@@ -354,6 +370,7 @@ function user_profiles_get_account_data_from_api(string $username): array|false 
   if (empty($secrets_data['ramps_api_key'])) {
     $msg = "[User Profiles] Unable to find API key";
     \Drupal::messenger()->addError($msg);
+    $cache[$username] = FALSE;
     return FALSE;
   }
   $api_key = $secrets_data['ramps_api_key'];
@@ -367,12 +384,13 @@ function user_profiles_get_account_data_from_api(string $username): array|false 
     'curl' => [CURLOPT_SSLVERSION => CURL_SSLVERSION_TLSv1],
   ];
 
-  /** @var \GuzzleHttp\Client $client */
-  $client = new Client();
+  /** @var \GuzzleHttp\ClientInterface $client */
+  $client = \Drupal::httpClient();
   try {
     $response = $client->request('GET', $request_url, $request_options);
     $userinfo = Json::decode((string) $response->getBody());
-    return $userinfo;
+    $cache[$username] = is_array($userinfo) ? $userinfo : FALSE;
+    return $cache[$username];
   }
   catch (Exception $e) {
     // Display an additional error message if response code is anything
@@ -383,6 +401,7 @@ function user_profiles_get_account_data_from_api(string $username): array|false 
     }
   }
 
+  $cache[$username] = FALSE;
   return FALSE;
 }
 

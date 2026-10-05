@@ -18,11 +18,19 @@ use Drupal\domain\DomainNegotiatorInterface;
  * as if they came from the domain the event belongs to. Two independent
  * mechanisms decide that, and only one of them is the domain negotiator:
  *
- * 1. TRANSPORT / mail routing. hook_mailer_init() implementations pick an SMTP
- *    transport from the ACTIVE DOMAIN, so \Drupal::service('domain.negotiator')
- *    has to be pointed at the event's domain. This is what the existing
- *    domain-switch call sites in this codebase (ccmnet_cron(),
- *    access_misc's registrant digest) are doing.
+ * 1. TRANSPORT / mail routing. hook_mailer_build() implementations (e.g.
+ *    access_misc_mailer_build()) pick an SMTP transport and From/Reply-To
+ *    from the ACTIVE DOMAIN, so \Drupal::service('domain.negotiator') has to
+ *    be pointed at the event's domain. This is what the existing
+ *    domain-switch call sites in this codebase (ccmnet_cron(), access_misc's
+ *    registrant digest, and — for QUEUED registration notices —
+ *    DomainAwareEmailNotificationsQueueWorker) are doing. A queued
+ *    registration notice is rendered by forEntity()/forDomain() at ENQUEUE
+ *    time (for link hosts, below) but actually MAILED later, when cron
+ *    drains the queue — by then the process's active domain is cron's, not
+ *    the event's, so the domain id is stamped onto the queue item at
+ *    enqueue time (see access_events_recurring_events_registration_message_
+ *    params_alter()) and forDomain() is invoked again around the send.
  *
  * 2. LINK HOSTS. Absolute URLs — [registrant:delete_url],
  *    [registrant:edit_url], [eventinstance:url], all of which resolve through
@@ -65,6 +73,20 @@ class EventDomainContext {
    * The domain_access field name shared by eventseries and eventinstance.
    */
   public const FIELD = 'domain_access';
+
+  /**
+   * The queue-item params key a resolved domain id is stamped under.
+   *
+   * The message-params alter, access_events_recurring_events_registration_
+   * message_params_alter(), writes it as a scalar domain id — never an
+   * entity, since queue items are serialized. DomainAwareEmailNotifications
+   * QueueWorker reads it at send time to put the right domain active for
+   * hook_mailer_build(). Living here rather than on CancellationNotifier
+   * keeps every domain-context constant (FIELD, DOMAIN_PARAM) in this one
+   * service, since both the enqueue-time alter and the send-time queue
+   * worker depend on this class already.
+   */
+  public const DOMAIN_PARAM = 'access_events_domain_id';
 
   public function __construct(
     protected RequestContext $requestContext,
