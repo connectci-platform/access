@@ -1,0 +1,10 @@
+{#
+/**
+ * @file
+ * Test override that marks its output with a sentinel.
+ */
+#}
+THEME-FIELD-OVERRIDE
+{% for item in items %}
+  <div>{{ item.content }}</div>
+{% endfor %}

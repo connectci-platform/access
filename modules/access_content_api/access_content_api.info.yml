@@ -1,6 +1,6 @@
 name: 'Access Content API'
 type: module
-description: 'Exposes Drupal page content as clean plain text via a public API.'
+description: 'Exposes Drupal node content as clean plain text via a public API.'
 core_version_requirement: ^10 || ^11
 package: Access
 dependencies:
