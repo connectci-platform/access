@@ -1,0 +1,7 @@
+name: 'Access Content API test theme'
+type: theme
+description: 'Overrides field templates, as aspTheme does, for access_content_api kernel tests.'
+package: Testing
+base theme: false
+core_version_requirement: ^10 || ^11
+hidden: true

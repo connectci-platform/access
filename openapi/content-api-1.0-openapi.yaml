@@ -2,13 +2,13 @@ openapi: 3.0.3
 info:
   title: ACCESS Content API
   description: |
-    Public JSON endpoints exposing ACCESS Support page content and a discovery
+    Public JSON endpoints exposing ACCESS content items and a discovery
     index for RAG ingestion and Elastic syndication.
 
     ## What's in it
-    - **Content by ID** — fetch a single support page as plain text by Drupal node ID.
-    - **Content by path** — fetch a single support page by its URL alias.
-    - **Content index** — a discovery feed listing every eligible support page with
+    - **Content by ID** — fetch a single content item as plain text by Drupal node ID.
+    - **Content by path** — fetch a single content item by its URL alias.
+    - **Content index** — a discovery feed listing every eligible content item with
       metadata for crawlers and ingestion pipelines.
 
     ## Conditional requests
@@ -37,7 +37,7 @@ paths:
     get:
       summary: Get content by node ID
       description: |
-        Returns the full text and metadata for a single published support page
+        Returns the full text and metadata for a single published content item
         identified by its Drupal node ID.
 
         Supports conditional requests: if `If-None-Match` matches the current
@@ -49,7 +49,7 @@ paths:
         - name: id
           in: path
           required: true
-          description: Drupal node ID of the support page.
+          description: Drupal node ID of the content item.
           schema:
             type: integer
         - name: If-None-Match
@@ -94,7 +94,7 @@ paths:
     get:
       summary: Get content by path alias
       description: |
-        Returns the full text and metadata for a single published support page
+        Returns the full text and metadata for a single published content item
         looked up by its URL alias (e.g. `/user-guide/allocations`).
 
         Supports conditional requests via `If-None-Match` / `ETag` identically
@@ -106,7 +106,7 @@ paths:
         - name: path
           in: query
           required: true
-          description: URL alias of the support page (e.g. `/user-guide/allocations`).
+          description: URL alias of the content item (e.g. `/user-guide/allocations`).
           schema:
             type: string
         - name: If-None-Match
@@ -157,9 +157,11 @@ paths:
     get:
       summary: Content discovery index
       description: |
-        Returns a full listing of every eligible published support page with
+        Returns a curated listing of eligible published content items with
         title, URL, content URL, content hash, and last-modified timestamp.
-        Intended for crawlers, RAG ingestion pipelines, and Elastic syndication.
+        The index excludes news items and private affinity groups, and lists
+        match engagements only when in progress or complete. Intended for
+        crawlers, RAG ingestion pipelines, and Elastic syndication.
 
         This endpoint is served at the site root (outside the `/api/1.0` base
         path) per the Well-Known URI convention (RFC 8615).
@@ -195,10 +197,10 @@ components:
         path:
           type: string
           format: uri
-          description: Absolute URL of the support page.
+          description: Absolute URL of the content item.
         content_type:
           type: string
-          description: Drupal bundle/content type (e.g. `page`).
+          description: Drupal bundle/content type. One of `page`, `affinity_group`, `mentorship_engagement`, `access_news`, `match_engagement`, or `appverse_app`.
         last_modified:
           type: string
           format: date-time
@@ -219,15 +221,15 @@ components:
       properties:
         title:
           type: string
-          description: Page title.
+          description: Content item title.
         path:
           type: string
           format: uri
-          description: Absolute URL of the support page.
+          description: Absolute URL of the content item.
         content_url:
           type: string
           format: uri
-          description: Absolute URL of the `/api/1.0/content/{id}` endpoint for this page.
+          description: Absolute URL of the `/api/1.0/content/{id}` endpoint for this content item.
         last_modified:
           type: string
           format: date-time
@@ -235,11 +237,11 @@ components:
         content_hash:
           type: string
           description: |
-            SHA-256 hash of the extracted plain text. Use to detect changed pages
+            SHA-256 hash of the extracted plain text. Use to detect changed content items
             without fetching full content.
         content_type:
           type: string
-          description: Drupal bundle/content type (e.g. `page`).
+          description: Drupal bundle/content type. One of `page`, `affinity_group`, `mentorship_engagement`, `access_news`, `match_engagement`, or `appverse_app`.
 
     ContentIndex:
       type: object
@@ -254,7 +256,7 @@ components:
           description: ISO 8601 timestamp when this index was generated.
         pages:
           type: array
-          description: All eligible published support pages, sorted by path alias.
+          description: All eligible published content items, sorted by path alias.
           items:
             $ref: '#/components/schemas/ContentIndexEntry'
 

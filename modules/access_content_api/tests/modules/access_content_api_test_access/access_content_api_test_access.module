@@ -1,0 +1,36 @@
+<?php
+
+/**
+ * @file
+ * Narrowly scoped access hooks for access_content_api kernel tests.
+ *
+ * Unlike node_access_test, this does not alter grants globally: it only denies
+ * nodes titled with the sentinel, and only the sentinel field, and only for
+ * anonymous users.
+ */
+
+use Drupal\Core\Access\AccessResult;
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Field\FieldDefinitionInterface;
+use Drupal\Core\Field\FieldItemListInterface;
+use Drupal\Core\Session\AccountInterface;
+
+/**
+ * Implements hook_node_access().
+ */
+function access_content_api_test_access_node_access(EntityInterface $node, $op, AccountInterface $account) {
+  if ($op === 'view' && $account->isAnonymous() && $node->label() === 'Denied For Anonymous Sentinel') {
+    return AccessResult::forbidden('Sentinel node is hidden from anonymous.')->addCacheableDependency($node);
+  }
+  return AccessResult::neutral();
+}
+
+/**
+ * Implements hook_entity_field_access().
+ */
+function access_content_api_test_access_entity_field_access($operation, FieldDefinitionInterface $field_definition, AccountInterface $account, ?FieldItemListInterface $items = NULL) {
+  if ($operation === 'view' && $account->isAnonymous() && $field_definition->getName() === 'field_anon_hidden') {
+    return AccessResult::forbidden('Sentinel field is hidden from anonymous.');
+  }
+  return AccessResult::neutral();
+}

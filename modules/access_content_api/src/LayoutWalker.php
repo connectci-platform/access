@@ -4,17 +4,19 @@ namespace Drupal\access_content_api;
 
 use Drupal\Core\Block\BlockManagerInterface;
 use Drupal\Core\Cache\CacheableMetadata;
-use Drupal\Core\Entity\EntityDisplayRepositoryInterface;
-use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\Entity\Entity\EntityViewDisplay;
 use Drupal\Core\Render\RenderContext;
 use Drupal\Core\Render\RendererInterface;
-use Drupal\Core\Session\AccountInterface;
 use Drupal\layout_builder\SectionComponent;
 use Drupal\node\NodeInterface;
 use Psr\Log\LoggerInterface;
 
 /**
- * Walks a node's effective Layout Builder layout and renders components.
+ * Renders a node to HTML for text extraction.
+ *
+ * The configured text view mode display is the source of truth for what is
+ * served. Layout Builder is walked only for per-node layout overrides; every
+ * other node renders its text display directly.
  */
 class LayoutWalker {
 
@@ -32,22 +34,21 @@ class LayoutWalker {
   ];
 
   public function __construct(
-    protected EntityTypeManagerInterface $entityTypeManager,
-    protected EntityDisplayRepositoryInterface $entityDisplayRepository,
     protected BlockManagerInterface $blockManager,
     protected RendererInterface $renderer,
-    protected AccountInterface $currentUser,
     protected LoggerInterface $logger,
     protected ContentEligibility $eligibility,
   ) {}
 
   /**
-   * Renders a node's layout in text view mode and returns concatenated HTML.
+   * Renders a node in text view mode and returns concatenated HTML.
    *
    * Cache metadata from rendered block plugins is merged into $cacheMetadata
    * so the caller can bubble it to the response.
    */
   public function render(NodeInterface $node, CacheableMetadata $cacheMetadata): string {
+    // Only per-node Layout Builder overrides are walked; otherwise the text
+    // display (the per-bundle field selection) is rendered.
     $sections = $this->getSections($node);
     if (empty($sections)) {
       return $this->renderFallback($node, $cacheMetadata);
@@ -71,37 +72,36 @@ class LayoutWalker {
   }
 
   /**
-   * Returns the effective sections for the node's layout.
+   * Returns the sections of the node's per-node layout override.
    *
    * @return \Drupal\layout_builder\Section[]
    *   The layout sections.
    */
   private function getSections(NodeInterface $node): array {
-    // Check for per-node layout override.
     if ($node->hasField('layout_builder__layout') && !$node->get('layout_builder__layout')->isEmpty()) {
       /** @var \Drupal\layout_builder\Field\LayoutSectionItemList $field */
       $field = $node->get('layout_builder__layout');
       return $field->getSections();
     }
 
-    // Fall back to default display sections.
-    $display = $this->entityTypeManager
-      ->getStorage('entity_view_display')
-      ->load('node.' . $node->bundle() . '.default');
-
-    if ($display && $display->isLayoutBuilderEnabled()) {
-      return $display->getSections();
-    }
-
     return [];
   }
 
   /**
-   * Falls back to rendering the full node in text view mode.
+   * Renders the node's text display fields, skipping the node template.
    */
   private function renderFallback(NodeInterface $node, CacheableMetadata $cacheMetadata): string {
-    $view_builder = $this->entityTypeManager->getViewBuilder('node');
-    $build = $view_builder->view($node, $this->eligibility->getTextViewMode());
+    $build = EntityViewDisplay::collectRenderDisplay($node, $this->eligibility->getTextViewMode())
+      ->build($node);
+    // Base fields that are not display-configurable (title, uid, created) are
+    // always added by the display and normally pulled out by
+    // template_preprocess_node(). Skipping the node template means they must
+    // be dropped here, or the title and author name leak into the text.
+    foreach ($node->getFieldDefinitions() as $name => $definition) {
+      if (isset($build[$name]) && !$definition->isDisplayConfigurable('view')) {
+        unset($build[$name]);
+      }
+    }
     $html = '';
     $context = new RenderContext();
     $this->renderer->executeInRenderContext($context, function () use (&$html, $build) {

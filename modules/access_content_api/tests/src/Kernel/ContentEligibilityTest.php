@@ -3,6 +3,7 @@
 namespace Drupal\Tests\access_content_api\Kernel;
 
 use Drupal\access_content_api\ContentEligibility;
+use Drupal\Core\Entity\Entity\EntityViewDisplay;
 
 /**
  * Kernel tests for the shared ContentEligibility service.
@@ -84,6 +85,59 @@ class ContentEligibilityTest extends ContentApiKernelTestBase {
       'https://support.access-ci.org/some/path',
       $this->eligibility->supportDomainUrl('/some/path')
     );
+  }
+
+  /**
+   * The text and index bundle lists follow the configured displays.
+   */
+  public function testTextAndIndexBundles(): void {
+    $this->createAffinityGroupBundle();
+    $this->createTextBundle('access_news', ['body' => 'text_long']);
+    $this->createTextBundle('article', ['body' => 'text_long']);
+    EntityViewDisplay::load('node.article.text')->delete();
+
+    $text = $this->eligibility->getTextBundles();
+    sort($text);
+    $this->assertSame(['access_news', 'affinity_group', 'page'], $text);
+
+    $index = $this->eligibility->getIndexBundles();
+    sort($index);
+    $this->assertSame(['affinity_group', 'page'], $index);
+    $this->assertSame(['access_news'], ContentEligibility::INDEX_EXCLUDED_BUNDLES);
+    $this->assertSame(
+      ['match_engagement' => ['field' => 'field_status', 'values' => ['in_progress', 'complete']]],
+      ContentEligibility::INDEX_STATE_ALLOWLIST
+    );
+  }
+
+  /**
+   * isIndexable honors the excluded bundles and the state allowlist.
+   */
+  public function testIsIndexable(): void {
+    $this->createMatchBundle();
+    $this->createTextBundle('access_news', ['body' => 'text_long']);
+
+    $this->assertTrue($this->eligibility->isIndexable($this->createPage()));
+    $this->assertFalse($this->eligibility->isIndexable($this->createContentNode('access_news')));
+    foreach (['in_progress' => TRUE, 'complete' => TRUE, 'declined' => FALSE, 'in_review' => FALSE] as $state => $expected) {
+      $node = $this->createContentNode('match_engagement', ['field_status' => $state]);
+      $this->assertSame($expected, $this->eligibility->isIndexable($node), $state);
+    }
+    // A match with no status at all is not in the allowlist.
+    $this->assertFalse($this->eligibility->isIndexable($this->createContentNode('match_engagement')));
+  }
+
+  /**
+   * isPrivate is TRUE only for an affinity group flagged private.
+   */
+  public function testIsPrivate(): void {
+    $this->createAffinityGroupBundle();
+
+    $this->assertTrue($this->eligibility->isPrivate($this->createContentNode('affinity_group', ['field_ag_private' => 1])));
+    $this->assertFalse($this->eligibility->isPrivate($this->createContentNode('affinity_group', ['field_ag_private' => 0])));
+    $this->assertFalse($this->eligibility->isPrivate($this->createContentNode('affinity_group')));
+    // A bundle without the field is never private.
+    $this->assertFalse($this->eligibility->isPrivate($this->createPage()));
   }
 
 }
