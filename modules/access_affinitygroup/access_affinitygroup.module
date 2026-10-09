@@ -38,6 +38,7 @@ use Drupal\block\Entity\Block;
 use Drupal\Component\Utility\UrlHelper;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Access\AccessResult;
+use Drupal\Core\Cache\RefinableCacheableDependencyInterface;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Url;
 use Drupal\Core\Entity\EntityInterface;
@@ -76,6 +77,12 @@ function access_affinitygroup_search_api_query_alter(\Drupal\search_api\Query\Qu
   // Check if the query is for the affinity_group index.
   if ($query->getIndex()->id() !== 'affinity_groups') {
     return;
+  }
+  // The results depend on who is searching (private groups are filtered per
+  // user), so cached results must vary per user. Search API copies these
+  // contexts into the view's cache metadata when the view is saved.
+  if ($query instanceof RefinableCacheableDependencyInterface) {
+    $query->addCacheContexts(['user']);
   }
   $user = \Drupal::currentUser();
   $user_id = $user->id();
@@ -152,9 +159,8 @@ function access_affinitygroup_block_access(Block $block, $operation, AccountInte
       $type = $node->getType();
       if ($type == 'affinity_group') {
         $coordinators = $node->get('field_coordinator')->getValue();
-        $current_user = \Drupal::currentUser();
-        $uid = $current_user->id();
-        $roles = $current_user->getRoles();
+        $uid = $account->id();
+        $roles = $account->getRoles();
         $hide_block = TRUE;
         // Show block to coordinators.
         foreach ($coordinators as $coordinator) {
@@ -166,9 +172,13 @@ function access_affinitygroup_block_access(Block $block, $operation, AccountInte
         if (in_array('administrator', $roles)) {
           $hide_block = FALSE;
         }
-        if ($hide_block) {
-          return AccessResult::forbidden();
-        }
+        // The result depends on the account, the route's node, and that
+        // node's coordinators, so it must not be cached across any of them.
+        $result = $hide_block ? AccessResult::forbidden() : AccessResult::neutral();
+        return $result
+          ->cachePerUser()
+          ->addCacheContexts(['route'])
+          ->addCacheableDependency($node);
       }
     }
   }
@@ -2009,8 +2019,9 @@ function access_affinitygroup_entity_access(EntityInterface $entity, $operation,
 
         $ag_private_users = $entity->get('field_ag_private_users')->getValue();
 
-        $current_user = \Drupal::currentUser();
-        $current_uid = $current_user->id();
+        // Check the account being asked about, not the current user: callers
+        // may ask about any account (e.g. $node->access('view', $account)).
+        $current_uid = $account->id();
 
         // Give access to users in the private users field.
         foreach ($ag_private_users as $user) {
@@ -2037,11 +2048,8 @@ function access_affinitygroup_entity_access(EntityInterface $entity, $operation,
       }
     }
 
-    if ($access) {
-      return AccessResult::neutral();
-    } else {
-      return AccessResult::forbidden();
-    }
+    $result = $access ? AccessResult::neutral() : AccessResult::forbidden();
+    return $result->cachePerUser()->addCacheableDependency($entity);
   }
 
   if ($entity->getEntityTypeId() == 'webform_submission' && $operation === 'update') {
@@ -2057,9 +2065,11 @@ function access_affinitygroup_entity_access(EntityInterface $entity, $operation,
     $affinity_group_nid = $query->execute()->fetchCol();
 
     $coordinator = [];
+    $group_node = NULL;
     foreach ($affinity_group_nid as $nid) {
       $node = \Drupal::entityTypeManager()->getStorage('node')->load($nid);
       if ($node->getType() == 'affinity_group') {
+        $group_node = $node;
         $coordinator = $node->get('field_coordinator')->getValue();
         break;
       }
@@ -2068,16 +2078,22 @@ function access_affinitygroup_entity_access(EntityInterface $entity, $operation,
       return AccessResult::neutral();
     }
     else {
-      $current_user = \Drupal::currentUser();
-      $current_uid = $current_user->id();
+      $current_uid = $account->id();
 
       // Give access to users in the coordinators field.
       foreach ($coordinator as $user) {
         $uid = $user['target_id'];
         if ($uid == $current_uid) {
-          return AccessResult::allowed();
+          return AccessResult::allowed()
+            ->cachePerUser()
+            ->addCacheableDependency($entity)
+            ->addCacheableDependency($group_node);
         }
       }
+      return AccessResult::neutral()
+        ->cachePerUser()
+        ->addCacheableDependency($entity)
+        ->addCacheableDependency($group_node);
     }
   }
 
