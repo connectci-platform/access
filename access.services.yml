@@ -7,7 +7,8 @@ services:
     class: Drupal\access\AccessJwtKeyProvider
 
   # Canonical ACCESS ID -> user resolution, shared by the MCP acting-user gate
-  # and the JSON:API subscribers so every surface resolves identity identically.
+  # and the JSON:API views-parameter subscriber so both resolve identity
+  # identically.
   access.access_id_resolver:
     class: Drupal\access\AccessIdResolver
     arguments: ['@entity_type.manager', '@database']

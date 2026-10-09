@@ -38,9 +38,10 @@ class AccessRegistrantAccessControlHandlerTest extends KernelTestBase {
     'recurring_events',
     'recurring_events_registration',
     // Container dependencies, not assertions of this test:
-    // access_misc.services.yml wires JsonApiEmailToUuidSubscriber against
-    // access.access_id_resolver, and access's own eligibility_check_subscriber
-    // wires against access_affinitygroup.allocations_client (which needs key).
+    // access_misc.services.yml wires JsonApiViewsUserParameterSubscriber
+    // against access.access_id_resolver, and access's own
+    // eligibility_check_subscriber wires against
+    // access_affinitygroup.allocations_client (which needs key).
     // Same set EventKernelTestBase carries, for the same reason.
     'access',
     'access_affinitygroup',
