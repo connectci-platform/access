@@ -318,9 +318,7 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
 
     $form['registration_reminders']['widget'][0]['data']['reminder_data']['reminder_units']['#default_value'] = 'day';
 
-    // Remove required from fieldset 'recur_type' for a11y.
-    $form['recur_type']['widget']['#required'] = FALSE;
-    $form['field_event_type']['widget']['#required'] = FALSE;
+    _access_events_require_radio_groups($form, ['recur_type', 'field_event_type']);
 
     // Force h2 on titles.
     $form['field_affinity_group_node']['widget']['#title'] = Markup::create('<h2 class="label">' . $form['field_affinity_group_node']['widget']['#title'] . '</h2>');
@@ -851,6 +849,69 @@ function access_events_form_alter(&$form, FormStateInterface $form_state, $form_
     $form['event_registration']['widget'][0]['permitted_roles']['#default_value'] = ['authenticated'];
     $form['event_registration']['widget'][0]['permitted_roles']['#access'] = FALSE;
     $form['#validate'][] = 'access_events_eventseries_validate';
+  }
+}
+
+/**
+ * Keeps required radio-button widgets required, with accessible markup.
+ *
+ * With #required off, a missing value is only caught by entity validation,
+ * which reports an unlabeled "This value should not be null." in the summary
+ * at the top of the page. Keeping it on lets FormAPI flag the field itself
+ * ("Event Type field is required."); access_events_preprocess_fieldset()
+ * then fixes the fieldset markup and prints the error inline.
+ *
+ * @param array<string, mixed> $form
+ *   The form, altered by reference.
+ * @param string[] $fieldNames
+ *   Fields whose widget is a radios element (options_buttons, single value).
+ */
+function _access_events_require_radio_groups(array &$form, array $fieldNames): void {
+  foreach ($fieldNames as $fieldName) {
+    if (isset($form[$fieldName]['widget'])) {
+      $form[$fieldName]['widget']['#required'] = TRUE;
+      $form[$fieldName]['widget']['#access_events_required_radiogroup'] = TRUE;
+    }
+  }
+}
+
+/**
+ * Implements hook_preprocess_fieldset().
+ *
+ * Makes the radio groups flagged by _access_events_require_radio_groups() an
+ * accessible required radiogroup and prints their error inline.
+ *
+ * @param array<string, mixed> $variables
+ *   The fieldset template variables.
+ */
+function access_events_preprocess_fieldset(array &$variables): void {
+  $element = $variables['element'];
+  if (empty($element['#access_events_required_radiogroup'])) {
+    return;
+  }
+
+  // RenderElementBase::setAttributes() copies the input-level required and
+  // aria-required attributes onto the <fieldset>: `required` is not valid on
+  // a fieldset, and aria-required is not allowed on its implicit group role.
+  // The radiogroup role supports aria-required and aria-invalid, so expose
+  // the group as one and drop the invalid HTML attribute.
+  unset($variables['attributes']['required']);
+  $variables['attributes']['role'] = 'radiogroup';
+
+  // Core blanks fieldset errors unless inline_form_errors is enabled, which
+  // leaves only the summary at the top of the page. Print the error inside
+  // the fieldset and point the group's aria-describedby at it.
+  if (!empty($element['#errors']) && empty($element['#error_no_message']) && !empty($variables['attributes']['id'])) {
+    $errorId = $variables['attributes']['id'] . '--error';
+    $describedBy = $variables['attributes']['aria-describedby'] ?? '';
+    $variables['attributes']['aria-describedby'] = trim($describedBy . ' ' . $errorId);
+    // html_tag passes MarkupInterface through and XSS-filters plain strings.
+    $variables['errors'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'span',
+      '#attributes' => ['id' => $errorId],
+      '#value' => $element['#errors'],
+    ];
   }
 }
 

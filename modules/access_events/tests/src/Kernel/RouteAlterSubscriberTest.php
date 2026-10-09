@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\access_events\Kernel;
 
+use Drupal\access_events\Controller\EventSeriesTitleController;
 use Drupal\KernelTests\KernelTestBase;
+use Drupal\recurring_events\Entity\EventSeries;
+use Drupal\recurring_events\Entity\EventSeriesType;
 
 /**
  * Tests the _admin_route stripping performed by RouteAlterSubscriber.
@@ -121,6 +124,69 @@ class RouteAlterSubscriberTest extends KernelTestBase {
       ->getRouteByName('entity.eventseries.admin_collection');
 
     $this->assertTrue($route->getOption('_admin_route'));
+  }
+
+  /**
+   * Eventseries form routes use the access_events title callbacks.
+   *
+   * @dataProvider titleCallbackProvider
+   */
+  public function testTitleCallbacksAreOverridden(string $route_name, string $method): void {
+    $route = \Drupal::service('router.route_provider')
+      ->getRouteByName($route_name);
+
+    $this->assertSame(
+      '\\Drupal\\access_events\\Controller\\EventSeriesTitleController::' . $method,
+      $route->getDefault('_title_callback'),
+    );
+  }
+
+  /**
+   * Data provider for testTitleCallbacksAreOverridden().
+   */
+  public static function titleCallbackProvider(): array {
+    return [
+      ['entity.eventseries.add_form', 'addPageTitle'],
+      ['entity.eventseries.edit_form', 'editPageTitle'],
+      ['entity.eventseries.delete_form', 'deletePageTitle'],
+      ['entity.eventseries.clone_form', 'clonePageTitle'],
+      ['entity.eventseries.add_instance_form', 'addInstanceTitle'],
+    ];
+  }
+
+  /**
+   * Resolved titles contain the label with no placeholder markup.
+   */
+  public function testTitlesRenderWithoutPlaceholderMarkup(): void {
+    $series = EventSeries::create([
+      'type' => 'default',
+      'title' => 'Test Event',
+    ]);
+    $type = EventSeriesType::create(['id' => 'default', 'label' => 'Default']);
+
+    $titles = [];
+    $controller = EventSeriesTitleController::create(\Drupal::getContainer());
+    $titles['edit'] = $controller->editPageTitle($series);
+    $titles['delete'] = $controller->deletePageTitle($series);
+    $titles['clone'] = $controller->clonePageTitle($series);
+    $titles['add_instance'] = $controller->addInstanceTitle($series);
+    $titles['add_form'] = $controller->addPageTitle($type);
+
+    foreach ($titles as $name => $title) {
+      $string = (string) $title;
+      $this->assertStringNotContainsString('<em', $string, $name);
+      $this->assertStringNotContainsString('placeholder', $string, $name);
+    }
+    foreach (['edit', 'delete', 'clone', 'add_instance'] as $name) {
+      $this->assertStringContainsString('Test Event', (string) $titles[$name], $name);
+    }
+    $this->assertStringContainsString('Default', (string) $titles['add_form']);
+
+    // "@" placeholders must still escape the label.
+    $series->set('title', '<script>alert(1)</script>');
+    $string = (string) $controller->editPageTitle($series);
+    $this->assertStringNotContainsString('<script>', $string);
+    $this->assertStringContainsString('&lt;script&gt;', $string);
   }
 
 }
