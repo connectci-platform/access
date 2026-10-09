@@ -9,8 +9,9 @@ use Drupal\Core\Entity\EntityTypeManagerInterface;
  * Canonical ACCESS ID -> user resolution.
  *
  * This is the ONE place that turns an ACCESS ID into a Drupal user, shared by
- * the MCP acting-user gate and the JSON:API subscribers so every surface
- * resolves identity identically.
+ * the MCP acting-user gate and the JSON:API views-parameter subscriber (GET
+ * /jsonapi/views/* only; JSON:API writes are disabled) so both resolve identity
+ * identically.
  *
  * An ACCESS ID arrives in either the full ("apasquale1@access-ci.org") or bare
  * ("apasquale1") form, and is resolved against the openid_connect authmap
