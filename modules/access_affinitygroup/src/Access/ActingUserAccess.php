@@ -105,7 +105,8 @@ class ActingUserAccess {
    * Resolves the acting user from the X-Acting-User header.
    *
    * Delegates to the canonical resolver so the MCP gate and the JSON:API
-   * surface resolve identity identically. See \Drupal\access\AccessIdResolver
+   * views-parameter subscriber (GET /jsonapi/views/* only; JSON:API writes are
+   * disabled) resolve identity identically. See \Drupal\access\AccessIdResolver
    * for the full rationale (ACCESS ID only, via the openid_connect authmap; no
    * username and no email matching).
    *
