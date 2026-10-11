@@ -2,8 +2,10 @@
 
 namespace Drupal\Tests\access\Kernel;
 
+use Symfony\Component\HttpFoundation\Cookie;
 use Drupal\access\EventSubscriber\AccessAuthCookieSubscriber;
 use Drupal\Core\Session\AccountProxy;
+use Drupal\Core\Session\AnonymousUserSession;
 use Drupal\Core\Session\UserSession;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\Tests\access\Fixtures\TestJwtKeyProvider;
@@ -14,6 +16,7 @@ use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 use Psr\Log\NullLogger;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
@@ -30,8 +33,7 @@ class AccessAuthCookieSubscriberTest extends KernelTestBase {
 
   // access_affinitygroup is required, not incidental: access.services.yml
   // declares access.eligibility_check_subscriber, which depends on
-  // access_affinitygroup.allocations_client. Without it the container fails
-  // to compile.
+  // access_affinitygroup.allocations_client. Without it the container fails.
   protected static $modules = ['access', 'access_affinitygroup', 'user', 'system', 'field', 'text', 'filter', 'key'];
 
   /**
@@ -95,13 +97,15 @@ class AccessAuthCookieSubscriberTest extends KernelTestBase {
   /**
    * Runs the subscriber for $user and returns the SESSaccess_auth cookie.
    */
-  protected function runSubscriber(User $user, ?LoggerInterface $logger = NULL): ?\Symfony\Component\HttpFoundation\Cookie {
+  protected function runSubscriber(User $user, ?LoggerInterface $logger = NULL, ?Request $request = NULL, ?Response $response = NULL, bool $anonymous = FALSE): ?Cookie {
     $current_user = new AccountProxy(\Drupal::service('event_dispatcher'));
-    $current_user->setAccount(new UserSession([
-      'uid' => (int) $user->id(),
-      'name' => $user->getAccountName(),
-      'roles' => ['authenticated'],
-    ]));
+    $current_user->setAccount($anonymous
+      ? new AnonymousUserSession()
+      : new UserSession([
+        'uid' => (int) $user->id(),
+        'name' => $user->getAccountName(),
+        'roles' => ['authenticated'],
+      ]));
 
     $subscriber = new AccessAuthCookieSubscriber(
       new TestJwtKeyProvider($this->keypair['private']),
@@ -114,24 +118,47 @@ class AccessAuthCookieSubscriberTest extends KernelTestBase {
 
     $event = new ResponseEvent(
       \Drupal::service('http_kernel'),
-      Request::create('/'),
+      $request ?? Request::create('/'),
       HttpKernelInterface::MAIN_REQUEST,
-      new Response()
+      $response ?? new Response()
     );
     $subscriber->onResponse($event);
+    $this->lastResponse = $event->getResponse();
 
-    foreach ($event->getResponse()->headers->getCookies() as $cookie) {
+    $found = $this->authCookies($event->getResponse());
+    return $found ? reset($found) : NULL;
+  }
+
+  /**
+   * Every Set-Cookie for the identity cookie on a response.
+   *
+   * Plural deliberately: an implementation that clears on one domain and mints
+   * on another emits two, and taking only the first would call that a pass.
+   *
+   * @return array<int, \Symfony\Component\HttpFoundation\Cookie>
+   *   Every matching cookie on the response.
+   */
+  protected function authCookies(Response $response): array {
+    $found = [];
+    foreach ($response->headers->getCookies() as $cookie) {
       if ($cookie->getName() === AccessAuthCookieSubscriber::COOKIE_NAME) {
-        return $cookie;
+        $found[] = $cookie;
       }
     }
-    return NULL;
+    return $found;
   }
+
+  /**
+   * The response from the last runSubscriber() call.
+   *
+   * @var \Symfony\Component\HttpFoundation\Response|null
+   */
+  protected ?Response $lastResponse = NULL;
 
   /**
    * Decodes the cookie's JWT and returns the `sub` claim.
    */
-  protected function subClaim(\Symfony\Component\HttpFoundation\Cookie $cookie): string {
+  protected function subClaim(Cookie $cookie): string {
     $decoded = JWT::decode($cookie->getValue(), new Key($this->keypair['public'], 'ES256'));
     return $decoded->sub;
   }
@@ -151,6 +178,231 @@ class AccessAuthCookieSubscriberTest extends KernelTestBase {
     $this->assertSame('apasquale1@access-ci.org', $this->subClaim($cookie));
     // The happy path must stay silent — this warning fires per response.
     $this->assertSame([], $logger->getWarnings());
+  }
+
+  /**
+   * Logout clears the cookie, on the response shape production emits.
+   *
+   * Observed on production: the logout response carried no Set-Cookie for this
+   * cookie at all, leaving a live 18-hour token in the browser. The guard
+   * forces the clear. Parameterised over a redirect because every real logout
+   * redirects (UserController::logout, UserLogoutConfirm::submitForm, and the
+   * seamless module's TrustedRedirectResponse) — a plain 200 is a shape this
+   * code never sees in production.
+   *
+   * @dataProvider logoutCases
+   */
+  public function testLogoutClearsTheCookie(string $route, string $path, bool $redirect): void {
+    $key = substr(md5($route . $path . (int) $redirect), 0, 8);
+    $user = User::create([
+      'name' => 'ap-logout-' . $key,
+      'mail' => 'apl' . $key . '@example.com',
+      'status' => 1,
+    ]);
+    $user->save();
+    $this->writeAuthmap($user, 'apasquale-logout@access-ci.org');
+
+    $request = Request::create($path);
+    $request->attributes->set('_route', $route);
+    $request->cookies->set(AccessAuthCookieSubscriber::COOKIE_NAME, 'a-still-valid-token');
+
+    $cookie = $this->runSubscriber(
+      $user,
+      NULL,
+      $request,
+      $redirect ? new RedirectResponse('/') : new Response(),
+    );
+
+    $this->assertNotNull($cookie, 'The logout response must carry a Set-Cookie for the identity cookie.');
+    // Exactly one: clearing on one domain while minting on another would
+    // otherwise read as a pass.
+    $this->assertCount(1, $this->authCookies($this->lastResponse));
+    $this->assertEmpty($cookie->getValue(), 'The cookie is cleared, not re-minted.');
+    $this->assertLessThan(
+      \Drupal::time()->getRequestTime(),
+      $cookie->getExpiresTime(),
+      'The cleared cookie expires in the past so the browser deletes it.',
+    );
+    // A browser only deletes on matching name, domain and path; the rest must
+    // match too or the delete describes a different cookie.
+    $this->assertSame($this->expectedAttributes(), $this->attributesOf($cookie));
+  }
+
+  /**
+   * Logout clears even when the request did not carry the cookie.
+   *
+   * A cookie the browser holds but did not send — a scoping or timing edge —
+   * is exactly the one that must not survive logout. The seamless module
+   * expires its own cookie unconditionally for the same reason.
+   */
+  public function testLogoutClearsEvenWithoutTheCookieOnTheRequest(): void {
+    $user = User::create(['name' => 'ap-logout-nocookie', 'mail' => 'apln@example.com', 'status' => 1]);
+    $user->save();
+    $this->writeAuthmap($user, 'apasquale-nocookie@access-ci.org');
+
+    $request = Request::create('/user/logout');
+    $request->attributes->set('_route', 'user.logout');
+
+    $cookie = $this->runSubscriber($user, NULL, $request, new RedirectResponse('/'));
+
+    $this->assertNotNull($cookie, 'The clear is unconditional on the logout path.');
+    $this->assertEmpty($cookie->getValue());
+  }
+
+  /**
+   * The logout routes, with the real path each one is served at.
+   *
+   * The path matters: an implementation matching on path rather than route
+   * name passes a route-only provider. user.logout.confirm is deliberately
+   * absent — see LOGOUT_ROUTES and testConfirmFormGetDoesNotClear().
+   *
+   * @return array<string, array<int, string|bool>>
+   *   Route name, request path, and whether the response is a redirect.
+   */
+  public static function logoutCases(): array {
+    return [
+      'ui link, redirect' => ['user.logout', '/user/logout', TRUE],
+      'ui link, plain response' => ['user.logout', '/user/logout', FALSE],
+      'rest logout, redirect' => ['user.logout.http', '/user/logout', TRUE],
+      'rest logout, plain response' => ['user.logout.http', '/user/logout', FALSE],
+    ];
+  }
+
+  /**
+   * The confirm form's GET must not clear: nobody is logged out yet.
+   *
+   * User_logout() runs only in UserLogoutConfirm::submitForm(), so the GET
+   * that renders "are you sure?" belongs to a user who is still signed in and
+   * may click Cancel. Clearing there would drop their identity assertion
+   * everywhere while their session continues.
+   */
+  public function testConfirmFormGetDoesNotClear(): void {
+    $user = User::create(['name' => 'ap-confirm', 'mail' => 'apc@example.com', 'status' => 1]);
+    $user->save();
+    $this->writeAuthmap($user, 'apasquale-confirm@access-ci.org');
+
+    $request = Request::create('/user/logout/confirm');
+    $request->attributes->set('_route', 'user.logout.confirm');
+    $request->cookies->set(AccessAuthCookieSubscriber::COOKIE_NAME, 'a-still-valid-token');
+
+    $cookie = $this->runSubscriber($user, NULL, $request);
+
+    $this->assertNotNull($cookie);
+    $this->assertNotEmpty($cookie->getValue(), 'A still-authenticated user keeps their cookie.');
+    $this->assertSame('apasquale-confirm@access-ci.org', $this->subClaim($cookie));
+  }
+
+  /**
+   * Authenticated non-logout requests still get the rolling re-mint.
+   *
+   * The adjacent routes are the point: a guard matching "user.*" or anything
+   * containing "log" would break login and the OIDC callback, and a list that
+   * quietly grew extra entries would too.
+   *
+   * @dataProvider nonLogoutRoutes
+   */
+  public function testAuthenticatedNonLogoutRequestStillGetsTheCookie(string $route): void {
+    $key = substr(md5($route), 0, 8);
+    $user = User::create([
+      'name' => 'ap-keep-' . $key,
+      'mail' => 'apk' . $key . '@example.com',
+      'status' => 1,
+    ]);
+    $user->save();
+    $this->writeAuthmap($user, 'apasquale-keep@access-ci.org');
+
+    $request = Request::create('/some/page');
+    $request->attributes->set('_route', $route);
+
+    $cookie = $this->runSubscriber($user, NULL, $request);
+
+    $this->assertNotNull($cookie, "Route $route must still mint.");
+    $this->assertNotEmpty($cookie->getValue(), 'A normal authenticated response still mints the JWT.');
+    $this->assertSame('apasquale-keep@access-ci.org', $this->subClaim($cookie));
+  }
+
+  /**
+   * Routes adjacent to logout that must keep minting.
+   *
+   * @return array<string, array<int, string>>
+   *   One route name per case.
+   */
+  public static function nonLogoutRoutes(): array {
+    return [
+      'node page' => ['entity.node.canonical'],
+      'login' => ['user.login'],
+      'user page' => ['user.page'],
+      'own profile' => ['entity.user.canonical'],
+      'oidc callback' => [
+        'openid_connect.redirect_controller_redirect',
+      ],
+    ];
+  }
+
+  /**
+   * An anonymous request carrying the cookie has it cleared.
+   *
+   * The else branch: this is what catches a session that ended without passing
+   * through a logout route at all (expiry, a blocked account, the seamless
+   * module's safety logout).
+   */
+  public function testAnonymousRequestWithCookieIsCleared(): void {
+    $user = User::create(['name' => 'ap-anon', 'mail' => 'apa@example.com', 'status' => 1]);
+    $user->save();
+
+    $request = Request::create('/some/page');
+    $request->attributes->set('_route', 'entity.node.canonical');
+    $request->cookies->set(AccessAuthCookieSubscriber::COOKIE_NAME, 'a-stale-token');
+
+    $cookie = $this->runSubscriber($user, NULL, $request, NULL, TRUE);
+
+    $this->assertNotNull($cookie, 'A stale cookie on an anonymous request is cleared.');
+    $this->assertEmpty($cookie->getValue());
+  }
+
+  /**
+   * An anonymous request with no cookie sends no header, so pages stay cacheable.
+   */
+  public function testAnonymousRequestWithoutCookieSendsNothing(): void {
+    $user = User::create(['name' => 'ap-anon-none', 'mail' => 'apan@example.com', 'status' => 1]);
+    $user->save();
+
+    $request = Request::create('/some/page');
+    $request->attributes->set('_route', 'entity.node.canonical');
+
+    $this->assertNull($this->runSubscriber($user, NULL, $request, NULL, TRUE));
+  }
+
+  /**
+   * The attribute tuple setAuthCookie() mints with, which the clear must match.
+   *
+   * @return array<string, mixed>
+   *   Path, domain, secure, httponly and samesite.
+   */
+  protected function expectedAttributes(): array {
+    return [
+      'path' => '/',
+      'domain' => getenv('ACCESS_JWT_COOKIE_DOMAIN') ?: '.access-ci.org',
+      'secure' => TRUE,
+      'httponly' => TRUE,
+      'samesite' => 'none',
+    ];
+  }
+
+  /**
+   * The same tuple, read back off a cookie.
+   *
+   * @return array<string, mixed>
+   *   Path, domain, secure, httponly and samesite.
+   */
+  protected function attributesOf(Cookie $cookie): array {
+    return [
+      'path' => $cookie->getPath(),
+      'domain' => $cookie->getDomain(),
+      'secure' => $cookie->isSecure(),
+      'httponly' => $cookie->isHttpOnly(),
+      'samesite' => $cookie->getSameSite(),
+    ];
   }
 
   /**
@@ -276,4 +528,3 @@ class AccessAuthCookieSubscriberTest extends KernelTestBase {
   }
 
 }
-
