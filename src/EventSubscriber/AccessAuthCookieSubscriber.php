@@ -39,6 +39,30 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * private key; the agent validates using the public key published at the
  * site's JWKS endpoint. No shared secret is needed.
  *
+ * Three properties of this token are inherited rather than chosen, and a
+ * successor minting service for the connectci domains should decide each
+ * deliberately rather than copy them:
+ *
+ * 1. It cannot be revoked. Relying parties validate statelessly against the
+ *    JWKS — signature, exp, nbf, iss — and never ask the issuer whether a
+ *    token is still good. There is no jti, no denylist, no introspection.
+ *    Logout deletes the browser's copy; a copy taken beforehand stays valid
+ *    until exp. ood-api reached the same conclusion for its own bearer
+ *    tokens and wrote up the trade-offs, including why introspection at its
+ *    default caching interval buys nothing: see docs/mcp-auth.md, "A revoked
+ *    token keeps working until it expires", in the ood-api repo.
+ * 2. The 18-hour TTL is not a decision about how long an identity assertion
+ *    should live. It is read from the seamless module's
+ *    drupal_seamless_cilogon.seamless_cookie_expiration state, so the JWT
+ *    inherits the SSO presence cookie's lifetime. Changing one changes both.
+ * 3. Refresh only happens here. The rolling expiration above rolls on
+ *    responses from this site, because this is the only place holding the
+ *    private key. A user working in a consumer (the agent today, perhaps an
+ *    ood-api later) does not refresh anything, so their token ages on this
+ *    site's schedule no matter how active they are elsewhere. That is
+ *    survivable while the issuer is also the site people browse; it is not
+ *    once consumers are the primary surface.
+ *
  * @see \Drupal\drupal_seamless_cilogon\EventSubscriber\DrupalSeamlessCilogonEventSubscriber
  */
 class AccessAuthCookieSubscriber implements EventSubscriberInterface {
@@ -47,6 +71,18 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
    * Cookie name for the JWT identity cookie.
    */
   const COOKIE_NAME = 'SESSaccess_auth';
+
+  /**
+   * Routes whose response must clear the cookie.
+   *
+   * The UI link and the REST logout, both of which have logged the user out by
+   * the time the response is built. user.logout.confirm is deliberately absent:
+   * user_logout() runs only in its submitForm(), so the GET that renders "are
+   * you sure?" would clear the cookie of a user who is still signed in and may
+   * yet click Cancel. Its POST redirects, and the next request is anonymous
+   * with the cookie still attached, so the auth-state branch clears it there.
+   */
+  const LOGOUT_ROUTES = ['user.logout', 'user.logout.http'];
 
   /**
    * The JWT key provider service.
@@ -148,6 +184,27 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
    */
   public function onResponse(ResponseEvent $event) {
     if (!$event->isMainRequest()) {
+      return;
+    }
+
+    // Logout must clear this cookie, and the auth-state branch below cannot be
+    // relied on to do it. Observed on production: a /user/logout response that
+    // carried the session and SESSaccesscisso deletions but no Set-Cookie for
+    // this cookie at all, leaving an 18-hour identity token live in the browser
+    // after logout. Every precondition for the clear held on that response, so
+    // the reason it did not fire is still unexplained; forcing it here does not
+    // depend on knowing.
+    //
+    // It also covers the case where user_logout() never ran: a stale CSRF token
+    // makes /user/logout fail access during routing, so the account proxy is
+    // still authenticated at response time and the branch below would mint a
+    // fresh token on a logout URL.
+    //
+    // This must not depend on the seamless module, which is gated to one domain
+    // and can be switched off: logout clears the cookie either way.
+    $route = $event->getRequest()->attributes->get('_route');
+    if (in_array($route, self::LOGOUT_ROUTES, TRUE)) {
+      $this->clearAuthCookie($event, TRUE);
       return;
     }
 
@@ -362,11 +419,15 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
   /**
    * Clears the JWT cookie for anonymous users (e.g. after logout).
    */
-  protected function clearAuthCookie(ResponseEvent $event) {
-    // Only clear if the request actually carries the cookie (e.g. user just
-    // logged out). Sending Set-Cookie on every anonymous response prevents
-    // CDN/Varnish from caching the page.
-    if (!$event->getRequest()->cookies->has(self::COOKIE_NAME)) {
+  protected function clearAuthCookie(ResponseEvent $event, bool $force = FALSE) {
+    // Only clear if the request actually carries the cookie. Sending
+    // Set-Cookie on every anonymous response prevents CDN/Varnish from caching
+    // the page. On logout we send it regardless: that response is already
+    // uncacheable, and a cookie the browser holds but did not send (a timing
+    // or scoping edge case) is exactly the one that must not survive logout.
+    // The seamless module expires SESSaccesscisso unconditionally for the same
+    // reason.
+    if (!$force && !$event->getRequest()->cookies->has(self::COOKIE_NAME)) {
       return;
     }
 
