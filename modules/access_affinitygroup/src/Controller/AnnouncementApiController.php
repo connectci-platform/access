@@ -3,6 +3,7 @@
 namespace Drupal\access_affinitygroup\Controller;
 
 use Drupal\access_affinitygroup\Access\CoordinatorAccess;
+use Drupal\access_misc\Plugin\Util\SiteTools;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\node\Entity\Node;
@@ -99,6 +100,10 @@ class AnnouncementApiController extends ControllerBase {
       'title' => $body['title'] ?? '',
       'field_affinity_group_node' => array_map(fn (NodeInterface $n) => $n->id(), $groupNodes),
       'field_tags' => $this->resolveTagTerms($body['field_tags'] ?? []),
+      // Announcements belong to the ACCESS Support site. Domain 3.x only
+      // defaults this field on entity forms, so a node created here would
+      // otherwise save with no domain and drop out of the news views.
+      'field_domain_access' => [SiteTools::DOMAIN_ACCESS_SUPPORT],
     ];
     $this->applyContentFields($values, $body);
 
