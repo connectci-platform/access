@@ -213,11 +213,17 @@ class SocialShareImageMetatagTest extends KernelTestBase {
 
   /**
    * Tests an empty share image entry falls back to the logo.
+   *
+   * The logo is whatever size that file happens to be, so no dimensions are
+   * claimed for it. Only a configured share image and og_share derivatives are
+   * known to be 1200x630. D8-2900 adds the missing per-domain artwork.
    */
   public function testShareImageFallsBackToLogo(): void {
     $this->setLogoConfig('', self::LOGO_PATH);
     $items = $this->alter($this->buildAttachments(), $raw);
     $this->assertSame(self::BASE . self::LOGO_PATH, $items['og_image']['content']);
+    $this->assertArrayNotHasKey('og_image_width', $items);
+    $this->assertArrayNotHasKey('og_image_height', $items);
     $this->assertNoOgImageUrl($raw);
   }
 

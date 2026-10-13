@@ -1786,10 +1786,15 @@ function _access_misc_get_domain_logo_url() {
  *
  * Falls back to the domain logo when no share image is configured.
  *
+ * @param bool $configured_only
+ *   When TRUE, return only a share image configured for the domain, never the
+ *   domain logo fallback. Callers that assert 1200x630 dimensions need this:
+ *   a configured share image is known to be that size, a logo is any size.
+ *
  * @return string|null
  *   The share image URL or NULL if not found.
  */
-function _access_misc_get_domain_share_image_url() {
+function _access_misc_get_domain_share_image_url(bool $configured_only = FALSE) {
   try {
     $domain_negotiator = \Drupal::service('domain.negotiator');
     $active_domain = $domain_negotiator->getActiveDomain();
@@ -1800,6 +1805,10 @@ function _access_misc_get_domain_share_image_url() {
 
     $config = \Drupal::config('access_misc.domain_logos');
     $share_url = $config->get('share_images.' . $active_domain->id());
+
+    if ($configured_only) {
+      return $share_url ?: NULL;
+    }
 
     return $share_url ?: _access_misc_get_domain_logo_url();
   }
@@ -1917,10 +1926,14 @@ function access_misc_metatags_attachments_alter(array &$attachments) {
       ];
     }
 
-    // The share image and og_share derivatives are known to be 1200x630.
-    // Dimensions of any other image are unknown, so leave them out.
+    // A configured share image and og_share derivatives are known to be
+    // 1200x630. Dimensions of any other image are unknown, so leave them out.
+    // The logo _access_misc_get_domain_share_image_url() falls back to is any
+    // size, so a domain with no share image configured gets no dimensions
+    // rather than a false 1200x630 claim (D8-2900 adds the missing artwork).
+    $configured_share_image = _access_misc_get_domain_share_image_url(TRUE);
     $is_share_image = $final_og_image !== '' && (
-      ($share_image && $final_og_image === $base_url . $share_image)
+      ($configured_share_image && $final_og_image === $base_url . $configured_share_image)
       || str_contains($final_og_image, '/styles/og_share/')
     );
     if ($is_share_image) {
