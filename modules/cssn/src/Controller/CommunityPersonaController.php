@@ -250,22 +250,46 @@ class CommunityPersonaController extends ControllerBase {
       ->condition('uri', '/form/resource')
       ->accessCheck(FALSE)
       ->execute();
+    // access_cilink is an optional integration: without it, every submission
+    // is listed as before.
+    $repository = NULL;
+    if ($this->moduleHandler()->moduleExists('access_cilink')) {
+      /** @var \Drupal\access_cilink\KbResourceRepository $repository */
+      // Optional integration, so not a constructor dependency.
+      // phpcs:ignore DrupalPractice.Objects.GlobalDrupal.GlobalDrupal
+      $repository = \Drupal::service('access_cilink.kb_resource_repository'); // @phpstan-ignore-line
+    }
+    $submissions = $submission_storage->loadMultiple($ws_results);
+    if ($public === TRUE && $repository !== NULL) {
+      // The public profile only lists approved, non-private resources.
+      $submissions = array_filter($submissions, fn($ws) => $repository->isPublic($ws));
+    }
     $ws_link = "<ul>";
-    if ($ws_results == NULL && $public === FALSE) {
+    if (!$submissions && $public === FALSE) {
       $ws_link = '<p class="mb-3">' . $this->t('You currently have not contributed to the Knowledge Base. Click below to contribute.') . "</p>";
     }
-    if ($ws_results == NULL && $public === TRUE) {
+    if (!$submissions && $public === TRUE) {
       $ws_link = '<p>' . $this->t('No contributions to the Knowledge Base.') . "</p>";
     }
     if ($ws_link == "<ul>") {
       $ws_link = "<ul class='list-unstyled list-none mx-0 my-3 p-0'>";
       $n = 1;
-      foreach ($ws_results as $ws_result) {
+      foreach ($submissions as $ws) {
         $stripe_class = $n % 2 == 0 ? 'bg-light bg-light-teal' : '';
-        $ws = $submission_storage->load($ws_result);
         $url = '/knowledge-base/resources/' . $ws->id();
         $ws_data = $ws->getData();
-        $ws_link .= '<li class="p-3 ' . $stripe_class . '"><a href=' . $url . ' class="font-bold underline hover--no-underline hover--text-dark-teal">' . $ws_data['title'] . '</a></li>';
+        // The list is output as raw markup, so escape the user-entered title.
+        $label = Html::escape((string) ($ws_data['title'] ?? ''));
+        if ($public === FALSE && $repository !== NULL) {
+          // The owner sees everything, with the reason a resource is hidden.
+          if ((int) ($ws_data['approved'] ?? 0) !== 1) {
+            $label .= ' ' . $this->t('(pending approval)');
+          }
+          if ((int) ($ws_data['private'] ?? 0) === 1) {
+            $label .= ' ' . $this->t('(private)');
+          }
+        }
+        $ws_link .= '<li class="p-3 ' . $stripe_class . '"><a href=' . $url . ' class="font-bold underline hover--no-underline hover--text-dark-teal">' . $label . '</a></li>';
         $n++;
       }
       $ws_link .= '</ul>';
@@ -1123,7 +1147,8 @@ class CommunityPersonaController extends ControllerBase {
           'appverse_contributions' => $appverse_contributions,
         ],
         '#cache' => [
-          'tags' => ['community_persona'],
+          // The Knowledge Base list depends on resource approval state.
+          'tags' => ['community_persona', 'webform_submission_list:resource'],
         ],
       ];
       return $persona_page;

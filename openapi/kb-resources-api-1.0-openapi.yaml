@@ -1,0 +1,191 @@
+openapi: 3.0.3
+info:
+  title: ACCESS KB Resources API
+  description: |
+    Public JSON endpoint exposing ACCESS Knowledge Base resources (CI links) for
+    RAG ingestion and discovery.
+
+    ## What's in it
+    - **KB Resources listing** — fetch all approved Knowledge Base resources with
+      title, description, category, tags, skill level, external links, and voting
+      metadata. Filtered by requesting domain; results are identical regardless of
+      current user.
+
+    ## No pagination
+    The endpoint returns the entire collection (~350 resources) in a single response.
+    Results are cached up to 15 minutes by the server and may be cached longer by
+    external reverse proxies and CDNs.
+
+    ## Access control
+    Only approved and non-private resources for the requesting domain are returned.
+    The `url` field points to a detail page that enforces its own access control
+    (approved, not private, or allowed on an affinity group the user can access).
+
+    ## Authentication
+    No authentication required — this is a public API.
+
+  version: 1.0.0
+  contact:
+    name: ACCESS Support
+    url: https://support.access-ci.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://support.access-ci.org/api/1.0
+    description: Production server
+
+paths:
+  /kb-resources:
+    get:
+      summary: List all Knowledge Base resources
+      description: |
+        Returns a full listing of approved Knowledge Base resources (CI links) for
+        the requesting domain, with title, description, category, tags, skill level,
+        external links, voting count, and metadata.
+
+        Results are identical regardless of the current user (no personalization).
+        Only approved and non-private resources are included. External links are
+        normalized (title-only URLs promoted to `url`, invalid/empty links dropped).
+
+        This endpoint is intended for crawlers and RAG ingestion pipelines. No
+        pagination; returns the entire collection (~350 resources) in a single response.
+      operationId: getKbResources
+      tags:
+        - KB Resources
+      responses:
+        '200':
+          description: Knowledge Base resources listing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KbResourcesIndex'
+
+components:
+  schemas:
+    KbResourceLink:
+      type: object
+      description: External link with title and URL.
+      properties:
+        title:
+          type: string
+          description: Link title. If empty, defaults to the URL. Empty only when URL is also empty (link was dropped).
+          example: "VIEW: Getting Started Video"
+        url:
+          type: string
+          format: uri
+          description: Absolute URL. Set to title if title was a valid URL and url was empty (normalization). Always a valid absolute URL when present.
+          example: "https://example.com/video"
+
+    KbResource:
+      type: object
+      description: A Knowledge Base resource (CI link) with metadata.
+      properties:
+        id:
+          type: integer
+          description: Webform submission ID (sid). Globally unique; the same resource has the same id on every domain it is listed on.
+          example: 123
+        title:
+          type: string
+          description: Resource title.
+          example: "Getting Started with Allocations"
+        description:
+          type: string
+          description: |
+            Resource description as plain text (no HTML markup). Block-level boundaries
+            (`<p>`, `<br>`, `<li>`, `<h*>`, `<div>`) are converted to newlines.
+            Multiple newlines are collapsed to a maximum of two. Leading and trailing
+            whitespace is trimmed.
+          example: "Plain text\n\nSecond paragraph"
+        links:
+          type: array
+          description: |
+            External links (typically CI resource links). May be empty. Normalized:
+            - Title-only URLs (title is valid absolute URL, url empty) are promoted to url;
+            - Links with invalid/empty final URL are dropped;
+            - Empty title defaults to url.
+          items:
+            $ref: '#/components/schemas/KbResourceLink'
+          example:
+            - title: "VIEW: Getting Started Video"
+              url: "https://example.com/video"
+            - title: "https://www.ci.org"
+              url: "https://www.ci.org"
+        url:
+          type: string
+          format: uri
+          description: Absolute URL of the resource detail page (on the requesting domain).
+          example: "https://support.access-ci.org/knowledge-base/resources/123"
+        category:
+          type: string
+          description: |
+            Option label of the resource category (e.g. "Video", "Documentation").
+            Falls back to the raw option key if the option no longer exists.
+          example: "Video"
+        category_id:
+          type: string
+          description: Raw option key of the resource category (e.g. `video_link`).
+          example: "video_link"
+        tags:
+          type: array
+          description: |
+            Strings from the Tags taxonomy term names. Excludes terms that no longer exist.
+            May be empty.
+          items:
+            type: string
+          example: ["Getting Started", "Allocations"]
+        skill_level:
+          type: array
+          description: |
+            Strings from the Skill Level taxonomy term names. Excludes terms that no longer
+            exist. May be empty.
+          items:
+            type: string
+          example: ["Beginner"]
+        vote_count:
+          type: integer
+          description: Number of upvotes the resource has received.
+          example: 4
+        domain:
+          type: array
+          description: |
+            List of domain codes (connected domain identifiers, `field_region_connected_domain`
+            values). Resources tagged with multiple domains will be listed on all of them.
+          items:
+            type: string
+          example: ["access-support"]
+        last_modified:
+          type: string
+          format: date-time
+          description: |
+            ISO 8601 timestamp of the submission's last change (webform_submission.changed).
+            Only tracks submission saves; vote counts and term name changes do not bump it.
+          example: "2026-09-01T12:00:00-05:00"
+
+    KbResourcesIndex:
+      type: object
+      description: Full listing of Knowledge Base resources for the requesting domain.
+      properties:
+        version:
+          type: integer
+          description: Response schema version (currently `1`).
+          example: 1
+        generated_at:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp when this index was generated.
+          example: "2026-10-01T10:00:00-05:00"
+        domain:
+          type: string
+          description: |
+            Domain code of the requesting domain (connected domain identifier,
+            `field_region_connected_domain` value).
+          example: "access-support"
+        kb_resources:
+          type: array
+          description: |
+            All approved, non-private Knowledge Base resources for the requesting domain,
+            sorted by submission ID. Approximately 350 resources total across all domains.
+          items:
+            $ref: '#/components/schemas/KbResource'

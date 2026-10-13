@@ -1,0 +1,29 @@
+{#
+/**
+ * @file
+ * Plain field output for the content API text view mode.
+ *
+ * Independent of the active theme so extracted text is stable. The output
+ * depends on the field's label_display setting:
+ * - hidden or visually_hidden: one block per item, no label.
+ * - inline: "Label: item, item" on one line.
+ * - above (or any other visible setting): the label as an h3 heading, followed
+ *   by one block per item. The text extractor turns this into "### Label" and
+ *   the value on the following lines.
+ *
+ * Core only sets label_hidden for "hidden", so visually_hidden is checked via
+ * label_display.
+ */
+#}
+{% if label_hidden or label_display == 'visually_hidden' %}
+  {% for item in items %}
+    <div>{{ item.content }}</div>
+  {% endfor %}
+{% elseif label_display == 'inline' %}
+  <p>{{ label }}: {% for item in items %}{{ item.content }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+{% else %}
+  <h3>{{ label }}</h3>
+  {% for item in items %}
+    <div>{{ item.content }}</div>
+  {% endfor %}
+{% endif %}

@@ -6,6 +6,8 @@ access_cilink.cilinks:
     _title_callback: '\Drupal\access_cilink\Controller\CiLinkController::getTitle'
   requirements:
     _permission: 'access content'
+    # Approved/private/owner/affinity-group rules; see KbResourceAccess.
+    _custom_access: 'access_cilink.kb_resource_access:access'
 access_cilink.cilink:
   path: '/ci-link/{sid}'
   defaults:
@@ -20,8 +22,21 @@ access_cilink.kb_cilinks:
     _title_callback: '\Drupal\access_cilink\Controller\CiLinkController::getTitle'
   requirements:
     _permission: 'access content'
+    # Approved/private/owner/affinity-group rules; see KbResourceAccess.
+    _custom_access: 'access_cilink.kb_resource_access:access'
 access_cilink.cilink_redirect:
   path: '/knowledge-base/ci-links/{sid}'
   defaults:
     _controller: '\Drupal\access_cilink\Controller\CiLinkController::redirectToResource'
-
+  requirements:
+    # Only redirects to /knowledge-base/resources/{sid}, which is gated.
+    _access: 'TRUE'
+access_cilink.kb_resources_api:
+  path: '/api/1.0/kb-resources'
+  defaults:
+    _controller: '\Drupal\access_cilink\Controller\KbResourceApiController::index'
+  requirements:
+    # Public unauthenticated API: approved, non-private KB resources only.
+    _access: 'TRUE'
+  options:
+    no_cache: FALSE

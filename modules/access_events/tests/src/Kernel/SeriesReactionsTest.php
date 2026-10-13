@@ -553,4 +553,41 @@ class SeriesReactionsTest extends EventKernelTestBase {
     );
   }
 
+  /**
+   * A plain series update must not emit contrib's "instance statuses" message.
+   *
+   * The site moderates eventseries with `editorial` and eventinstance with
+   * `editorial_eventinstance`, so recurring_events can never mirror the series
+   * state onto its instances. Patched contrib stays quiet instead of reporting
+   * every instance as skipped on every save, and leaves instance states alone.
+   */
+  public function testSeriesUpdateEmitsNoInstanceStatusMessage(): void {
+    $coordinator = $this->createUser();
+    $series = $this->makePublishedCustomSeriesWithDate($coordinator);
+    $seriesId = (int) $series->id();
+
+    $before = [];
+    foreach ($this->loadInstances(EventSeries::load($seriesId)) as $instance) {
+      $before[$instance->id()] = $instance->get('moderation_state')->value;
+    }
+    $this->assertNotEmpty($before);
+
+    \Drupal::messenger()->deleteAll();
+    $series = EventSeries::load($seriesId);
+    $series->set('title', 'Renamed series');
+    $series->save();
+
+    foreach (\Drupal::messenger()->all() as $messages) {
+      foreach ($messages as $message) {
+        $this->assertStringNotContainsString('instance statuses', (string) $message);
+      }
+    }
+
+    $after = [];
+    foreach ($this->loadInstances(EventSeries::load($seriesId)) as $instance) {
+      $after[$instance->id()] = $instance->get('moderation_state')->value;
+    }
+    $this->assertSame($before, $after);
+  }
+
 }

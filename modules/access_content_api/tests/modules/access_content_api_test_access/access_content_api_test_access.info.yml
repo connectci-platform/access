@@ -1,0 +1,6 @@
+name: 'Access Content API test access'
+type: module
+description: 'Denies a sentinel node and a sentinel field to anonymous users, for access_content_api kernel tests.'
+package: Testing
+core_version_requirement: ^10 || ^11
+hidden: true

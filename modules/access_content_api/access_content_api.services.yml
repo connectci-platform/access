@@ -13,11 +13,8 @@ services:
   access_content_api.layout_walker:
     class: Drupal\access_content_api\LayoutWalker
     arguments:
-      - '@entity_type.manager'
-      - '@entity_display.repository'
       - '@plugin.manager.block'
       - '@renderer'
-      - '@current_user'
       - '@logger.channel.access_content_api'
       - '@access_content_api.eligibility'
 
@@ -27,6 +24,7 @@ services:
       - '@access_content_api.layout_walker'
       - '@access_content_api.text_extractor'
       - '@renderer'
+      - '@account_switcher'
 
   logger.channel.access_content_api:
     parent: logger.channel_base

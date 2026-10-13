@@ -9,6 +9,7 @@ use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Cache\CacheableResponse;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Session\AccountInterface;
+use Drupal\Core\Session\AccountSwitcherInterface;
 use Drupal\Core\Session\AnonymousUserSession;
 use Drupal\domain\DomainNegotiatorInterface;
 use Drupal\node\NodeInterface;
@@ -29,6 +30,7 @@ final class ContentController extends ControllerBase {
     protected ContentEligibility $eligibility,
     protected RenderHash $renderHash,
     protected DomainNegotiatorInterface $domainNegotiator,
+    protected AccountSwitcherInterface $accountSwitcher,
   ) {}
 
   /**
@@ -40,6 +42,7 @@ final class ContentController extends ControllerBase {
       $container->get('access_content_api.eligibility'),
       $container->get('access_content_api.render_hash'),
       $container->get('domain.negotiator'),
+      $container->get('account_switcher'),
     );
   }
 
@@ -93,6 +96,11 @@ final class ContentController extends ControllerBase {
       return $this->notFound();
     }
 
+    // Private affinity groups are never served, regardless of the caller.
+    if ($this->eligibility->isPrivate($node)) {
+      return $this->notFound();
+    }
+
     if (!$this->eligibility->hasTextViewMode($node->bundle())) {
       return $this->notFound();
     }
@@ -110,7 +118,18 @@ final class ContentController extends ControllerBase {
     // Enforce node-access grants as the anonymous user, so this endpoint never
     // serves content that an anonymous visitor (and the access-checked index)
     // could not see. load() does not access-check, so this must be explicit.
-    if (!$node->access('view', $this->anonymousUser())) {
+    // Access hooks that read \Drupal::currentUser() instead of the passed
+    // account (e.g. access_affinitygroup_entity_access()) must also see
+    // anonymous, so switch for the duration of the check.
+    $anonymous = $this->anonymousUser();
+    $this->accountSwitcher->switchTo($anonymous);
+    try {
+      $allowed = $node->access('view', $anonymous);
+    }
+    finally {
+      $this->accountSwitcher->switchBack();
+    }
+    if (!$allowed) {
       return $this->notFound();
     }
 
@@ -123,7 +142,7 @@ final class ContentController extends ControllerBase {
     $cacheMetadata->setCacheMaxAge(self::CACHE_MAX_AGE);
     // url.site: the eligibility decision and emitted URL vary by the
     // serving domain.
-    $cacheMetadata->setCacheContexts(array_merge(['user.roles:anonymous', 'url.site'], $extraCacheContexts));
+    $cacheMetadata->setCacheContexts(array_merge(['url.site'], $extraCacheContexts));
 
     if ($request->headers->get('If-None-Match') === $etag) {
       // Carry the same cache metadata as the 200 so cache layers vary the 304

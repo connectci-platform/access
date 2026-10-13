@@ -80,6 +80,31 @@ class EventCrudApiController extends ControllerBase {
   }
 
   /**
+   * Refuses a custom-date list larger than the occurrence cap.
+   *
+   * Defense in depth: reject an over-large custom-date list from the RAW body,
+   * before storage->create()/convertEntityConfigToArray() materializes ~2N
+   * DrupalDateTime objects. validateConfig() also caps this (via
+   * validateCustom), but that check only fires AFTER the conversion has
+   * already built the objects — so gate on the cheap raw count first. Shared by
+   * the preview and commit paths.
+   *
+   * @param array $body
+   *   The decoded request body.
+   *
+   * @return \Symfony\Component\HttpFoundation\JsonResponse|null
+   *   A 422 response when the list is over the cap, NULL otherwise.
+   */
+  private function refuseOversizedCustomDates(array $body): ?JsonResponse {
+    if (($body['recur_type'] ?? '') === 'custom'
+      && is_array($body['custom_dates'] ?? NULL)
+      && count($body['custom_dates']) > EffectiveCreationSet::MAX_ESTIMATED_OCCURRENCES) {
+      return $this->refuse('validation_error', sprintf('This event has more than %d dates; reduce the number of dates.', EffectiveCreationSet::MAX_ESTIMATED_OCCURRENCES), 422);
+    }
+    return NULL;
+  }
+
+  /**
    * The whitelisted content fields the create endpoint copies from the body.
    *
    * moderation_state / status are deliberately absent: create locks the series
@@ -232,7 +257,9 @@ class EventCrudApiController extends ControllerBase {
    * Gated by a coordinator check against the REQUESTED affinity groups (before
    * the series exists there is no saved entity to run userMayManageSeries on).
    * Always creates moderation_state = draft; the caller cannot self-publish.
-   * The series insert hook auto-spawns one instance per custom date.
+   * The series insert hook auto-spawns one instance per custom date. The commit
+   * path runs EffectiveCreationSet::validateConfig() before save(), so an
+   * unbounded recurrence config is a 422 rather than a runaway insert.
    *
    * Named createEvent (not create) because ControllerBase::create() is the
    * static service factory and cannot be overridden by an instance method.
@@ -262,6 +289,9 @@ class EventCrudApiController extends ControllerBase {
       return $this->refuse('validation_error', 'recur_type is required.', 422);
     }
     if ($refusal = $this->refuseInvalidTimezone($body)) {
+      return $refusal;
+    }
+    if ($refusal = $this->refuseOversizedCustomDates($body)) {
       return $refusal;
     }
 
@@ -319,6 +349,14 @@ class EventCrudApiController extends ControllerBase {
       return $this->refuse('forbidden', 'You may not create events.', 403);
     }
 
+    // Pre-compute DoS guard: save()'s insert hook materializes the full
+    // occurrence set, so refuse an unbounded recurrence config (bad buffer
+    // unit, sub-floor step, overlong span) BEFORE anything is persisted.
+    assert($series instanceof EventSeries);
+    if ($error = $this->effectiveCreationSet->validateConfig($series)) {
+      return $this->refuse('validation_error', $error, 422);
+    }
+
     // Validate before save: the browser form enforces the site's field
     // constraints (required field_event_type / field_location, allowed_values,
     // link format) on every create, and skipping them here birthed drafts the
@@ -362,7 +400,8 @@ class EventCrudApiController extends ControllerBase {
    * NOTHING — it stops before save().
    *
    * KEPT from the commit path: the acting-user check (done by the caller), the
-   * recur_type required-gate, the validateConfig() call, and the entity
+   * recur_type required-gate, the timezone gate, the raw custom-dates cap
+   * (refuseOversizedCustomDates()), the validateConfig() call, and the entity
    * create-permission gate ($series->access('create')). That create gate is
    * load-bearing: a preview is a create-shaped capability, so skipping it would
    * widen the compute (a repeatable expensive materialization even with the
@@ -393,15 +432,8 @@ class EventCrudApiController extends ControllerBase {
       return $refusal;
     }
 
-    // Defense in depth: reject an over-large custom-date list from the RAW
-    // body, before storage->create()/convertEntityConfigToArray() materializes
-    // ~2N DrupalDateTime objects. validateConfig() also caps this (via
-    // validateCustom), but that check only fires AFTER the conversion has
-    // already built the objects — so gate on the cheap raw count first.
-    if (($body['recur_type'] ?? '') === 'custom'
-      && is_array($body['custom_dates'] ?? NULL)
-      && count($body['custom_dates']) > EffectiveCreationSet::MAX_ESTIMATED_OCCURRENCES) {
-      return $this->refuse('validation_error', sprintf('This event has more than %d dates; reduce the number of dates.', EffectiveCreationSet::MAX_ESTIMATED_OCCURRENCES), 422);
+    if ($refusal = $this->refuseOversizedCustomDates($body)) {
+      return $refusal;
     }
 
     $values = [

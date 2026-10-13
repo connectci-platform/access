@@ -5,6 +5,8 @@ namespace Drupal\access_content_api;
 use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Render\RenderContext;
 use Drupal\Core\Render\RendererInterface;
+use Drupal\Core\Session\AccountSwitcherInterface;
+use Drupal\Core\Session\AnonymousUserSession;
 use Drupal\node\NodeInterface;
 
 /**
@@ -22,6 +24,7 @@ class RenderHash {
     protected LayoutWalker $layoutWalker,
     protected TextExtractor $textExtractor,
     protected RendererInterface $renderer,
+    protected AccountSwitcherInterface $accountSwitcher,
   ) {}
 
   /**
@@ -34,10 +37,17 @@ class RenderHash {
     // hash. If profiling ever shows static #attached / placeholder state
     // bleeding across iterations, wrap LayoutWalker::render in a try/finally
     // that calls the renderer's reset path; not expected to be needed.
-    $html = $this->renderer->executeInRenderContext(
-      new RenderContext(),
-      fn() => $this->layoutWalker->render($node, $cacheMetadata)
-    );
+    // The API only serves what an anonymous visitor sees, whoever calls it.
+    $this->accountSwitcher->switchTo(new AnonymousUserSession());
+    try {
+      $html = $this->renderer->executeInRenderContext(
+        new RenderContext(),
+        fn() => $this->layoutWalker->render($node, $cacheMetadata)
+      );
+    }
+    finally {
+      $this->accountSwitcher->switchBack();
+    }
     return $this->textExtractor->extract($html);
   }
 

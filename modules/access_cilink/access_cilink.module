@@ -125,6 +125,9 @@ function access_cilink_preprocess_views_view_field(&$variables) {
     }
     $type = $data['category'];
 
+    // Safety net: approved and private are enforced in the search query and by
+    // route access (KbResourceAccess). These render-time checks are no longer
+    // the primary gate.
     // Only show approved resources.
     if ($data['approved'] == 0) {
       $variables['output'] = '';

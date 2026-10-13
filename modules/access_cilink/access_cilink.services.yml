@@ -3,3 +3,17 @@ services:
     class: Drupal\access_cilink\EventSubscriber\FlagSubscriber
     tags:
       - { name: event_subscriber }
+
+  access_cilink.kb_resource_repository:
+    class: Drupal\access_cilink\KbResourceRepository
+    arguments:
+      - '@database'
+      - '@entity_type.manager'
+      - '@flag.count'
+      - '@domain.negotiator'
+
+  access_cilink.kb_resource_access:
+    class: Drupal\access_cilink\Access\KbResourceAccess
+    arguments:
+      - '@access_cilink.kb_resource_repository'
+      - '@entity_type.manager'

@@ -1,0 +1,6 @@
+name: 'Access CI Link test'
+description: 'Test support for access_cilink kernel tests.'
+type: module
+package: Testing
+core_version_requirement: ^10 || ^11
+hidden: true

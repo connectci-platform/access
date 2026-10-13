@@ -24,6 +24,24 @@ class ContentEligibility {
   const DEFAULT_SUPPORT_DOMAIN_ID = 'amp_cyberinfrastructure_org';
   const DEFAULT_TEXT_VIEW_MODE = 'text';
 
+  /**
+   * Text bundles left out of the content index (still served by id/path).
+   */
+  const INDEX_EXCLUDED_BUNDLES = ['access_news'];
+
+  /**
+   * Per-bundle state allowlists applied to the content index.
+   *
+   * Keyed by bundle; 'field' is the state field and 'values' the allowed
+   * values. Nodes outside the list stay reachable by id/path.
+   */
+  const INDEX_STATE_ALLOWLIST = [
+    'match_engagement' => [
+      'field' => 'field_status',
+      'values' => ['in_progress', 'complete'],
+    ],
+  ];
+
   public function __construct(
     protected ConfigFactoryInterface $configFactory,
     protected EntityTypeManagerInterface $entityTypeManager,
@@ -51,6 +69,62 @@ class ContentEligibility {
   public function hasTextViewMode(string $bundle): bool {
     $modes = $this->entityDisplayRepository->getViewModeOptionsByBundle('node', $bundle);
     return isset($modes[$this->getTextViewMode()]);
+  }
+
+  /**
+   * Returns the node bundles that have the configured text view mode.
+   *
+   * @return string[]
+   *   The bundle machine names.
+   */
+  public function getTextBundles(): array {
+    $bundles = [];
+    $ids = array_keys($this->entityTypeManager->getStorage('node_type')->loadMultiple());
+    foreach ($ids as $bundle) {
+      if ($this->hasTextViewMode((string) $bundle)) {
+        $bundles[] = (string) $bundle;
+      }
+    }
+    return $bundles;
+  }
+
+  /**
+   * Returns the text bundles that are listed in the content index.
+   *
+   * @return string[]
+   *   The bundle machine names.
+   */
+  public function getIndexBundles(): array {
+    return array_values(array_diff($this->getTextBundles(), self::INDEX_EXCLUDED_BUNDLES));
+  }
+
+  /**
+   * Returns TRUE if the node may be listed in the content index.
+   *
+   * Fails closed: a bundle with a state allowlist requires the node to have
+   * the field with a value in the list.
+   */
+  public function isIndexable(NodeInterface $node): bool {
+    $bundle = $node->bundle();
+    if (in_array($bundle, self::INDEX_EXCLUDED_BUNDLES, TRUE)) {
+      return FALSE;
+    }
+    if (isset(self::INDEX_STATE_ALLOWLIST[$bundle])) {
+      $rule = self::INDEX_STATE_ALLOWLIST[$bundle];
+      if (!$node->hasField($rule['field']) || $node->get($rule['field'])->isEmpty()) {
+        return FALSE;
+      }
+      return in_array($node->get($rule['field'])->value, $rule['values'], TRUE);
+    }
+    return TRUE;
+  }
+
+  /**
+   * Returns TRUE if the node is a private affinity group.
+   */
+  public function isPrivate(NodeInterface $node): bool {
+    return $node->hasField('field_ag_private')
+      && (int) $node->get('field_ag_private')->value === 1;
   }
 
   /**
