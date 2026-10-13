@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\access_events\Kernel;
 
+use Drupal\access_events\EffectiveCreationSet;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\Core\Session\AccountInterface;
@@ -554,6 +555,125 @@ class EventCrudCreateTest extends EventKernelTestBase {
     $data = json_decode($response->getContent(), TRUE);
     $series = \Drupal::entityTypeManager()->getStorage('eventseries')->load($data['series_id']);
     $this->assertSame('Training', $series->get('field_event_type')->value);
+  }
+
+  /**
+   * Counts persisted eventseries, bypassing access checks.
+   */
+  private function seriesCount(): int {
+    return (int) \Drupal::entityQuery('eventseries')->accessCheck(FALSE)->count()->execute();
+  }
+
+  /**
+   * Asserts a create response is a 422 validation_error and nothing persisted.
+   *
+   * The message substring pins WHICH guard refused, so a body that is refused
+   * for an unrelated reason (e.g. a mis-shaped rule field) cannot pass.
+   */
+  private function assertRefusedAndNothingPersisted(array $body, int $before, string $expectedMessage): void {
+    $user = $this->createUser();
+    $response = $this->doCrud('create', NULL, $user, $body, ['confirmed' => 'true']);
+    $this->assertSame(422, $response->getStatusCode());
+    $data = json_decode($response->getContent(), TRUE);
+    $this->assertSame('validation_error', $data['error']);
+    $this->assertStringContainsString($expectedMessage, $data['message']);
+    $this->assertSame($before, $this->seriesCount());
+  }
+
+  /**
+   * A consecutive create with an off-whitelist unit is refused before save.
+   *
+   * `buffer_units: "second ago"` makes the slot loop never terminate; the
+   * commit path must run validateConfig() before save()'s insert hook.
+   */
+  public function testCreateConsecutiveBadUnitIs422AndPersistsNothing(): void {
+    $this->installConfig(['system']);
+    $before = $this->seriesCount();
+    $this->assertRefusedAndNothingPersisted([
+      'title' => 'Bad Unit',
+      'recur_type' => 'consecutive_recurring_date',
+      'consecutive_recurring_date' => [
+        'value' => '2999-01-01T00:00:00',
+        'end_value' => '2999-01-02T00:00:00',
+        'time' => '10:00 AM',
+        'end_time' => '11:00 AM',
+        'duration' => 30,
+        'duration_units' => 'minutes',
+        'buffer' => 5,
+        'buffer_units' => 'second ago',
+      ],
+    ], $before, 'The consecutive buffer_units must be one of');
+  }
+
+  /**
+   * A consecutive create with a sub-floor net step is refused before save.
+   *
+   * 5 + 5 minutes is a valid-looking config whose 10-minute step is under the
+   * 15-minute floor. (A zero duration is refused earlier, by the whole-number
+   * check, so it would not exercise the floor.)
+   */
+  public function testCreateConsecutiveSubFloorStepIs422AndPersistsNothing(): void {
+    $this->installConfig(['system']);
+    $before = $this->seriesCount();
+    $this->assertRefusedAndNothingPersisted([
+      'title' => 'Sub Floor',
+      'recur_type' => 'consecutive_recurring_date',
+      'consecutive_recurring_date' => [
+        'value' => '2999-01-01T00:00:00',
+        'end_value' => '2999-01-02T00:00:00',
+        'time' => '10:00 AM',
+        'end_time' => '11:00 AM',
+        'duration' => 5,
+        'duration_units' => 'minutes',
+        'buffer' => 5,
+        'buffer_units' => 'minutes',
+      ],
+    ], $before, sprintf('must advance at least %d minutes', EffectiveCreationSet::MIN_CONSECUTIVE_SLOT_MINUTES));
+  }
+
+  /**
+   * A weekly create spanning more than the max window is refused before save.
+   */
+  public function testCreateOverlongSpanIs422AndPersistsNothing(): void {
+    $this->installConfig(['system']);
+    $before = $this->seriesCount();
+    $this->assertRefusedAndNothingPersisted([
+      'title' => 'Overlong',
+      'recur_type' => 'weekly_recurring_date',
+      'weekly_recurring_date' => [
+        'value' => '2999-01-01T00:00:00',
+        // ~5 years, comfortably past MAX_SPAN_DAYS (~2 years).
+        'end_value' => '3004-01-01T00:00:00',
+        'time' => '10:00 AM',
+        'end_time' => '11:00 AM',
+        'duration' => 3600,
+        'duration_or_end_time' => 'end_time',
+        'days' => 'monday,wednesday',
+      ],
+    ], $before, sprintf('may not exceed %d days', EffectiveCreationSet::MAX_SPAN_DAYS));
+  }
+
+  /**
+   * A raw custom-date list over the cap is refused before any materialization.
+   */
+  public function testCreateRawCustomDatesOverCapIs422AndPersistsNothing(): void {
+    $before = $this->seriesCount();
+    $dates = [];
+    for ($i = 0; $i < EffectiveCreationSet::MAX_ESTIMATED_OCCURRENCES + 1; $i++) {
+      $day = 1 + ($i % 27);
+      $month = 1 + intdiv($i, 27);
+      $year = 2999 + intdiv($month, 12);
+      $month = 1 + ($month % 12);
+      $dates[] = [
+        'start_date' => sprintf('%04d-%02d-%02dT10:00:00', $year, $month, $day),
+        'end_date' => sprintf('%04d-%02d-%02dT11:00:00', $year, $month, $day),
+      ];
+    }
+    $this->assertRefusedAndNothingPersisted([
+      'title' => 'Too Many Dates',
+      'recur_type' => 'custom',
+      'custom_dates' => $dates,
+    ], $before, sprintf('more than %d dates', EffectiveCreationSet::MAX_ESTIMATED_OCCURRENCES));
   }
 
 }
