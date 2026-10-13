@@ -61,7 +61,7 @@ class DomainLogosForm extends ConfigFormBase {
 
     $form['help'] = [
       '#type' => 'markup',
-      '#markup' => $this->t('<p>Configure per-domain logos and descriptions. Tokens: <code>[access_misc:domain_logo]</code>, <code>[access_misc:domain_description]</code></p>'),
+      '#markup' => $this->t('<p>Configure per-domain logos, share images and descriptions. Tokens: <code>[access_misc:domain_logo]</code>, <code>[access_misc:domain_share_image]</code>, <code>[access_misc:domain_description]</code></p>'),
     ];
 
     foreach ($domains as $domain_id => $domain) {
@@ -74,6 +74,13 @@ class DomainLogosForm extends ConfigFormBase {
         '#type' => 'textfield',
         '#title' => $this->t('Logo path'),
         '#default_value' => $config->get('logos.' . $domain_id),
+        '#maxlength' => 512,
+      ];
+      $form[$domain_id]['share_images_' . $domain_id] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Share image path'),
+        '#default_value' => $config->get('share_images.' . $domain_id),
+        '#description' => $this->t('1200x630 image used for og:image on pages without their own image. Falls back to the logo path when empty.'),
         '#maxlength' => 512,
       ];
       $form[$domain_id]['descriptions_' . $domain_id] = [
@@ -97,6 +104,7 @@ class DomainLogosForm extends ConfigFormBase {
 
     foreach ($domains as $domain_id => $domain) {
       $config->set('logos.' . $domain_id, $form_state->getValue('logos_' . $domain_id));
+      $config->set('share_images.' . $domain_id, $form_state->getValue('share_images_' . $domain_id));
       $config->set('descriptions.' . $domain_id, $form_state->getValue('descriptions_' . $domain_id));
     }
 

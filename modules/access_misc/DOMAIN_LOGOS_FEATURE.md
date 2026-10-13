@@ -45,6 +45,10 @@ $token_service = \Drupal::token();
 $logo_url = $token_service->replace('[access_misc:domain_logo]', []);
 ```
 
+## Share Image Token
+
+`[access_misc:domain_share_image]` returns the per-domain 1200x630 share image (`share_images.<domain_id>` in `access_misc.domain_logos`), falling back to the domain logo when empty. It is used for the global `og:image` metatag default. Nodes with their own image use the `og_share` image style (1200x630 JPEG) instead. `access_misc_metatags_attachments_alter()` adds `og:image:width`/`og:image:height` only for the share image and `og_share` derivatives.
+
 ## How It Works
 
 1. The form allows administrators to configure logo URLs for each domain

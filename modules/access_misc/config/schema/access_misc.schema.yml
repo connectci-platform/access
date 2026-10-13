@@ -8,6 +8,12 @@ access_misc.domain_logos:
       sequence:
         type: string
         label: 'Logo URL'
+    share_images:
+      type: sequence
+      label: 'Domain Share Image URLs'
+      sequence:
+        type: string
+        label: 'Share image URL'
     descriptions:
       type: sequence
       label: 'Domain Descriptions'
