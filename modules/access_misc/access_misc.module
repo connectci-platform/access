@@ -1642,6 +1642,11 @@ function access_misc_token_info() {
     'description' => t('The configured logo URL for the current domain.'),
   ];
 
+  $info['tokens']['access_misc']['domain_share_image'] = [
+    'name' => t('Domain Share Image URL'),
+    'description' => t('The 1200x630 share image for the current domain, falling back to the domain logo.'),
+  ];
+
   $info['tokens']['access_misc']['domain_description'] = [
     'name' => t('Domain Description'),
     'description' => t('The configured description for the current domain.'),
@@ -1670,6 +1675,13 @@ function access_misc_tokens($type, $tokens, array $data, array $options) {
           $logo_url = _access_misc_get_domain_logo_url();
           if ($logo_url) {
             $replacements[$original] = $logo_url;
+          }
+          break;
+
+        case 'domain_share_image':
+          $share_url = _access_misc_get_domain_share_image_url();
+          if ($share_url) {
+            $replacements[$original] = $share_url;
           }
           break;
 
@@ -1770,6 +1782,43 @@ function _access_misc_get_domain_logo_url() {
 }
 
 /**
+ * Helper function to get the configured domain share image URL.
+ *
+ * Falls back to the domain logo when no share image is configured.
+ *
+ * @param bool $configured_only
+ *   When TRUE, return only a share image configured for the domain, never the
+ *   domain logo fallback. Callers that assert 1200x630 dimensions need this:
+ *   a configured share image is known to be that size, a logo is any size.
+ *
+ * @return string|null
+ *   The share image URL or NULL if not found.
+ */
+function _access_misc_get_domain_share_image_url(bool $configured_only = FALSE) {
+  try {
+    $domain_negotiator = \Drupal::service('domain.negotiator');
+    $active_domain = $domain_negotiator->getActiveDomain();
+
+    if (!$active_domain) {
+      return NULL;
+    }
+
+    $config = \Drupal::config('access_misc.domain_logos');
+    $share_url = $config->get('share_images.' . $active_domain->id());
+
+    if ($configured_only) {
+      return $share_url ?: NULL;
+    }
+
+    return $share_url ?: _access_misc_get_domain_logo_url();
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('access_misc')->error('Error getting domain share image: ' . $e->getMessage());
+    return NULL;
+  }
+}
+
+/**
  * Helper function to get the configured domain description.
  *
  * @return string|null
@@ -1799,7 +1848,8 @@ function _access_misc_get_domain_description() {
  * Implements hook_metatags_attachments_alter().
  *
  * - Fills empty description/og_description with body text fallback.
- * - Fills empty og_image_url with domain logo fallback.
+ * - Fills empty og_image with domain share image fallback and adds image
+ *   dimensions for the share image and og_share derivatives.
  * - Adds JSON-LD structured data for Google Rich Results.
  */
 function access_misc_metatags_attachments_alter(array &$attachments) {
@@ -1821,10 +1871,12 @@ function access_misc_metatags_attachments_alter(array &$attachments) {
     $fallback_description = $entity ? _access_misc_entity_description_fallback($entity) : NULL;
     // Ultimate fallback: site name (matches the global metatag default).
     $site_name = \Drupal::config('system.site')->get('name');
-    $domain_logo = _access_misc_get_domain_logo_url();
+    $share_image = _access_misc_get_domain_share_image_url();
+    $base_url = \Drupal::request()->getSchemeAndHttpHost();
 
     // Track which tags are present so we can add missing ones.
     $found = [];
+    $final_og_image = '';
     foreach ($attachments['#attached']['html_head'] as &$item) {
       if (!isset($item[1])) {
         continue;
@@ -1838,11 +1890,13 @@ function access_misc_metatags_attachments_alter(array &$attachments) {
         $item[0]['#attributes']['content'] = $fallback_description ?: $site_name;
       }
 
-      // Fall back to domain logo when node image tokens resolve to empty.
-      // The metatag module emits both og_image_url and og_image_url_0 keys.
-      if (str_starts_with($item[1], 'og_image_url') && empty(trim($content)) && $domain_logo) {
-        $base_url = \Drupal::request()->getSchemeAndHttpHost();
-        $item[0]['#attributes']['content'] = $base_url . $domain_logo;
+      // Fall back to the domain share image when node image tokens resolve
+      // to empty. The metatag module may emit og_image and og_image_0 keys.
+      if (in_array($item[1], ['og_image', 'og_image_0'])) {
+        if (empty(trim($content)) && $share_image) {
+          $item[0]['#attributes']['content'] = $base_url . $share_image;
+        }
+        $final_og_image = $item[0]['#attributes']['content'] ?? '';
       }
     }
     unset($item);
@@ -1862,14 +1916,35 @@ function access_misc_metatags_attachments_alter(array &$attachments) {
         'og_description',
       ];
     }
-    // Check for og_image_url or og_image_url_0 (metatag emits both).
-    $has_og_image = !empty($found['og_image_url']) || !empty($found['og_image_url_0']);
-    if (!$has_og_image && $domain_logo) {
-      $base_url = \Drupal::request()->getSchemeAndHttpHost();
+    // Check for og_image or og_image_0 (metatag may emit both).
+    $has_og_image = !empty($found['og_image']) || !empty($found['og_image_0']);
+    if (!$has_og_image && $share_image) {
+      $final_og_image = $base_url . $share_image;
       $attachments['#attached']['html_head'][] = [
-        ['#tag' => 'meta', '#attributes' => ['property' => 'og:image:url', 'content' => $base_url . $domain_logo]],
-        'og_image_url',
+        ['#tag' => 'meta', '#attributes' => ['property' => 'og:image', 'content' => $final_og_image]],
+        'og_image',
       ];
+    }
+
+    // A configured share image and og_share derivatives are known to be
+    // 1200x630. Dimensions of any other image are unknown, so leave them out.
+    // The logo _access_misc_get_domain_share_image_url() falls back to is any
+    // size, so a domain with no share image configured gets no dimensions
+    // rather than a false 1200x630 claim (D8-2900 adds the missing artwork).
+    $configured_share_image = _access_misc_get_domain_share_image_url(TRUE);
+    $is_share_image = $final_og_image !== '' && (
+      ($configured_share_image && $final_og_image === $base_url . $configured_share_image)
+      || str_contains($final_og_image, '/styles/og_share/')
+    );
+    if ($is_share_image) {
+      foreach (['width' => 1200, 'height' => 630] as $dimension => $value) {
+        if (empty($found['og_image_' . $dimension])) {
+          $attachments['#attached']['html_head'][] = [
+            ['#tag' => 'meta', '#attributes' => ['property' => 'og:image:' . $dimension, 'content' => $value]],
+            'og_image_' . $dimension,
+          ];
+        }
+      }
     }
   }
 

@@ -12,6 +12,7 @@ use Drupal\Core\Render\Markup;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\block\Entity\Block;
 use Drupal\cssn\Plugin\Util\RoleProgramSorter;
+use Drupal\image\Entity\ImageStyle;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\user\Entity\User;
 use Drupal\views\ViewExecutable;
@@ -447,7 +448,10 @@ function cssn_page_attachments_alter(array &$attachments): void {
 
         // Remove metatag module's global defaults that conflict with the
         // persona-specific tags we're about to add. The metatag module fires
-        // in hook_page_attachments() before this _alter hook runs.
+        // in hook_page_attachments() before this _alter hook runs. Any
+        // og_image* key (og_image, og_image_0, og_image_alt, og_image_url,
+        // og_image_width, og_image_height) is removed by prefix;
+        // twitter_cards_type is intentionally kept.
         $metatag_keys_to_remove = [
           'description',
           'canonical_url',
@@ -457,12 +461,15 @@ function cssn_page_attachments_alter(array &$attachments): void {
           'og_type',
           'og_url',
           'og_site_name',
-          'og_image_url',
         ];
         if (!empty($attachments['#attached']['html_head'])) {
           $attachments['#attached']['html_head'] = array_values(
             array_filter($attachments['#attached']['html_head'], function ($item) use ($metatag_keys_to_remove) {
-              return !isset($item[1]) || !in_array($item[1], $metatag_keys_to_remove);
+              if (!isset($item[1])) {
+                return TRUE;
+              }
+              return !in_array($item[1], $metatag_keys_to_remove)
+                && !str_starts_with($item[1], 'og_image');
             })
           );
         }
@@ -487,9 +494,22 @@ function cssn_page_attachments_alter(array &$attachments): void {
           $user_picture = $user->get('user_picture')->entity;
           if ($user_picture) {
             $image_uri = $user_picture->getFileUri();
-            $image_url = \Drupal::service('file_url_generator')->generateAbsoluteString($image_uri);
-            $og_tags['og:image'] = $image_url;
-            $meta_tags['image'] = $image_url;
+            // Use the og_share derivative if it exists, else the raw file.
+            $og_image_style = ImageStyle::load('og_share');
+            $image_url = $og_image_style
+              ? $og_image_style->buildUrl($image_uri)
+              : \Drupal::service('file_url_generator')->generateAbsoluteString($image_uri);
+            if (!empty($image_url)) {
+              $og_tags['og:image'] = $image_url;
+              $meta_tags['image'] = $image_url;
+            }
+          }
+        }
+        // Fall back to the domain share image when there is no picture.
+        if (empty($og_tags['og:image']) && function_exists('_access_misc_get_domain_share_image_url')) {
+          $share_image = _access_misc_get_domain_share_image_url();
+          if ($share_image) {
+            $og_tags['og:image'] = $request->getSchemeAndHttpHost() . $share_image;
           }
         }
 
