@@ -6,9 +6,7 @@
 
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\Core\Link;
 use Drupal\Core\Render\Markup;
-use Drupal\Core\Url;
 use Drupal\node\Entity\Node;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\user\Entity\User;
@@ -108,15 +106,16 @@ function access_cilink_preprocess_views_view_field(&$variables) {
     $token = \Drupal::token();
     $domainName = Html::getClass($token->replace(t('[domain:name]')));
 
-    $view_output = explode(',', $variables['output']->__toString());
-    $sid = $view_output[0];
+    $view_output = explode(',', (string) $variables['output']);
+    $sid = (int) $view_output[0];
+    if (!$sid) {
+      return;
+    }
     $flag_upvote_count = $view_output[1];
     $webform_submission = \Drupal::entityTypeManager()->getStorage('webform_submission')->load($sid);
     if (!$webform_submission) {
       return;
     }
-    // Get submission user id.
-    $uid = $webform_submission->getOwnerId();
     $data = $webform_submission->getData();
     $title = $data['title'];
     $description = '';
@@ -139,13 +138,6 @@ function access_cilink_preprocess_views_view_field(&$variables) {
         $variables['output'] = '';
         return;
       }
-    }
-
-    // If current user id is the same as the submission user id, show the edit link.
-    $edit_link = '';
-    $roles = \Drupal::currentUser()->getRoles();
-    if (\Drupal::currentUser()->id() == $uid || in_array('administrator', $roles) || in_array('kb_pm', $roles)) {
-      $edit_link = "<a href='/admin/structure/webform/manage/resource/submission/$sid/edit' class='w-full btn-sm btn-small btn-secondary-outline py-0 px-4 btn btn-md-teal'>Edit</a>";
     }
 
     // Get terms from webform submission.
@@ -180,31 +172,16 @@ function access_cilink_preprocess_views_view_field(&$variables) {
     }
     $link_to_resource .= '</ul>';
 
-    // Upvote widget.
-    $flag_upvote = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'upvote', 'full');
-    $flag_upvote = \Drupal::service('renderer')->renderPlain($flag_upvote);
-    $flag_upvote = "<div class=''>$flag_upvote</div>";
+    // The like widget, Edit button and "Flag as" menu are per-user, so they are
+    // lazy builders: they must not be baked into the cached row output.
+    $variant = 'listing:' . $domainName;
 
     $likes_count = "<span class='text-[32px] inline-block text-center me-2' style='min-width: 32px;'>$flag_upvote_count</span>";
     $likes = $flag_upvote_count == 1 ? "<span>Like</span>" : "<span>Likes</span>";
-    // If User is not logged in, show the login link.
-    if (\Drupal::currentUser()->isAnonymous()) {
-      $options = [
-        'query' => ['destination' => \Drupal::request()->getRequestUri()],
-        'attributes' => ['class' => ['text-dark-teal', 'no-underline', 'hover--underline']],
-      ];
-      $login = Link::fromTextAndUrl('Login to like', Url::fromUri('internal:/user/login', $options))->toString();
-
-      $flag_upvote = "<div class=''>
-                        <i class='bi-box-arrow-in-right text-dark-teal text-[32px] w-9 me-2'></i>
-                        <br> " . $login . "
-                      </div>";
-    }
     $likes_html_class = $domainName == 'ccmnet' ? 'mb-2' : 'mb-5';
-    $likes_html = "<div class='$likes_html_class text-dark-teal font-bold'>$likes_count $likes</div>";
+    $likes_html = "$likes_count $likes";
 
     $likes_class = $domainName == 'ccmnet' ? '' : 'bg-light-teal p-4';
-    $likes_output_html = "<div class='$likes_class font-bold md--w-full'>$likes_html $flag_upvote</div>";
 
     // Skills.
     $skill_id = $data['skill_level'];
@@ -220,24 +197,8 @@ function access_cilink_preprocess_views_view_field(&$variables) {
     }
     $skill_image = \Drupal::service('access_misc.skillLevel')->getSkillsImage($skill_list);
 
-    // Flags.
-    $flag_classes = 'no-underline text-dark-teal hover--underline';
-    $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'outdated', 'full');
-    $flag_outdated['#attributes']['class'][] = $flag_classes;
-    $flag_outdated = \Drupal::service('renderer')->renderPlain($flag_outdated);
-    $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'not_useful', 'full');
-    $flag_not_useful['#attributes']['class'][] = $flag_classes;
-    $flag_not_useful = \Drupal::service('renderer')->renderPlain($flag_not_useful);
-    $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $sid, 'inaccurate', 'full');
-    $flag_inaccurate['#attributes']['class'][] = $flag_classes;
-    $flag_inaccurate = \Drupal::service('renderer')->renderPlain($flag_inaccurate);
-
     // Get full url including domain.
     $url = \Drupal::request()->getSchemeAndHttpHost() . '/knowledge-base/resources?f%5B0%5D=submission_id%3A' . $sid;
-
-    // Check if the user is logged in.
-    $user = \Drupal::currentUser();
-    $authenticated = $user->isAuthenticated();
 
     $output['string'] = [
       '#type' => 'inline_template',
@@ -270,7 +231,10 @@ function access_cilink_preprocess_views_view_field(&$variables) {
                               <div class="square-tags">{{ tags | raw }}</div>
                             </div>
                             <div class="col-span-5 md--col-span-1 flex flex-row flex-wrap justify-between">
-                              {{ likesOutput | raw }}
+                              <div class="{{ likesClass }} font-bold md--w-full">
+                                <div class="{{ likesHtmlClass }} text-dark-teal font-bold">{{ likesHtml | raw }}</div>
+                                {{ likeWidget }}
+                              </div>
                               <div class="px-2">
                                 <div class="text-dark-teal m-0 pt-3 font-bold text-lg">
                                   {{ typeTitle }}
@@ -289,21 +253,7 @@ function access_cilink_preprocess_views_view_field(&$variables) {
                                   </div>
                                 </div>
                               {% endif %}
-                              {% if authenticated %}
-                                <div class="pt-4 md--w-full">
-                                  {{ editLink|raw }}
-                                  <details class="border border-solid border-dark-teal open:bg-white duration-300 relative">
-                                    <summary class="ps-2 pe-10 py-2 text-dark-teal leading-5 uppercase">
-                                      {{ report }}
-                                    </summary>
-                                    <ul class="px-2 mb-2">
-                                      <li>{{ flagOutdated }}</li>
-                                      <li>{{ flagNotUseful }}</li>
-                                      <li>{{ flagInaccurate }}</li>
-                                    </ul>
-                                  </details>
-                                </div>
-                              {% endif %}
+                              {{ userActions }}
                             </div>
                           </div>
                         </details>
@@ -319,14 +269,24 @@ function access_cilink_preprocess_views_view_field(&$variables) {
         'description' => $description,
         'linkToResource' => $link_to_resource,
         'likesCount' => $flag_upvote_count,
-        'likesOutput' => $likes_output_html,
-        'report' => $domainName == 'access-support' ? t('Flag as') : t('Flag as <i class="bi-chevron-down ml-3"></i>'),
-        'authenticated' => $authenticated,
-        'flagOutdated' => $flag_outdated,
-        'flagNotUseful' => $flag_not_useful,
-        'flagInaccurate' => $flag_inaccurate,
+        'likesClass' => $likes_class,
+        'likesHtmlClass' => $likes_html_class,
+        'likesHtml' => $likes_html,
+        'likeWidget' => [
+          '#lazy_builder' => [
+            'access_cilink.resource_user_actions:likeWidget',
+            [$sid, $variant],
+          ],
+          '#create_placeholder' => TRUE,
+        ],
+        'userActions' => [
+          '#lazy_builder' => [
+            'access_cilink.resource_user_actions:userActions',
+            [$sid, $variant],
+          ],
+          '#create_placeholder' => TRUE,
+        ],
         'domainName' => $domainName,
-        'editLink' => $edit_link,
       ],
     ];
 

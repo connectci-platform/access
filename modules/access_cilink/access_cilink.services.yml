@@ -17,3 +17,11 @@ services:
     arguments:
       - '@access_cilink.kb_resource_repository'
       - '@entity_type.manager'
+
+  access_cilink.resource_user_actions:
+    class: Drupal\access_cilink\ResourceUserActions
+    arguments:
+      - '@current_user'
+      - '@flag.link_builder'
+      - '@entity_type.manager'
+      - '@request_stack'
