@@ -1,0 +1,1385 @@
+openapi: 3.0.3
+info:
+  title: ACCESS Events Write API (v2.3, authenticated)
+  description: |
+    The ACCESS Events Write API v2.3 provides authenticated, acting-user endpoints to create, update, archive, restore, and schedule events.
+
+    Unlike the public read-only events listings and detail (the Events READ API v2.3), these are
+    custom-controller endpoints that accept and return plain JSON bodies. They let an authenticated
+    acting user create a draft event series, edit its content, send it for review, archive and
+    restore it, and add, edit, cancel, and restore individual occurrences.
+
+    ## Endpoints
+    - **Event series**: Create a draft series (`POST /events`), edit its content
+      (`PATCH /event-series/{eventseries}`), archive or delete it
+      (`DELETE /event-series/{eventseries}`), restore an archived series
+      (`POST /event-series/{eventseries}/restore`), and route a draft for editor review
+      (`POST /event-series/{eventseries}/send-for-review`).
+    - **Event occurrences**: Add one occurrence to a series
+      (`POST /event-series/{eventseries}/occurrence`), edit one occurrence's date or location
+      (`PATCH /event-occurrences/{eventinstance}`), cancel one occurrence
+      (`DELETE /event-occurrences/{eventinstance}`), and restore a cancelled occurrence
+      (`POST /event-occurrences/{eventinstance}/restore`).
+
+    ## Authentication
+    These endpoints require acting-user authentication. Requests are made by a service account
+    (authenticated as `mcp_service`) that passes an `X-Acting-User` header naming the ACCESS user
+    on whose behalf the operation is performed. Every endpoint runs **as** that acting user, so
+    entity access and editorial workflow transitions are enforced against that user's own
+    permissions. Requests with no valid acting user are rejected with `403`.
+
+    **All** of these endpoints are state-changing and require a valid `X-CSRF-Token` header
+    obtained from `/session/token`.
+
+    ## Preview then confirm
+    Several operations take a `confirmed` query parameter (boolean). When `confirmed` is absent or
+    false the call is a **no-write preview** that returns `{status: "preview", executed: false, ...}`
+    describing what would happen; call again with `confirmed=true` to perform the write.
+
+    - `POST /events`: without `confirmed=true`, the preview computes the occurrence dates the
+      recurrence would produce (`occurrence_count`, `total_occurrence_count`, `truncated`,
+      `occurrences`). Nothing is saved.
+    - `DELETE /event-series/{eventseries}`: the preview reports `would_archive`,
+      `would_hard_delete`, and `registrants_affected` (plus `refusal` and `registrations_total` when
+      the delete would be refused).
+    - `DELETE /event-occurrences/{eventinstance}`: the preview reports `registrants_affected`.
+    - `PATCH /event-occurrences/{eventinstance}`: a preview is returned only when the edit changes
+      the date to a future date and the occurrence has registrants; any other edit proceeds
+      without confirmation.
+
+    The other operations (`PATCH /event-series/{eventseries}`, restore, send-for-review, add
+    occurrence, restore occurrence) do not read `confirmed` and always execute.
+
+    ## Moderation states
+    - **Create** always produces a `draft`. Any caller-supplied `moderation_state` is ignored, and
+      there is no self-publish path. The create response carries a `moderation` block (`state`,
+      `can_publish`, `next_action`, `message`) derived from the acting user's valid workflow
+      transitions on the new series: `can_publish` is true when the user holds the `publish`
+      transition. When the user cannot publish but can send for review, `next_action` is
+      `send_for_review` and `message` explains that an editor must approve and publish the draft.
+    - **Send for review** (`POST .../send-for-review`) is valid only from `draft` or
+      `needs_adjustment`, and moves the series to `ready_for_review`.
+    - **Update** (`PATCH /event-series/{eventseries}`) writes content fields and `title` only. It
+      never writes `moderation_state` (any supplied value is ignored) and never changes recurrence
+      configuration. Editing a published series requires the user to hold the publish transition;
+      otherwise the call is refused with `invalid_state`. A series in a state with no same-state
+      edit transition (for example `needs_adjustment` or `archived`) is also refused with
+      `invalid_state`.
+    - **Delete** (`DELETE /event-series/{eventseries}`) behaves by history. A series that was ever
+      published is **archived** (`moderation_state` becomes `archived`); registrations are kept. The
+      series save triggers a state-change sweep that also archives its published, not-yet-ended
+      occurrences and queues cancellation notices to their registrants. A series that was never
+      published (a draft) is **hard-deleted** instead, but only if it has no registrations at all;
+      otherwise the call is refused with `registrations_exist`. Deleting an already archived series
+      is an idempotent success. Only a published series can be archived; other states are refused
+      with `forbidden`.
+    - **Restore** (`POST .../restore`) works only from `archived` and moves the series to
+      `published` (the `archived_published` transition, which ordinary authors and affinity group
+      leaders typically do not hold). Its state-change sweep republishes the series' archived
+      occurrences that were not individually cancelled and queues reinstatement notices. Restoring
+      an already published series is an idempotent success; any other state is refused with
+      `invalid_state`.
+    - **Occurrence cancel** (`DELETE /event-occurrences/{eventinstance}`): a `published` occurrence
+      is archived and its registrants are notified; an already `archived` occurrence is marked
+      individually cancelled so a later series restore skips it; a `draft` or any other state is
+      refused with `invalid_state`.
+    - **Occurrence restore** (`POST /event-occurrences/{eventinstance}/restore`): only an
+      `archived` occurrence can be restored. If the parent series is published, the occurrence is
+      republished. If the parent series is not published, the occurrence stays archived but its
+      individually-cancelled flag is cleared and the response carries `returns_with_series: true`,
+      so it returns when the series is restored.
+    - **Add occurrence** is refused with `invalid_state` for a draft series. For an archived
+      series the new occurrence is born archived and returns when the series is restored.
+
+    ## Timezone and in-person
+    `field_event_timezone` and `field_event_in_person` are writable on both create and update. If
+    `field_event_timezone` is omitted, null, or an empty string, it is filled from the acting
+    user's account timezone. A supplied value that is not a valid IANA timezone name (for example
+    `America/Chicago`) is refused with `422` `validation_error`.
+
+    ## Errors
+    Refusals use the envelope `{error, message}`. The `error` codes and their HTTP statuses are:
+
+    | error | HTTP | Meaning |
+    |---|---|---|
+    | `forbidden` | 403 | No acting user, entity create access denied, or a required editorial transition or permission is not held (archive, restore, send for review, occurrence cancel and restore) |
+    | `not_found` | 404 | The event series or occurrence does not exist |
+    | `not_coordinator` | 409 | The acting user may not manage the series (or, on create, is not a coordinator of every supplied affinity group) |
+    | `invalid_state` | 409 | The current moderation state does not allow the operation |
+    | `registrations_exist` | 409 | A never-published draft with registrations cannot be hard-deleted |
+    | `duplicate_date` | 409 | An occurrence already exists at the requested start time |
+    | `validation_error` | 422 | A required value is missing, a value is invalid, or entity validation failed |
+  version: 2.3.0
+  termsOfService: https://access-ci.org/terms
+  contact:
+    name: ACCESS Support
+    url: https://support.access-ci.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://support.access-ci.org/api/2.3
+    description: Production server
+
+security:
+  - ActingUser: []
+    CsrfToken: []
+
+paths:
+  /events:
+    post:
+      summary: Create a draft event series (or preview its occurrences)
+      description: |
+        Create a new event series as a **draft**. The series is always created with
+        `moderation_state: draft`; any `moderation_state` in the body is ignored. The response
+        carries a `moderation` block telling the caller whether the acting user can publish
+        directly or must send the draft for review (see `POST /event-series/{eventseries}/send-for-review`).
+
+        When `confirmed` is absent or false the call is a **no-write preview** of the occurrence
+        dates the recurrence would produce. The preview needs only `recur_type` plus the
+        recurrence configuration (`title` is not required). It still requires that the acting user
+        may create events. It does not resolve affinity groups, run the coordinator check, or
+        validate the other fields.
+
+        With `confirmed=true` the series is created. `title` and `recur_type` are required. An
+        affinity group is optional; coordinator status is required only for groups that are
+        supplied, and every supplied group must be coordinated by the acting user. One occurrence
+        is spawned per recurrence date.
+      operationId: createEvent
+      tags:
+        - Event series
+      parameters:
+        - $ref: '#/components/parameters/confirmed'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventSeriesWrite'
+            examples:
+              custom_dates:
+                summary: A series with two custom dates
+                value:
+                  title: "Introduction to Anvil"
+                  recur_type: "custom"
+                  custom_dates:
+                    - start_date: "2026-09-10T15:00:00"
+                      end_date: "2026-09-10T17:00:00"
+                    - start_date: "2026-09-17T15:00:00"
+                      end_date: "2026-09-17T17:00:00"
+                  field_event_timezone: "America/Chicago"
+      responses:
+        '200':
+          description: |
+            A no-write occurrence preview (when `confirmed` is absent or false) or the created
+            draft series (when `confirmed=true`).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/CreatePreview'
+                  - $ref: '#/components/schemas/CreateResult'
+              examples:
+                preview:
+                  summary: Preview of the computed occurrences
+                  value:
+                    status: "preview"
+                    executed: false
+                    occurrence_count: 2
+                    total_occurrence_count: 2
+                    truncated: false
+                    occurrences:
+                      - start_date: "2026-09-10T15:00:00+00:00"
+                        end_date: "2026-09-10T17:00:00+00:00"
+                      - start_date: "2026-09-17T15:00:00+00:00"
+                        end_date: "2026-09-17T17:00:00+00:00"
+                created:
+                  summary: Draft created; the user must send it for review
+                  value:
+                    success: true
+                    series_id: 123
+                    instance_ids: [4567, 4568]
+                    title: "Introduction to Anvil"
+                    moderation_state: "draft"
+                    moderation:
+                      state: "draft"
+                      can_publish: false
+                      next_action: "send_for_review"
+                      message: "Saved as a draft. You can't publish it directly — send it for review and an editor will approve and publish it."
+        '403':
+          description: |
+            `forbidden`: no acting user, or the acting user may not create events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden:
+                  value:
+                    error: "forbidden"
+                    message: "You may not create events."
+        '409':
+          description: |
+            `not_coordinator`: affinity groups were supplied and the acting user does not coordinate
+            all of them (commit path only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_coordinator:
+                  value:
+                    error: "not_coordinator"
+                    message: "You are not a coordinator of the selected affinity group(s)."
+        '422':
+          description: |
+            `validation_error`: `title` missing (commit path), `recur_type` missing, a custom-date
+            list or recurrence configuration that is invalid or too large, an invalid
+            `field_event_timezone`, affinity groups that could not be found (commit path), or a
+            field that failed entity validation (commit path; the message is prefixed with the
+            field path).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missing_title:
+                  value:
+                    error: "validation_error"
+                    message: "title is required."
+                bad_timezone:
+                  value:
+                    error: "validation_error"
+                    message: "field_event_timezone must be a valid IANA timezone name, for example America/Chicago. Got: Mars/Olympus"
+
+  /event-series/{eventseries}:
+    patch:
+      summary: Edit an event series' content
+      description: |
+        Edit a series' title and content fields. This is **content-only**: it never writes
+        `moderation_state` (any supplied value is ignored) and never changes recurrence
+        configuration. Only keys present in the body are written; the response lists them in
+        `updated_fields`.
+
+        A content edit to a published series requires the acting user to hold the publish
+        transition; otherwise the call is refused with `invalid_state`. A series whose current
+        state has no same-state edit transition (for example `needs_adjustment` or `archived`) is
+        also refused with `invalid_state`. This operation does not read `confirmed`.
+
+        If `field_event_timezone` is supplied as null or empty, or becomes empty, it is filled from
+        the acting user's account timezone.
+      operationId: updateEventSeries
+      tags:
+        - Event series
+      parameters:
+        - $ref: '#/components/parameters/eventseries'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventSeriesUpdate'
+            examples:
+              rename:
+                value:
+                  title: "Introduction to Anvil (updated)"
+                  field_location: "Online"
+      responses:
+        '200':
+          description: The series was updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateResult'
+              examples:
+                updated:
+                  value:
+                    success: true
+                    series_id: 123
+                    updated_fields: ["title", "field_location"]
+        '403':
+          description: '`forbidden`: no acting user.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: '`not_found`: the series does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: |
+            `not_coordinator` (the acting user may not edit this series) or `invalid_state` (the
+            current state does not allow content edits, or a published series needs the publish
+            transition).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_coordinator:
+                  value:
+                    error: "not_coordinator"
+                    message: "You may not edit this event."
+                invalid_state:
+                  value:
+                    error: "invalid_state"
+                    message: "You may not edit this published event; it requires the publish transition."
+        '422':
+          description: |
+            `validation_error`: an invalid `field_event_timezone`, or a field that failed entity
+            validation (the message is prefixed with the field path).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Archive or delete an event series
+      description: |
+        Remove a series, preview first. Without `confirmed=true` the call is a no-write preview.
+
+        - A series that was **ever published** is **archived** (`moderation_state: archived`).
+          Registrations are kept. The series save triggers a state-change sweep that archives its
+          published, not-yet-ended occurrences and queues cancellation notices to their
+          registrants. Only a currently published series can be archived; one that was published
+          earlier but is now `draft` or `needs_adjustment` is refused with `forbidden`. An already
+          archived series is an idempotent success with `instances_archived: 0`. The acting user
+          must hold the `archive` transition.
+        - A series that was **never published** (a draft) is **hard-deleted**, including its
+          occurrences. If it has any registrations, past or future, it is refused with
+          `registrations_exist` instead.
+      operationId: deleteEventSeries
+      tags:
+        - Event series
+      parameters:
+        - $ref: '#/components/parameters/eventseries'
+        - $ref: '#/components/parameters/confirmed'
+      responses:
+        '200':
+          description: |
+            A no-write preview (when `confirmed` is absent or false) or the result of the archive
+            or hard delete.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SeriesDeletePreview'
+                  - $ref: '#/components/schemas/SeriesDeleteResult'
+              examples:
+                preview_archive:
+                  summary: Preview, a published series that would be archived
+                  value:
+                    status: "preview"
+                    executed: false
+                    series_id: 123
+                    would_archive: true
+                    would_hard_delete: false
+                    registrants_affected: 12
+                archived:
+                  summary: Series archived
+                  value:
+                    success: true
+                    series_id: 123
+                    instances_archived: 4
+                    registrants_affected: 12
+                    notified: 12
+                    notifications_disabled: false
+                    hard_deleted: false
+                hard_deleted:
+                  summary: Never-published draft hard-deleted
+                  value:
+                    success: true
+                    series_id: 123
+                    hard_deleted: true
+                    registrants_affected: 0
+        '403':
+          description: |
+            `forbidden`: no acting user, the series is not in a state that can be archived (only a
+            published event can be archived), or the acting user does not hold the `archive`
+            transition.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                cannot_archive:
+                  value:
+                    error: "forbidden"
+                    message: "You may not archive this event."
+        '404':
+          description: '`not_found`: the series does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: |
+            `not_coordinator` (the acting user may not delete this series) or `registrations_exist`
+            (a never-published draft with registrations cannot be hard-deleted; confirmed call only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_coordinator:
+                  value:
+                    error: "not_coordinator"
+                    message: "You may not delete this event."
+
+  /event-series/{eventseries}/restore:
+    post:
+      summary: Restore an archived event series
+      description: |
+        Restore an archived series to `published` (the `archived_published` transition). Its
+        state-change sweep republishes the series' archived occurrences that were not individually
+        cancelled and not verifiably past, and queues reinstatement notices to their registrants.
+
+        An already published series is an idempotent success (`instances_restored: 0`). A series in
+        any other state is refused with `invalid_state`. The acting user must hold the
+        `archived_published` transition, which ordinary authors and affinity group leaders
+        typically do not. This operation does not read `confirmed` and always executes.
+      operationId: restoreEventSeries
+      tags:
+        - Event series
+      parameters:
+        - $ref: '#/components/parameters/eventseries'
+      responses:
+        '200':
+          description: The series was restored (or was already published).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeriesRestoreResult'
+              examples:
+                restored:
+                  value:
+                    success: true
+                    series_id: 123
+                    instances_restored: 4
+                    notified: 12
+                    notifications_disabled: false
+        '403':
+          description: |
+            `forbidden`: no acting user, or the acting user does not hold the transition needed to
+            restore.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: '`not_found`: the series does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: |
+            `not_coordinator` (the acting user may not restore this series) or `invalid_state` (the
+            series is not archived).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_state:
+                  value:
+                    error: "invalid_state"
+                    message: "This event is not archived; only an archived event can be restored."
+
+  /event-series/{eventseries}/send-for-review:
+    post:
+      summary: Send a draft series for editor review
+      description: |
+        Move a series from `draft` or `needs_adjustment` to `ready_for_review`, where an editor can
+        approve and publish it. From any other state the call is refused with `invalid_state`. The
+        acting user must hold the `send_for_review` transition. This operation does not read
+        `confirmed` and always executes.
+      operationId: sendEventSeriesForReview
+      tags:
+        - Event series
+      parameters:
+        - $ref: '#/components/parameters/eventseries'
+      responses:
+        '200':
+          description: The series is now ready for review.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendForReviewResult'
+              examples:
+                sent:
+                  value:
+                    success: true
+                    series_id: 123
+                    moderation_state: "ready_for_review"
+        '403':
+          description: |
+            `forbidden`: no acting user, or the acting user does not hold the `send_for_review`
+            transition.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: '`not_found`: the series does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: |
+            `not_coordinator` (the acting user may not edit this series) or `invalid_state` (the
+            series is not `draft` or `needs_adjustment`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_state:
+                  value:
+                    error: "invalid_state"
+                    message: "This event is \"published\"; send_for_review is only valid from draft or needs_adjustment."
+
+  /event-series/{eventseries}/occurrence:
+    post:
+      summary: Add one occurrence to a series
+      description: |
+        Create one new occurrence directly on the series. Only that one occurrence is created;
+        other occurrences and their registrants are untouched. This works for series using either
+        a custom-date or a rule recurrence.
+
+        The new occurrence's moderation state follows the parent series: a published series gives a
+        published occurrence, and an archived series gives an archived occurrence (which returns
+        when the series is restored). A **draft** series is refused with `invalid_state`.
+
+        If an occurrence already exists with the same start time, the call is refused with
+        `duplicate_date`; when that occurrence is a cancelled one, the message points the caller at
+        the occurrence restore endpoint instead. This operation does not read `confirmed` and always
+        executes.
+      operationId: addOccurrence
+      tags:
+        - Event occurrences
+      parameters:
+        - $ref: '#/components/parameters/eventseries'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OccurrenceAdd'
+            examples:
+              add:
+                value:
+                  date:
+                    value: "2026-10-01T15:00:00"
+                    end_value: "2026-10-01T17:00:00"
+      responses:
+        '200':
+          description: The occurrence was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OccurrenceAddResult'
+              examples:
+                added:
+                  value:
+                    success: true
+                    series_id: 123
+                    eventinstance_id: 4570
+                    moderation_state: "published"
+        '403':
+          description: '`forbidden`: no acting user.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: '`not_found`: the series does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: |
+            `not_coordinator` (the acting user may not add an occurrence), `invalid_state` (the
+            series is a draft), or `duplicate_date` (an occurrence already exists at this start time).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                draft:
+                  value:
+                    error: "invalid_state"
+                    message: "This event is a draft; publish it before adding occurrences. (A draft add would not create a visible occurrence.)"
+                duplicate:
+                  value:
+                    error: "duplicate_date"
+                    message: "An occurrence already exists at this date."
+        '422':
+          description: '`validation_error`: `date.value` or `date.end_value` is missing.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missing_date:
+                  value:
+                    error: "validation_error"
+                    message: "date.value and date.end_value are required."
+
+  /event-occurrences/{eventinstance}:
+    patch:
+      summary: Edit one occurrence's date or location
+      description: |
+        Change a single occurrence's `date` and/or `field_location`. Only keys present in the body
+        are written; nothing else is writable here. Sibling occurrences and the parent series are
+        untouched.
+
+        Because a date move can strand registrants, a date change that moves the occurrence to a
+        **future** date while it has registrants returns a **no-write preview** unless
+        `confirmed=true`. The preview reports `registrants_to_notify`: the registrant count when
+        the occurrence is currently published, or `0` plus a `note` when it is not (registrants of
+        an unpublished occurrence are notified when it is restored). A date change to the past,
+        a date change with no registrants, an unchanged date, or a location-only edit proceeds
+        without confirmation.
+
+        On a saved date change to a published occurrence, registrants are notified of the new
+        schedule by the module's state reaction; `registrants_affected` in the response is the
+        number actually notified.
+      operationId: editOccurrence
+      tags:
+        - Event occurrences
+      parameters:
+        - $ref: '#/components/parameters/eventinstance'
+        - $ref: '#/components/parameters/confirmed'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OccurrenceEdit'
+            examples:
+              reschedule:
+                value:
+                  date:
+                    value: "2026-10-01T15:00:00"
+                    end_value: "2026-10-01T17:00:00"
+              relocate:
+                value:
+                  field_location: "Room 101"
+      responses:
+        '200':
+          description: |
+            A no-write preview (a confirmable date change was not confirmed) or the saved edit.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/OccurrenceEditPreview'
+                  - $ref: '#/components/schemas/OccurrenceEditResult'
+              examples:
+                preview:
+                  value:
+                    status: "preview"
+                    executed: false
+                    eventinstance_id: 4567
+                    date_changes: true
+                    registrants_to_notify: 12
+                saved:
+                  value:
+                    success: true
+                    eventinstance_id: 4567
+                    registrants_affected: 12
+        '403':
+          description: '`forbidden`: no acting user.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: '`not_found`: the occurrence does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: '`not_coordinator`: the acting user may not edit this occurrence.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_coordinator:
+                  value:
+                    error: "not_coordinator"
+                    message: "You may not edit this occurrence."
+    delete:
+      summary: Cancel one occurrence
+      description: |
+        Cancel a single occurrence, preview first. Without `confirmed=true` the call is a no-write
+        preview reporting `registrants_affected`. Registrations are always kept.
+
+        Behavior depends on the occurrence's current moderation state:
+
+        - `published`: the occurrence is archived and its registrants are notified. The acting user
+          must hold the `archive` transition on the occurrence workflow.
+        - `archived`: an idempotent success that marks the occurrence individually cancelled, so a
+          later series restore skips it. This requires the `use editorial_eventinstance transition
+          archive` permission.
+        - `draft`: refused with `invalid_state` (delete the draft instead; a draft that has
+          registrations is flagged for manual review).
+        - any other state: refused with `invalid_state`.
+      operationId: cancelOccurrence
+      tags:
+        - Event occurrences
+      parameters:
+        - $ref: '#/components/parameters/eventinstance'
+        - $ref: '#/components/parameters/confirmed'
+      responses:
+        '200':
+          description: A no-write preview, or the cancellation result.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/OccurrenceCancelPreview'
+                  - $ref: '#/components/schemas/OccurrenceCancelResult'
+              examples:
+                preview:
+                  value:
+                    status: "preview"
+                    executed: false
+                    eventinstance_id: 4567
+                    registrants_affected: 12
+                cancelled:
+                  value:
+                    success: true
+                    eventinstance_id: 4567
+                    registrants_affected: 12
+                    notified: 12
+                    notifications_disabled: false
+                already_cancelled:
+                  value:
+                    success: true
+                    eventinstance_id: 4567
+                    registrants_affected: 12
+                    notified: 0
+                    note: "This occurrence was already cancelled; it will be excluded from a future series restore."
+        '403':
+          description: |
+            `forbidden`: no acting user, or the acting user lacks the `archive` transition or the
+            events-editor permission needed to cancel.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: '`not_found`: the occurrence does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: |
+            `not_coordinator` (the acting user may not cancel this occurrence) or `invalid_state`
+            (the occurrence is a draft, or in a state other than published or archived; confirmed
+            call only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                draft:
+                  value:
+                    error: "invalid_state"
+                    message: "This occurrence is an unpublished draft; delete it instead."
+
+  /event-occurrences/{eventinstance}/restore:
+    post:
+      summary: Restore a cancelled occurrence
+      description: |
+        Restore a cancelled (archived) occurrence. Only an `archived` occurrence can be restored;
+        any other state is refused with `invalid_state`. This operation does not read `confirmed`
+        and always executes.
+
+        - If the parent series is **published**, the occurrence is republished and its registrants
+          are sent a reinstatement notice. The acting user must hold the `archived_published`
+          transition.
+        - If the parent series is **not published**, the occurrence stays archived but its
+          individually-cancelled flag is cleared, so it returns automatically when the series is
+          restored. The response carries `returns_with_series: true`. This requires the
+          `use editorial_eventinstance transition archive` permission.
+      operationId: restoreOccurrence
+      tags:
+        - Event occurrences
+      parameters:
+        - $ref: '#/components/parameters/eventinstance'
+      responses:
+        '200':
+          description: The occurrence was restored, or queued to return with its series.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/OccurrenceRestoreResult'
+                  - $ref: '#/components/schemas/OccurrenceRestoreDeferredResult'
+              examples:
+                restored:
+                  value:
+                    success: true
+                    eventinstance_id: 4567
+                    notified: 12
+                    notifications_disabled: false
+                returns_with_series:
+                  value:
+                    success: true
+                    eventinstance_id: 4567
+                    returns_with_series: true
+                    notified: 0
+        '403':
+          description: |
+            `forbidden`: no acting user, or the acting user lacks the transition or permission
+            needed to restore.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: '`not_found`: the occurrence does not exist.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: |
+            `not_coordinator` (the acting user may not restore this occurrence) or `invalid_state`
+            (the occurrence is not archived).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_state:
+                  value:
+                    error: "invalid_state"
+                    message: "This occurrence is not cancelled; only a cancelled (archived) occurrence can be restored."
+
+components:
+  securitySchemes:
+    ActingUser:
+      type: apiKey
+      in: header
+      name: X-Acting-User
+      description: |
+        Names the ACCESS user on whose behalf the service account (authenticated as `mcp_service`)
+        is acting. Every endpoint runs as this user with their permissions. A missing or invalid
+        acting user is rejected with `403`.
+    CsrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: A token from `/session/token`. Required on every endpoint in this API.
+
+  parameters:
+    eventseries:
+      name: eventseries
+      in: path
+      required: true
+      description: The event series ID.
+      schema:
+        type: integer
+      example: 123
+    eventinstance:
+      name: eventinstance
+      in: path
+      required: true
+      description: The event occurrence (event instance) ID.
+      schema:
+        type: integer
+      example: 4567
+    confirmed:
+      name: confirmed
+      in: query
+      required: false
+      description: |
+        Set to a true value to perform the write. When absent or false the call is a no-write
+        preview that returns `{status: "preview", executed: false, ...}`.
+      schema:
+        type: boolean
+        default: false
+
+  schemas:
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: The refusal code.
+          enum:
+            - forbidden
+            - not_found
+            - not_coordinator
+            - invalid_state
+            - registrations_exist
+            - duplicate_date
+            - validation_error
+          example: "invalid_state"
+        message:
+          type: string
+          description: Human-readable error message.
+
+    ModerationBlock:
+      type: object
+      description: |
+        The review-needed signal on a created series, derived from the acting user's valid
+        workflow transitions on that series.
+      properties:
+        state:
+          type: string
+          description: The series' moderation state (always `draft` on create).
+          example: "draft"
+        can_publish:
+          type: boolean
+          description: Whether the acting user holds the `publish` transition on the series.
+        next_action:
+          type: string
+          nullable: true
+          enum: [send_for_review]
+          description: |
+            `send_for_review` when the user cannot publish but can send the draft for review;
+            otherwise null.
+        message:
+          type: string
+          nullable: true
+          description: Null when the user can publish; otherwise an explanation that the draft must be sent for review.
+
+    TimezoneProperty:
+      type: string
+      nullable: true
+      description: |
+        An IANA timezone name, for example `America/Chicago`. When omitted, null, or empty, the
+        acting user's account timezone is used. An unknown name is refused with `422`.
+      example: "America/Chicago"
+
+    ContentFields:
+      type: object
+      description: |
+        The content fields accepted on create and update. Only keys present in the body are written.
+        For list-valued option fields (for example `field_event_type`) the option label or its
+        stored key is accepted, case-insensitively.
+      properties:
+        body:
+          description: |
+            The event description. Either an object with a `value` string, or a plain string. The
+            text format is always forced to `basic_html`.
+          oneOf:
+            - type: string
+            - type: object
+              properties:
+                value:
+                  type: string
+        field_summary:
+          description: Short summary of the event.
+        field_location:
+          description: The event location.
+        field_event_type:
+          description: The event type (an option label or its stored key).
+        field_skill_level:
+          description: The skill level (an option label or its stored key).
+        field_tags:
+          description: Tags for the event.
+        field_event_speakers:
+          description: The event speakers.
+        field_event_virtual_meeting_link:
+          description: The virtual meeting link.
+        field_event_timezone:
+          $ref: '#/components/schemas/TimezoneProperty'
+        field_event_in_person:
+          description: Whether the event is held in person.
+        domain_access:
+          description: |
+            The domains the event belongs to. Silently ignored unless the acting user has the
+            `administer domains` permission.
+
+    EventSeriesWrite:
+      description: |
+        The create body. `title` and `recur_type` are required when confirming; a preview needs
+        only `recur_type` and the recurrence configuration. `moderation_state` is ignored.
+      allOf:
+        - $ref: '#/components/schemas/ContentFields'
+        - type: object
+          required:
+            - recur_type
+          properties:
+            title:
+              type: string
+              description: The series title. Required when `confirmed=true`.
+              example: "Introduction to Anvil"
+            recur_type:
+              type: string
+              description: |
+                The recurrence type. `custom` uses `custom_dates`. For a rule type (for example
+                `weekly_recurring_date`) the rule configuration is passed in a body key of the same
+                name as the `recur_type` value.
+              example: "custom"
+            custom_dates:
+              type: array
+              description: |
+                Used when `recur_type` is `custom`. Entries missing a `start_date` or `end_date`
+                are skipped.
+              items:
+                $ref: '#/components/schemas/CustomDate'
+            field_affinity_group_node:
+              type: array
+              description: |
+                Optional affinity group node UUIDs to publish the event to. The acting user must
+                coordinate every supplied group. Unknown UUIDs cause a `422` on the commit path.
+                A single string is accepted as a one-element list.
+              items:
+                type: string
+                format: uuid
+          additionalProperties: true
+
+    CustomDate:
+      type: object
+      required:
+        - start_date
+        - end_date
+      properties:
+        start_date:
+          type: string
+          description: The occurrence start date-time.
+          example: "2026-09-10T15:00:00"
+        end_date:
+          type: string
+          description: The occurrence end date-time.
+          example: "2026-09-10T17:00:00"
+
+    EventSeriesUpdate:
+      description: |
+        The update body. Only `title` and the content fields are accepted. Recurrence
+        configuration and `moderation_state` are not writable here and are ignored.
+      allOf:
+        - $ref: '#/components/schemas/ContentFields'
+        - type: object
+          properties:
+            title:
+              type: string
+              description: The series title.
+
+    OccurrenceDate:
+      type: object
+      description: The occurrence's date range.
+      properties:
+        value:
+          type: string
+          description: Start date-time (interpreted as UTC).
+          example: "2026-10-01T15:00:00"
+        end_value:
+          type: string
+          description: End date-time (interpreted as UTC).
+          example: "2026-10-01T17:00:00"
+
+    OccurrenceAdd:
+      type: object
+      required:
+        - date
+      properties:
+        date:
+          allOf:
+            - $ref: '#/components/schemas/OccurrenceDate'
+          required:
+            - value
+            - end_value
+
+    OccurrenceEdit:
+      type: object
+      description: Only keys present in the body are written.
+      properties:
+        date:
+          $ref: '#/components/schemas/OccurrenceDate'
+        field_location:
+          description: The occurrence location.
+
+    CreatePreview:
+      type: object
+      description: A no-write preview of the occurrence dates a recurrence would produce.
+      properties:
+        status:
+          type: string
+          enum: [preview]
+        executed:
+          type: boolean
+          enum: [false]
+        occurrence_count:
+          type: integer
+          description: The number of occurrences listed (after the 1000-row output cap).
+        total_occurrence_count:
+          type: integer
+          description: The real total number of occurrences the recurrence would produce.
+        truncated:
+          type: boolean
+          description: True when the total exceeds the 1000-row cap and `occurrences` was shortened.
+        occurrences:
+          type: array
+          description: Chronological list, capped at 1000 entries.
+          items:
+            type: object
+            properties:
+              start_date:
+                type: string
+                format: date-time
+              end_date:
+                type: string
+                format: date-time
+
+    CreateResult:
+      type: object
+      description: The created draft series.
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        series_id:
+          type: integer
+        instance_ids:
+          type: array
+          description: IDs of the occurrences spawned from the recurrence dates.
+          items:
+            type: integer
+        title:
+          type: string
+        moderation_state:
+          type: string
+          description: Always `draft`.
+          example: "draft"
+        moderation:
+          $ref: '#/components/schemas/ModerationBlock'
+
+    UpdateResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        series_id:
+          type: integer
+        updated_fields:
+          type: array
+          description: The field names written by this call.
+          items:
+            type: string
+
+    SeriesDeletePreview:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [preview]
+        executed:
+          type: boolean
+          enum: [false]
+        series_id:
+          type: integer
+        would_archive:
+          type: boolean
+          description: True when the series was ever published and would be archived.
+        would_hard_delete:
+          type: boolean
+          description: True when the series was never published and has no registrations.
+        registrants_affected:
+          type: integer
+          description: Registrants on the series' not-yet-ended occurrences.
+        refusal:
+          type: string
+          description: Present only when a hard delete would be refused; the reason.
+        registrations_total:
+          type: integer
+          description: |
+            Present only with `refusal`; the all-time registration count, which can differ from
+            `registrants_affected` (past registrations also block a hard delete).
+
+    SeriesDeleteResult:
+      type: object
+      description: The result of an archive or hard delete.
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        series_id:
+          type: integer
+        hard_deleted:
+          type: boolean
+          description: True when a never-published draft was deleted; false when archived.
+        registrants_affected:
+          type: integer
+        instances_archived:
+          type: integer
+          description: Archive path only. Occurrences archived by the series save.
+        notified:
+          type: integer
+          description: Archive path only. Cancellation notices queued.
+        notifications_disabled:
+          type: boolean
+          description: Archive path only (omitted on the idempotent already-archived result).
+
+    SeriesRestoreResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        series_id:
+          type: integer
+        instances_restored:
+          type: integer
+          description: Occurrences republished (0 when the series was already published).
+        notified:
+          type: integer
+        notifications_disabled:
+          type: boolean
+          description: Omitted on the idempotent already-published result.
+
+    SendForReviewResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        series_id:
+          type: integer
+        moderation_state:
+          type: string
+          example: "ready_for_review"
+
+    OccurrenceAddResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        series_id:
+          type: integer
+        eventinstance_id:
+          type: integer
+        moderation_state:
+          type: string
+          description: |
+            The new occurrence's birth state, which follows the parent series (published parent,
+            published occurrence; archived parent, archived occurrence).
+
+    OccurrenceEditPreview:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [preview]
+        executed:
+          type: boolean
+          enum: [false]
+        eventinstance_id:
+          type: integer
+        date_changes:
+          type: boolean
+          enum: [true]
+        registrants_to_notify:
+          type: integer
+          description: The registrant count if the occurrence is published; 0 otherwise.
+        note:
+          type: string
+          description: Present only when the occurrence is not published.
+
+    OccurrenceEditResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        eventinstance_id:
+          type: integer
+        registrants_affected:
+          type: integer
+          description: The number of registrants actually notified by the save.
+
+    OccurrenceCancelPreview:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [preview]
+        executed:
+          type: boolean
+          enum: [false]
+        eventinstance_id:
+          type: integer
+        registrants_affected:
+          type: integer
+          description: Registrants on the occurrence if it is still in the future.
+
+    OccurrenceCancelResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        eventinstance_id:
+          type: integer
+        registrants_affected:
+          type: integer
+        notified:
+          type: integer
+        notifications_disabled:
+          type: boolean
+          description: Present when the occurrence was cancelled from published.
+        note:
+          type: string
+          description: Present only when the occurrence was already cancelled.
+
+    OccurrenceRestoreResult:
+      type: object
+      description: The occurrence was republished.
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        eventinstance_id:
+          type: integer
+        notified:
+          type: integer
+        notifications_disabled:
+          type: boolean
+
+    OccurrenceRestoreDeferredResult:
+      type: object
+      description: |
+        The parent series is not published, so the occurrence stays archived and returns when the
+        series is restored.
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        eventinstance_id:
+          type: integer
+        returns_with_series:
+          type: boolean
+          enum: [true]
+        notified:
+          type: integer
+          description: Always 0 on this path.
+
+tags:
+  - name: Event series
+    description: Create, edit, archive or delete, restore, and send for review an event series
+  - name: Event occurrences
+    description: Add, edit, cancel, and restore individual occurrences of an event series
+
+externalDocs:
+  description: Find out more about ACCESS
+  url: https://access-ci.org
