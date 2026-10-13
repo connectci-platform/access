@@ -6,7 +6,6 @@ use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\File\FileUrlGeneratorInterface;
 use Drupal\search_api\Datasource\DatasourceInterface;
 use Drupal\search_api\Item\ItemInterface;
-use Drupal\search_api\Processor\ProcessorPluginBase;
 use Drupal\search_api\Processor\ProcessorProperty;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -20,11 +19,10 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  *   stages = {
  *     "add_properties" = 0,
  *   },
- *   locked = true,
  *   hidden = true,
  * )
  */
-class UserBadges extends ProcessorPluginBase {
+class UserBadges extends UserProcessorBase {
 
   /**
    * The entity type manager.
@@ -88,10 +86,16 @@ class UserBadges extends ProcessorPluginBase {
    *   The item whose fields should be added.
    */
   public function addFieldValues(ItemInterface $item): void {
-    $user = $item->getOriginalObject()->getValue();
-
     $fields = $this->getFieldsHelper()
       ->filterForPropertyPath($item->getFields(), NULL, 'search_api_user_badges');
+    if (empty($fields)) {
+      return;
+    }
+
+    $user = $this->getUserFromItem($item);
+    if (!$user) {
+      return;
+    }
 
     // Collect badges from both regular and OOD badge fields.
     $badge_fields = ['field_user_badges', 'field_open_ondemand_badges'];

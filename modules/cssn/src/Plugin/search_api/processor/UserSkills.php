@@ -6,7 +6,6 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\search_api\Datasource\DatasourceInterface;
 use Drupal\search_api\Item\ItemInterface;
-use Drupal\search_api\Processor\ProcessorPluginBase;
 use Drupal\search_api\Processor\ProcessorProperty;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -20,11 +19,10 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  *   stages = {
  *     "add_properties" = 0,
  *   },
- *   locked = true,
  *   hidden = true,
  * )
  */
-class UserSkills extends ProcessorPluginBase {
+class UserSkills extends UserProcessorBase {
 
   /**
    * The database connection.
@@ -88,7 +86,17 @@ class UserSkills extends ProcessorPluginBase {
    *   The item whose fields should be added.
    */
   public function addFieldValues(ItemInterface $item): void {
-    $user = $item->getOriginalObject()->getValue();
+    $fields = $this->getFieldsHelper()
+      ->filterForPropertyPath($item->getFields(), NULL, 'search_api_user_skills');
+    if (empty($fields)) {
+      return;
+    }
+
+    $user = $this->getUserFromItem($item);
+    if (!$user) {
+      return;
+    }
+
     $query = $this->database->select('flagging', 'fl');
     $query->condition('fl.uid', $user->id());
     $query->condition('fl.flag_id', 'skill');
@@ -100,8 +108,6 @@ class UserSkills extends ProcessorPluginBase {
     }
 
     $term_storage = $this->entityTypeManager->getStorage('taxonomy_term');
-    $fields = $this->getFieldsHelper()
-      ->filterForPropertyPath($item->getFields(), NULL, 'search_api_user_skills');
     foreach ($fields as $field) {
       foreach ($flagged as $flagged_id) {
         $term = $term_storage->load($flagged_id);
