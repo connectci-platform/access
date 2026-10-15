@@ -140,66 +140,14 @@ class CiLinkController extends ControllerBase {
     }
     $affinity_nodes = rtrim($affinity_nodes, ', ');
 
-    // Check if user is logged in.
-    $user = \Drupal::currentUser();
-    $options = [
-      'query' => ['destination' => \Drupal::request()->getRequestUri()],
-      'attributes' => ['class' => ['text-dark-teal', 'no-underline', 'hover--underline']],
-    ];
-    $login = Link::fromTextAndUrl($this->t('Login to vote'), Url::fromUri('internal:/user/login', $options))->toString();
+    // The like widget, Edit button and flag menu are per-user, so they are lazy
+    // builders (see ResourceUserActions) rather than part of this cached page.
+    $variant = 'page:' . $domainName;
 
-    // Upvote widget.
-    $flag_upvote = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'upvote', 'full');
-    $flag_upvote = \Drupal::service('renderer')->renderPlain($flag_upvote);
+    // Upvote count.
     $flag_upvote_count = \Drupal::service('flag.count')->getEntityFlagCounts($this->webform_submission);
     $flag_upvote_set = $flag_upvote_count['upvote'] ?? 0;
     $flag_upvote_count = $flag_upvote_set ? $flag_upvote_count['upvote'] : 0;
-
-    // Edit Button.
-    // Get the webform ID from the submission to properly build the edit route
-    $webform_id = $this->webform_submission->getWebform()->id();
-    $edit_url = Url::fromRoute('entity.webform_submission.edit_form', [
-      'webform' => $webform_id,
-      'webform_submission' => $this->sid
-    ]);
-    // Set the options on the URL object before creating the link
-    $edit_url->setOption('attributes', [
-      'class' => [
-        'btn',
-        'btn-sm',
-        'btn-secondary-outline',
-        'py-0',
-        'px-4',
-        'w-full',
-        'btn-md-teal',
-      ],
-    ]);
-    // If current user id is the same as the submission user id, show the edit link.
-    $edit_link = '';
-
-    $webform_submission = $this->webform_submission;
-
-    $uid = $this->webform_submission->getOwnerId();
-    $roles = \Drupal::currentUser()->getRoles();
-    if (\Drupal::currentUser()->id() == $uid || in_array('administrator', $roles) || in_array('kb_pm', $roles)) {
-      $edit_link = Link::fromTextAndUrl($this->t('Edit'), $edit_url)->toString();
-    }
-
-    // Flags.
-    $flag_classes = 'no-underline text-dark-teal hover--underline';
-    $flag_outdated = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'outdated', 'full');
-    $flag_outdated['#attributes']['class'][] = $flag_classes;
-    $flag_outdated = \Drupal::service('renderer')->renderPlain($flag_outdated);
-    $flag_not_useful = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'not_useful', 'full');
-    $flag_not_useful['#attributes']['class'][] = $flag_classes;
-    $flag_not_useful = \Drupal::service('renderer')->renderPlain($flag_not_useful);
-    $flag_inaccurate = \Drupal::service('flag.link_builder')->build('webform_submission', $this->sid, 'inaccurate', 'full');
-    $flag_inaccurate['#attributes']['class'][] = $flag_classes;
-    $flag_inaccurate = \Drupal::service('renderer')->renderPlain($flag_inaccurate);
-
-    // Check if the user is logged in.
-    $user = \Drupal::currentUser();
-    $authenticated = $user->isAuthenticated();
 
     // Use TailwindCSS classes for ACCESS Support
     // or use Bootstrap classes for other sites.
@@ -222,13 +170,7 @@ class CiLinkController extends ControllerBase {
                 <div class="text-[32px] text-center w-9 me-2">{{ count }}</div>
                 <span>{{ (count|render == "1") ? "Person" : "People" }} found this useful</span>
               </div>
-              {{ flag_upvote }}
-              {% if user is same as(0) %}
-                <div class="flex">
-                  <i class="fa-light fa-right-to-bracket text-[32px] w-9 me-2"></i>
-                  {{ user_login | raw }}
-                </div>
-              {% endif %}
+              {{ like_widget }}
               </div>
               <div class="grid grid-cols-2 gap-5">
                 <div>
@@ -243,23 +185,7 @@ class CiLinkController extends ControllerBase {
               {% if affinity_groups %}
                 {{ affinity_groups | raw }}
               {% endif %}
-              {% if authenticated %}
-                <div class="mt-5">
-                  {{ edit_link | raw }}
-                </div>
-              {% endif %}
-              {% if user > 0 %}
-                <details class="border border-solid border-dark-teal open:bg-white duration-300 relative">
-                  <summary class="ps-5 pe-10 py-2 text-dark-teal leading-5 cursor-pointer uppercase">{{ report }}</summary>
-                  <div class="bg-white px-5">
-                    <ul class="dropdown-menu">
-                      <li>{{ outdated | raw }}</li>
-                      <li>{{ not_useful | raw }}</li>
-                      <li>{{ inaccurate | raw }}</li>
-                    </ul>
-                  </div>
-                </details>
-              {% endif %}
+              {{ user_actions }}
             </div>
           </div>
         </div>
@@ -283,12 +209,7 @@ class CiLinkController extends ControllerBase {
                 <div class="d-flex align-items-center">
                   <div class="fs-1 ml-2 ms-2 mr-2 me-2 px30">{{ count }}</div> <span>{{ (count|render == "1") ? "Person" : "People" }} found this useful</span>
                 </div>
-                <span class="vote-for-ci text-decoration-none ">{{ flag_upvote }}</span>
-                {% if user is same as(0) %}
-                  <div class="d-flex">
-                    <div class="px46"><i class="fa-light fa-right-to-bracket ms-2 ml-2"></i></div> {{ user_login | raw }}
-                  </div>
-                {% endif %}
+                <span class="vote-for-ci text-decoration-none ">{{ like_widget }}</span>
               </div>
               <div class="d-flex justify-content-between">
                 <div class="mb-3">
@@ -303,23 +224,7 @@ class CiLinkController extends ControllerBase {
               <div class="mt-3">
                 {{ affinity_groups | raw }}
               </div>
-              {% if authenticated %}
-                <div class="mt-5">
-                  {{ edit_link | raw }}
-                </div>
-              {% endif %}
-              {% if user > 0 %}
-                <div class="dropdown mt-3">
-                  <a class="btn btn-outline-dark btn-outline-primary btn-sm dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                    {{ report }}
-                  </a>
-                  <ul class="dropdown-menu">
-                    <li>{{ outdated | raw }}</li>
-                    <li>{{ not_useful | raw }}</li>
-                    <li>{{ inaccurate | raw }}</li>
-                  </ul>
-                </div>
-              {% endif %}
+              {{ user_actions }}
             </div>
           </div>
         </div>
@@ -345,19 +250,24 @@ class CiLinkController extends ControllerBase {
         'tags' => $ci_tagged,
         'description' => $description,
         'links' => $link_data,
-        'flag_upvote' => $flag_upvote,
+        'like_widget' => [
+          '#lazy_builder' => [
+            'access_cilink.resource_user_actions:likeWidget',
+            [(int) $this->sid, $variant],
+          ],
+          '#create_placeholder' => TRUE,
+        ],
+        'user_actions' => [
+          '#lazy_builder' => [
+            'access_cilink.resource_user_actions:userActions',
+            [(int) $this->sid, $variant],
+          ],
+          '#create_placeholder' => TRUE,
+        ],
         'count' => $flag_upvote_count,
-        'user_login' => $login,
         'category' => $category,
         'skill_graph' => $skill_graph,
         'affinity_groups' => $affinity_nodes,
-        'user' => $user->id(),
-        'report' => $this->t('Flag this resource'),
-        'outdated' => $flag_outdated,
-        'not_useful' => $flag_not_useful,
-        'inaccurate' => $flag_inaccurate,
-        'authenticated' => $authenticated,
-        'edit_link' => $edit_link,
       ],
       // Add cache tags to invalidate cache when the webform submission changes.
       '#cache' => [
