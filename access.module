@@ -6,6 +6,16 @@
 
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Menu\MenuTreeParameters;
+use Drupal\symfony_mailer\EmailInterface;
+
+/**
+ * Implements hook_mailer_init().
+ *
+ * Makes symfony_mailer typed emails honor the reroute_email settings.
+ */
+function access_mailer_init(EmailInterface $email) {
+  \Drupal::service('access.typed_email_rerouter')->init($email);
+}
 
 /**
  * Implements hook_page_attachments().
