@@ -143,8 +143,10 @@ class SiteTools {
   /**
    * Build an absolute URL for an entity, respecting its domain_access field.
    *
-   * Uses the entity's first assigned domain to construct the URL.
-   * Falls back to the current domain, then to support.access-ci.org.
+   * Prefers the active domain when the entity is assigned to it, so a shared
+   * entity links to the domain the visitor is actually on. Otherwise uses the
+   * entity's first assigned domain, then the active domain, then
+   * support.access-ci.org.
    *
    * @param string $relative_path
    *   The relative path (e.g., '/events/9018', '/announcements/my-title').
@@ -177,8 +179,20 @@ class SiteTools {
         }
 
         if (!empty($domains)) {
+          // An entity shared across domains (an event on both ACCESS and the
+          // OOD hub, say) must link to the domain the request came in on, not
+          // to whichever domain happens to be first in the field. Only fall
+          // back to the first assigned domain when the active domain has no
+          // claim on this entity.
+          $target_ids = array_column($domains, 'target_id');
+          $active_domain = \Drupal::service('domain.negotiator')
+            ->getActiveDomain();
+          $domain_id = ($active_domain && in_array($active_domain->id(), $target_ids, TRUE))
+            ? $active_domain->id()
+            : $target_ids[0];
+
           $domain = $this->entityTypeManager->getStorage('domain')
-            ->load($domains[0]['target_id']);
+            ->load($domain_id);
           if ($domain) {
             return $domain->buildUrl($relative_path);
           }
