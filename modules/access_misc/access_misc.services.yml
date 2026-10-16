@@ -82,5 +82,8 @@ services:
     class: Drupal\access_misc\Services\NotificationDomainScoper
     arguments: ["@entity_type.manager"]
 
+  access_misc.project_submission_delete_access:
+    class: Drupal\access_misc\Access\ProjectSubmissionDeleteAccess
+
 parameters:
   access_misc.verbose: FALSE

@@ -9,7 +9,11 @@ use Drupal\access_misc\Plugin\views\style\ClickSortGuardedTable;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Access\AccessResult;
+use Drupal\Core\Access\AccessResultInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Session\AccountInterface;
+use Drupal\webform\WebformSubmissionInterface;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Drupal\content_moderation_notifications\ContentModerationNotificationInterface;
@@ -371,6 +375,49 @@ function _access_misc_project_submissions_normalize_input(array $input): array {
 }
 
 /**
+ * Adds a Delete link after the Edit link in the PA Science submissions queue.
+ *
+ * Added at runtime rather than in the view config because the queue shares
+ * its fields with every other display; overriding them in config would copy
+ * the whole field set. The link only renders for users with delete access
+ * (see \Drupal\access_misc\Access\ProjectSubmissionDeleteAccess); the
+ * rewrite is skipped when it is empty.
+ *
+ * @param \Drupal\views\ViewExecutable $view
+ *   The view.
+ * @param string $display_id
+ *   The display id.
+ */
+function _access_misc_project_submissions_add_delete_link(ViewExecutable $view, string $display_id): void {
+  $delete = [
+    'id' => 'delete_webform_submission',
+    'table' => 'webform_submission',
+    'field' => 'delete_webform_submission',
+    'entity_type' => 'webform_submission',
+    'plugin_id' => 'entity_link_delete',
+    'label' => '',
+    'text' => 'Delete',
+    'element_class' => 'align-middle',
+    'element_default_classes' => FALSE,
+    'hide_alter_empty' => TRUE,
+    'alter' => [
+      'alter_text' => TRUE,
+      'text' => '<small><a href="/webform/project/submissions/{{ sid }}/delete" class="btn btn-danger btn-sm m-0 px-2 py-0 text-capitalize align-right">Delete</a></small>',
+    ],
+  ];
+
+  $fields = [];
+  foreach ($view->getHandlers('field', $display_id) as $id => $field) {
+    $fields[$id] = $field;
+    if ($id === 'webform_submission_user_submission_edit') {
+      $fields['delete_webform_submission'] = $delete;
+    }
+  }
+  $fields += ['delete_webform_submission' => $delete];
+  $view->displayHandlers->get($display_id)->setOption('fields', $fields);
+}
+
+/**
  * Implements hook_views_pre_view() for node templates.
  */
 function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$args) {
@@ -378,6 +425,7 @@ function access_misc_views_pre_view(ViewExecutable $view, $display_id, array &$a
   // status filter must not fall back to the filter's default value.
   if ($view->id() == ACCESS_MISC_PS_VIEW && $display_id == ACCESS_MISC_PS_DISPLAY) {
     $view->setExposedInput(_access_misc_project_submissions_normalize_input($view->getExposedInput()));
+    _access_misc_project_submissions_add_delete_link($view, $display_id);
   }
 
   $current_domain_name = \Drupal::service('access_misc.sitetools')->getDomain();
@@ -768,6 +816,11 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     }
   }
 
+  // Project delete confirmation: warn about what deleting removes.
+  if ($form_id == 'webform_submission_project_delete_form') {
+    access_misc_project_delete_form_alter($form, $form_state);
+  }
+
   if ($form_id == 'node_access_news_form' || $form_id == 'node_access_news_edit_form') {
     // If domain doesn't get set, force current domain after submit.
     array_unshift($form['actions']['submit']['#submit'], 'access_announcements_domain_submit');
@@ -791,6 +844,105 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
     // Uses #after_build to ensure it runs after the form is fully built.
     $form['#after_build'][] = 'access_misc_user_form_after_build';
   }
+}
+
+/**
+ * Implements hook_webform_submission_access().
+ *
+ * Lets program-scoped roles delete project submissions of their own program.
+ *
+ * @see \Drupal\access_misc\Access\ProjectSubmissionDeleteAccess
+ */
+function access_misc_webform_submission_access(WebformSubmissionInterface $entity, string $operation, AccountInterface $account): AccessResultInterface {
+  if ($operation === 'delete') {
+    return \Drupal::service('access_misc.project_submission_delete_access')->access($entity, $account);
+  }
+  return AccessResult::neutral();
+}
+
+/**
+ * Adds a deletion warning to the project submission delete confirm form.
+ *
+ * @param array<string, mixed> $form
+ *   The form.
+ * @param \Drupal\Core\Form\FormStateInterface $form_state
+ *   The form state.
+ */
+function access_misc_project_delete_form_alter(array &$form, FormStateInterface $form_state): void {
+  /** @var \Drupal\webform\WebformSubmissionInterface $submission */
+  $submission = $form_state->getFormObject()->getEntity();
+
+  $items = [];
+  $title = $submission->getElementData('project_title');
+  if (is_scalar($title) && (string) $title !== '') {
+    $items[] = ['#markup' => t('The project <strong>@title</strong> will be permanently deleted.', ['@title' => (string) $title])];
+  }
+
+  // List every uploaded file attached to the submission.
+  $file_names = [];
+  $webform = $submission->getWebform();
+  foreach ($webform->getElementsDecodedAndFlattened() as $key => $element) {
+    $type = $element['#type'] ?? '';
+    $file_types = [
+      'webform_image_file',
+      'webform_document_file',
+      'webform_audio_file',
+      'webform_video_file',
+      'managed_file',
+    ];
+    if (!in_array($type, $file_types, TRUE)) {
+      continue;
+    }
+    $value = $submission->getElementData($key);
+    $fids = array_filter(is_array($value) ? $value : [$value]);
+    if ($fids) {
+      foreach (\Drupal::entityTypeManager()->getStorage('file')->loadMultiple($fids) as $file) {
+        $file_names[] = $file->getFilename();
+      }
+    }
+  }
+  if ($file_names) {
+    $items[] = [
+      'message' => ['#markup' => t('Attached files will be permanently deleted:')],
+      'files' => [
+        '#theme' => 'item_list',
+        '#items' => array_map(function ($name) {
+          return ['#plain_text' => $name];
+        }, $file_names),
+      ],
+    ];
+  }
+  $items[] = ['#markup' => t('Links to this project from other pages will stop working.')];
+  $items[] = ['#markup' => t('If you only want to hide the project, set its status to "Declined" instead. That can be undone; deleting cannot.')];
+
+  $form['access_misc_project_warning'] = [
+    '#type' => 'container',
+    '#attributes' => ['class' => ['messages', 'messages--warning']],
+    '#weight' => -10,
+    'heading' => ['#markup' => '<strong>' . t('This permanently deletes the project:') . '</strong>'],
+    'list' => [
+      '#theme' => 'item_list',
+      '#items' => $items,
+    ],
+  ];
+
+  // Send non-administrators to the project list after deleting.
+  if (!\Drupal::currentUser()->hasPermission('administer webform submission')
+    && !in_array('administrator', \Drupal::currentUser()->getRoles(), TRUE)) {
+    $form['actions']['submit']['#submit'][] = 'access_misc_project_delete_redirect_submit';
+  }
+}
+
+/**
+ * Submit handler: redirect to the project list after a project is deleted.
+ *
+ * @param array<string, mixed> $form
+ *   The form.
+ * @param \Drupal\Core\Form\FormStateInterface $form_state
+ *   The form state.
+ */
+function access_misc_project_delete_redirect_submit(array &$form, FormStateInterface $form_state): void {
+  $form_state->setRedirectUrl(Url::fromUserInput('/project-submissions'));
 }
 
 /**
