@@ -85,6 +85,15 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
   const LOGOUT_ROUTES = ['user.logout', 'user.logout.http'];
 
   /**
+   * Request attribute asking for the cookie to be cleared on this response.
+   *
+   * For session endings that are not a logout route: another module deciding
+   * to log the user out mid-request sets this, rather than reproducing this
+   * cookie's name, domain rules and attributes somewhere they would diverge.
+   */
+  const FORCE_LOGOUT_ATTRIBUTE = 'access_force_logout';
+
+  /**
    * The JWT key provider service.
    *
    * @var \Drupal\access\AccessJwtKeyProvider
@@ -202,8 +211,16 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
     //
     // This must not depend on the seamless module, which is gated to one domain
     // and can be switched off: logout clears the cookie either way.
-    $route = $event->getRequest()->attributes->get('_route');
-    if (in_array($route, self::LOGOUT_ROUTES, TRUE)) {
+    // The route list covers logout as a user reaches it. The attribute covers
+    // logout as something else decides it: drupal_seamless_cilogon logs a user
+    // out when its SSO cookie goes missing, on whatever page they happened to
+    // request, and no route list can enumerate that. It sets the attribute on
+    // the request so this stays the only place that knows how to clear this
+    // cookie (D8-2896).
+    $request = $event->getRequest();
+    $route = $request->attributes->get('_route');
+    if (in_array($route, self::LOGOUT_ROUTES, TRUE)
+      || $request->attributes->get(self::FORCE_LOGOUT_ATTRIBUTE)) {
       $this->clearAuthCookie($event, TRUE);
       return;
     }
