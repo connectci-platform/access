@@ -253,10 +253,9 @@ YAML,
   protected function get(string $path, string $host = self::SUPPORT_HOST, ?User $user = NULL): Response {
     $request = Request::create('https://' . $host . $path);
     // Production negotiates the domain once per PHP request. This test process
-    // serves several, so clear the negotiator's per-process state.
-    $negotiator = $this->container->get('domain.negotiator');
-    $negotiated = new \ReflectionProperty($negotiator, 'negotiated');
-    $negotiated->setValue($negotiator, FALSE);
+    // serves several, so clear the negotiation state, which lives in the
+    // domain negotiation context service.
+    $this->container->get('domain.negotiation_context')->setNegotiated(FALSE);
     // The page cache middleware also memoizes its cache ID per PHP request.
     $middleware = $this->container->get('http_middleware.page_cache');
     $cid = new \ReflectionProperty($middleware, 'cid');
