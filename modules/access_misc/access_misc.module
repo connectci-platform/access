@@ -1505,23 +1505,6 @@ function access_misc_mail($key, &$message, $params) {
   }
 }
 
-function get_domain_email() {
-  // Lookup the site_mail for the current domain.
-  // This is used to set the Reply-To header for emails sent from the site.
-  $domain_negotiator = \Drupal::service('domain.negotiator');
-  $active_domain = $domain_negotiator->getActiveDomain();
-  if ($active_domain) {
-    $domain_id = $active_domain->id();
-    $configFactory = \Drupal::configFactory()->get('domain_site_settings.domainconfigsettings');
-    if ($configFactory->get($domain_id) !== NULL) {
-      $domain_config = $configFactory->get($domain_id);
-      $site_mail = $domain_config['site_mail'];
-      return $site_mail;
-    }
-  }
-  return NULL; // Fallback if no domain match
-}
-
 /**
  * Implements hook_content_moderation_notification_mail_data_alter().
  *
@@ -1550,17 +1533,15 @@ function access_misc_content_moderation_notification_mail_data_alter(EntityInter
  */
 function access_misc_mail_alter(&$message) {
   // Ticketing mail (organization request, account support) sets its own
-  // From to the submitter so JSM picks them as Reporter. Don't overwrite
-  // Reply-To with the domain site_mail.
+  // From to the submitter so JSM picks them as Reporter. Leave it exactly as
+  // the sender built it.
   if (!empty($message['id']) && $message['id'] === 'ticketing_ticketing') {
     return;
   }
 
-  // If the domain-specific email exists, use it.
-  $site_email = get_domain_email();
-  if (!empty($site_email)) {
-    $message['headers']['Reply-To'] = $site_email;
-  }
+  // Reply-To is left to the sender and to access_misc_mailer_build(). The
+  // per-domain site_mail lookup this used to do read domain_site_settings,
+  // which the domain 3.x upgrade (D8-2770) removed.
 
   // For content_moderation_notifications emails sent while the editor is on
   // the ACCESS Support domain, append a help-ticket footer and set a friendly
@@ -1869,45 +1850,18 @@ function access_misc_tokens($type, $tokens, array $data, array $options) {
  */
 function _access_misc_get_site_logo_url() {
   try {
-    // Get the active domain.
-    $domain_negotiator = \Drupal::service('domain.negotiator');
-    $active_domain = $domain_negotiator->getActiveDomain();
+    // Under domain 3.x the active domain's theme is a domain_config override
+    // of system.theme, so plain config already returns it.
+    $theme_name = \Drupal::config('system.theme')->get('default');
 
-    // Get the theme for the current domain.
-    $theme_name = NULL;
-    if ($active_domain) {
-      $domain_theme_lookup = \Drupal::service('domain_theme_switch.domain_theme_lookup');
-      $theme_name = $domain_theme_lookup->getDefaultTheme($active_domain->id());
-    }
+    // theme_get_setting() resolves the default-logo and custom-logo cases,
+    // including a theme whose own settings omit logo.use_default and inherit
+    // it from the global theme settings. It returns a root-relative URL.
+    $logo_url = theme_get_setting('logo.url', $theme_name);
 
-    // Fallback to default theme if no domain-specific theme.
-    if (!$theme_name) {
-      $theme_name = \Drupal::config('system.theme')->get('default');
-    }
-
-    // Get the theme config for logo settings.
-    $theme_config = \Drupal::config($theme_name . '.settings');
-
-    // Check if logo is set and get the path.
-    if ($theme_config->get('logo.use_default')) {
-      // Using default logo from theme.
-      $theme_path = \Drupal::service('extension.list.theme')->getPath($theme_name);
-      $logo_path = $theme_path . '/logo.svg';
-
-      // Check if SVG exists, otherwise try PNG.
-      if (!file_exists(DRUPAL_ROOT . '/' . $logo_path)) {
-        $logo_path = $theme_path . '/logo.png';
-      }
-    }
-    else {
-      // Using custom logo.
-      $logo_path = $theme_config->get('logo.path');
-    }
-
-    if ($logo_path) {
+    if ($logo_url) {
       // Convert to absolute URL.
-      $base_url = \Drupal::request()->getSchemeAndHttpHost();
-      return $base_url . '/' . $logo_path;
+      return \Drupal::request()->getSchemeAndHttpHost() . $logo_url;
     }
 
     return NULL;
