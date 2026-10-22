@@ -10,7 +10,7 @@ use Drupal\KernelTests\KernelTestBase;
 /**
  * Tests the Reply-To and footer handling in access_misc_mail_alter().
  *
- * access_misc used to set Reply-To from domain_site_settings' per-domain
+ * The alter used to set Reply-To from domain_site_settings' per-domain
  * site_mail. That module went away in the domain 3.x upgrade (D8-2770), so
  * the lookup always came back empty, and if its config ever reappeared it
  * would override the Reply-To a sender chose on purpose (a reviewer's, on
@@ -25,14 +25,6 @@ class MailAlterReplyToTest extends KernelTestBase {
    * The ACCESS Support domain id.
    */
   private const DOMAIN_ACCESS = 'amp_cyberinfrastructure_org';
-
-  /**
-   * {@inheritdoc}
-   *
-   * domain_site_settings ships no schema here: its module is gone, which is
-   * exactly the leftover config this test plants.
-   */
-  protected $strictConfigSchema = FALSE;
 
   /**
    * {@inheritdoc}
@@ -71,9 +63,12 @@ class MailAlterReplyToTest extends KernelTestBase {
    * Leftover domain_site_settings config does not set a Reply-To.
    */
   public function testLegacyMailGetsNoDomainSettingsReplyTo(): void {
-    $this->config('domain_site_settings.domainconfigsettings')
-      ->set(self::DOMAIN_ACCESS, ['site_mail' => 'stale@example.com'])
-      ->save();
+    // Written straight to storage, the way leftover config from a removed
+    // module sits there: no module, so no schema to save it through.
+    $this->container->get('config.storage')
+      ->write('domain_site_settings.domainconfigsettings', [
+        self::DOMAIN_ACCESS => ['site_mail' => 'stale@example.com'],
+      ]);
     $message = ['id' => 'user_password_reset', 'headers' => [], 'body' => []];
 
     access_misc_mail_alter($message);
