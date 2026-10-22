@@ -1916,6 +1916,14 @@ function access_affinitygroup_entity_insert(EntityInterface $entity) {
   $type = $entity->bundle();
   // Email any infrastructure news with the 'Email only subscribers' box checked.
   if ($type == 'infrastructure_news') {
+    // Skip an outage that had already ended by the time it was first imported,
+    // such as a backlog arriving after the feed import was down. A resolution
+    // posted to an outage we already have comes in as an update, and still
+    // sends.
+    $end = $entity->get('field_infrastructure_news_end')->date;
+    if ($end && $end->getTimestamp() < \Drupal::time()->getRequestTime()) {
+      return;
+    }
     access_affinitygroup_infrastructure_news_cc($entity);
   }
 }
