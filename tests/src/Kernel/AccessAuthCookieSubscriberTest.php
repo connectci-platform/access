@@ -269,6 +269,92 @@ class AccessAuthCookieSubscriberTest extends KernelTestBase {
   }
 
   /**
+   * A force-logout attribute clears the cookie on a non-logout route.
+   *
+   * The seamless module logs a user out when its SSO cookie goes missing, on
+   * whatever page they requested, so no route list reaches it. It sets the
+   * attribute instead and this subscriber does the clearing, which keeps the
+   * cookie's rules in one module (D8-2896).
+   */
+  public function testForceLogoutAttributeClearsOnAnyRoute(): void {
+    $user = User::create(['name' => 'ap-forced', 'mail' => 'apf@example.com', 'status' => 1]);
+    $user->save();
+    $this->writeAuthmap($user, 'apasquale-forced@access-ci.org');
+
+    $request = Request::create('/some/page');
+    $request->attributes->set('_route', 'entity.node.canonical');
+    // The literal, not the constant: this is a contract with another module
+    // (drupal_seamless_cilogon writes this exact string). Asserting the
+    // constant would move with a rename and let the two sides diverge
+    // silently, which is the failure this attribute was chosen to avoid.
+    $request->attributes->set('access_force_logout', TRUE);
+    // Anonymous, as production is here: seamless calls user_logout() before
+    // setting its response, and that resets the same account proxy this
+    // subscriber reads. The attribute's contribution is making the clear
+    // unconditional -- without it the else-branch clear still fires, but only
+    // when the browser actually sent the cookie.
+    $cookie = $this->runSubscriber($user, NULL, $request, NULL, TRUE);
+
+    $this->assertNotNull($cookie, 'The attribute forces a clear.');
+    $this->assertEmpty($cookie->getValue(), 'Cleared, not re-minted.');
+    $this->assertLessThan(\Drupal::time()->getRequestTime(), $cookie->getExpiresTime());
+  }
+
+  /**
+   * The constant and the string other modules write are the same thing.
+   *
+   * The drupal_seamless_cilogon module writes the bare literal. Nothing else
+   * in either repo pins that the two halves of that contract match.
+   */
+  public function testForceLogoutAttributeNameIsStable(): void {
+    $this->assertSame(
+      'access_force_logout',
+      AccessAuthCookieSubscriber::FORCE_LOGOUT_ATTRIBUTE,
+      'Renaming this breaks drupal_seamless_cilogon, which writes the literal.',
+    );
+  }
+
+  /**
+   * The forced clear is unconditional, as on the logout routes.
+   *
+   * A cookie the browser holds but did not send is the one that must not
+   * survive a logout.
+   */
+  public function testForceLogoutClearsEvenWithoutTheCookieOnTheRequest(): void {
+    $user = User::create(['name' => 'ap-forced-none', 'mail' => 'apfn@example.com', 'status' => 1]);
+    $user->save();
+    $this->writeAuthmap($user, 'apasquale-forcednone@access-ci.org');
+
+    $request = Request::create('/some/page');
+    $request->attributes->set('_route', 'entity.node.canonical');
+    $request->attributes->set('access_force_logout', TRUE);
+
+    // No cookie on the request, and anonymous: without the attribute the
+    // else-branch clear early-returns and nothing is sent. This is the case
+    // the attribute exists for.
+    $this->assertNotNull($this->runSubscriber($user, NULL, $request, NULL, TRUE));
+  }
+
+  /**
+   * Without the attribute, the same route still mints.
+   *
+   * Pins that the attribute is what does the work, not the route.
+   */
+  public function testSameRouteWithoutTheAttributeStillMints(): void {
+    $user = User::create(['name' => 'ap-unforced', 'mail' => 'apu@example.com', 'status' => 1]);
+    $user->save();
+    $this->writeAuthmap($user, 'apasquale-unforced@access-ci.org');
+
+    $request = Request::create('/some/page');
+    $request->attributes->set('_route', 'entity.node.canonical');
+
+    $cookie = $this->runSubscriber($user, NULL, $request);
+
+    $this->assertNotNull($cookie);
+    $this->assertNotEmpty($cookie->getValue(), 'A normal page still mints.');
+  }
+
+  /**
    * The confirm form's GET must not clear: nobody is logged out yet.
    *
    * User_logout() runs only in UserLogoutConfirm::submitForm(), so the GET
