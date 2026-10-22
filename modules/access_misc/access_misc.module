@@ -78,8 +78,17 @@ function access_misc_mailer_build(\Drupal\symfony_mailer\EmailInterface $email) 
     ],
   ];
 
+  // Email types that always use one domain's identity and transport,
+  // whatever the active domain is. Appverse mail (ood_software's hook_mail) is
+  // mostly sent from cron, which has no request, so the active domain is the
+  // default ACCESS domain and it would go out as ACCESS Support.
+  $email_type_domain_map = [
+    'ood_software' => 'openondemand_cyberinfrastructure_org',
+  ];
+
   try {
-    $domain_id = \Drupal::service('domain.negotiator')->getActiveDomain()?->id();
+    $domain_id = $email_type_domain_map[$email->getType()]
+      ?? \Drupal::service('domain.negotiator')->getActiveDomain()?->id();
   }
   catch (\Exception $e) {
     return;
@@ -103,7 +112,9 @@ function access_misc_mailer_build(\Drupal\symfony_mailer\EmailInterface $email) 
     }
 
     $email->setFrom(new \Drupal\symfony_mailer\Address($config['from'], $config['from_name']));
-    if (!empty($config['reply_to'])) {
+    // Only default the Reply-To. A sender that set its own (e.g. ood_software
+    // review mail replies to the reviewer) must keep it.
+    if (!empty($config['reply_to']) && !$email->getReplyTo()) {
       $email->setReplyTo(new \Drupal\symfony_mailer\Address($config['reply_to'], $config['reply_name']));
     }
   }
