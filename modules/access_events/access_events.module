@@ -2863,8 +2863,8 @@ function _access_events_attach_moderation_warnings(array &$form, $entity, bool $
 }
 
 /**
- * Attaches the schedule-change disclosure to a series EDIT form, up front
- * near the recurrence fields.
+ * Attaches the schedule-change disclosure to a series EDIT form, inside the
+ * recurrence section.
  *
  * A schedule (recurrence pattern or dates) change on an existing series
  * regenerates its occurrences from the recur config — see
@@ -2872,8 +2872,8 @@ function _access_events_attach_moderation_warnings(array &$form, $entity, bool $
  * rebuild itself and EventSeriesRescheduleBlockConstraint for the refusal
  * that applies when the series has registrations. Neither of those fires
  * until the form is actually submitted, so an editor opening the edit form
- * has no way to know any of this is coming — this disclosure states it up
- * front, before they touch the recurrence fields, using
+ * has no way to know any of this is coming — this disclosure places it
+ * directly next to the recurrence fields whose change it describes, using
  * FormWarnings::scheduleChangeWarning() to decide whether anything on this
  * series is actually at risk (a NULL return means nothing qualifies, and no
  * warning is attached).
@@ -2902,10 +2902,10 @@ function _access_events_attach_schedule_change_warning(array &$form, $entity): v
     return;
   }
 
-  $form['access_events_schedule_change_warning'] = [
+  $form['recur_type']['access_events_schedule_change_warning'] = [
     '#type' => 'markup',
     '#markup' => '<div class="messages messages--warning">' . Html::escape((string) $warningText) . '</div>',
-    '#weight' => isset($form['recur_type']['#weight']) ? $form['recur_type']['#weight'] - 1 : -90,
+    '#weight' => 100,
     '#cache' => ['max-age' => 0],
   ];
 }

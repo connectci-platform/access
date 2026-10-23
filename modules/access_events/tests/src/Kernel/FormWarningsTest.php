@@ -514,7 +514,7 @@ class FormWarningsTest extends EventKernelTestBase {
     $warning = $this->formWarnings->scheduleChangeWarning($reloaded);
 
     $this->assertNotNull($warning);
-    $this->assertStringContainsString('regenerates', (string) $warning);
+    $this->assertStringContainsString('rebuilds', (string) $warning);
   }
 
   /**
@@ -532,6 +532,34 @@ class FormWarningsTest extends EventKernelTestBase {
     $warning = $this->formWarnings->scheduleChangeWarning($series);
 
     $this->assertNull($warning);
+  }
+
+  /**
+   * The schedule-change disclosure warns of refusal when registrants exist.
+   *
+   * A series with a not-past registrant refuses schedule changes on save, so
+   * the disclosure must say so rather than describe a rebuild.
+   */
+  public function testScheduleChangeWarningMentionsRefusalWhenRegistrations(): void {
+    $series = $this->makeUnpublishedCustomSeriesWithDates([
+      ['value' => '2999-01-01T10:00:00', 'end_value' => '2999-01-01T12:00:00'],
+    ]);
+
+    $diverged = EventInstance::create([
+      'eventseries_id' => $series->id(),
+      'type' => 'default',
+      'date' => ['value' => '2999-06-01T10:00:00', 'end_value' => '2999-06-01T12:00:00'],
+    ]);
+    $diverged->save();
+    // The instance is not published, so register via the draft-instance
+    // helper (the registration publish gate would refuse a plain save).
+    $this->registerUserOnDraftInstance($this->createUser([], 'regist'), $diverged);
+
+    $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
+    $warning = $this->formWarnings->scheduleChangeWarning($reloaded);
+
+    $this->assertNotNull($warning);
+    $this->assertStringContainsString('save will be refused', (string) $warning);
   }
 
   /**
