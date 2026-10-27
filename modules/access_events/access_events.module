@@ -20,6 +20,7 @@ use Drupal\views\ViewExecutable;
 use Drupal\views\Plugin\views\query\QueryPluginBase;
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Entity\EntityTypeInterface;
+use Drupal\Core\Entity\RevisionableStorageInterface;
 use Drupal\access_events\CancellationNotifier;
 use Drupal\access_events\EffectiveCreationSet;
 use Drupal\access_events\EventDomainContext;
@@ -3164,7 +3165,7 @@ function access_events_revision_revert_validate(array &$form, FormStateInterface
   $formId = $form_state->getFormObject()->getFormId();
   $entityType = str_starts_with($formId, 'eventseries') ? 'eventseries' : 'eventinstance';
   $storage = \Drupal::entityTypeManager()->getStorage($entityType);
-  if (!method_exists($storage, 'loadRevision')) {
+  if (!$storage instanceof RevisionableStorageInterface) {
     return;
   }
   $revision = $storage->loadRevision($revisionId);
