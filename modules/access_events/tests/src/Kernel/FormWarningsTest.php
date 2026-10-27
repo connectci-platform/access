@@ -514,14 +514,14 @@ class FormWarningsTest extends EventKernelTestBase {
     $warning = $this->formWarnings->scheduleChangeWarning($reloaded);
 
     $this->assertNotNull($warning);
-    $this->assertStringContainsString('regenerates', (string) $warning);
+    $this->assertStringContainsString('rebuilds', (string) $warning);
   }
 
   /**
    * The schedule-change disclosure does NOT fire when every future occurrence
    * matches the series' current recur config exactly, and none is
-   * individually cancelled — a schedule rebuild would recreate the same
-   * dates, so there is nothing to disclose.
+   * individually cancelled, and there are no registrants — a schedule
+   * rebuild would recreate the same dates, so there is nothing to disclose.
    */
   public function testScheduleChangeWarningNullWhenNoDivergence(): void {
     $series = $this->makeUnpublishedCustomSeriesWithDates([
@@ -532,6 +532,65 @@ class FormWarningsTest extends EventKernelTestBase {
     $warning = $this->formWarnings->scheduleChangeWarning($series);
 
     $this->assertNull($warning);
+  }
+
+  /**
+   * The schedule-change disclosure warns of refusal when registrants exist.
+   *
+   * A series with a not-past registrant refuses schedule changes on save, so
+   * the disclosure must say so rather than describe a rebuild.
+   */
+  public function testScheduleChangeWarningMentionsRefusalWhenRegistrations(): void {
+    $series = $this->makeUnpublishedCustomSeriesWithDates([
+      ['value' => '2999-01-01T10:00:00', 'end_value' => '2999-01-01T12:00:00'],
+    ]);
+
+    $diverged = EventInstance::create([
+      'eventseries_id' => $series->id(),
+      'type' => 'default',
+      'date' => ['value' => '2999-06-01T10:00:00', 'end_value' => '2999-06-01T12:00:00'],
+    ]);
+    $diverged->save();
+    // The instance is not published, so register via the draft-instance
+    // helper (the registration publish gate would refuse a plain save).
+    $this->registerUserOnDraftInstance($this->createUser([], 'regist'), $diverged);
+
+    $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
+    $warning = $this->formWarnings->scheduleChangeWarning($reloaded);
+
+    $this->assertNotNull($warning);
+    $this->assertStringContainsString('save will fail', (string) $warning);
+    $this->assertStringContainsString("edit each occurrence's date individually", (string) $warning);
+    $this->assertStringNotContainsString('change the dates, then restore', (string) $warning);
+  }
+
+  /**
+   * Registrations warn even when no occurrence has diverged.
+   *
+   * The reschedule-block constraint refuses any rebuild while not-past
+   * registrants exist, so a plain series whose occurrences exactly match its
+   * config must still be warned.
+   */
+  public function testScheduleChangeWarningMentionsRefusalWhenRegistrationsWithoutDivergence(): void {
+    $series = $this->makeUnpublishedCustomSeriesWithDates([
+      ['value' => '2999-01-01T10:00:00', 'end_value' => '2999-01-01T12:00:00'],
+      ['value' => '2999-02-01T10:00:00', 'end_value' => '2999-02-01T12:00:00'],
+    ]);
+
+    // Fixture mirrors testScheduleChangeWarningNullWhenNoDivergence: with no
+    // registrant this series yields no warning.
+    $this->assertNull($this->formWarnings->scheduleChangeWarning($series));
+
+    $instances = $series->event_instances->referencedEntities();
+    $this->assertNotEmpty($instances);
+    $this->registerUserOnDraftInstance($this->createUser([], 'regist'), reset($instances));
+
+    $reloaded = \Drupal::entityTypeManager()->getStorage('eventseries')->loadUnchanged($series->id());
+    $warning = $this->formWarnings->scheduleChangeWarning($reloaded);
+
+    $this->assertNotNull($warning);
+    $this->assertStringContainsString('save will fail', (string) $warning);
+    $this->assertStringContainsString("edit each occurrence's date individually", (string) $warning);
   }
 
   /**

@@ -208,14 +208,20 @@ class FormWarnings {
 
   /**
    * The warning for editing a series whose schedule change would regenerate
-   * occurrences, shown up front near the recurrence fields.
+   * occurrences, shown inside the recurrence section of the form.
    *
    * Returns NULL when the series carries nothing a schedule change would put
-   * at risk: no future occurrence sits at a date outside the series' current
-   * effective creation set (a diverged or directly-added occurrence), and no
-   * future occurrence is individually cancelled. In that case every future
-   * occurrence would simply be recreated at the same dates by a rebuild, so
-   * there is nothing to disclose.
+   * at risk: it has no not-past registrants, no future occurrence sits at a
+   * date outside the series' current effective creation set (a diverged or
+   * directly-added occurrence), and no future occurrence is individually
+   * cancelled. In that case every future occurrence would simply be
+   * recreated at the same dates by a rebuild, so there is nothing to
+   * disclose.
+   *
+   * The registrations warning fires independent of divergence: the
+   * EventSeriesRescheduleBlockConstraint refuses any rebuild while not-past
+   * registrants exist, so a plain recurring series with registrations still
+   * has its save refused.
    *
    * Divergence is computed via EffectiveCreationSet::compute() — the SAME
    * service the actual schedule-rebuild alter
@@ -235,15 +241,17 @@ class FormWarnings {
    *   The warning text, or NULL when nothing qualifies.
    */
   public function scheduleChangeWarning(EventSeries $entity): ?TranslatableMarkup {
+    // Same check the reschedule-block constraint uses, so the warning matches
+    // the refusal whether or not anything has diverged.
+    if ($this->registrantCounter->countNotPastForSeries((int) $entity->id()) > 0) {
+      return $this->t("Changing the dates or recurrence pattern rebuilds this event's occurrences. This event has registrations, so the save will fail. Instead, cancel the event (registrants are notified), edit each occurrence's date individually, then restore it.");
+    }
+
     if (!$this->seriesHasDivergedOrCancelledFutureOccurrence($entity)) {
       return NULL;
     }
 
-    if ($this->registrantCounter->countNotPastForSeries((int) $entity->id()) > 0) {
-      return $this->t('Changing the schedule (recurrence pattern or dates) regenerates this event\'s occurrences from the recurrence configuration: occurrences at dates not in it will be removed, and individually cancelled occurrences are kept. This event has registrations, so schedule changes are refused entirely — see the reschedule guidance if you need to change dates.');
-    }
-
-    return $this->t('Changing the schedule (recurrence pattern or dates) regenerates this event\'s occurrences from the recurrence configuration: occurrences at dates not in it will be removed, and individually cancelled occurrences are kept.');
+    return $this->t("Changing the dates or recurrence pattern rebuilds this event's occurrences. Anything that doesn't match the new schedule gets dropped — occurrences you've already cancelled are safe.");
   }
 
   /**
@@ -362,7 +370,7 @@ class FormWarnings {
     }
 
     if ($this->registrantCounter->countNotPastForSeries((int) $entity->id()) > 0) {
-      return $this->t("Changing this event's timezone moves its upcoming occurrences, so it counts as a schedule change. This event has registrations, so the save will be refused — cancel the event (registrants are notified), correct the times, then restore it.");
+      return $this->t("Changing this event's timezone moves its upcoming occurrences, so it counts as a schedule change. This event has registrations, so the save will fail. Instead, cancel the event (registrants are notified), edit each occurrence's time individually, then restore it. The event's timezone setting stays unchanged.");
     }
 
     return $this->t("Changing this event's timezone moves its upcoming occurrences to the same clock times in the new zone. The occurrences are regenerated on save.");

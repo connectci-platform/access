@@ -93,14 +93,14 @@ class EventTimezoneChangeWarningTest extends EventKernelTestBase {
   }
 
   /**
-   * A series with registrations is told the save will be refused.
+   * A series with registrations is told the save will fail.
    *
    * This is the branch that matters most to an editor: it is the one telling
    * them the change will be rejected and what to do instead. Both branches
    * contain "moves its upcoming occurrences", so a test asserting only that
    * substring cannot tell them apart.
    */
-  public function testRegisteredSeriesIsToldTheSaveWillBeRefused(): void {
+  public function testRegisteredSeriesIsToldTheSaveWillFail(): void {
     $series = $this->futureWeeklySeriesWithRegistration();
     $instance = $this->firstInstanceOf($series);
     $this->registerUser($this->createUser([], 'registrant'), $instance);
@@ -108,8 +108,14 @@ class EventTimezoneChangeWarningTest extends EventKernelTestBase {
     $warning = (string) \Drupal::service('access_events.form_warnings')
       ->timezoneChangeWarning($series);
 
-    $this->assertStringContainsString('refused', $warning,
+    $this->assertStringContainsString('save will fail', $warning,
       'the editor learns the save will not go through');
+    $this->assertStringContainsString("edit each occurrence's time individually", $warning,
+      'is told to fix occurrences one by one, since the series rebuild is refused');
+    $this->assertStringContainsString('timezone setting stays unchanged', $warning,
+      'and learns the series zone itself is not changed by that route');
+    $this->assertStringNotContainsString('correct the times', $warning,
+      'the old instruction implying a series-level fix is gone');
     $this->assertStringContainsString('cancel the event', $warning,
       'and is told the route that does work');
   }
