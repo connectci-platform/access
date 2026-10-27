@@ -244,7 +244,7 @@ class FormWarnings {
     // Same check the reschedule-block constraint uses, so the warning matches
     // the refusal whether or not anything has diverged.
     if ($this->registrantCounter->countNotPastForSeries((int) $entity->id()) > 0) {
-      return $this->t("Changing the dates or recurrence pattern rebuilds this event's occurrences. This event has registrations, so the save will fail. Please reschedule or cancel the event with people registered (registrants are notified), edit each occurrence's date individually, then restore it.");
+      return $this->t("Changing the dates or recurrence pattern rebuilds this event's occurrences. This event has registrations, so the save will fail. Instead, cancel the event (registrants are notified), edit each occurrence's date individually, then restore it.");
     }
 
     if (!$this->seriesHasDivergedOrCancelledFutureOccurrence($entity)) {
@@ -370,7 +370,7 @@ class FormWarnings {
     }
 
     if ($this->registrantCounter->countNotPastForSeries((int) $entity->id()) > 0) {
-      return $this->t("Changing this event's timezone moves its upcoming occurrences, so it counts as a schedule change. This event has registrations, so the save will fail. Please reschedule or cancel the event with people registered (registrants are notified), edit each occurrence's time individually, then restore it. The event's timezone setting stays unchanged.");
+      return $this->t("Changing this event's timezone moves its upcoming occurrences, so it counts as a schedule change. This event has registrations, so the save will fail. Instead, cancel the event (registrants are notified), edit each occurrence's time individually, then restore it. The event's timezone setting stays unchanged.");
     }
 
     return $this->t("Changing this event's timezone moves its upcoming occurrences to the same clock times in the new zone. The occurrences are regenerated on save.");
