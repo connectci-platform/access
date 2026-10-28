@@ -3,12 +3,6 @@ services:
     parent: logger.channel_base
     arguments: ['access']
 
-  # Makes symfony_mailer typed emails honor reroute_email's settings, which
-  # only reroutes legacy mail via hook_mail_alter(). See hook_mailer_init().
-  access.typed_email_rerouter:
-    class: Drupal\access\Mail\TypedEmailRerouter
-    arguments: ['@config.factory', '@module_handler', '@messenger', '@logger.channel.access']
-
   access.jwt_key_provider:
     class: Drupal\access\AccessJwtKeyProvider
 
