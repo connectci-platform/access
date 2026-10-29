@@ -34,6 +34,30 @@ services:
     class: Drupal\access\Controller\JwksController
     arguments: ['@access.jwt_key_provider']
 
+  # Access token endpoints: /api/agent-token (browser grant) and
+  # /api/token-exchange (confidential clients). See ClientRegistry.
+  access.token_client_registry:
+    class: Drupal\access\TokenExchange\ClientRegistry
+    arguments: ['@config.factory', '@access.jwt_key_provider', '@logger.channel.access']
+
+  access.token_issuer:
+    class: Drupal\access\TokenExchange\TokenIssuer
+    arguments: ['@access.jwt_key_provider', '@datetime.time', '@logger.channel.access']
+
+  access.agent_token_controller:
+    class: Drupal\access\Controller\AgentTokenController
+    arguments: ['@access.token_client_registry', '@access.token_issuer', '@current_user', '@access.access_id_resolver', '@flood', '@logger.channel.access', '@state', '@module_handler']
+
+  access.token_exchange_controller:
+    class: Drupal\access\Controller\TokenExchangeController
+    arguments: ['@access.token_client_registry', '@access.token_issuer', '@access.jwt_key_provider', '@access.access_id_resolver', '@flood', '@logger.channel.access', '@datetime.time']
+
+  access.token_endpoint_cors_subscriber:
+    class: Drupal\access\EventSubscriber\TokenEndpointCorsSubscriber
+    arguments: ['@access.agent_token_controller']
+    tags:
+      - { name: event_subscriber }
+
   # Per-request value object. Under PHP-FPM, Drupal's container is rebuilt
   # per request so the default singleton scope is effectively per-request.
   # If this site ever moves to a persistent worker runtime (FrankenPHP,

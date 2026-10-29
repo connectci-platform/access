@@ -94,6 +94,41 @@ class AccessIdResolver {
   }
 
   /**
+   * Returns the ACCESS ID of an active user, by uid.
+   *
+   * The reverse of resolve(): the uid's ACCESS-ID-shaped authmap `sub`, and
+   * only if the account is active. This matches how AccessAuthCookieSubscriber
+   * derives the cookie's `sub`, so a token and the cookie name the same user.
+   *
+   * @param int $uid
+   *   The user id.
+   *
+   * @return string|null
+   *   The full-form ACCESS ID, or NULL.
+   */
+  public function accessIdForUid(int $uid): ?string {
+    if ($uid <= 0 || !$this->authmapTableExists()) {
+      return NULL;
+    }
+    $user = $this->entityTypeManager->getStorage('user')->load($uid);
+    if (!$user || !$user->isActive()) {
+      return NULL;
+    }
+
+    $subs = $this->database->select('openid_connect_authmap', 'a')
+      ->fields('a', ['sub'])
+      ->condition('uid', $uid)
+      ->execute()
+      ->fetchCol();
+    foreach ($subs as $sub) {
+      if (str_ends_with(strtolower((string) $sub), self::ACCESS_ID_DOMAIN)) {
+        return (string) $sub;
+      }
+    }
+    return NULL;
+  }
+
+  /**
    * Loads the ACTIVE user associated with an openid_connect `sub`.
    *
    * Queries the authmap table directly rather than going through

@@ -6,14 +6,25 @@ use Drupal\access\AccessJwtKeyProvider;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 /**
- * Serves the JWKS endpoint for JWT cookie verification.
+ * Serves the site's two JWKS documents.
  *
- * Publishes the site's ES256 (EC P-256) public key in JWK format at
- * /.well-known/jwks.json so that the QA Bot agent (and any other relying
- * party) can verify JWT cookies signed by this site.
+ * - /.well-known/jwks.json publishes the cookie key, which signs
+ *   SESSaccess_auth.
+ * - /.well-known/exchange-jwks.json publishes the agent and xdmod keys, which
+ *   sign the short-lived access tokens from /api/agent-token and
+ *   /api/token-exchange.
  *
- * Key loading is delegated to AccessJwtKeyProvider (shared with the
- * event subscriber) so kid derivation and key source stay in sync.
+ * Each document also lists its verify-only keys, which is how a key is
+ * published ahead of a rotation and kept after it.
+ *
+ * A document answers 503 when any key it should list is configured but
+ * unusable, rather than serving the keys that did load: relying parties keep
+ * their last good set across a failed fetch, whereas a subset (or an empty
+ * set) reads as revocation. A document with nothing configured answers an
+ * empty set, which is the intended "reject everything" state.
+ *
+ * Key loading is delegated to AccessJwtKeyProvider (shared with the signers)
+ * so kid derivation and key source stay in sync.
  *
  * Response example:
  * @code
@@ -50,51 +61,108 @@ class JwksController {
   }
 
   /**
-   * Returns the JWKS response containing the site's public signing key.
-   *
-   * @return \Symfony\Component\HttpFoundation\JsonResponse
-   *   JSON response with the keys array.
+   * Returns the cookie key set (/.well-known/jwks.json).
    */
   public function jwks(): JsonResponse {
-    $private_key = $this->keyProvider->getPrivateKey();
-    if ($private_key === NULL) {
-      // No key configured — return empty key set rather than error,
-      // per RFC 7517 section 5. The agent will simply reject all JWTs.
-      return new JsonResponse(['keys' => []], 200, [
-        'Cache-Control' => 'public, max-age=3600',
-      ]);
+    return $this->document(AccessJwtKeyProvider::DOCUMENT_COOKIE);
+  }
+
+  /**
+   * Returns the access-token key set (/.well-known/exchange-jwks.json).
+   */
+  public function exchangeJwks(): JsonResponse {
+    return $this->document(AccessJwtKeyProvider::DOCUMENT_EXCHANGE);
+  }
+
+  /**
+   * Builds one JWKS document.
+   *
+   * @param string $document
+   *   One of the AccessJwtKeyProvider::DOCUMENT_* constants.
+   */
+  protected function document(string $document): JsonResponse {
+    $jwks = [];
+
+    foreach (AccessJwtKeyProvider::DOCUMENT_PURPOSES[$document] as $purpose) {
+      $status = $this->keyProvider->getKeyStatus($purpose);
+      if ($status === AccessJwtKeyProvider::STATUS_NONE) {
+        continue;
+      }
+      $public = $this->keyProvider->getPublicKey($purpose);
+      // The cookie key keeps getKeyId() so its kid is derived exactly as the
+      // cookie subscriber derives it.
+      $kid = $purpose === AccessJwtKeyProvider::PURPOSE_COOKIE
+        ? $this->keyProvider->getKeyId()
+        : $this->keyProvider->getSlotKeyId($purpose);
+      $jwk = ($public && $kid !== NULL) ? $this->toJwk($public, $kid) : NULL;
+      if ($jwk === NULL) {
+        return $this->unavailable($document, $purpose . ' key');
+      }
+      $jwks[$jwk['kid']] = $jwk;
     }
 
-    $details = openssl_pkey_get_details($private_key);
+    $verify_only = $this->keyProvider->getVerifyOnlyKeys($document);
+    if ($verify_only['status'] === AccessJwtKeyProvider::STATUS_BROKEN) {
+      return $this->unavailable($document, 'verify-only key list');
+    }
+    foreach ($verify_only['keys'] as $public) {
+      $kid = $this->keyProvider->thumbprint($public);
+      $jwk = $kid !== NULL ? $this->toJwk($public, $kid) : NULL;
+      if ($jwk === NULL) {
+        return $this->unavailable($document, 'verify-only key list');
+      }
+      // A verify-only copy of an active key is listed once.
+      $jwks[$kid] ??= $jwk;
+    }
+
+    return new JsonResponse(['keys' => array_values($jwks)], 200, [
+      'Cache-Control' => 'public, max-age=300',
+    ]);
+  }
+
+  /**
+   * Builds a JWK from an EC P-256 public key.
+   *
+   * @param \OpenSSLAsymmetricKey $public_key
+   *   The key.
+   * @param string $kid
+   *   Its key id.
+   *
+   * @return array<string, string>|null
+   *   The JWK, or NULL if the key is not EC P-256.
+   */
+  protected function toJwk(\OpenSSLAsymmetricKey $public_key, string $kid): ?array {
+    $details = openssl_pkey_get_details($public_key);
     if ($details === FALSE || ($details['type'] ?? -1) !== OPENSSL_KEYTYPE_EC) {
-      \Drupal::logger('access')->error('JWKS: configured key is not an EC key.');
-      return new JsonResponse(['keys' => []], 200);
+      return NULL;
     }
-
-    $kid = $this->keyProvider->getKeyId($private_key);
-    if ($kid === NULL) {
-      return new JsonResponse(['keys' => []], 200);
-    }
-
     $ec = $details['ec'] ?? NULL;
-    if (empty($ec['x']) || empty($ec['y'])) {
-      \Drupal::logger('access')->error('JWKS: EC key missing x or y coordinates.');
-      return new JsonResponse(['keys' => []], 200);
+    if (($ec['curve_name'] ?? '') !== 'prime256v1' || empty($ec['x']) || empty($ec['y'])) {
+      return NULL;
     }
 
-    // Build the JWK from the EC public key coordinates.
-    $jwk = [
+    // OpenSSL drops leading zero bytes; a P-256 coordinate is always 32 bytes.
+    return [
       'kty' => 'EC',
       'crv' => 'P-256',
-      'x' => $this->base64urlEncode($ec['x']),
-      'y' => $this->base64urlEncode($ec['y']),
+      'x' => $this->base64urlEncode(str_pad($ec['x'], 32, "\0", STR_PAD_LEFT)),
+      'y' => $this->base64urlEncode(str_pad($ec['y'], 32, "\0", STR_PAD_LEFT)),
       'kid' => $kid,
       'use' => 'sig',
       'alg' => 'ES256',
     ];
+  }
 
-    return new JsonResponse(['keys' => [$jwk]], 200, [
-      'Cache-Control' => 'public, max-age=3600',
+  /**
+   * The 503 for a document with a configured key that cannot be served.
+   */
+  protected function unavailable(string $document, string $what): JsonResponse {
+    \Drupal::logger('access')->error('JWKS @document document unavailable: a configured @what cannot be loaded.', [
+      '@document' => $document,
+      '@what' => $what,
+    ]);
+    return new JsonResponse(['error' => 'temporarily_unavailable'], 503, [
+      'Cache-Control' => 'no-store',
     ]);
   }
 

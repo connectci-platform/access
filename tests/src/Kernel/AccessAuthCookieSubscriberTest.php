@@ -613,4 +613,34 @@ class AccessAuthCookieSubscriberTest extends KernelTestBase {
     $this->assertNull($this->runSubscriber($user));
   }
 
+  /**
+   * The token routes neither re-mint nor clear the cookie.
+   *
+   * /api/agent-token is fetched by script on other origins, and
+   * /api/token-exchange by servers; neither response should touch the cookie.
+   *
+   * @dataProvider tokenRouteCases
+   */
+  public function testTokenRoutesLeaveTheCookieAlone(string $route, string $path): void {
+    $user = User::create(['name' => 'token-route-' . $route, 'mail' => $route . '@example.com', 'status' => 1]);
+    $user->save();
+    $this->writeAuthmap($user, 'tokenroute-' . substr(md5($route), 0, 6) . '@access-ci.org');
+
+    $request = Request::create($path, 'POST');
+    $request->attributes->set('_route', $route);
+    $this->assertNull($this->runSubscriber($user, NULL, $request), 'No cookie is minted for a signed-in user.');
+
+    $anonymous = Request::create($path, 'POST');
+    $anonymous->attributes->set('_route', $route);
+    $anonymous->cookies->set(AccessAuthCookieSubscriber::COOKIE_NAME, 'a-token');
+    $this->assertNull($this->runSubscriber($user, NULL, $anonymous, NULL, TRUE), 'No clear is sent for an anonymous request carrying the cookie.');
+  }
+
+  public static function tokenRouteCases(): array {
+    return [
+      'agent token' => ['access.agent_token', '/api/agent-token'],
+      'token exchange' => ['access.token_exchange', '/api/token-exchange'],
+    ];
+  }
+
 }

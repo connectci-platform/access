@@ -46,6 +46,16 @@ class TestLogger extends AbstractLogger {
   }
 
   /**
+   * Returns every recorded log call.
+   *
+   * @return array
+   *   Each ['level' => string, 'message' => string], in order.
+   */
+  public function getRecords(): array {
+    return $this->records;
+  }
+
+  /**
    * Returns rendered messages logged at warning level.
    *
    * @return string[]
