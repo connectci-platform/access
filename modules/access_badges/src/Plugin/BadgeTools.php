@@ -264,12 +264,15 @@ class BadgeTools {
    *   TRUE if the user has the badge.
    */
   public function checkBadges($badge, $user, $vocabulary = 'badges') {
+    if (is_array($user) && empty($user)) {
+      return FALSE;
+    }
     $connection = $this->database;
     $table = $this->getBadgeTableName($vocabulary);
     $target_column = $this->getBadgeTargetColumn($vocabulary);
     $query = $connection->select($table, 't');
     $query->fields('t', [$target_column]);
-    $query->condition('t.entity_id', $user);
+    $query->condition('t.entity_id', $user, is_array($user) ? 'IN' : '=');
     $query->condition('t.' . $target_column, $badge);
     $result = $query->execute()->fetchField();
 
