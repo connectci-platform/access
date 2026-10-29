@@ -2519,3 +2519,31 @@ function access_misc_update_10042() {
 EOT;
   update_block_body(222, $body_222, 'full_no_editor');
 }
+
+/**
+ * Point the XDMoD page's play-button icon at the asp-theme copy.
+ *
+ * Node 269 loaded the icon from access-ci.org's WordPress uploads folder, which
+ * breaks if that file moves. Swap the URL in the current body in place so any
+ * other edits made to the page are kept.
+ */
+function access_misc_update_10043() {
+  $old = 'https://access-ci.org/wp-content/uploads/2026/08/play-button.svg';
+  $new = '/themes/contrib/asp-theme/images/icons/play-button.svg';
+
+  $node = Node::load(269);
+  if (!$node || !$node->hasField('body') || $node->get('body')->isEmpty()) {
+    return t('Node 269 not found or has no body; nothing to do.');
+  }
+
+  $value = $node->get('body')->value;
+  if (!str_contains($value, $old)) {
+    return t('Node 269 does not reference the old play-button icon; nothing to do.');
+  }
+
+  $node->get('body')->value = str_replace($old, $new, $value);
+  $node->setNewRevision(FALSE);
+  $node->save();
+
+  return t('Updated the play-button icon on node 269 to the asp-theme copy.');
+}
