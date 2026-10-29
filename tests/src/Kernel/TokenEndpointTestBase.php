@@ -65,7 +65,7 @@ abstract class TokenEndpointTestBase extends KernelTestBase {
   protected function configure(array $slots = [], ?string $issuer = self::ISSUER, ?array $clients = NULL): void {
     $slots += ['agent' => $this->keys['agent']['private'], 'xdmod' => $this->keys['xdmod']['private']];
     $this->keyProvider = new TestJwtKeyProvider($this->keys['cookie']['private'], array_filter($slots, 'is_string'), $issuer, [
-      'access_token_exchange_secret_sha256_access-assistant' => hash('sha256', self::SECRET),
+      'access_token_exchange_secret_sha256_access_assistant' => hash('sha256', self::SECRET),
     ]);
     \Drupal::configFactory()->getEditable('access.token_exchange')
       ->set('clients', $clients ?? self::clients())

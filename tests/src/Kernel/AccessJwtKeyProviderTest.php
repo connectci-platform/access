@@ -215,18 +215,18 @@ class AccessJwtKeyProviderTest extends KernelTestBase {
       $this->keys['cookie']['private'],
       [],
       'https://test.access-ci.org',
-      ['access_token_exchange_secret_sha256_access-assistant' => 'file-hash'],
+      ['access_token_exchange_secret_sha256_access_assistant' => 'file-hash'],
       [
         'access_jwt_exchange_jwks_extra_public_keys' => json_encode([$next['public']]),
         'access_jwt_cookie_jwks_extra_public_keys' => 'none',
-        'access_token_exchange_secret_sha256_access-assistant' => 'pantheon-hash',
+        'access_token_exchange_secret_sha256_access_assistant' => 'pantheon-hash',
       ]
     );
     $exchange = $provider->getVerifyOnlyKeys('exchange');
     $this->assertSame(AccessJwtKeyProvider::STATUS_LOADED, $exchange['status']);
     $this->assertCount(1, $exchange['keys']);
     $this->assertSame(AccessJwtKeyProvider::STATUS_NONE, $provider->getVerifyOnlyKeys('cookie')['status']);
-    $this->assertSame('pantheon-hash', $provider->getConfiguredSecret('access_token_exchange_secret_sha256_access-assistant', 'UNUSED'));
+    $this->assertSame('pantheon-hash', $provider->getConfiguredSecret('access_token_exchange_secret_sha256_access_assistant', 'UNUSED'));
 
     $bad = new TestJwtKeyProvider($this->keys['cookie']['private'], [], 'https://test.access-ci.org', [], [
       'access_jwt_exchange_jwks_extra_public_keys' => 'not json',

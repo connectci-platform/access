@@ -36,9 +36,11 @@ use Psr\Log\LoggerInterface;
  * changing the config itself.
  *
  * Secrets are never in config. A confidential client's secret is stored as a
- * SHA-256 hex digest, in secrets.json as
+ * SHA-256 hex digest, in Pantheon Secrets or secrets.json as
  * access_token_exchange_secret_sha256_<id> or in the env var
- * ACCESS_TOKEN_EXCHANGE_SECRET_SHA256_<ID> (id uppercased, - as _).
+ * ACCESS_TOKEN_EXCHANGE_SECRET_SHA256_<ID>. In both names - is written as _,
+ * since Pantheon secret names allow only letters, digits and underscores.
+ * Ids can't contain _, so no two clients share a name.
  */
 class ClientRegistry {
 
@@ -108,9 +110,10 @@ class ClientRegistry {
     if ($client === NULL || $client['type'] !== self::TYPE_CONFIDENTIAL || $secret === '') {
       return FALSE;
     }
+    $name = str_replace('-', '_', $id);
     $stored = $this->keyProvider->getConfiguredSecret(
-      'access_token_exchange_secret_sha256_' . $id,
-      'ACCESS_TOKEN_EXCHANGE_SECRET_SHA256_' . strtoupper(str_replace('-', '_', $id))
+      'access_token_exchange_secret_sha256_' . $name,
+      'ACCESS_TOKEN_EXCHANGE_SECRET_SHA256_' . strtoupper($name)
     );
     if ($stored === NULL || !preg_match('/^[0-9a-f]{64}$/i', $stored)) {
       $this->logger->error('Token client @id has no valid secret hash configured.', ['@id' => $id]);

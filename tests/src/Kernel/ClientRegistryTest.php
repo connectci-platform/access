@@ -149,7 +149,7 @@ class ClientRegistryTest extends KernelTestBase {
 
   public function testSecretVerification(): void {
     $registry = $this->registry(self::validClients(), [
-      'access_token_exchange_secret_sha256_access-assistant' => hash('sha256', 's3cret'),
+      'access_token_exchange_secret_sha256_access_assistant' => hash('sha256', 's3cret'),
     ]);
     $this->assertTrue($registry->verifySecret('access-assistant', 's3cret'));
     $this->assertFalse($registry->verifySecret('access-assistant', 'wrong'));
@@ -162,7 +162,7 @@ class ClientRegistryTest extends KernelTestBase {
   public function testMissingOrMalformedSecretHashFails(): void {
     $this->assertFalse($this->registry(self::validClients())->verifySecret('access-assistant', 's3cret'));
     $registry = $this->registry(self::validClients(), [
-      'access_token_exchange_secret_sha256_access-assistant' => 's3cret',
+      'access_token_exchange_secret_sha256_access_assistant' => 's3cret',
     ]);
     $this->assertFalse($registry->verifySecret('access-assistant', 's3cret'), 'A plaintext secret in place of the hash is refused.');
   }

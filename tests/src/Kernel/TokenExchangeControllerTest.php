@@ -135,7 +135,7 @@ class TokenExchangeControllerTest extends TokenEndpointTestBase {
       $this->keys['cookie']['private'],
       ['agent' => $this->keys['agent']['private'], 'xdmod' => $this->keys['xdmod']['private']],
       self::ISSUER,
-      ['access_token_exchange_secret_sha256_access-assistant' => hash('sha256', $raw)],
+      ['access_token_exchange_secret_sha256_access_assistant' => hash('sha256', $raw)],
     );
     $this->registry = new \Drupal\access\TokenExchange\ClientRegistry(\Drupal::configFactory(), $this->keyProvider, $this->logger);
     $this->issuer = new \Drupal\access\TokenExchange\TokenIssuer($this->keyProvider, \Drupal::time(), $this->logger);
