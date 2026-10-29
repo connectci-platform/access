@@ -113,10 +113,7 @@ class ResourcesForAffinityGroup extends BlockBase {
                 ($submission_data['resource_allowed_on_affinity_group'] == 0) &&
                 (!in_array('administrator', $roles) &&
                   !in_array('affinity_group_leader', $roles) &&
-                  !in_array('match_pm', $roles) &&
-                  !in_array('sc', $roles) &&
-                  !in_array('lt', $roles) &&
-                  !in_array('ra', $roles)
+                  !in_array('match_pm', $roles)
                 )
             ) {
               // If resource_allowed_on_affinity_group checkbox doesn't exist, skip.
