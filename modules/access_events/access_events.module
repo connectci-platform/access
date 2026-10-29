@@ -891,13 +891,17 @@ function access_events_preprocess_fieldset(array &$variables): void {
     return;
   }
 
-  // RenderElementBase::setAttributes() copies the input-level required and
-  // aria-required attributes onto the <fieldset>: `required` is not valid on
-  // a fieldset, and aria-required is not allowed on its implicit group role.
-  // The radiogroup role supports aria-required and aria-invalid, so expose
-  // the group as one and drop the invalid HTML attribute.
+  // RenderElementBase::setAttributes() copies the element's `required`
+  // attribute onto the <fieldset>, where it is not valid. Core 11 no longer
+  // adds aria-required there (and it is not allowed on the fieldset's
+  // implicit group role anyway). The radiogroup role supports aria-required
+  // and aria-invalid, so expose the group as one, drop the invalid HTML
+  // attribute, and set aria-required explicitly.
   unset($variables['attributes']['required']);
   $variables['attributes']['role'] = 'radiogroup';
+  if (!empty($element['#required'])) {
+    $variables['attributes']['aria-required'] = 'true';
+  }
 
   // Core blanks fieldset errors unless inline_form_errors is enabled, which
   // leaves only the summary at the top of the page. Print the error inside
