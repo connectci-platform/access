@@ -44,4 +44,4 @@ slots:
     description: The events view; rows are .homepage-ev.
   announcements:
     title: Recent announcements
-    description: The announcements view; rows are a.homepage-ann.
+    description: The announcements view; rows are .homepage-ann.

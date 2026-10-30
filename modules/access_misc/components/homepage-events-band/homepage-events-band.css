@@ -40,6 +40,11 @@
   text-underline-offset: 3px;
 }
 
+.homepage-events-band__all a:hover,
+.homepage-events-band__all a:focus {
+  color: #232323;
+}
+
 /* Event rows (emitted by the homepage_events view display). */
 .homepage-events-band .homepage-ev {
   padding: 14px 0;
@@ -77,14 +82,27 @@
 
 .homepage-events-band .homepage-ev__title:hover,
 .homepage-events-band .homepage-ev__title:focus {
+  color: #232323;
   text-decoration: underline;
 }
 
 /* Announcement rows (emitted by the homepage_announcements view display). */
 .homepage-events-band .homepage-ann {
-  display: block;
   padding: 16px 0;
   border-top: 1px solid #707070;
+}
+
+.homepage-events-band .homepage-ann:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.homepage-events-band .homepage-ann:last-child {
+  padding-bottom: 0;
+}
+
+.homepage-events-band .homepage-ann__title {
+  display: block;
   color: #232323;
   font-weight: 600;
   font-size: 16px;
@@ -92,20 +110,9 @@
   text-decoration: none;
 }
 
-.homepage-events-band .homepage-ann:first-child,
-.homepage-events-band .views-row:first-child > .homepage-ann {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.homepage-events-band .homepage-ann:last-child,
-.homepage-events-band .views-row:last-child > .homepage-ann {
-  padding-bottom: 0;
-}
-
-.homepage-events-band .homepage-ann:hover,
-.homepage-events-band .homepage-ann:focus {
-  color: #107180;
+.homepage-events-band .homepage-ann__title:hover,
+.homepage-events-band .homepage-ann__title:focus {
+  color: #232323;
   text-decoration: underline;
 }
 
@@ -166,6 +173,11 @@
 
 .homepage-events-band__post-text b::after {
   content: "\00a0→";
+}
+
+.homepage-events-band__post:hover,
+.homepage-events-band__post:focus {
+  color: #232323;
 }
 
 .homepage-events-band__post:hover b,
