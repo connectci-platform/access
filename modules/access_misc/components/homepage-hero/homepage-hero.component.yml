@@ -1,0 +1,28 @@
+$schema: https://git.drupalcode.org/project/drupal/-/raw/HEAD/core/assets/schemas/v1/metadata.schema.json
+name: Homepage hero
+status: experimental
+description: '"How can we help?" hero with the assistant ask box and the "Need help from a person?" card.'
+props:
+  type: object
+  required:
+    - bg
+    - help_ticket_url
+    - tickets_url
+  properties:
+    bg:
+      type: string
+      title: Background image URL
+    help_ticket_url:
+      type: string
+      title: Open a help ticket URL
+    tickets_url:
+      type: string
+      title: View your tickets URL
+    docs_url:
+      type: string
+      title: Search the documentation URL
+    prompts:
+      type: array
+      title: Example questions
+      items:
+        type: string
