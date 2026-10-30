@@ -132,4 +132,22 @@ class AccessIdResolverTest extends KernelTestBase {
     $this->assertNull($this->resolver()->resolve('   '));
   }
 
+  /**
+   * accessIdForUid() is the reverse lookup the agent-token endpoint uses.
+   */
+  public function testAccessIdForUid(): void {
+    $user = User::create(['name' => 'rev', 'mail' => 'rev@example.com', 'status' => 1]);
+    $user->save();
+    $this->writeAuthmap($user, 'http://cilogon.org/serverA/users/7');
+    $this->assertNull($this->resolver()->accessIdForUid((int) $user->id()), 'An opaque sub is not an ACCESS ID.');
+
+    $this->writeAuthmap($user, 'rev@access-ci.org');
+    $this->assertSame('rev@access-ci.org', $this->resolver()->accessIdForUid((int) $user->id()));
+
+    $user->block()->save();
+    $this->assertNull($this->resolver()->accessIdForUid((int) $user->id()), 'A blocked user has no ACCESS ID.');
+    $this->assertNull($this->resolver()->accessIdForUid(0));
+    $this->assertNull($this->resolver()->accessIdForUid(99999));
+  }
+
 }

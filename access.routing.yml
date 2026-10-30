@@ -4,6 +4,42 @@ access.jwks:
     _controller: 'access.jwks_controller:jwks'
   requirements:
     _access: 'TRUE'
+  # Keys change by editing secrets, with no cache clear, so the internal page
+  # cache must not hold a stale key set. The response's own max-age still
+  # governs the CDN and relying parties.
+  options:
+    no_cache: TRUE
+
+access.exchange_jwks:
+  path: '/.well-known/exchange-jwks.json'
+  defaults:
+    _controller: 'access.jwks_controller:exchangeJwks'
+  requirements:
+    _access: 'TRUE'
+  options:
+    no_cache: TRUE
+
+# Browser grant: a short-lived agent token for the session's user. No methods
+# restriction, so a wrong method gets the endpoint's own JSON 405. OPTIONS is
+# answered by access.token_endpoint_cors_subscriber.
+access.agent_token:
+  path: '/api/agent-token'
+  defaults:
+    _controller: 'access.agent_token_controller:mint'
+  requirements:
+    _access: 'TRUE'
+  options:
+    no_cache: TRUE
+
+# OAuth 2.0 token exchange for registered confidential clients.
+access.token_exchange:
+  path: '/api/token-exchange'
+  defaults:
+    _controller: 'access.token_exchange_controller:exchange'
+  requirements:
+    _access: 'TRUE'
+  options:
+    no_cache: TRUE
 
 access.autocomplete:
     path: '/autocomplete/organizations'

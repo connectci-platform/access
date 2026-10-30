@@ -1,0 +1,45 @@
+access.token_exchange:
+  type: config_object
+  label: 'Access token clients'
+  mapping:
+    clients:
+      type: sequence
+      label: 'Clients, keyed by client id'
+      sequence:
+        type: mapping
+        label: 'Client'
+        mapping:
+          type:
+            type: string
+            label: 'Client type: browser or confidential'
+          audience:
+            type: string
+            label: 'Token audience'
+          origins:
+            type: sequence
+            label: 'Browser origins and the scopes each receives'
+            sequence:
+              type: mapping
+              label: 'Origin'
+              mapping:
+                origin:
+                  type: string
+                  label: 'Origin (https://host)'
+                scopes:
+                  type: sequence
+                  label: 'Scopes'
+                  sequence:
+                    type: string
+                    label: 'Scope'
+          scopes:
+            type: sequence
+            label: 'Confidential client scopes'
+            sequence:
+              type: string
+              label: 'Scope'
+          subject_clients:
+            type: sequence
+            label: 'Browser clients whose tokens this client may exchange'
+            sequence:
+              type: string
+              label: 'Client id'

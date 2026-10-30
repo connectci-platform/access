@@ -85,6 +85,15 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
   const LOGOUT_ROUTES = ['user.logout', 'user.logout.http'];
 
   /**
+   * Routes whose response never sets or clears the cookie.
+   *
+   * The access token endpoints: /api/agent-token is fetched by script on
+   * other origins and /api/token-exchange by servers. Neither is a page view,
+   * so neither should roll the cookie's expiry or delete it.
+   */
+  const SKIP_ROUTES = ['access.agent_token', 'access.token_exchange'];
+
+  /**
    * Request attribute asking for the cookie to be cleared on this response.
    *
    * For session endings that are not a logout route: another module deciding
@@ -222,6 +231,9 @@ class AccessAuthCookieSubscriber implements EventSubscriberInterface {
     if (in_array($route, self::LOGOUT_ROUTES, TRUE)
       || $request->attributes->get(self::FORCE_LOGOUT_ATTRIBUTE)) {
       $this->clearAuthCookie($event, TRUE);
+      return;
+    }
+    if (in_array($route, self::SKIP_ROUTES, TRUE)) {
       return;
     }
 
