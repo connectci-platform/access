@@ -41,6 +41,7 @@ class IndividuallyCancelledFieldTest extends EventKernelTestBase {
     // state, so this exercises the revert mechanics in isolation from the
     // published-coherence rule covered by testPublishedSaveForcesFlagFalse().
     $instance = $this->createRegistrableInstance();
+    /** @var \Drupal\Core\Entity\RevisionableStorageInterface $storage */
     $storage = \Drupal::entityTypeManager()->getStorage('eventinstance');
     $instance->set('moderation_state', 'archived');
     $instance->set('individually_cancelled', TRUE);

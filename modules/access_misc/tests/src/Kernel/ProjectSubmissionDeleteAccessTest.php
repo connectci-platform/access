@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Drupal\Tests\access_misc\Kernel;
 
-use Drupal\access_misc\Access\ProjectSubmissionDeleteAccess;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\Tests\access_misc\Kernel\Stub\SiteToolsStub;
 use Drupal\Tests\user\Traits\UserCreationTrait;
@@ -21,8 +20,8 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
  * checked end to end through $submission->access('delete'), so the webform
  * access handler and access_misc_webform_submission_access() both run.
  *
- * access_misc is not enabled (its dependency chain is large and unrelated);
- * the module file is loaded and the service registered directly.
+ * access_misc is enabled so its hook is collected at container build time;
+ * its sitetools service is replaced with a stub in register().
  *
  * @coversDefaultClass \Drupal\access_misc\Access\ProjectSubmissionDeleteAccess
  * @group access_misc
@@ -45,6 +44,13 @@ class ProjectSubmissionDeleteAccessTest extends KernelTestBase {
     'path_alias',
     'taxonomy',
     'webform',
+    // access_misc provides the hook under test; the others are container
+    // dependencies of its services, as in MailAlterReplyToTest.
+    'domain',
+    'access',
+    'access_affinitygroup',
+    'key',
+    'access_misc',
   ];
 
   /**
@@ -52,7 +58,6 @@ class ProjectSubmissionDeleteAccessTest extends KernelTestBase {
    */
   public function register(ContainerBuilder $container) {
     parent::register($container);
-    $container->register('access_misc.project_submission_delete_access', ProjectSubmissionDeleteAccess::class);
     $container->register('access_misc.sitetools', SiteToolsStub::class);
   }
 
@@ -68,11 +73,6 @@ class ProjectSubmissionDeleteAccessTest extends KernelTestBase {
     $this->installEntitySchema('webform_submission');
     $this->installSchema('webform', ['webform']);
     $this->installConfig(['system', 'webform']);
-
-    require_once dirname(__DIR__, 3) . '/access_misc.module';
-    // The module is not enabled, so register the hook implementation.
-    $this->container->get('module_handler')->addModule('access_misc', 'modules/custom/access/modules/access_misc');
-    $this->container->get('module_handler')->load('access_misc');
 
     // Burn uid 1 so test users are not super users.
     $this->createUser();

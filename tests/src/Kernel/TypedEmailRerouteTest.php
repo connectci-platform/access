@@ -7,8 +7,10 @@ use Drupal\Tests\symfony_mailer\Kernel\SymfonyMailerKernelTestBase;
 /**
  * Tests that symfony_mailer typed emails honor the reroute_email settings.
  *
+ * Rerouting is done by the reroute_email_symfony_mailer submodule's email
+ * adjuster on the global mailer policy. This guards the site's reliance on it.
+ *
  * @group access
- * @covers \Drupal\access\Mail\TypedEmailRerouter
  */
 class TypedEmailRerouteTest extends SymfonyMailerKernelTestBase {
 
@@ -43,6 +45,7 @@ class TypedEmailRerouteTest extends SymfonyMailerKernelTestBase {
     'user',
     'filter',
     'reroute_email',
+    'reroute_email_symfony_mailer',
     'access',
     'access_llm',
     'key',
@@ -59,6 +62,15 @@ class TypedEmailRerouteTest extends SymfonyMailerKernelTestBase {
     $this->config('reroute_email.settings')
       ->set('address', self::REROUTE)
       ->save();
+
+    // Kernel tests do not run hook_install(), so add the adjuster to the
+    // global policy the way reroute_email_symfony_mailer_install() does.
+    $policy = $this->container->get('entity_type.manager')
+      ->getStorage('mailer_policy')
+      ->load('_');
+    $configuration = $policy->getConfiguration();
+    $configuration['reroute_email'] = ['use_global' => TRUE];
+    $policy->setConfiguration($configuration)->save();
   }
 
   /**
