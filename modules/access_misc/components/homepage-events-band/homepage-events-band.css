@@ -1,0 +1,276 @@
+/**
+ * Homepage events band. Values follow the D8-2934 mockup (asp-home.html).
+ */
+.block-access-homepage-events-band {
+  margin: 2.5rem 0;
+}
+.homepage-events-band {
+  background-color: #f2f2f2;
+  color: #232323;
+  padding: 56px 0;
+}
+
+.homepage-events-band__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 260px;
+  gap: 40px;
+}
+
+.homepage-events-band__title {
+  color: #232323;
+  font-weight: 800;
+  font-size: 24px;
+  line-height: 28px;
+  margin: 0 0 24px;
+}
+
+/* "See all" links. */
+.homepage-events-band__all {
+  margin: 14px 0 0;
+}
+
+.homepage-events-band__all a {
+  color: #232323;
+  font-weight: 800;
+  font-size: 15px;
+  line-height: 21px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Event rows (emitted by the homepage_events view display). */
+.homepage-events-band .homepage-ev {
+  padding: 14px 0;
+  border-top: 1px solid #707070;
+}
+
+.homepage-events-band .homepage-ev:first-child,
+.homepage-events-band .views-row:first-child > .homepage-ev {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.homepage-events-band .homepage-ev:last-child,
+.homepage-events-band .views-row:last-child > .homepage-ev {
+  padding-bottom: 0;
+}
+
+.homepage-events-band .homepage-ev__date {
+  display: block;
+  font-stretch: 70%;
+  font-weight: 500;
+  font-size: 15px;
+  line-height: 18px;
+  margin-bottom: 2px;
+}
+
+.homepage-events-band .homepage-ev__title {
+  display: block;
+  color: #232323;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 21px;
+  text-decoration: none;
+}
+
+.homepage-events-band .homepage-ev__title:hover,
+.homepage-events-band .homepage-ev__title:focus {
+  text-decoration: underline;
+}
+
+/* Announcement rows (emitted by the homepage_announcements view display). */
+.homepage-events-band .homepage-ann {
+  display: block;
+  padding: 16px 0;
+  border-top: 1px solid #707070;
+  color: #232323;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 21px;
+  text-decoration: none;
+}
+
+.homepage-events-band .homepage-ann:first-child,
+.homepage-events-band .views-row:first-child > .homepage-ann {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.homepage-events-band .homepage-ann:last-child,
+.homepage-events-band .views-row:last-child > .homepage-ann {
+  padding-bottom: 0;
+}
+
+.homepage-events-band .homepage-ann:hover,
+.homepage-events-band .homepage-ann:focus {
+  color: #107180;
+  text-decoration: underline;
+}
+
+.homepage-events-band .homepage-ann__date {
+  display: block;
+  font-stretch: 70%;
+  font-weight: 500;
+  font-size: 15px;
+  line-height: 18px;
+  color: #232323;
+  margin-bottom: 2px;
+}
+
+.homepage-events-band .homepage-ann__excerpt {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 4px;
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 20px;
+  color: #4a4a4a;
+}
+
+/* "Post an announcement" box. */
+.homepage-events-band__post {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 24px;
+  padding: 14px 16px;
+  border: 2px solid #232323;
+  color: #232323;
+  font-size: 15px;
+  line-height: 21px;
+  text-decoration: none;
+}
+
+.homepage-events-band__megaphone {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  color: #232323;
+}
+
+.homepage-events-band__post-text > span {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.homepage-events-band__post-text b {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.homepage-events-band__post-text b::after {
+  content: "\00a0→";
+}
+
+.homepage-events-band__post:hover b,
+.homepage-events-band__post:focus b {
+  text-decoration: underline;
+}
+
+/* Office hours and webinar tiles. */
+.homepage-events-band__tiles {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.homepage-events-band__tile {
+  padding: 24px 22px 22px;
+}
+
+.homepage-events-band__tile--yellow {
+  background: #ffc42d;
+  color: #232323;
+}
+
+.homepage-events-band__tile--teal {
+  background: #107180;
+  color: #fff;
+}
+
+.homepage-events-band__tile--ink {
+  background: #232323;
+  color: #fff;
+}
+
+.homepage-events-band__tile-title {
+  color: inherit;
+  font-stretch: 70%;
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 29px;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+
+.homepage-events-band__tile p {
+  margin: 0 0 6px;
+  font-size: 15px;
+  line-height: 21px;
+}
+
+.homepage-events-band__tile p.homepage-events-band__small {
+  font-size: 14px;
+}
+
+.homepage-events-band__tile-link {
+  display: block;
+  margin-top: 10px;
+  color: inherit;
+  font-stretch: 70%;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 21px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+.homepage-events-band__tile-link::after {
+  content: " →";
+}
+
+.homepage-events-band__tile-link:hover,
+.homepage-events-band__tile-link:focus {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.homepage-events-band__tile-link + .homepage-events-band__tile-link {
+  margin-top: 4px;
+}
+
+@media (max-width: 1279px) {
+  .homepage-events-band__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .homepage-events-band__tiles {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 1023px) {
+  .homepage-events-band__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .homepage-events-band {
+    padding: 40px 0;
+  }
+
+  .homepage-events-band__tiles {
+    grid-template-columns: 1fr;
+  }
+}

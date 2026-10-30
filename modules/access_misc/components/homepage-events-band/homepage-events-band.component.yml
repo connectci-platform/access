@@ -1,0 +1,47 @@
+$schema: https://git.drupalcode.org/project/drupal/-/raw/HEAD/core/assets/schemas/v1/metadata.schema.json
+name: Homepage events band
+status: experimental
+description: '"Training & events" band: upcoming events, announcements, and the office hours and webinar tiles.'
+props:
+  type: object
+  required:
+    - events_url
+    - announcements_url
+    - post_announcement_url
+  properties:
+    events_url:
+      type: string
+      title: See all events URL
+    announcements_url:
+      type: string
+      title: See all announcements URL
+    post_announcement_url:
+      type: string
+      title: Post an announcement URL
+    office_hours_url:
+      type: string
+      title: ACCESS & NAIRR Pilot office hours "More info" URL
+    office_hours_next:
+      type: array
+      title: Next office hours dates (preformatted)
+      items:
+        type: string
+    open_ondemand_url:
+      type: string
+      title: Open OnDemand office hours URL
+    pegasus_url:
+      type: string
+      title: Pegasus office hours URL
+    webinars_url:
+      type: string
+      title: NAIRR Pilot webinars URL
+    video_learning_center_url:
+      type: string
+      title: Video Learning Center URL
+slots:
+  events:
+    title: Upcoming events
+    description: The events view; rows are .homepage-ev.
+  announcements:
+    title: Recent announcements
+    description: The announcements view; rows are a.homepage-ann.
