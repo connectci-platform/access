@@ -1,0 +1,16 @@
+$schema: https://git.drupalcode.org/project/drupal/-/raw/HEAD/core/assets/schemas/v1/metadata.schema.json
+name: Homepage researcher stories
+status: experimental
+description: '"Tools in practice" band: the latest researcher stories (tool case studies) and a link to all of them.'
+props:
+  type: object
+  required:
+    - stories_url
+  properties:
+    stories_url:
+      type: string
+      title: Read all stories URL
+slots:
+  stories:
+    title: Researcher stories
+    description: The researcher stories view; rows are .homepage-story.
