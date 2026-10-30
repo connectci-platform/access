@@ -78,5 +78,9 @@ services:
   access_misc.project_submission_delete_access:
     class: Drupal\access_misc\Access\ProjectSubmissionDeleteAccess
 
+  access_misc.office_hours_lookup:
+    class: Drupal\access_misc\Services\OfficeHoursLookup
+    arguments: ["@entity_type.manager", "@date.formatter", "@datetime.time"]
+
 parameters:
   access_misc.verbose: FALSE

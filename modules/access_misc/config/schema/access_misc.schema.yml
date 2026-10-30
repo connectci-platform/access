@@ -20,3 +20,11 @@ access_misc.domain_logos:
       sequence:
         type: string
         label: 'Description'
+
+block.settings.access_homepage_hero:
+  type: block_settings
+  label: 'Homepage hero block settings'
+  mapping:
+    assistant_url:
+      type: uri
+      label: 'Assistant URL'
