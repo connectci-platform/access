@@ -8,6 +8,7 @@ props:
     - bg
     - help_ticket_url
     - tickets_url
+    - assistant_url
   properties:
     bg:
       type: string
@@ -18,6 +19,9 @@ props:
     tickets_url:
       type: string
       title: View your tickets URL
+    assistant_url:
+      type: string
+      title: Assistant URL (the question is sent as the q parameter)
     docs_url:
       type: string
       title: Search the documentation URL
@@ -25,4 +29,14 @@ props:
       type: array
       title: Example questions
       items:
-        type: string
+        type: object
+        required:
+          - label
+          - url
+        properties:
+          label:
+            type: string
+            title: Question text
+          url:
+            type: string
+            title: Assistant URL with the question in q

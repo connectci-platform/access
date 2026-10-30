@@ -85,7 +85,7 @@
   margin-top: 12px;
 }
 
-.homepage-hero__prompts button {
+.homepage-hero__prompts a {
   font: inherit;
   font-weight: 600;
   font-size: 14px;
@@ -97,12 +97,15 @@
   padding: 7px 12px;
   cursor: pointer;
   text-align: left;
+  display: inline-block;
+  text-decoration: none;
 }
 
-.homepage-hero__prompts button:hover,
-.homepage-hero__prompts button:focus {
+.homepage-hero__prompts a:hover,
+.homepage-hero__prompts a:focus {
   background: #cee8e9;
   color: #232323;
+  text-decoration: none;
 }
 
 .homepage-hero__browse {
