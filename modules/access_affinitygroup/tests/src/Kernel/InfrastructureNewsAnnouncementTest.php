@@ -23,8 +23,9 @@ use Psr\Log\LoggerInterface;
  * resolved outage a day late on the first successful import. A resolution
  * posted to an outage that was already imported is an update, and still
  * sends. Other updates send only when they are news to a subscriber: a feed
- * re-import that re-saves every item, as an upstream migration once did,
- * sends nothing.
+ * re-import that re-saves or reformats every item, as an upstream migration
+ * once did, sends nothing, while an extension, a late resolution or a
+ * reopened outage still sends.
  *
  * Constant Contact is disabled in kernel tests, so emailToAffinityGroups()
  * logs its broadcast notice and then stops short of any API call. That notice
@@ -84,6 +85,7 @@ class InfrastructureNewsAnnouncementTest extends KernelTestBase implements Logge
 
     $this->addField('infrastructure_news', 'body', 'text_with_summary');
     $this->addField('infrastructure_news', 'field_do_email_subscribers', 'boolean');
+    $this->addField('infrastructure_news', 'field_infrastructure_news_start', 'datetime', 1, ['datetime_type' => 'datetime']);
     $this->addField('infrastructure_news', 'field_infrastructure_news_end', 'datetime', 1, ['datetime_type' => 'datetime']);
     $this->addField('infrastructure_news', 'field_affected_infrastructure', 'entity_reference', -1, ['target_type' => 'node']);
     $this->addField('affinity_group', 'field_cider_resources', 'entity_reference', -1, ['target_type' => 'node']);
@@ -215,29 +217,72 @@ class InfrastructureNewsAnnouncementTest extends KernelTestBase implements Logge
   }
 
   /**
-   * Re-saving an outage that had already ended sends nothing.
+   * Creates an outage that had ended before the test, with nothing sent yet.
    */
-  public function testResavingEndedOutageIsNotEmailed(): void {
+  protected function createEndedOutage(): NodeInterface {
     $outage = $this->createOutage('2099-01-01T00:00:00');
     $outage->set('field_infrastructure_news_end', '2020-01-01T00:00:00');
     $outage->save();
     $this->broadcasts = [];
+    return $outage;
+  }
 
-    // The re-import that flooded subscribers also changed the text.
-    $outage->set('body', '<p>Power shutdown, reformatted upstream.</p>');
+  /**
+   * A reformat of an outage that had already ended sends nothing.
+   */
+  public function testReformattingEndedOutageIsNotEmailed(): void {
+    $outage = $this->createEndedOutage();
+    $outage->set('body', "<p>Power shutdown, reworded upstream.</p>\n<p>Details.</p>");
+    $outage->set('field_infrastructure_news_end', '2020-01-01T06:00:00');
+    $outage->set('title', 'Anvil outage ');
+    $outage->save();
+    $outage->set('title', 'Anvil&nbsp;outage');
     $outage->save();
     $this->assertSame([], $this->broadcasts);
   }
 
   /**
-   * Re-saving an ongoing outage with nothing a subscriber reads changed.
+   * A late resolution to an outage whose estimated end had passed is sent.
    */
-  public function testResavingUnchangedOutageIsNotEmailed(): void {
+  public function testLateResolutionIsEmailed(): void {
+    $outage = $this->createEndedOutage();
+    $outage->set('title', '[Resolved] Anvil outage');
+    $outage->save();
+    $this->assertSame(['[Resolved] Anvil outage'], $this->broadcasts);
+  }
+
+  /**
+   * Extending an outage whose estimated end had passed is sent.
+   */
+  public function testExtendingLapsedOutageIsEmailed(): void {
+    $outage = $this->createEndedOutage();
+    $outage->set('field_infrastructure_news_end', '2099-01-01T00:00:00');
+    $outage->save();
+    $this->assertSame(['Anvil outage'], $this->broadcasts);
+  }
+
+  /**
+   * Reopening an ended outage with no end is sent.
+   */
+  public function testReopeningOutageIsEmailed(): void {
+    $outage = $this->createEndedOutage();
+    $outage->set('field_infrastructure_news_end', NULL);
+    $outage->save();
+    $this->assertSame(['Anvil outage'], $this->broadcasts);
+  }
+
+  /**
+   * A markup or spacing reformat of an ongoing outage sends nothing.
+   */
+  public function testReformattingOngoingOutageIsNotEmailed(): void {
     $outage = $this->createOutage('2099-01-01T00:00:00');
+    $outage->set('body', '<p>Power shutdown.</p>');
+    $outage->save();
     $this->broadcasts = [];
 
     $outage->save();
-    $outage->set('body', "<p>Power\n  shutdown.</p>");
+    $outage->set('body', "<div>Power\n  shutdown.</div>\n");
+    $outage->set('title', ' Anvil outage');
     $outage->save();
     $this->assertSame([], $this->broadcasts);
   }
@@ -253,7 +298,32 @@ class InfrastructureNewsAnnouncementTest extends KernelTestBase implements Logge
     $outage->save();
     $outage->set('field_infrastructure_news_end', '2099-02-01T00:00:00');
     $outage->save();
-    $this->assertSame(['Anvil outage', 'Anvil outage'], $this->broadcasts);
+    $outage->set('field_infrastructure_news_start', '2098-12-31T00:00:00');
+    $outage->save();
+    $this->assertSame(['Anvil outage', 'Anvil outage', 'Anvil outage'], $this->broadcasts);
+  }
+
+  /**
+   * An ongoing outage that spreads to another resource reaches its group.
+   */
+  public function testWidenedOutageIsEmailed(): void {
+    $bell = Node::create(['type' => 'access_active_resources_from_cid', 'title' => 'Bell']);
+    $bell->save();
+    Node::create([
+      'type' => 'affinity_group',
+      'title' => 'Bell',
+      'status' => 1,
+      'field_group_slug' => 'bell',
+      'field_use_ext_email_list' => 0,
+      'field_list_id' => 'cc-list-bell',
+      'field_cider_resources' => [$bell->id()],
+    ])->save();
+    $outage = $this->createOutage('2099-01-01T00:00:00');
+    $this->broadcasts = [];
+
+    $outage->set('field_affected_infrastructure', [$this->resource->id(), $bell->id()]);
+    $outage->save();
+    $this->assertCount(2, $this->broadcasts);
   }
 
   /**
