@@ -14,6 +14,7 @@ use Drupal\Core\Access\AccessResultInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\webform\WebformSubmissionInterface;
+use Drupal\file\FileInterface;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Drupal\content_moderation_notifications\ContentModerationNotificationInterface;
@@ -869,6 +870,17 @@ function access_misc_webform_submission_access(WebformSubmissionInterface $entit
     return \Drupal::service('access_misc.project_submission_delete_access')->access($entity, $account);
   }
   return AccessResult::neutral();
+}
+
+/**
+ * Implements hook_ENTITY_TYPE_access() for file entities.
+ *
+ * Keeps non-public files out of JSON:API.
+ *
+ * @see \Drupal\access_misc\Access\JsonApiPrivateFileAccess
+ */
+function access_misc_file_access(FileInterface $entity, string $operation, AccountInterface $account): AccessResultInterface {
+  return \Drupal::service('access_misc.jsonapi_private_file_access')->access($entity, $operation);
 }
 
 /**
