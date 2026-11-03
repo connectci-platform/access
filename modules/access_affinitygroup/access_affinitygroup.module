@@ -42,6 +42,7 @@ use Drupal\Core\Cache\RefinableCacheableDependencyInterface;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Url;
 use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Entity\FieldableEntityInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\cssn\Plugin\Util\EndUrl;
@@ -1902,10 +1903,50 @@ function access_affinitygroup_entity_update(EntityInterface $entity) {
     \Drupal::service('cache_tags.invalidator')->invalidateTags(['affinity_group_ci_links']);
   }
 
-  // Email any infrastructure news with the 'Email only subscribers' box checked.
-  if ($type == 'infrastructure_news') {
+  // Email any infrastructure news with the 'Email only subscribers' box checked,
+  // but only when the update is news to a subscriber. A feed re-import that
+  // touches every item (an upstream migration once re-sent years of ended
+  // outages to every affinity group) must not send.
+  if ($type == 'infrastructure_news' && $entity instanceof FieldableEntityInterface && access_affinitygroup_infrastructure_news_update_is_news($entity)) {
     access_affinitygroup_infrastructure_news_cc($entity);
   }
+}
+
+/**
+ * Whether an update to an infrastructure news item should be emailed.
+ *
+ * An outage that had already ended before this save is never re-sent, so a
+ * resolution (end moving into the past) still sends but later edits to it do
+ * not. Otherwise the update sends when the email box was just checked, or
+ * when something a subscriber reads changed: the title, the body text, or the
+ * start or end. The body is compared as text with whitespace collapsed, so a
+ * markup-only reformat upstream is not news.
+ */
+function access_affinitygroup_infrastructure_news_update_is_news(FieldableEntityInterface $entity): bool {
+  $original = $entity->original ?? NULL;
+  if (!$original instanceof FieldableEntityInterface) {
+    return TRUE;
+  }
+
+  $end = $original->hasField('field_infrastructure_news_end') ? $original->get('field_infrastructure_news_end')->date : NULL;
+  if ($end && $end->getTimestamp() < \Drupal::time()->getRequestTime()) {
+    return FALSE;
+  }
+
+  if (empty($original->get('field_do_email_subscribers')->value)) {
+    return TRUE;
+  }
+
+  $text = static fn (FieldableEntityInterface $node): string => trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags((string) $node->get('body')->value), ENT_QUOTES | ENT_HTML5)));
+  if ($entity->label() !== $original->label() || $text($entity) !== $text($original)) {
+    return TRUE;
+  }
+  foreach (['field_infrastructure_news_start', 'field_infrastructure_news_end'] as $field) {
+    if ($entity->hasField($field) && $entity->get($field)->value !== $original->get($field)->value) {
+      return TRUE;
+    }
+  }
+  return FALSE;
 }
 
 /**

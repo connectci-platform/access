@@ -22,7 +22,9 @@ use Psr\Log\LoggerInterface;
  * When the feed import was down, the backlog would otherwise have announced a
  * resolved outage a day late on the first successful import. A resolution
  * posted to an outage that was already imported is an update, and still
- * sends.
+ * sends. Other updates send only when they are news to a subscriber: a feed
+ * re-import that re-saves every item, as an upstream migration once did,
+ * sends nothing.
  *
  * Constant Contact is disabled in kernel tests, so emailToAffinityGroups()
  * logs its broadcast notice and then stops short of any API call. That notice
@@ -210,6 +212,62 @@ class InfrastructureNewsAnnouncementTest extends KernelTestBase implements Logge
     $outage->set('field_infrastructure_news_end', '2020-01-01T00:00:00');
     $outage->save();
     $this->assertSame(['Anvil outage', '[Resolved] Anvil outage'], $this->broadcasts);
+  }
+
+  /**
+   * Re-saving an outage that had already ended sends nothing.
+   */
+  public function testResavingEndedOutageIsNotEmailed(): void {
+    $outage = $this->createOutage('2099-01-01T00:00:00');
+    $outage->set('field_infrastructure_news_end', '2020-01-01T00:00:00');
+    $outage->save();
+    $this->broadcasts = [];
+
+    // The re-import that flooded subscribers also changed the text.
+    $outage->set('body', '<p>Power shutdown, reformatted upstream.</p>');
+    $outage->save();
+    $this->assertSame([], $this->broadcasts);
+  }
+
+  /**
+   * Re-saving an ongoing outage with nothing a subscriber reads changed.
+   */
+  public function testResavingUnchangedOutageIsNotEmailed(): void {
+    $outage = $this->createOutage('2099-01-01T00:00:00');
+    $this->broadcasts = [];
+
+    $outage->save();
+    $outage->set('body', "<p>Power\n  shutdown.</p>");
+    $outage->save();
+    $this->assertSame([], $this->broadcasts);
+  }
+
+  /**
+   * A real change to an ongoing outage is emailed.
+   */
+  public function testChangedOngoingOutageIsEmailed(): void {
+    $outage = $this->createOutage('2099-01-01T00:00:00');
+    $this->broadcasts = [];
+
+    $outage->set('body', 'Power shutdown extended to Friday.');
+    $outage->save();
+    $outage->set('field_infrastructure_news_end', '2099-02-01T00:00:00');
+    $outage->save();
+    $this->assertSame(['Anvil outage', 'Anvil outage'], $this->broadcasts);
+  }
+
+  /**
+   * Checking the email box on an existing ongoing outage sends it.
+   */
+  public function testCheckingEmailBoxIsEmailed(): void {
+    $outage = $this->createOutage('2099-01-01T00:00:00');
+    $outage->set('field_do_email_subscribers', 0);
+    $outage->save();
+    $this->broadcasts = [];
+
+    $outage->set('field_do_email_subscribers', 1);
+    $outage->save();
+    $this->assertSame(['Anvil outage'], $this->broadcasts);
   }
 
 }
