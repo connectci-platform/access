@@ -1979,11 +1979,22 @@ function _access_affinitygroup_infrastructure_news_time(FieldableEntityInterface
 }
 
 /**
- * Text as a reader sees it: no markup, entities decoded, spacing collapsed.
+ * Text as a reader sees it, for telling a real edit from a reformat.
+ *
+ * Markup is dropped, entities decoded and spacing collapsed. Curly quotes,
+ * dashes and non-breaking spaces fold to their plain forms, since an upstream
+ * migration that HTML-encoded punctuation also turned some of it into a
+ * different character.
  */
 function _access_affinitygroup_plain_text(?string $text): string {
   $text = preg_replace('/<[^>]*>/', ' ', (string) $text);
   $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5);
+  $text = strtr($text, [
+    "\u{2018}" => "'", "\u{2019}" => "'", "\u{201A}" => "'", "\u{2032}" => "'",
+    "\u{201C}" => '"', "\u{201D}" => '"', "\u{201E}" => '"', "\u{2033}" => '"',
+    "\u{2013}" => '-', "\u{2014}" => '-', "\u{2212}" => '-', '--' => '-',
+    "\u{2026}" => '...', "\u{00A0}" => ' ',
+  ]);
   return trim(preg_replace('/\s+/u', ' ', $text));
 }
 

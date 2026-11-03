@@ -242,6 +242,29 @@ class InfrastructureNewsAnnouncementTest extends KernelTestBase implements Logge
   }
 
   /**
+   * Punctuation re-encoded upstream does not re-send an ended outage.
+   *
+   * The operations portal migration that caused the flood replaced some
+   * punctuation with HTML-encoded text, including different characters.
+   */
+  public function testReencodedPunctuationIsNotEmailed(): void {
+    $outage = $this->createOutage('2099-01-01T00:00:00');
+    $outage->set('title', 'Anvil’s scratch outage — “resolved”');
+    $outage->set('body', '<p>Users’ jobs – held…</p>');
+    $outage->save();
+    $outage->set('field_infrastructure_news_end', '2020-01-01T00:00:00');
+    $outage->save();
+    $this->broadcasts = [];
+
+    $outage->set('title', 'Anvil&#39;s scratch outage -- &quot;resolved&quot;');
+    $outage->set('body', '<p>Users&#039; jobs &ndash; held...</p>');
+    $outage->save();
+    $outage->set('title', 'Anvil&rsquo;s scratch outage &mdash; &ldquo;resolved&rdquo;');
+    $outage->save();
+    $this->assertSame([], $this->broadcasts);
+  }
+
+  /**
    * A late resolution to an outage whose estimated end had passed is sent.
    */
   public function testLateResolutionIsEmailed(): void {
