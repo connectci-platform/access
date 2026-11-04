@@ -41,7 +41,9 @@ use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Cache\RefinableCacheableDependencyInterface;
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Url;
+use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Entity\FieldableEntityInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\cssn\Plugin\Util\EndUrl;
@@ -1902,10 +1904,98 @@ function access_affinitygroup_entity_update(EntityInterface $entity) {
     \Drupal::service('cache_tags.invalidator')->invalidateTags(['affinity_group_ci_links']);
   }
 
-  // Email any infrastructure news with the 'Email only subscribers' box checked.
-  if ($type == 'infrastructure_news') {
+  // Email any infrastructure news with the 'Email only subscribers' box checked,
+  // but only when the update is news to a subscriber. A feed re-import that
+  // touches every item (an upstream migration once re-sent years of ended
+  // outages to every affinity group) must not send.
+  if ($type == 'infrastructure_news' && $entity instanceof FieldableEntityInterface && access_affinitygroup_infrastructure_news_update_is_news($entity)) {
     access_affinitygroup_infrastructure_news_cc($entity);
   }
+}
+
+/**
+ * Whether an update to an infrastructure news item should be emailed.
+ *
+ * A feed re-import can touch every item at once (an upstream migration once
+ * re-sent years of ended outages to every affinity group), so an update sends
+ * only when it is news to a subscriber:
+ * - An outage that has just ended (ongoing before, end now past) sends: that
+ *   is the resolution notice.
+ * - An outage that was already over and still is sends only when its title
+ *   changes, which is how a late "[Resolved]" notice arrives. Body and date
+ *   edits to an old outage do not send.
+ * - An outage still ongoing sends when the email box was just checked, or when
+ *   the title, body, start, end or affected resources changed. Extensions and
+ *   reopened outages land here.
+ * Text is compared without markup, entity encoding or spacing, and dates as
+ * timestamps, so a reformat upstream is not news.
+ */
+function access_affinitygroup_infrastructure_news_update_is_news(FieldableEntityInterface $entity): bool {
+  $original = $entity->original ?? NULL;
+  if (!$original instanceof FieldableEntityInterface) {
+    return TRUE;
+  }
+
+  $now = \Drupal::time()->getRequestTime();
+  $was_over = _access_affinitygroup_infrastructure_news_time($original, 'field_infrastructure_news_end') < $now;
+  $is_over = _access_affinitygroup_infrastructure_news_time($entity, 'field_infrastructure_news_end') < $now;
+  $title_changed = _access_affinitygroup_plain_text($entity->label()) !== _access_affinitygroup_plain_text($original->label());
+
+  if ($is_over) {
+    return !$was_over || $title_changed;
+  }
+
+  if (empty($original->get('field_do_email_subscribers')->value) || $title_changed) {
+    return TRUE;
+  }
+  if (_access_affinitygroup_plain_text($entity->get('body')->value) !== _access_affinitygroup_plain_text($original->get('body')->value)) {
+    return TRUE;
+  }
+  foreach (['field_infrastructure_news_start', 'field_infrastructure_news_end'] as $field) {
+    if (_access_affinitygroup_infrastructure_news_time($entity, $field) !== _access_affinitygroup_infrastructure_news_time($original, $field)) {
+      return TRUE;
+    }
+  }
+  $resources = static function (FieldableEntityInterface $node): array {
+    $ids = array_column($node->get('field_affected_infrastructure')->getValue(), 'target_id');
+    sort($ids);
+    return $ids;
+  };
+  return $resources($entity) !== $resources($original);
+}
+
+/**
+ * A datetime field on infrastructure news as a timestamp.
+ *
+ * A missing field or empty value is PHP_INT_MAX, so an outage with no end
+ * counts as ongoing.
+ */
+function _access_affinitygroup_infrastructure_news_time(FieldableEntityInterface $node, string $field): int {
+  if (!$node->hasField($field) || $node->get($field)->isEmpty()) {
+    return PHP_INT_MAX;
+  }
+  $date = $node->get($field)->first()?->get('date')->getValue();
+  return $date instanceof DrupalDateTime ? $date->getTimestamp() : PHP_INT_MAX;
+}
+
+/**
+ * Text as a reader sees it, for telling a real edit from a reformat.
+ *
+ * Markup is dropped, entities decoded and spacing collapsed. Curly quotes,
+ * dashes and non-breaking spaces fold to their plain forms, since an upstream
+ * migration that HTML-encoded punctuation also turned some of it into a
+ * different character.
+ */
+function _access_affinitygroup_plain_text(?string $text): string {
+  $text = preg_replace('/<[^>]*>/', ' ', (string) $text);
+  $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5);
+  $text = strtr($text, [
+    "\u{2018}" => "'", "\u{2019}" => "'", "\u{201A}" => "'", "\u{2032}" => "'",
+    "\u{201C}" => '"', "\u{201D}" => '"', "\u{201E}" => '"', "\u{2033}" => '"',
+    "\u{2013}" => '-', "\u{2014}" => '-', "\u{2212}" => '-', '--' => '-',
+    "\u{2026}" => '...', "\u{00A0}" => ' ',
+  ]);
+  return trim(preg_replace('/\s+/u', ' ', $text));
 }
 
 /**
