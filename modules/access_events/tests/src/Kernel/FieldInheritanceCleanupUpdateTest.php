@@ -59,7 +59,7 @@ class FieldInheritanceCleanupUpdateTest extends EventKernelTestBase {
   /**
    * Data provider for testRowIsDead().
    */
-  public function providerRowIsDead(): array {
+  public static function providerRowIsDead(): array {
     return [
       'eventinstance never dead' => [
         'eventinstance:11111111-1111-1111-1111-111111111111',

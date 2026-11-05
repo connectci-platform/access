@@ -334,6 +334,7 @@ function access_events_deploy_0003_backfill_individually_cancelled() {
  *   Progress/summary message.
  */
 function access_events_deploy_restore_series_domains(array &$sandbox) {
+  /** @var \Drupal\Core\Entity\RevisionableStorageInterface $seriesStorage */
   $seriesStorage = \Drupal::entityTypeManager()->getStorage('eventseries');
   $instanceStorage = \Drupal::entityTypeManager()->getStorage('eventinstance');
 

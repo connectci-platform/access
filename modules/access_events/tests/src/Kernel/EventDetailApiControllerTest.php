@@ -23,7 +23,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
 
     $request = Request::create('/api/2.3/events/' . $instance->id());
     $request->attributes->set('acting_user_uid', (int) $this->owner->id());
-    \Drupal::requestStack()->push($request);
+    $this->pushRequest($request);
 
     $controller = EventDetailApiController::create(\Drupal::getContainer());
     $response = $controller->get($instance);
@@ -65,7 +65,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
 
     $request = Request::create('/api/2.3/events/' . $instance->id());
     $request->attributes->set('acting_user_uid', (int) $this->owner->id());
-    \Drupal::requestStack()->push($request);
+    $this->pushRequest($request);
 
     $data = json_decode(
       EventDetailApiController::create(\Drupal::getContainer())->get($instance)->getContent(),
@@ -86,7 +86,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
 
     $request = Request::create('/api/2.3/events/' . $instance->id());
     $request->attributes->set('acting_user_uid', (int) $this->owner->id());
-    \Drupal::requestStack()->push($request);
+    $this->pushRequest($request);
 
     $data = json_decode(
       EventDetailApiController::create(\Drupal::getContainer())->get($instance)->getContent(),
@@ -120,7 +120,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
 
     $request = Request::create('/api/2.3/events/' . $instance->id());
     $request->attributes->set('acting_user_uid', (int) $this->owner->id());
-    \Drupal::requestStack()->push($request);
+    $this->pushRequest($request);
 
     $data = json_decode(
       EventDetailApiController::create(\Drupal::getContainer())->get($instance)->getContent(),
@@ -154,7 +154,7 @@ class EventDetailApiControllerTest extends EventKernelTestBase {
 
     $request = Request::create('/api/2.3/events/' . $instance->id());
     $request->attributes->set('acting_user_uid', (int) $this->owner->id());
-    \Drupal::requestStack()->push($request);
+    $this->pushRequest($request);
 
     $data = json_decode(
       EventDetailApiController::create(\Drupal::getContainer())->get($instance)->getContent(),

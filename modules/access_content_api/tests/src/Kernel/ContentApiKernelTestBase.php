@@ -17,6 +17,7 @@ use Drupal\node\Entity\Node;
 use Drupal\node\Entity\NodeType;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\taxonomy\Entity\Vocabulary;
+use Drupal\Tests\field\Traits\BodyFieldCreationTrait;
 use Drupal\user\Entity\Role;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -30,6 +31,8 @@ use Symfony\Component\HttpFoundation\Response;
  * format, the "text" view mode/display, and the support domain entity.
  */
 abstract class ContentApiKernelTestBase extends KernelTestBase {
+
+  use BodyFieldCreationTrait;
 
   /**
    * The support domain machine name used across the fixtures.
@@ -82,7 +85,7 @@ abstract class ContentApiKernelTestBase extends KernelTestBase {
     NodeType::create(['type' => 'page', 'name' => 'Basic page'])->save();
 
     // Add the body field to the page bundle.
-    node_add_body_field(NodeType::load('page'));
+    $this->createBodyField('node', 'page');
 
     // Domain Access fields are created by the module's install hook, which
     // kernel tests do not run automatically.
@@ -206,7 +209,7 @@ abstract class ContentApiKernelTestBase extends KernelTestBase {
       foreach ($fields as $name => $spec) {
         $spec = is_string($spec) ? ['type' => $spec] : $spec;
         if ($name === 'body') {
-          node_add_body_field(NodeType::load($bundle));
+          $this->createBodyField('node', $bundle);
           $spec += ['label_display' => 'hidden'];
           $field_type = 'text_long';
         }

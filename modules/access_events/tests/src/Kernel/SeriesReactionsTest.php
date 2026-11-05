@@ -532,14 +532,15 @@ class SeriesReactionsTest extends EventKernelTestBase {
    * access_events_module_implements_alter() moves our eventseries_update
    * implementation to run AFTER recurring_events' — the opposite direction
    * from the delete-guard hooks' "must run FIRST" pin. Verified the same way
-   * EventDeleteGuardHooksTest does: getImplementationInfo() collection order,
-   * not getImplementations() (removed in Drupal 10).
+   * EventDeleteGuardHooksTest does: the module order invokeAllWith() walks,
+   * which is the order invokeAll() runs (the reflection on the protected
+   * getImplementationInfo() this used to rely on was removed in Drupal 11).
    */
   public function testOurSeriesUpdateRunsAfterContrib(): void {
-    $handler = \Drupal::moduleHandler();
-    $method = new \ReflectionMethod($handler, 'getImplementationInfo');
-    $method->setAccessible(TRUE);
-    $order = array_keys($method->invoke($handler, 'eventseries_update'));
+    $order = [];
+    \Drupal::moduleHandler()->invokeAllWith('eventseries_update', function (callable $hook, string $module) use (&$order): void {
+      $order[] = $module;
+    });
 
     $accessEventsPos = array_search('access_events', $order, TRUE);
     $recurringEventsPos = array_search('recurring_events', $order, TRUE);

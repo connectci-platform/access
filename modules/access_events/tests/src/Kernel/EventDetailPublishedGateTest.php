@@ -99,7 +99,7 @@ class EventDetailPublishedGateTest extends EventKernelTestBase {
   private function getDetail($instance, int $actingUid) {
     $request = Request::create('/api/2.3/events/' . $instance->id());
     $request->attributes->set('acting_user_uid', $actingUid);
-    \Drupal::requestStack()->push($request);
+    $this->pushRequest($request);
 
     return EventDetailApiController::create(\Drupal::getContainer())
       ->get($instance);
@@ -163,7 +163,7 @@ class EventDetailPublishedGateTest extends EventKernelTestBase {
     $instance->set('uid', $this->owner->id())->save();
     // Anonymous: no acting_user_uid attribute.
     $request = Request::create('/api/2.3/events/' . $instance->id());
-    \Drupal::requestStack()->push($request);
+    $this->pushRequest($request);
     $response = EventDetailApiController::create(\Drupal::getContainer())->get($instance);
     $this->assertInstanceOf(\Drupal\Core\Cache\CacheableResponseInterface::class, $response);
     $tags = $response->getCacheableMetadata()->getCacheTags();
@@ -183,7 +183,7 @@ class EventDetailPublishedGateTest extends EventKernelTestBase {
     $response = $this->asActingUser($this->owner, function () use ($instance) {
       $request = Request::create('/api/2.3/events/' . $instance->id());
       $request->attributes->set('acting_user_uid', (int) $this->owner->id());
-      \Drupal::requestStack()->push($request);
+      $this->pushRequest($request);
       return EventDetailApiController::create(\Drupal::getContainer())->get($instance);
     });
     $this->assertNotInstanceOf(\Drupal\Core\Cache\CacheableResponseInterface::class, $response);

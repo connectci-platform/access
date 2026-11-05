@@ -148,6 +148,7 @@ class EventTimezoneBackfillTest extends EventKernelTestBase {
 
     \Drupal::service('access_events.timezone_backfill')->backfill();
 
+    /** @var \Drupal\Core\Entity\RevisionableStorageInterface $storage */
     $storage = \Drupal::entityTypeManager()->getStorage('eventseries');
     foreach ($revisionIds as $vid) {
       $revision = $storage->loadRevision($vid);

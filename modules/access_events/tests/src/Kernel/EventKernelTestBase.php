@@ -1138,6 +1138,21 @@ abstract class EventKernelTestBase extends KernelTestBase {
   }
 
   /**
+   * Pushes a request onto the stack, carrying the bootstrap session over.
+   *
+   * KernelTestBase::tearDown() clears the session of whatever request is
+   * current, so a session-less request left on the stack throws
+   * SessionNotFoundException.
+   *
+   * @param \Symfony\Component\HttpFoundation\Request $request
+   *   The request to push.
+   */
+  protected function pushRequest(Request $request): void {
+    $request->setSession(\Drupal::requestStack()->getCurrentRequest()->getSession());
+    \Drupal::requestStack()->push($request);
+  }
+
+  /**
    * Invokes EventDetailApiController::register() as an acting user.
    *
    * Builds a POST Request carrying the JSON body and the
@@ -1172,7 +1187,7 @@ abstract class EventKernelTestBase extends KernelTestBase {
     // prod; a direct controller call must set it here) to resolve the instance
     // and confirm registration is enabled.
     $request->attributes->set('eventinstance', $instance);
-    \Drupal::requestStack()->push($request);
+    $this->pushRequest($request);
 
     return EventDetailApiController::create(\Drupal::getContainer())
       ->register($instance, $request);

@@ -160,10 +160,12 @@ class EventDeleteGuardHooksTest extends EventKernelTestBase {
     $instanceId = (int) $instance->id();
     $registrantId = (int) $registrant->id();
 
-    $handler = \Drupal::moduleHandler();
-    $method = new \ReflectionMethod($handler, 'getImplementationInfo');
-    $method->setAccessible(TRUE);
-    $order = array_keys($method->invoke($handler, 'eventseries_predelete'));
+    // invokeAllWith() walks the built implementation list in the exact order
+    // invokeAll() runs it, without invoking anything.
+    $order = [];
+    \Drupal::moduleHandler()->invokeAllWith('eventseries_predelete', function (callable $hook, string $module) use (&$order): void {
+      $order[] = $module;
+    });
     $this->assertSame(
       'access_events',
       $order[0] ?? NULL,
@@ -227,10 +229,12 @@ class EventDeleteGuardHooksTest extends EventKernelTestBase {
     $registrant = $this->registerUser($this->createUser(), $instance);
     $registrantId = (int) $registrant->id();
 
-    $handler = \Drupal::moduleHandler();
-    $method = new \ReflectionMethod($handler, 'getImplementationInfo');
-    $method->setAccessible(TRUE);
-    $order = array_keys($method->invoke($handler, 'recurring_events_pre_delete_instance'));
+    // invokeAllWith() walks the built implementation list in the exact order
+    // invokeAll() runs it, without invoking anything.
+    $order = [];
+    \Drupal::moduleHandler()->invokeAllWith('recurring_events_pre_delete_instance', function (callable $hook, string $module) use (&$order): void {
+      $order[] = $module;
+    });
     $this->assertSame(
       'access_events',
       $order[0] ?? NULL,

@@ -479,6 +479,7 @@ class EventCrudRestoreTest extends EventKernelTestBase {
     $response = $this->doCrud('delete', (int) $series->id(), $newsPm, [], ['confirmed' => TRUE]);
     $this->assertSame(200, $response->getStatusCode());
 
+    /** @var \Drupal\Core\Entity\RevisionableStorageInterface $storage */
     $storage = \Drupal::entityTypeManager()->getStorage('eventinstance');
     $reloaded = $storage->loadUnchanged($instance->id());
     $latestRevision = $storage->loadRevision($reloaded->getLoadedRevisionId());

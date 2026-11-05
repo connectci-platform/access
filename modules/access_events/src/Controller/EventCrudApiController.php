@@ -1648,6 +1648,7 @@ class EventCrudApiController extends ControllerBase {
    *   TRUE if any revision's moderation_state was 'published'.
    */
   private function wasEverPublished(ContentEntityInterface $entity): bool {
+    /** @var \Drupal\Core\Entity\RevisionableStorageInterface $storage */
     $storage = $this->entityTypeManager->getStorage($entity->getEntityTypeId());
     $vids = $storage->getQuery()
       ->allRevisions()
