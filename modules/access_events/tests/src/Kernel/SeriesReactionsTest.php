@@ -573,6 +573,21 @@ class SeriesReactionsTest extends EventKernelTestBase {
     }
     $this->assertNotEmpty($before);
 
+    // Pin every instance's changed time far in the past so a re-save, even
+    // within the same second, would visibly bump it.
+    $pinned = 1000000000;
+    $database = \Drupal::database();
+    $database->update('eventinstance_field_data')
+      ->fields(['changed' => $pinned])
+      ->execute();
+    \Drupal::entityTypeManager()->getStorage('eventinstance')->resetCache();
+    $changedBefore = [];
+    foreach ($this->loadInstances(EventSeries::load($seriesId)) as $instance) {
+      $changedBefore[$instance->id()] = (int) $instance->get('changed')->value;
+    }
+    $this->assertSame(array_keys($before), array_keys($changedBefore));
+    $this->assertSame([$pinned], array_values(array_unique($changedBefore)));
+
     \Drupal::messenger()->deleteAll();
     $series = EventSeries::load($seriesId);
     $series->set('title', 'Renamed series');
@@ -589,6 +604,14 @@ class SeriesReactionsTest extends EventKernelTestBase {
       $after[$instance->id()] = $instance->get('moderation_state')->value;
     }
     $this->assertSame($before, $after);
+
+    // The instances were neither rebuilt nor re-saved.
+    \Drupal::entityTypeManager()->getStorage('eventinstance')->resetCache();
+    $changedAfter = [];
+    foreach ($this->loadInstances(EventSeries::load($seriesId)) as $instance) {
+      $changedAfter[$instance->id()] = (int) $instance->get('changed')->value;
+    }
+    $this->assertSame($changedBefore, $changedAfter);
   }
 
 }

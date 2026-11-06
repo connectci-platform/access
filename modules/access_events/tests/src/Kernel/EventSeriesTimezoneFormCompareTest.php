@@ -75,30 +75,8 @@ class EventSeriesTimezoneFormCompareTest extends EventKernelTestBase {
    * form side adds the same key the stored side does.
    */
   public function testUnchangedYearlyFormReportsNoChange(): void {
-    $series = $this->createSeries('yearly_recurring_date', [
-      'value' => '2099-03-02T17:00:00',
-      'end_value' => '2101-03-30T17:00:00',
-      'time' => '02:00 PM',
-      'end_time' => '03:00 PM',
-      'duration' => 3600,
-      'duration_or_end_time' => 'end_time',
-      'type' => 'monthday',
-      'day_of_month' => '15',
-      'year_interval' => 1,
-      'months' => 'march',
-    ]);
-    $formState = $this->formState('yearly_recurring_date', [
-      'value' => $this->formDate('2099-03-02'),
-      'end_value' => $this->formDate('2101-03-30'),
-      'time' => '02:00 pm',
-      'end_time' => '03:00 pm',
-      'duration' => 3600,
-      'duration_or_end_time' => 'end_time',
-      'type' => 'monthday',
-      'day_of_month' => ['15' => '15'],
-      'year_interval' => 1,
-      'months' => ['march' => 'march'],
-    ], 'America/New_York');
+    $series = $this->createSeries('yearly_recurring_date', $this->yearlyValues());
+    $formState = $this->formState('yearly_recurring_date', $this->yearlyInput(), 'America/New_York');
 
     $this->assertFalse($this->creationService()->checkForFormRecurConfigChanges($series, $formState));
   }
@@ -110,27 +88,80 @@ class EventSeriesTimezoneFormCompareTest extends EventKernelTestBase {
    * also carries event_timezone.
    */
   public function testUnchangedConsecutiveFormReportsNoChange(): void {
-    $series = $this->createSeries('consecutive_recurring_date', [
-      'value' => '2099-03-02T17:00:00',
-      'end_value' => '2099-03-04T17:00:00',
-      'time' => '09:00 AM',
-      'end_time' => '05:00 PM',
-      'duration' => 30,
-      'duration_units' => 'minute',
-      'buffer' => 15,
-      'buffer_units' => 'minute',
-    ]);
-    $formState = $this->formState('consecutive_recurring_date', [
-      'value' => $this->formDate('2099-03-02'),
-      'end_value' => $this->formDate('2099-03-04'),
-      'time' => '09:00 am',
-      'end_time' => '05:00 pm',
-      'duration' => 30,
-      'duration_units' => 'minute',
-      'buffer' => 15,
-      'buffer_units' => 'minute',
-    ], 'America/New_York');
+    $series = $this->createSeries('consecutive_recurring_date', $this->consecutiveValues());
+    $formState = $this->formState('consecutive_recurring_date', $this->consecutiveInput(), 'America/New_York');
 
+    $this->assertFalse($this->creationService()->checkForFormRecurConfigChanges($series, $formState));
+  }
+
+  /**
+   * A late-evening Denver submission of an unchanged weekly form is no change.
+   *
+   * 22:30 MST on 2099-03-02 is 00:30 EST on 2099-03-03. If the form side
+   * re-zoned the instant into the event's zone before taking the date, it
+   * would read March 3 and report a false change. The picked date is the
+   * calendar date in the editor's own zone.
+   */
+  public function testLateEveningDenverWeeklyFormReportsNoChange(): void {
+    $series = $this->createSeries('weekly_recurring_date', $this->weeklyValues());
+    $formState = $this->formState('weekly_recurring_date', $this->weeklyInput('22:30:00'), 'America/New_York');
+
+    $this->assertFalse($this->creationService()->checkForFormRecurConfigChanges($series, $formState));
+  }
+
+  /**
+   * A late-evening Denver submission of an unchanged yearly form is no change.
+   */
+  public function testLateEveningDenverYearlyFormReportsNoChange(): void {
+    $series = $this->createSeries('yearly_recurring_date', $this->yearlyValues());
+    $formState = $this->formState('yearly_recurring_date', $this->yearlyInput('22:30:00'), 'America/New_York');
+
+    $this->assertFalse($this->creationService()->checkForFormRecurConfigChanges($series, $formState));
+  }
+
+  /**
+   * An unchanged consecutive form at 22:30 Denver is no change.
+   */
+  public function testLateEveningDenverConsecutiveFormReportsNoChange(): void {
+    $series = $this->createSeries('consecutive_recurring_date', $this->consecutiveValues());
+    $formState = $this->formState('consecutive_recurring_date', $this->consecutiveInput('22:30:00'), 'America/New_York');
+
+    $this->assertFalse($this->creationService()->checkForFormRecurConfigChanges($series, $formState));
+  }
+
+  /**
+   * An editor east of the event zone saving early morning sees no change.
+   *
+   * With the ambient zone Europe/London, 01:30 London on 2099-03-02 is
+   * 20:30 EST on 2099-03-01, so re-zoning the instant first would read the
+   * previous day. The editor's own calendar date is what counts.
+   */
+  public function testEarlyMorningLondonWeeklyFormReportsNoChange(): void {
+    date_default_timezone_set('Europe/London');
+    $series = $this->createSeries('weekly_recurring_date', $this->weeklyValues());
+    $input = $this->weeklyInput('01:30:00', 'Europe/London');
+    $formState = $this->formState('weekly_recurring_date', $input, 'America/New_York');
+
+    $this->assertFalse($this->creationService()->checkForFormRecurConfigChanges($series, $formState));
+  }
+
+  /**
+   * A stored boundary at a non-noon UTC time is read as its UTC date.
+   *
+   * Presave pins every boundary to T12:00:00, so a value stored at midnight
+   * UTC (which would be the previous evening in Denver) is normalized and
+   * still compares as March 2 against a 22:30 Denver form.
+   */
+  public function testNonNoonStoredBoundaryIsPinnedAndReadAsUtcDate(): void {
+    $values = $this->weeklyValues();
+    $values['value'] = '2099-03-02T00:00:00';
+    $values['end_value'] = '2099-03-30T00:00:00';
+    $series = $this->createSeries('weekly_recurring_date', $values);
+
+    $this->assertSame('2099-03-02T12:00:00', $series->get('weekly_recurring_date')->first()->value);
+    $this->assertSame('2099-03-30T12:00:00', $series->get('weekly_recurring_date')->first()->end_value);
+
+    $formState = $this->formState('weekly_recurring_date', $this->weeklyInput('22:30:00'), 'America/New_York');
     $this->assertFalse($this->creationService()->checkForFormRecurConfigChanges($series, $formState));
   }
 
@@ -193,15 +224,83 @@ class EventSeriesTimezoneFormCompareTest extends EventKernelTestBase {
   /**
    * Form input that matches weeklyValues().
    */
-  private function weeklyInput(): array {
+  private function weeklyInput(string $time = '12:00:00', string $zone = 'America/Denver'): array {
     return [
-      'value' => $this->formDate('2099-03-02'),
-      'end_value' => $this->formDate('2099-03-30'),
+      'value' => $this->formDate('2099-03-02', $time, $zone),
+      'end_value' => $this->formDate('2099-03-30', $time, $zone),
       'time' => '02:00 pm',
       'end_time' => '03:00 pm',
       'duration' => 3600,
       'duration_or_end_time' => 'end_time',
       'days' => ['monday' => 'monday'],
+    ];
+  }
+
+  /**
+   * Stored values for the yearly series.
+   */
+  private function yearlyValues(): array {
+    return [
+      'value' => '2099-03-02T17:00:00',
+      'end_value' => '2101-03-30T17:00:00',
+      'time' => '02:00 PM',
+      'end_time' => '03:00 PM',
+      'duration' => 3600,
+      'duration_or_end_time' => 'end_time',
+      'type' => 'monthday',
+      'day_of_month' => '15',
+      'year_interval' => 1,
+      'months' => 'march',
+    ];
+  }
+
+  /**
+   * Form input that matches yearlyValues().
+   */
+  private function yearlyInput(string $time = '12:00:00', string $zone = 'America/Denver'): array {
+    return [
+      'value' => $this->formDate('2099-03-02', $time, $zone),
+      'end_value' => $this->formDate('2101-03-30', $time, $zone),
+      'time' => '02:00 pm',
+      'end_time' => '03:00 pm',
+      'duration' => 3600,
+      'duration_or_end_time' => 'end_time',
+      'type' => 'monthday',
+      'day_of_month' => ['15' => '15'],
+      'year_interval' => 1,
+      'months' => ['march' => 'march'],
+    ];
+  }
+
+  /**
+   * Stored values for the consecutive series.
+   */
+  private function consecutiveValues(): array {
+    return [
+      'value' => '2099-03-02T17:00:00',
+      'end_value' => '2099-03-04T17:00:00',
+      'time' => '09:00 AM',
+      'end_time' => '05:00 PM',
+      'duration' => 30,
+      'duration_units' => 'minute',
+      'buffer' => 15,
+      'buffer_units' => 'minute',
+    ];
+  }
+
+  /**
+   * Form input that matches consecutiveValues().
+   */
+  private function consecutiveInput(string $time = '12:00:00', string $zone = 'America/Denver'): array {
+    return [
+      'value' => $this->formDate('2099-03-02', $time, $zone),
+      'end_value' => $this->formDate('2099-03-04', $time, $zone),
+      'time' => '09:00 am',
+      'end_time' => '05:00 pm',
+      'duration' => 30,
+      'duration_units' => 'minute',
+      'buffer' => 15,
+      'buffer_units' => 'minute',
     ];
   }
 
@@ -245,17 +344,23 @@ class EventSeriesTimezoneFormCompareTest extends EventKernelTestBase {
   /**
    * A date as the recurrence widget submits it, in the editor's zone.
    *
-   * The recurring date fields store full UTC datetimes, so the widget shows
-   * and returns them in the editor's ambient zone (Denver). The fixtures
-   * store 17:00 UTC, which is Denver mid-morning on the same day, so noon
-   * Denver is the same calendar day the editor saw. Noon also stays on that
-   * day when re-zoned to any US zone, so a timezone-only change can't look
-   * like a change of date. Built fresh for each use because
-   * getDateFromRecurringDateFieldInput() changes the object's timezone in
-   * place.
+   * The date picker returns the picked calendar date in the editor's own zone
+   * with an arbitrary time of day (the moment of submission). The form side
+   * must take that zone's calendar date as is, so tests pass the time and
+   * zone to prove the result doesn't depend on them. The default is noon
+   * Denver, which stays on the same day in any US zone. The object is not
+   * mutated by getDateFromRecurringDateFieldInput(), but it is built fresh
+   * for each use anyway.
+   *
+   * @param string $date
+   *   The Y-m-d calendar date the editor picked.
+   * @param string $time
+   *   The time of day in the editor's zone.
+   * @param string $zone
+   *   The editor's timezone.
    */
-  private function formDate(string $date): DrupalDateTime {
-    return new DrupalDateTime($date . ' 12:00:00', new \DateTimeZone('America/Denver'));
+  private function formDate(string $date, string $time = '12:00:00', string $zone = 'America/Denver'): DrupalDateTime {
+    return new DrupalDateTime($date . ' ' . $time, new \DateTimeZone($zone));
   }
 
   /**
