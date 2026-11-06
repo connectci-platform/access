@@ -18,6 +18,7 @@
  * cancelled).
  */
 
+use Drupal\Core\Cache\Cache;
 use Drupal\search_api\Entity\Index;
 
 /**
@@ -510,4 +511,149 @@ function access_events_deploy_0005_reindex_event_timezone() {
   }
   $index->reindex();
   return t('events index marked for reindexing to populate event_timezone; cron will process the tracked items.');
+}
+
+/**
+ * Normalizes recurrence-rule boundaries to noon UTC on the intended date.
+ *
+ * The recurrence rule start/end are date-only in meaning, but older rows hold
+ * three different shapes: the widget stored the editor's moment of submission
+ * in UTC (a Denver editor picking Oct 16 at 10:06 pm stored
+ * 2024-10-17T04:06:43, whose UTC date is the wrong day), API writers stored
+ * exactly T00:00:00 UTC meaning that UTC date, and newer saves already hold
+ * T12:00:00. The getters now read the stored UTC calendar date, so every row
+ * must be rewritten to `<intended date>T12:00:00`.
+ *
+ * Rows already at T12:00:00 are left alone. Exactly T00:00:00 keeps its UTC
+ * date. Anything else is an instant of submission, so its intended date is the
+ * date in the saver's zone: the zone of the user on the current revision, else
+ * the series' own event timezone, else the site default, else UTC.
+ *
+ * Only the field of the series' own recur_type is touched. Writes are direct
+ * UPDATEs to the data table and the current revision's row, never entity
+ * saves: a save would regenerate event instances and fire notification
+ * reactions. The series' cache entries are cleared afterwards.
+ *
+ * @return \Drupal\Core\StringTranslation\TranslatableMarkup
+ *   Summary of what was rewritten.
+ */
+function access_events_deploy_0006_normalize_recurrence_boundaries() {
+  $database = \Drupal::database();
+  $etm = \Drupal::entityTypeManager();
+
+  // Fixed whitelist: field names and columns are never taken from data.
+  $recurFields = [
+    'consecutive_recurring_date',
+    'daily_recurring_date',
+    'weekly_recurring_date',
+    'monthly_recurring_date',
+    'yearly_recurring_date',
+  ];
+  $validZones = array_flip(\DateTimeZone::listIdentifiers());
+  $definitions = \Drupal::service('entity_field.manager')
+    ->getFieldStorageDefinitions('eventseries');
+  $hasSeriesZone = isset($definitions['field_event_timezone']);
+
+  $siteZone = \Drupal::config('system.date')->get('timezone.default');
+  if (!is_string($siteZone) || !isset($validZones[$siteZone])) {
+    $siteZone = 'UTC';
+  }
+
+  $rewritten = 0;
+  $dateChanged = 0;
+  $changedSeries = [];
+  $touchedIds = [];
+
+  foreach ($recurFields as $field) {
+    $valueColumn = $field . '__value';
+    $endColumn = $field . '__end_value';
+
+    $query = $database->select('eventseries_field_data', 'd');
+    $query->leftJoin('eventseries_revision', 'r', 'r.vid = d.vid');
+    $query->leftJoin('users_field_data', 'u', 'u.uid = r.revision_uid');
+    $query->fields('d', ['id', 'vid', 'langcode', $valueColumn, $endColumn]);
+    $query->addField('u', 'timezone', 'user_timezone');
+    if ($hasSeriesZone) {
+      $query->leftJoin('eventseries__field_event_timezone', 'tz', 'tz.entity_id = d.id AND tz.revision_id = d.vid AND tz.langcode = d.langcode');
+      $query->addField('tz', 'field_event_timezone_value', 'series_timezone');
+    }
+    $query->condition('d.recur_type', $field);
+    $rows = $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
+
+    foreach ($rows as $row) {
+      $zone = NULL;
+      foreach ([$row['user_timezone'] ?? NULL, $row['series_timezone'] ?? NULL, $siteZone] as $candidate) {
+        if (is_string($candidate) && isset($validZones[$candidate])) {
+          $zone = $candidate;
+          break;
+        }
+      }
+      $zone ??= 'UTC';
+
+      $updates = [];
+      foreach ([$valueColumn, $endColumn] as $column) {
+        $old = $row[$column];
+        if ($old === NULL || $old === '' || str_ends_with($old, 'T12:00:00')) {
+          continue;
+        }
+        $utcDate = substr($old, 0, 10);
+        if (str_ends_with($old, 'T00:00:00')) {
+          $intended = $utcDate;
+        }
+        else {
+          try {
+            $intended = (new \DateTimeImmutable($old, new \DateTimeZone('UTC')))
+              ->setTimezone(new \DateTimeZone($zone))
+              ->format('Y-m-d');
+          }
+          catch (\Exception) {
+            // Unparseable value: leave it for a human rather than guess.
+            continue;
+          }
+        }
+        $updates[$column] = $intended . 'T12:00:00';
+        $rewritten++;
+        if ($intended !== $utcDate) {
+          $dateChanged++;
+          $changedSeries[(int) $row['id']] = (int) $row['id'];
+        }
+      }
+
+      if (!$updates) {
+        continue;
+      }
+      $database->update('eventseries_field_data')
+        ->fields($updates)
+        ->condition('id', $row['id'])
+        ->condition('vid', $row['vid'])
+        ->condition('langcode', $row['langcode'])
+        ->execute();
+      $database->update('eventseries_field_revision')
+        ->fields($updates)
+        ->condition('id', $row['id'])
+        ->condition('vid', $row['vid'])
+        ->condition('langcode', $row['langcode'])
+        ->execute();
+      $touchedIds[(int) $row['id']] = (int) $row['id'];
+    }
+  }
+
+  if ($touchedIds) {
+    $etm->getStorage('eventseries')->resetCache(array_values($touchedIds));
+    Cache::invalidateTags(array_map(
+      static fn (int $id): string => 'eventseries:' . $id,
+      array_values($touchedIds)
+    ));
+  }
+
+  if (!$rewritten) {
+    return t('No recurrence boundaries needed normalizing.');
+  }
+  sort($changedSeries);
+  return t('Normalized @n recurrence boundaries to noon UTC: @d changed calendar date, @t changed only the time. Spot-check series with a changed date: @ids', [
+    '@n' => $rewritten,
+    '@d' => $dateChanged,
+    '@t' => $rewritten - $dateChanged,
+    '@ids' => $changedSeries ? implode(', ', $changedSeries) : t('none'),
+  ]);
 }
