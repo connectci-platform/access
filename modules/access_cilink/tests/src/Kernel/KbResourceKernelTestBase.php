@@ -164,6 +164,9 @@ domain:
   '#type': webform_term_select
   '#multiple': true
   '#vocabulary': region
+affinity_group:
+  '#type': webform_term_select
+  '#vocabulary': affinity_groups
 resource_allowed_on_affinity_group:
   '#type': checkbox
 private:
