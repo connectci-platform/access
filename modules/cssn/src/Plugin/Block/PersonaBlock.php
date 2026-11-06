@@ -227,7 +227,9 @@ class PersonaBlock extends BlockBase implements ContainerFactoryPluginInterface 
         $terms[$region_tid] = $region_term ? $region_term->label() : '';
       }
       if (!$public) {
-        $cssn_role_url = Url::fromUri('internal:/form/edit-your-cssn-roles?destination=community-persona');
+        // CSSN is an ACCESS program: always edit roles on ACCESS Support, so
+        // the form's notifications are not sent from another domain's branding.
+        $cssn_role_url = Url::fromUri('https://support.access-ci.org/form/edit-your-cssn-roles?destination=community-persona');
         $cssn_role_link = Link::fromTextAndUrl(Markup::create('<i class="text-dark bi-pencil-square" aria-hidden="true"></i> Edit Roles'), $cssn_role_url);
         $cssn_role_renderable = $cssn_role_link->toRenderable();
         $cssn_role = $cssn_role_renderable;
