@@ -8,14 +8,19 @@ use Drupal\Core\Access\AccessResultInterface;
 use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Session\AccountInterface;
+use Drupal\node\NodeInterface;
 use Drupal\webform\WebformSubmissionInterface;
 
 /**
  * Route access for the KB resource detail page.
  *
  * Allowed when the resource is public (approved and not private), when the
- * user owns it or is an administrator or kb_pm, or when the resource is
- * allowed on an affinity group the user can view.
+ * user owns it or is an administrator or kb_pm, or through a private affinity
+ * group the resource is linked to (referenced in
+ * field_resources_entity_reference or tagged via the affinity_group term).
+ * A private group (field_ag_private = 1) grants access to its members only when
+ * the resource is allowed on affinity groups, and to its coordinators always.
+ * Public groups never grant access.
  */
 class KbResourceAccess {
 
@@ -61,21 +66,25 @@ class KbResourceAccess {
       return AccessResult::allowed()->addCacheableDependency($cacheability);
     }
 
-    // Affinity group exception: overrides both approved and private.
+    // Affinity group exception: overrides both approved and private, but only
+    // through a private group (see the class docblock).
     $cacheability->addCacheTags(['node_list:affinity_group']);
-    if ((int) ($submission->getData()['resource_allowed_on_affinity_group'] ?? 0) === 1) {
-      $storage = $this->entityTypeManager->getStorage('node');
-      // accessCheck(FALSE): private affinity group access lives in
-      // hook_entity_access, which entity queries do not apply.
-      $nids = $storage->getQuery()
-        ->accessCheck(FALSE)
-        ->condition('type', 'affinity_group')
-        ->condition('field_resources_entity_reference', $submission->id())
-        ->execute();
-      foreach ($storage->loadMultiple($nids) as $node) {
-        $result = $node->access('view', $account, TRUE);
-        $cacheability->addCacheableDependency($result);
-        if ($result->isAllowed()) {
+    $uid = $account->isAuthenticated() ? (int) $account->id() : 0;
+    if ($uid > 0) {
+      $data = $submission->getData();
+      $allowed_on_group = (int) ($data['resource_allowed_on_affinity_group'] ?? 0) === 1;
+      foreach ($this->loadGroups($submission) as $node) {
+        // Toggling field_ag_private or editing membership must invalidate.
+        $cacheability->addCacheableDependency($node);
+        if ((int) $node->get('field_ag_private')->value !== 1) {
+          continue;
+        }
+        $is_member = $allowed_on_group
+          && in_array($uid, $this->referencedUids($node, 'field_ag_private_users'), TRUE);
+        // Coordinators approve the resource, so they see it while pending
+        // regardless of the allowed checkbox.
+        $is_coordinator = in_array($uid, $this->referencedUids($node, 'field_coordinator'), TRUE);
+        if ($is_member || $is_coordinator) {
           return AccessResult::allowed()->addCacheableDependency($cacheability);
         }
       }
@@ -83,6 +92,58 @@ class KbResourceAccess {
 
     return AccessResult::forbidden('This KB resource is not public.')
       ->addCacheableDependency($cacheability);
+  }
+
+  /**
+   * Loads the affinity groups a resource is linked to.
+   *
+   * A group is linked when it references the submission in
+   * field_resources_entity_reference, or is tagged (field_affinity_group) with
+   * one of the submission's affinity_group term IDs.
+   *
+   * @return \Drupal\node\NodeInterface[]
+   *   The distinct group nodes.
+   */
+  protected function loadGroups(WebformSubmissionInterface $submission): array {
+    $storage = $this->entityTypeManager->getStorage('node');
+    // accessCheck(FALSE): private affinity group access lives in
+    // hook_entity_access, which entity queries do not apply. Membership is
+    // checked explicitly by the caller.
+    $nids = $storage->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('type', 'affinity_group')
+      ->condition('field_resources_entity_reference', $submission->id())
+      ->execute();
+
+    $tids = $submission->getData()['affinity_group'] ?? [];
+    $tids = array_values(array_unique(array_filter(
+      array_map('intval', (array) $tids)
+    )));
+    if ($tids) {
+      $tagged = $storage->getQuery()
+        ->accessCheck(FALSE)
+        ->condition('type', 'affinity_group')
+        ->condition('field_affinity_group', $tids, 'IN')
+        ->execute();
+      $nids = array_unique(array_merge(array_values($nids), array_values($tagged)));
+    }
+
+    /** @var \Drupal\node\NodeInterface[] $nodes */
+    $nodes = $storage->loadMultiple($nids);
+    return $nodes;
+  }
+
+  /**
+   * Returns the user IDs in a node's user reference field, as integers.
+   *
+   * @return int[]
+   *   The user IDs.
+   */
+  protected function referencedUids(NodeInterface $node, string $field): array {
+    if (!$node->hasField($field)) {
+      return [];
+    }
+    return array_map('intval', array_column($node->get($field)->getValue(), 'target_id'));
   }
 
 }

@@ -8,6 +8,7 @@ use Drupal\Core\Block\BlockManagerInterface;
 use Drupal\Core\Render\RenderContext;
 use Drupal\Core\Render\RendererInterface;
 use Drupal\Core\Routing\RouteMatch;
+use Drupal\Core\Security\TrustedCallbackInterface;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\KernelTests\KernelTestBase;
@@ -31,7 +32,7 @@ use Symfony\Component\Routing\Route;
  * @coversDefaultClass \Drupal\access_affinitygroup\Plugin\Block\ResourcesForAffinityGroup
  * @group access_affinitygroup
  */
-class ResourcesForAffinityGroupTest extends KernelTestBase {
+class ResourcesForAffinityGroupTest extends KernelTestBase implements TrustedCallbackInterface {
 
   use UserCreationTrait;
 
@@ -151,7 +152,7 @@ YAML,
   /**
    * Creates an affinity group node and makes it the current route's node.
    */
-  protected function createGroup(bool $private, array $referenced = []): NodeInterface {
+  protected function createGroup(bool $private, array $referenced = [], array $coordinators = []): NodeInterface {
     $group = Node::create([
       'type' => 'affinity_group',
       'title' => 'Access Group',
@@ -160,6 +161,7 @@ YAML,
       'field_group_slug' => 'access-group',
       'field_use_ext_email_list' => 0,
       'field_resources_entity_reference' => $referenced,
+      'field_coordinator' => array_map(fn($account) => ['target_id' => $account->id()], $coordinators),
     ]);
     $group->save();
 
@@ -260,27 +262,172 @@ YAML,
   }
 
   /**
-   * Disallowed unapproved resources on a private group need a privileged role.
+   * Creates a private group with one pending, not-allowed resource.
    */
-  public function testDisallowedUnapprovedOnPrivateGroup(): void {
-    $group = $this->createGroup(TRUE);
-    $submission = $this->createResource('Disallowed resource', [
+  protected function pendingSetup(array $coordinators = []): NodeInterface {
+    $group = $this->createGroup(TRUE, [], $coordinators);
+    $this->createResource('Disallowed resource', [
       'approved' => 0,
       'resource_allowed_on_affinity_group' => 0,
       'affinity_group' => $this->groupTid($group),
     ]);
+    return $group;
+  }
 
+  /**
+   * Creates a user with the given roles.
+   */
+  protected function userWithRole(string $rid) {
+    $account = $this->createUser(['access content']);
+    $account->addRole($rid);
+    $account->save();
+    return $account;
+  }
+
+  /**
+   * Regular users never see not-allowed pending resources.
+   */
+  public function testDisallowedHiddenFromMembers(): void {
+    $this->pendingSetup();
     $this->assertStringNotContainsString('Disallowed resource', $this->renderBlock($this->createUser(['access content'])));
+  }
 
-    foreach (['administrator', 'affinity_group_leader', 'match_pm'] as $rid) {
-      $account = $this->createUser();
-      $account->addRole($rid);
-      $account->save();
-      $html = $this->renderBlock($account);
-      $this->assertStringContainsString('Disallowed resource', $html, $rid);
-      $this->assertStringContainsString(self::ALLOW_TEXT, $html, $rid);
-      $this->assertStringContainsString('/admin/structure/webform/manage/resource/submission/' . $submission->id() . '/edit', $html, $rid);
+  /**
+   * A leader of a different group sees nothing.
+   */
+  public function testLeaderOfOtherGroupSeesNothing(): void {
+    $leader = $this->userWithRole('affinity_group_leader');
+    $other = Node::create([
+      'type' => 'affinity_group',
+      'title' => 'Other',
+      'field_group_slug' => 'other',
+      'field_use_ext_email_list' => 0,
+      'field_coordinator' => [['target_id' => $leader->id()]],
+    ]);
+    $other->save();
+    $this->pendingSetup();
+    $html = $this->renderBlock($leader);
+    $this->assertStringNotContainsString('Disallowed resource', $html);
+    $this->assertStringNotContainsString(self::ALLOW_TEXT, $html);
+  }
+
+  /**
+   * This group's coordinator sees the resource with the Allow link.
+   */
+  public function testCoordinatorSeesAllowLink(): void {
+    $coordinator = $this->createUser(['access content']);
+    $this->pendingSetup([$coordinator]);
+    $html = $this->renderBlock($coordinator);
+    $this->assertStringContainsString('Disallowed resource', $html);
+    $this->assertStringContainsString(self::ALLOW_TEXT, $html);
+  }
+
+  /**
+   * Match PMs see the resource but get no Allow link.
+   */
+  public function testMatchPmSeesNoAllowLink(): void {
+    $this->pendingSetup();
+    $html = $this->renderBlock($this->userWithRole('match_pm'));
+    $this->assertStringContainsString('Disallowed resource', $html);
+    $this->assertStringNotContainsString(self::ALLOW_TEXT, $html);
+  }
+
+  /**
+   * Administrators see the resource with the Allow link.
+   */
+  public function testAdministratorSeesAllowLink(): void {
+    $submission_group = $this->pendingSetup();
+    $html = $this->renderBlock($this->userWithRole('administrator'));
+    $this->assertStringContainsString('Disallowed resource', $html);
+    $this->assertStringContainsString(self::ALLOW_TEXT, $html);
+    $this->assertStringContainsString('/edit', $html);
+    $this->assertNotNull($submission_group->id());
+  }
+
+  /**
+   * A resource both referenced and tagged is listed once.
+   */
+  public function testDedupe(): void {
+    $resource = $this->createResource('Dupe resource');
+    $group = $this->createGroup(FALSE, [['target_id' => $resource->id()]]);
+    $resource->setElementData('affinity_group', $this->groupTid($group));
+    $resource->save();
+    $html = $this->renderBlock($this->createUser(['access content']));
+    $this->assertSame(1, substr_count($html, 'Dupe resource'));
+  }
+
+  /**
+   * Rows are sorted by title, case-insensitively.
+   */
+  public function testSortedByTitle(): void {
+    $group = $this->createGroup(FALSE);
+    $tid = $this->groupTid($group);
+    foreach (['banana', 'Cherry', 'apple'] as $title) {
+      $this->createResource($title, ['affinity_group' => $tid]);
     }
+    $html = $this->renderBlock($this->createUser(['access content']));
+    $this->assertLessThan(strpos($html, 'banana'), strpos($html, 'apple'));
+    $this->assertLessThan(strpos($html, 'Cherry'), strpos($html, 'banana'));
+  }
+
+  /**
+   * Without an affinity group on the route, output is empty.
+   */
+  public function testNoNodeOnRoute(): void {
+    $this->container->set('current_route_match', new RouteMatch('<none>', new Route('/')));
+    $this->assertSame('', trim($this->renderBlock($this->createUser(['access content']))));
+  }
+
+  /**
+   * Un-ticking private clears the render-cached block.
+   */
+  public function testRenderCacheInvalidatedByNodeSave(): void {
+    $group = $this->createGroup(TRUE);
+    $this->createResource('Cached resource', [
+      'approved' => 0,
+      'resource_allowed_on_affinity_group' => 1,
+      'affinity_group' => $this->groupTid($group),
+    ]);
+    $this->setCurrentUser($this->createUser(['access content']));
+
+    $html = $this->renderCached();
+    $this->assertStringContainsString('Cached resource', $html);
+    // Same output served from the render cache (stale-able).
+    $this->assertStringContainsString('Cached resource', $this->renderCached());
+
+    $group->set('field_ag_private', 0);
+    $group->save();
+    $this->assertStringNotContainsString('Cached resource', $this->renderCached());
+  }
+
+  /**
+   * Renders the block with render caching.
+   */
+  protected function renderCached(): string {
+    $element = [
+      '#cache' => ['keys' => ['rag_test'], 'contexts' => ['user', 'route']],
+      '#pre_render' => [[$this, 'preRender']],
+    ];
+    return (string) $this->container->get('renderer')->renderRoot($element);
+  }
+
+  /**
+   * Pre-render callback building the block.
+   */
+  public function preRender(array $element): array {
+    $block = $this->container->get('plugin.manager.block')->createInstance('resources_for_affinity_group');
+    $build = $block->build();
+    // Keep the block's own cache metadata (the "+" union would drop it).
+    $element['#cache'] = array_merge_recursive($element['#cache'], $build['#cache']);
+    unset($build['#cache']);
+    return $element + $build;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public static function trustedCallbacks() {
+    return ['preRender'];
   }
 
   /**
@@ -290,7 +437,13 @@ YAML,
     $block = $this->container->get('plugin.manager.block')->createInstance('resources_for_affinity_group');
     $this->assertContains('affinity_group_ci_links', $block->getCacheTags());
     $this->assertContains('route', $block->getCacheContexts());
-    $this->assertContains('user.roles', $block->getCacheContexts());
+    $this->assertContains('user', $block->getCacheContexts());
+    $this->assertNotContains('user.roles', $block->getCacheContexts());
+
+    $group = $this->createGroup(TRUE);
+    $build = $block->build();
+    $this->assertContains('node:' . $group->id(), $build['#cache']['tags']);
+    $this->assertContains('user', $build['#cache']['contexts']);
   }
 
 }

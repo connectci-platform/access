@@ -2,10 +2,11 @@
 
 namespace Drupal\access_affinitygroup\Plugin\Block;
 
-use Drupal\Component\Utility\Html;
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Cache\Cache;
+use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Url;
+use Drupal\node\NodeInterface;
 use Drupal\webform\Entity\WebformSubmission;
 
 /**
@@ -22,28 +23,59 @@ class ResourcesForAffinityGroup extends BlockBase {
    * {@inheritdoc}
    */
   public function build() {
+    $cache = CacheableMetadata::createFromObject($this);
     $node = \Drupal::routeMatch()->getParameter('node');
-    $node = $node ? $node : \Drupal::entityTypeManager()->getStorage('node')->load(327);
+    if (!$node instanceof NodeInterface || $node->bundle() !== 'affinity_group') {
+      $build = [];
+      $cache->applyTo($build);
+      return $build;
+    }
+    // Visibility depends on the node's privacy and coordinators.
+    $cache->addCacheableDependency($node);
+    $cache->addCacheTags(['webform_submission_list']);
+
     // Load field_resources_entity_reference field.
     $field_resources_entity_reference = $node->get('field_resources_entity_reference')->getValue();
     // Create empty string in case the following if statement is not true.
     $rendered = '';
 
     // Get field field_affinity_group_category.
-    $affinity_group_tag = $node->get('field_affinity_group')->getValue()[0]['target_id'];
-
-    $webform_submissions = \Drupal::database()->select('webform_submission_data', 'wsd')
-      ->fields('wsd', ['sid'])
-      ->condition('name', 'affinity_group')
-      ->condition('value', $affinity_group_tag)
-      ->execute()
-      ->fetchCol();
+    $affinity_group_values = $node->get('field_affinity_group')->getValue();
+    $webform_submissions = [];
+    if (!empty($affinity_group_values[0]['target_id'])) {
+      $affinity_group_tag = $affinity_group_values[0]['target_id'];
+      $webform_submissions = \Drupal::database()->select('webform_submission_data', 'wsd')
+        ->fields('wsd', ['sid'])
+        ->condition('name', 'affinity_group')
+        ->condition('value', $affinity_group_tag)
+        ->execute()
+        ->fetchCol();
+    }
 
     foreach ($webform_submissions as $ws) {
       $field_resources_entity_reference[] = [
         'target_id' => $ws,
       ];
     }
+
+    // A resource can be both referenced and tagged; list it once.
+    $seen = [];
+    foreach ($field_resources_entity_reference as $key => $value) {
+      if (isset($seen[$value['target_id']])) {
+        unset($field_resources_entity_reference[$key]);
+        continue;
+      }
+      $seen[$value['target_id']] = TRUE;
+    }
+    $field_resources_entity_reference = array_values($field_resources_entity_reference);
+
+    // Only administrators and this group's coordinators may allow resources.
+    $user = \Drupal::currentUser();
+    $roles = $user->getRoles();
+    $coordinator_ids = array_map('intval', array_column($node->get('field_coordinator')->getValue(), 'target_id'));
+    $is_coordinator = $user->isAuthenticated() && in_array((int) $user->id(), $coordinator_ids, TRUE);
+    $can_allow = in_array('administrator', $roles) || $is_coordinator;
+    $can_see_pending = $can_allow || in_array('match_pm', $roles);
 
     if (array_key_exists(0, $field_resources_entity_reference)) {
       $rendered = '<h2 class="text-white-er text-xl font-semibold border-bottom pb-2 bg-dark-teal py-2 px-4">Knowledge Base Resources</h2>';
@@ -104,46 +136,29 @@ class ResourcesForAffinityGroup extends BlockBase {
               continue;
             }
 
-            // Get user roles.
-            $user = \Drupal::currentUser();
-            $roles = $user->getRoles();
+            if ($submission_data['resource_allowed_on_affinity_group'] == 0) {
+              // Pending resources are visible to admins, coordinators of this
+              // group and match PMs only.
+              if (!$can_see_pending) {
+                continue;
+              }
+              // Only those who can edit the submission get the link.
+              if ($can_allow) {
+                $needs_approval = [
+                  '#type' => 'link',
+                  '#title' => '⚠️ Allow on this Affinity Group ⚠️ ',
+                  '#url' => Url::fromRoute('entity.webform_submission.edit_form', ['webform' => 'resource', 'webform_submission' => $value['target_id']]),
+                  '#attributes' => ['class' => ['text-red-500', 'font-bold']],
+                ];
 
-            // Only show if user is admin or affinity group leader when resource is not approved.
-            if (
-                ($submission_data['resource_allowed_on_affinity_group'] == 0) &&
-                (!in_array('administrator', $roles) &&
-                  !in_array('affinity_group_leader', $roles) &&
-                  !in_array('match_pm', $roles)
-                )
-            ) {
-              // If resource_allowed_on_affinity_group checkbox doesn't exist, skip.
-              continue;
+                $needs_approval = \Drupal::service('renderer')->render($needs_approval)->__toString();
+              }
             }
-            elseif ($submission_data['resource_allowed_on_affinity_group'] == 0) {
-              $needs_approval = [
-                '#type' => 'link',
-                '#title' => '⚠️ Allow on this Affinity Group ⚠️ ',
-                '#url' => Url::fromRoute('entity.webform_submission.edit_form', ['webform' => 'resource', 'webform_submission' => $value['target_id']]),
-                '#attributes' => ['class' => ['text-red-500', 'font-bold']],
-              ];
-
-              $needs_approval = \Drupal::service('renderer')->render($needs_approval)->__toString();
-            }
-
           }
         }
 
         // Ci link name and url.
-        // On ASP, use /knowledge-base/ci-links/{sid}.
-        // On other domains, use /ci-links/{sid}.
-        $token = \Drupal::token();
-        $domainName = Html::getClass($token->replace(t('[domain:name]')));
-        if ($domainName == 'access-support') {
-          $ci_link_path = '/knowledge-base/resources/';
-        }
-        else {
-          $ci_link_path = '/knowledge-base/resources/';
-        }
+        $ci_link_path = '/knowledge-base/resources/';
         $ci_link = [
           '#type' => 'link',
           '#title' => $submission_data['title'],
@@ -179,6 +194,7 @@ class ResourcesForAffinityGroup extends BlockBase {
         $skills = \Drupal::service('access_misc.skillLevel')->getSkillsImage($skill_list);
 
         $rows[] = [
+          '#sort' => mb_strtolower((string) $submission_data['title']),
           'name' => [
             'data' => [
               '#markup' => $ci_link_name . $needs_approval,
@@ -221,6 +237,12 @@ class ResourcesForAffinityGroup extends BlockBase {
         ];
       }
 
+      usort($rows, fn($a, $b) => strcmp($a['#sort'], $b['#sort']));
+      foreach ($rows as &$row) {
+        unset($row['#sort']);
+      }
+      unset($row);
+
       $html['ci-links'] = [
         '#theme' => 'table',
         '#sticky' => TRUE,
@@ -231,9 +253,11 @@ class ResourcesForAffinityGroup extends BlockBase {
       $rendered .= \Drupal::service('renderer')->render($html['ci-links']);
     }
 
-    return [
+    $build = [
       ['#markup' => $rendered],
     ];
+    $cache->applyTo($build);
+    return $build;
 
   }
 
@@ -248,7 +272,7 @@ class ResourcesForAffinityGroup extends BlockBase {
    * {@inheritdoc}
    */
   public function getCacheContexts() {
-    return Cache::mergeContexts(parent::getCacheContexts(), ['route', 'user.roles']);
+    return Cache::mergeContexts(parent::getCacheContexts(), ['route', 'user']);
   }
 
 }
