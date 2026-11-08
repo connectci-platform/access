@@ -581,172 +581,172 @@ function access_news_affinity_group_broadcast(ContentEntityInterface $node, $new
   if (!$broadcast) {
     return;
   }
-  $broadcastToAGs = $broadcastArray[0]['value'];
+  // Reindex what is left so it saves back cleanly. Email can be the only
+  // option or come first, so nothing else may be read from position 0.
+  $broadcastArray = array_values($broadcastArray);
   $useCommunityTemplate = NULL;
 
   // Find the node ids for the AGs.  If AGs have been specified, get the
   // corresponding Constant Contact email list ids from the nodes.
-  if ($broadcastToAGs) {
-    $agNodes = $node->get('field_affinity_group_node');
-    if (count($agNodes)) {
-      $ccListIdArray = [];
-      $agNames = [];
-      $logoUrl = NULL;
-      $currentDomainId = NULL;
+  $agNodes = $node->get('field_affinity_group_node');
+  if (count($agNodes)) {
+    $ccListIdArray = [];
+    $agNames = [];
+    $logoUrl = NULL;
+    $currentDomainId = NULL;
 
-      // Get the current domain (where the broadcast is being initiated from)
-      // to use for URLs in the email.
-      // Note: DomainNegotiatorInterface::getActiveDomain() is documented as
-      // always returning a DomainInterface, but the implementation can
-      // return NULL if no domain has been negotiated, so the type is
-      // corrected here.
-      /** @var \Drupal\domain\DomainInterface|null $current_domain */
-      $current_domain = \Drupal::service('domain.negotiator')->getActiveDomain();
-      if ($current_domain) {
-        $currentDomainId = $current_domain->id();
-      }
+    // Get the current domain (where the broadcast is being initiated from)
+    // to use for URLs in the email.
+    // Note: DomainNegotiatorInterface::getActiveDomain() is documented as
+    // always returning a DomainInterface, but the implementation can
+    // return NULL if no domain has been negotiated, so the type is
+    // corrected here.
+    /** @var \Drupal\domain\DomainInterface|null $current_domain */
+    $current_domain = \Drupal::service('domain.negotiator')->getActiveDomain();
+    if ($current_domain) {
+      $currentDomainId = $current_domain->id();
+    }
 
-      // Collect ag name and cc email list id.
-      foreach ($agNodes as $agNode) {
+    // Collect ag name and cc email list id.
+    foreach ($agNodes as $agNode) {
 
-        $nid = $agNode->getValue()['target_id'];
-        $ag = Node::load($nid);
+      $nid = $agNode->getValue()['target_id'];
+      $ag = Node::load($nid);
 
-        $name = $ag->get('title')->value;
-        $agNames[] = $name;
+      $name = $ag->get('title')->value;
+      $agNames[] = $name;
 
-        $ccListId = $ag->get('field_list_id')->value;
-        $ccListIdArray[] = $ccListId;
+      $ccListId = $ag->get('field_list_id')->value;
+      $ccListIdArray[] = $ccListId;
 
-        // We decide which email template to use (community or access)
-        // looking at the type of the first AG only in send list.
-        if ($useCommunityTemplate == NULL) {
-          $agCat = $ag->get('field_affinity_group_category')->value;
-          $useCommunityTemplate = ($agCat == 'Community');
+      // We decide which email template to use (community or access)
+      // looking at the type of the first AG only in send list.
+      if ($useCommunityTemplate == NULL) {
+        $agCat = $ag->get('field_affinity_group_category')->value;
+        $useCommunityTemplate = ($agCat == 'Community');
 
-          // Get logo image url for use in community template.
-          if ($useCommunityTemplate) {
-            /** @var \Drupal\file\FileInterface|null $logo_file */
-            $logo_file = $ag->get('field_image')->entity;
-            if (!empty($logo_file)) {
-              $uri = $logo_file->getFileUri();
-              $logoUrl = \Drupal::service('file_url_generator')->generateAbsoluteString($uri);
-            }
+        // Get logo image url for use in community template.
+        if ($useCommunityTemplate) {
+          /** @var \Drupal\file\FileInterface|null $logo_file */
+          $logo_file = $ag->get('field_image')->entity;
+          if (!empty($logo_file)) {
+            $uri = $logo_file->getFileUri();
+            $logoUrl = \Drupal::service('file_url_generator')->generateAbsoluteString($uri);
           }
         }
       }
+    }
 
-      if (!count($ccListIdArray)) {
-        showStatus("Missing Constant Contact Email List Id for Affinity Group");
+    if (!count($ccListIdArray)) {
+      showStatus("Missing Constant Contact Email List Id for Affinity Group");
+    }
+    else {
+      // Gather items to insert into the email template.
+      $titleArray = $getFields['title']->getValue();
+      $title = $titleArray[0]['value'];
+
+      // Make link to item, including utm for analytics.
+      // Use the current domain for the URL.
+      $newsUrl = _access_news_build_url_for_domain($node, $currentDomainId);
+      $utmCampaign = filter_var($agNames[0], FILTER_SANITIZE_URL) . '-' . date('mdy');
+      $newsUrl = access_news_append_utm_cc($newsUrl, $utmCampaign);
+
+      // Set pubDate and body; news / eventseries different.
+      if ($newsType == 'access_news') {
+        $pubDateArray = $getFields['field_published_date']->getValue();
+        $pubDate = $pubDateArray[0]['value'];
+        $date = date_create_from_format('Y-m-d', $pubDate);
+        // Reverse the date.
+        $pubDate = date_format($date, 'F j, Y');
+
+        // check_markup applies all the filters that are set for the
+        // basic_html for security and also to add host to img src,
+        // for example.
+        // We don't use the renderer because we need to separate the
+        // title.
+        $bodyArray = $getFields['body']->getValue();
+        $body = check_markup($bodyArray[0]['value'], 'basic_html');
       }
       else {
-        // Gather items to insert into the email template.
-        $titleArray = $getFields['title']->getValue();
-        $title = $titleArray[0]['value'];
+        // Newstype is eventseries.
+        /** @var \Drupal\recurring_events\Entity\EventSeries $node */
+        $pubDate = NULL;
 
-        // Make link to item, including utm for analytics.
-        // Use the current domain for the URL.
-        $newsUrl = _access_news_build_url_for_domain($node, $currentDomainId);
-        $utmCampaign = filter_var($agNames[0], FILTER_SANITIZE_URL) . '-' . date('mdy');
-        $newsUrl = access_news_append_utm_cc($newsUrl, $utmCampaign);
+        // If there's only one event instance, link to that instance
+        // instead of the series.
+        if ($node->getInstanceCount() == 1) {
+          $instances = $node->get('event_instances')->referencedEntities();
+          if (!empty($instances)) {
+            $first_instance = reset($instances);
+            $newsUrl = _access_news_build_url_for_domain($first_instance, $currentDomainId);
+            $newsUrl = access_news_append_utm_cc($newsUrl, $utmCampaign);
+          }
+        }
+        elseif ($node->getInstanceCount() > 1) {
+          // Multiple instances - don't include a link button.
+          $newsUrl = NULL;
+        }
 
-        // Set pubDate and body; news / eventseries different.
-        if ($newsType == 'access_news') {
-          $pubDateArray = $getFields['field_published_date']->getValue();
-          $pubDate = $pubDateArray[0]['value'];
-          $date = date_create_from_format('Y-m-d', $pubDate);
-          // Reverse the date.
-          $pubDate = date_format($date, 'F j, Y');
+        // Body set using a custom view mode: ccemail.
+        $view_builder = \Drupal::entityTypeManager()->getViewBuilder('eventseries');
+        $renderArray = $view_builder->view($node, 'ccemail');
+        $body = \Drupal::service('renderer')->renderInIsolation($renderArray);
 
-          // check_markup applies all the filters that are set for the
-          // basic_html for security and also to add host to img src,
-          // for example.
-          // We don't use the renderer because we need to separate the
-          // title.
-          $bodyArray = $getFields['body']->getValue();
-          $body = check_markup($bodyArray[0]['value'], 'basic_html');
+        $body = str_replace('Event Instances', 'Event Date & Time', $body);
+
+        // Un-obfuscate email addresses for email broadcast.
+        // Convert "contact [at] example.com" back to "contact@example.com".
+        $body = preg_replace('/\s*\[at\]\s*/', '@', $body);
+
+        // Make field labels bold in the email (case-insensitive).
+        $body = preg_replace(
+          '/<div class="field__label">([^<]+)<\/div>/i',
+          '<div class="field__label"><strong>$1</strong></div>',
+          $body
+        );
+
+        // Transform relative URLs to absolute using the current domain.
+        if (!empty($body)) {
+          /** @var \Drupal\domain\Entity\Domain|null $domain */
+          $domain = \Drupal::entityTypeManager()->getStorage('domain')->load($currentDomainId);
+          if ($domain) {
+            // Build base URL: scheme + hostname.
+            // getScheme() returns 'https://' or 'http://' with the
+            // separator included.
+            $domain_url = $domain->getScheme() . $domain->getHostname();
+            $body = Html::transformRootRelativeUrlsToAbsolute($body, $domain_url);
+          }
         }
         else {
-          // Newstype is eventseries.
-          /** @var \Drupal\recurring_events\Entity\EventSeries $node */
-          $pubDate = NULL;
-
-          // If there's only one event instance, link to that instance
-          // instead of the series.
-          if ($node->getInstanceCount() == 1) {
-            $instances = $node->get('event_instances')->referencedEntities();
-            if (!empty($instances)) {
-              $first_instance = reset($instances);
-              $newsUrl = _access_news_build_url_for_domain($first_instance, $currentDomainId);
-              $newsUrl = access_news_append_utm_cc($newsUrl, $utmCampaign);
-            }
-          }
-          elseif ($node->getInstanceCount() > 1) {
-            // Multiple instances - don't include a link button.
-            $newsUrl = NULL;
-          }
-
-          // Body set using a custom view mode: ccemail.
-          $view_builder = \Drupal::entityTypeManager()->getViewBuilder('eventseries');
-          $renderArray = $view_builder->view($node, 'ccemail');
-          $body = \Drupal::service('renderer')->renderInIsolation($renderArray);
-
-          $body = str_replace('Event Instances', 'Event Date & Time', $body);
-
-          // Un-obfuscate email addresses for email broadcast.
-          // Convert "contact [at] example.com" back to "contact@example.com".
-          $body = preg_replace('/\s*\[at\]\s*/', '@', $body);
-
-          // Make field labels bold in the email (case-insensitive).
-          $body = preg_replace(
-            '/<div class="field__label">([^<]+)<\/div>/i',
-            '<div class="field__label"><strong>$1</strong></div>',
-            $body
-          );
-
-          // Transform relative URLs to absolute using the current domain.
-          if (!empty($body)) {
-            /** @var \Drupal\domain\Entity\Domain|null $domain */
-            $domain = \Drupal::entityTypeManager()->getStorage('domain')->load($currentDomainId);
-            if ($domain) {
-              // Build base URL: scheme + hostname.
-              // getScheme() returns 'https://' or 'http://' with the
-              // separator included.
-              $domain_url = $domain->getScheme() . $domain->getHostname();
-              $body = Html::transformRootRelativeUrlsToAbsolute($body, $domain_url);
-            }
-          }
-          else {
-            // Body is empty - something went wrong with rendering.
-            \Drupal::logger('access_news')->error('Event series @id rendered empty body, skipping email broadcast', ['@id' => $node->id()]);
-            return;
-          }
-
-        }
-
-        // Check if body is empty before sending.
-        if (empty($body)) {
-          \Drupal::logger('access_news')->error('News/Event @id has empty body, skipping email broadcast', ['@id' => $node->id()]);
+          // Body is empty - something went wrong with rendering.
+          \Drupal::logger('access_news')->error('Event series @id rendered empty body, skipping email broadcast', ['@id' => $node->id()]);
           return;
         }
 
-        // Now emailing the group; set option broadcast off. If user
-        // wants to email again after and edit, they will need to
-        // check the box again.
-        $node->set('field_choose_where_to_share_this', $broadcastArray);
-        $node->save();
-
-        emailToAffinityGroups(
-          $body,
-          $title,
-          $pubDate,
-          $agNames,
-          $newsUrl,
-          $ccListIdArray,
-          $useCommunityTemplate,
-          $logoUrl
-              );
       }
+
+      // Check if body is empty before sending.
+      if (empty($body)) {
+        \Drupal::logger('access_news')->error('News/Event @id has empty body, skipping email broadcast', ['@id' => $node->id()]);
+        return;
+      }
+
+      // Now emailing the group; set option broadcast off. If user
+      // wants to email again after and edit, they will need to
+      // check the box again.
+      $node->set('field_choose_where_to_share_this', $broadcastArray);
+      $node->save();
+
+      emailToAffinityGroups(
+        $body,
+        $title,
+        $pubDate,
+        $agNames,
+        $newsUrl,
+        $ccListIdArray,
+        $useCommunityTemplate,
+        $logoUrl
+            );
     }
   }
 }

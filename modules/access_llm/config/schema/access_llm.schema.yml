@@ -1,0 +1,7 @@
+access_llm.settings:
+  type: config_object
+  label: 'Access LLM settings'
+  mapping:
+    model:
+      type: string
+      label: 'OpenAI model for tag and summary suggestions'

@@ -5,8 +5,10 @@ namespace Drupal\Tests\access_affinitygroup\Kernel;
 use Drupal\access_affinitygroup\Controller\AnnouncementApiController;
 use Drupal\access_misc\Plugin\Util\SiteTools;
 use Drupal\Core\DependencyInjection\ContainerBuilder;
+use Drupal\domain\Entity\Domain;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
+use Drupal\filter\Entity\FilterFormat;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\node\Entity\Node;
 use Drupal\node\Entity\NodeType;
@@ -39,6 +41,8 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     'node',
     'field',
     'options',
+    'datetime',
+    'dblog',
     'text',
     'filter',
     'taxonomy',
@@ -66,6 +70,10 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     $container->register('access.access_id_resolver', 'Drupal\access\AccessIdResolver')
       ->addArgument(new Reference('entity_type.manager'))
       ->addArgument(new Reference('database'));
+    // The group email broadcast reads the active domain through this.
+    $container->register('access_misc.sitetools', SiteTools::class)
+      ->addArgument(new Reference('entity_type.manager'))
+      ->addArgument(new Reference('token'));
   }
 
   /**
@@ -78,6 +86,7 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     $this->installEntitySchema('taxonomy_term');
     $this->installEntitySchema('content_moderation_state');
     $this->installSchema('node', ['node_access']);
+    $this->installSchema('dblog', ['watchdog']);
     $this->installConfig(['filter']);
 
     NodeType::create([
@@ -196,6 +205,9 @@ class AnnouncementApiControllerTest extends KernelTestBase {
       'cardinality' => -1,
       'settings' => [
         'allowed_values' => [
+          'on_the_announcements_page' => 'on the Announcements page',
+          'in_the_access_support_bi_weekly_digest' => 'in the ACCESS Support Bi-Weekly Digest',
+          'on_your_affinity_group_page' => 'on your Affinity Group page',
           'email_to_your_affinity_group' => 'email to your Affinity Group',
         ],
       ],
@@ -285,9 +297,59 @@ class AnnouncementApiControllerTest extends KernelTestBase {
         // The write-endpoint tests never hit this because their coordinator
         // was uid 1 (which bypasses access); the multi-user read tests do.
         'use editorial transition create_new_draft',
-        'use editorial transition publish',
       ],
     );
+    // On the live site only these roles may publish, so only they can keep a
+    // published announcement published when they edit it.
+    $this->grantPermissions(Role::load('affinity_group_leader'), ['use editorial transition publish']);
+
+    $this->attachRuleFields();
+  }
+
+  /**
+   * Attaches the fields the review, sharing and broadcast rules read.
+   */
+  protected function attachRuleFields(): void {
+    $fields = [
+      [
+        'node',
+        'access_news',
+        'field_affiliation',
+        'list_string',
+        [
+          'allowed_values' => [
+            'ACCESS Collaboration' => 'ACCESS Collaboration',
+            'Community' => 'Community',
+          ],
+        ],
+      ],
+      ['node', 'access_news', 'field_published_date', 'datetime', ['datetime_type' => 'date']],
+      ['node', 'affinity_group', 'field_list_id', 'string', []],
+      ['node', 'affinity_group', 'field_affinity_group_category', 'string', []],
+      // Read by the affinity group view access check.
+      ['node', 'affinity_group', 'field_ag_private', 'boolean', []],
+      ['node', 'affinity_group', 'field_ag_private_users', 'entity_reference', ['target_type' => 'user']],
+    ];
+    foreach ($fields as [$entityType, $bundle, $name, $type, $settings]) {
+      if (!FieldStorageConfig::loadByName($entityType, $name)) {
+        FieldStorageConfig::create([
+          'field_name' => $name,
+          'entity_type' => $entityType,
+          'type' => $type,
+          'settings' => $settings,
+        ])->save();
+      }
+      if (!FieldConfig::loadByName($entityType, $bundle, $name)) {
+        FieldConfig::create([
+          'field_name' => $name,
+          'entity_type' => $entityType,
+          'bundle' => $bundle,
+        ])->save();
+      }
+    }
+    if (!FilterFormat::load('basic_html')) {
+      FilterFormat::create(['format' => 'basic_html', 'name' => 'Basic HTML'])->save();
+    }
   }
 
   /**
@@ -830,6 +892,433 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     $summary = $data['items'][0]['summary'];
     $this->assertStringNotContainsString('<', $summary);
     $this->assertStringContainsString('Hello world', $summary);
+  }
+
+  // ---------------------------------------------------------------------------
+  // D8-3000: the same review and group rules as the web form.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Creates an author who is not uid 1, which bypasses every permission.
+   *
+   * @param string[] $roles
+   *   Extra roles for the author.
+   */
+  protected function author(array $roles = []) {
+    if (!\Drupal::entityTypeManager()->getStorage('user')->load(1)) {
+      $this->createUser([], 'site-admin');
+    }
+    return $this->createUser([], NULL, FALSE, $roles ? ['roles' => $roles] : []);
+  }
+
+  /**
+   * Sends PATCH /api/2.3/announcements/{uuid} as $user.
+   */
+  protected function patch($user, string $uuid, array $body): array {
+    $request = Request::create('/api/2.3/announcements/' . $uuid, 'PATCH', [], [], [], [], json_encode($body));
+    $request->attributes->set('acting_user_uid', (int) $user->id());
+    $response = $this->asActingUser($user, fn () => $this->controller()->update($uuid, $request));
+    return [$response->getStatusCode(), json_decode($response->getContent(), TRUE)];
+  }
+
+  /**
+   * Sends POST /api/2.3/announcements as $user.
+   */
+  protected function create($user, array $body): array {
+    $request = $this->jsonRequest((int) $user->id(), $body + ['title' => 'Announcement', 'body' => ['value' => 'Body.']]);
+    $response = $this->asActingUser($user, fn () => $this->controller()->createAnnouncement($request));
+    return [$response->getStatusCode(), json_decode($response->getContent(), TRUE)];
+  }
+
+  /**
+   * Loads the newest revision of an announcement, pending or not.
+   */
+  protected function latestRevision(string $uuid): NodeInterface {
+    $storage = \Drupal::entityTypeManager()->getStorage('node');
+    $storage->resetCache();
+    $node = $this->loadByUuid($uuid);
+    return $storage->loadRevision($storage->getLatestRevisionId($node->id()));
+  }
+
+  /**
+   * Asserts a 409 refusal with $code and a message for the author.
+   */
+  protected function assertRefused(array $result, string $code): void {
+    [$status, $data] = $result;
+    $this->assertSame(409, $status);
+    $this->assertSame($code, $data['error']);
+    $this->assertNotEmpty($data['message']);
+  }
+
+  /**
+   * An owner who may not publish edits a published announcement into a draft.
+   *
+   * The live version stays as it was until an editor approves the draft.
+   */
+  public function testPublishedEditWithoutPublishRightBecomesPendingDraft(): void {
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    $uuid = $this->createPublished($owner, $group, 'Live title');
+
+    [$status, $data] = $this->patch($owner, $uuid, ['title' => 'Edited title']);
+
+    $this->assertSame(200, $status);
+    $this->assertTrue($data['review_required']);
+    $live = $this->loadByUuid($uuid);
+    $this->assertTrue($live->isPublished());
+    $this->assertSame('Live title', $live->getTitle());
+    $pending = $this->latestRevision($uuid);
+    $this->assertSame('draft', $pending->get('moderation_state')->value);
+    $this->assertSame('Edited title', $pending->getTitle());
+  }
+
+  /**
+   * An owner who may publish keeps the announcement published, as on the form.
+   */
+  public function testPublishedEditWithPublishRightStaysPublished(): void {
+    $owner = $this->author(['affinity_group_leader']);
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    $uuid = $this->createPublished($owner, $group, 'Live title');
+
+    [$status, $data] = $this->patch($owner, $uuid, ['title' => 'Edited title']);
+
+    $this->assertSame(200, $status);
+    $this->assertFalse($data['review_required']);
+    $live = $this->loadByUuid($uuid);
+    $this->assertTrue($live->isPublished());
+    $this->assertSame('Edited title', $live->getTitle());
+  }
+
+  /**
+   * A second edit builds on the pending draft instead of discarding it.
+   */
+  public function testSecondEditKeepsTheFirstPendingChange(): void {
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    $uuid = $this->createPublished($owner, $group, 'Live title');
+
+    $this->patch($owner, $uuid, ['title' => 'Edited title']);
+    $this->patch($owner, $uuid, ['body' => ['value' => 'Edited body.']]);
+
+    $pending = $this->latestRevision($uuid);
+    $this->assertSame('Edited title', $pending->getTitle());
+    $this->assertSame('Edited body.', $pending->get('body')->value);
+    $this->assertSame('Live title', $this->loadByUuid($uuid)->getTitle());
+  }
+
+  /**
+   * Group email is checked against the stored groups when the PATCH omits them.
+   */
+  public function testFormerCoordinatorMayNotAddGroupEmail(): void {
+    $owner = $this->author(['affinity_group_leader']);
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    $uuid = $this->createPublished($owner, $group, 'Live title');
+    $group->set('field_coordinator', [])->save();
+
+    $result = $this->patch($owner, $uuid, ['field_choose_where_to_share_this' => ['email_to_your_affinity_group']]);
+
+    $this->assertRefused($result, 'not_coordinator');
+    $this->assertSame([], array_column($this->latestRevision($uuid)->get('field_choose_where_to_share_this')->getValue(), 'value'));
+  }
+
+  /**
+   * A group sharing option with no group is refused on create.
+   */
+  public function testGroupSharingWithoutGroupRefusedOnCreate(): void {
+    $owner = $this->author();
+
+    $result = $this->create($owner, ['field_choose_where_to_share_this' => ['on_your_affinity_group_page']]);
+
+    $this->assertRefused($result, 'group_required');
+    $this->assertEmpty(\Drupal::entityTypeManager()->getStorage('node')->loadByProperties(['type' => 'access_news']));
+  }
+
+  /**
+   * A group sharing option with no group is refused on update.
+   */
+  public function testGroupSharingWithoutGroupRefusedOnUpdate(): void {
+    $owner = $this->author();
+    [, $created] = $this->create($owner, ['field_choose_where_to_share_this' => ['on_the_announcements_page']]);
+
+    $result = $this->patch($owner, $created['uuid'], ['field_choose_where_to_share_this' => ['email_to_your_affinity_group']]);
+
+    $this->assertRefused($result, 'group_required');
+  }
+
+  /**
+   * An unknown group on create is refused rather than silently dropped.
+   */
+  public function testUnknownGroupRefusedOnCreate(): void {
+    $owner = $this->author();
+
+    $result = $this->create($owner, ['field_affinity_group_node' => ['00000000-0000-4000-8000-000000000000']]);
+
+    $this->assertRefused($result, 'unknown_group');
+  }
+
+  /**
+   * An unknown group on update is refused and the stored groups survive.
+   */
+  public function testUnknownGroupOnUpdateKeepsExistingGroups(): void {
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    $uuid = $this->createDraft($owner, $group, 'Title');
+
+    $result = $this->patch($owner, $uuid, [
+      'field_affinity_group_node' => [$group->uuid(), '00000000-0000-4000-8000-000000000000'],
+    ]);
+
+    $this->assertRefused($result, 'unknown_group');
+    $this->assertSame([(string) $group->id()], array_map('strval', array_column($this->latestRevision($uuid)->get('field_affinity_group_node')->getValue(), 'target_id')));
+  }
+
+  /**
+   * A group id that is not a UUID string is refused, and groups survive.
+   */
+  public function testNonStringGroupIdRefusedAndGroupsKept(): void {
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    $uuid = $this->createDraft($owner, $group, 'Title');
+
+    $result = $this->patch($owner, $uuid, ['field_affinity_group_node' => [(int) $group->id()]]);
+
+    $this->assertRefused($result, 'unknown_group');
+    $stored = array_column($this->latestRevision($uuid)->get('field_affinity_group_node')->getValue(), 'target_id');
+    $this->assertSame([(string) $group->id()], array_map('strval', $stored));
+  }
+
+  /**
+   * Every API edit keeps history in a new revision, as form saves do.
+   */
+  public function testEachEditCreatesNewRevision(): void {
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    $uuid = $this->createDraft($owner, $group, 'Title');
+    $storage = \Drupal::entityTypeManager()->getStorage('node');
+    $nid = (int) $this->loadByUuid($uuid)->id();
+    $before = count($storage->revisionIds($this->loadByUuid($uuid)));
+
+    $this->patch($owner, $uuid, ['title' => 'Edit one']);
+    $this->patch($owner, $uuid, ['title' => 'Edit two']);
+
+    $storage->resetCache();
+    $this->assertSame($before + 2, count($storage->revisionIds($storage->load($nid))));
+  }
+
+  /**
+   * A news_pm editing a published announcement keeps it published.
+   */
+  public function testNewsPmEditOfPublishedStaysPublished(): void {
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    $uuid = $this->createPublished($owner, $group, 'Live title');
+    $this->createRole(['edit any access_news content', 'use editorial transition publish'], 'news_pm');
+    $newsPm = $this->author(['news_pm']);
+
+    [$status, $data] = $this->patch($newsPm, $uuid, ['title' => 'Edited by news_pm']);
+
+    $this->assertSame(200, $status);
+    $this->assertFalse($data['review_required']);
+    $this->assertSame('Edited by news_pm', $this->loadByUuid($uuid)->getTitle());
+  }
+
+  /**
+   * A non-publisher adding group email creates a draft and sends nothing.
+   *
+   * The email goes out when an editor publishes the draft.
+   */
+  public function testNonPublisherDraftDoesNotSendGroupEmail(): void {
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    $group->set('field_list_id', 'cc-list-1')->set('field_affinity_group_category', 'ACCESS')->save();
+    $uuid = $this->createPublished($owner, $group, 'Live title');
+
+    [$status, $data] = $this->patch($owner, $uuid, ['field_choose_where_to_share_this' => ['email_to_your_affinity_group']]);
+
+    $this->assertSame(200, $status);
+    $this->assertTrue($data['review_required']);
+    $this->assertFalse($this->broadcastLogged());
+    $this->assertSame([], array_column($this->loadByUuid($uuid)->get('field_choose_where_to_share_this')->getValue(), 'value'));
+  }
+
+  /**
+   * A private group the author no longer coordinates keeps only its uuid.
+   *
+   * Private groups are visible to their coordinators and listed users only.
+   */
+  public function testMineHidesTitleOfPrivateGroup(): void {
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Private Group');
+    $uuid = $this->createDraft($owner, $group, 'Title');
+    $group->set('field_ag_private', 1)
+      ->set('field_ag_private_users', [])
+      ->set('field_coordinator', [])
+      ->save();
+
+    $item = $this->mineItem($owner, $uuid);
+
+    $this->assertSame([['uuid' => $group->uuid(), 'title' => NULL]], $item['affinity_groups']);
+  }
+
+  /**
+   * Whether the group email sender ran, from its log entry.
+   */
+  protected function broadcastLogged(): bool {
+    return (bool) \Drupal::database()->select('watchdog', 'w')
+      ->condition('type', 'access_affinitygroup')
+      ->condition('message', 'Email broadcast initiated%', 'LIKE')
+      ->countQuery()->execute()->fetchField();
+  }
+
+  /**
+   * An affiliation outside the allowed values is refused.
+   */
+  public function testInvalidAffiliationRefused(): void {
+    $owner = $this->author();
+
+    $this->assertRefused($this->create($owner, ['field_affiliation' => 'Galactic Empire']), 'invalid_affiliation');
+  }
+
+  /**
+   * A sharing option outside the allowed values is refused.
+   */
+  public function testInvalidSharingOptionRefused(): void {
+    $owner = $this->author();
+
+    $this->assertRefused($this->create($owner, ['field_choose_where_to_share_this' => ['on_a_billboard']]), 'invalid_sharing');
+  }
+
+  // ---------------------------------------------------------------------------
+  // D8-3001: /mine shows affiliation, sharing and groups.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Each /mine item carries affiliation, sharing values and groups.
+   */
+  public function testMineIncludesAffiliationSharingAndGroups(): void {
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    [, $created] = $this->create($owner, [
+      'field_affiliation' => 'Community',
+      'field_choose_where_to_share_this' => ['on_the_announcements_page', 'on_your_affinity_group_page'],
+      'field_affinity_group_node' => [$group->uuid()],
+    ]);
+
+    $item = $this->mineItem($owner, $created['uuid']);
+
+    $this->assertSame('Community', $item['affiliation']);
+    $this->assertSame(['on_the_announcements_page', 'on_your_affinity_group_page'], $item['where_to_share']);
+    $this->assertSame([['uuid' => $group->uuid(), 'title' => 'Group A']], $item['affinity_groups']);
+  }
+
+  /**
+   * Unset affiliation, sharing and groups come back empty, not missing.
+   */
+  public function testMineEmptyValues(): void {
+    $owner = $this->author();
+    [, $created] = $this->create($owner, []);
+
+    $item = $this->mineItem($owner, $created['uuid']);
+
+    $this->assertNull($item['affiliation']);
+    $this->assertSame([], $item['where_to_share']);
+    $this->assertSame([], $item['affinity_groups']);
+  }
+
+  /**
+   * A group the user may not view keeps its uuid but not its title.
+   *
+   * Dropping it would let a replace-all update remove the group unseen.
+   */
+  public function testMineHidesTitleOfGroupUserCannotView(): void {
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Hidden Group');
+    $uuid = $this->createDraft($owner, $group, 'Title');
+    $group->setUnpublished()->save();
+
+    $item = $this->mineItem($owner, $uuid);
+
+    $this->assertSame([['uuid' => $group->uuid(), 'title' => NULL]], $item['affinity_groups']);
+  }
+
+  /**
+   * Returns the /mine item for $uuid as seen by $user.
+   */
+  protected function mineItem($user, string $uuid): array {
+    $response = $this->asActingUser($user, fn () => $this->controller()->mine($this->mineRequest((int) $user->id())));
+    foreach (json_decode($response->getContent(), TRUE)['items'] as $item) {
+      if ($item['uuid'] === $uuid) {
+        return $item;
+      }
+    }
+    $this->fail("No /mine item for $uuid.");
+  }
+
+  // ---------------------------------------------------------------------------
+  // D8-2997: group email sends whatever position the option is in.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Publishes an announcement with the given sharing options in that order.
+   *
+   * A send clears the email option and saves the node, so the stored options
+   * afterwards show whether the send ran.
+   */
+  protected function publishWithSharing(array $options): array {
+    // The email links back to the announcement on the active domain.
+    $this->installConfig(['domain']);
+    Domain::create([
+      'id' => 'support',
+      'hostname' => 'support.example.com',
+      'name' => 'Support',
+      'scheme' => 'https',
+      'status' => 1,
+    ])->save();
+    \Drupal::service('domain.negotiator')->setActiveDomain(Domain::load('support'));
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    $group->set('field_list_id', 'cc-list-1')->set('field_affinity_group_category', 'ACCESS')->save();
+    $node = Node::create([
+      'type' => 'access_news',
+      'title' => 'Broadcast test',
+      'uid' => $owner->id(),
+      'body' => ['value' => '<p>Body.</p>', 'format' => 'basic_html'],
+      'field_published_date' => '2026-11-08',
+      'field_affinity_group_node' => [$group->id()],
+      'field_choose_where_to_share_this' => $options,
+      'moderation_state' => 'published',
+    ]);
+    $node->save();
+    \Drupal::entityTypeManager()->getStorage('node')->resetCache();
+    return array_column(Node::load($node->id())->get('field_choose_where_to_share_this')->getValue(), 'value');
+  }
+
+  /**
+   * Email as the only option sends.
+   */
+  public function testGroupEmailAloneSends(): void {
+    $this->assertSame([], $this->publishWithSharing(['email_to_your_affinity_group']));
+    $this->assertTrue($this->broadcastLogged());
+  }
+
+  /**
+   * Email listed first sends and keeps the other options.
+   */
+  public function testGroupEmailFirstSends(): void {
+    $stored = $this->publishWithSharing(['email_to_your_affinity_group', 'on_your_affinity_group_page']);
+
+    $this->assertSame(['on_your_affinity_group_page'], $stored);
+    $this->assertTrue($this->broadcastLogged());
+  }
+
+  /**
+   * Email listed last sends and keeps the other options.
+   */
+  public function testGroupEmailLastSends(): void {
+    $stored = $this->publishWithSharing(['on_your_affinity_group_page', 'email_to_your_affinity_group']);
+
+    $this->assertSame(['on_your_affinity_group_page'], $stored);
+    $this->assertTrue($this->broadcastLogged());
   }
 
   /**
