@@ -356,6 +356,25 @@ class RegistrationApiTest extends KernelTestBase {
   }
 
   /**
+   * The approved flag follows the registrant's status through organizer approval.
+   *
+   * EventWaitlist::status() approves by setting status and clearing waitlist on
+   * the registrant, so the same change is applied here.
+   */
+  public function testApprovedFlagFollowsOrganizerApproval(): void {
+    $instance = $this->createInstance('Future Event', '2999-01-01T10:00:00', '2999-01-01T12:00:00');
+    $registrant = $this->registerUser($this->user, $instance, waitlist: TRUE);
+
+    $this->assertFalse($this->listBody('upcoming')['registrations'][0]['approved']);
+
+    $registrant->set('waitlist', 0)->set('status', 1)->save();
+
+    $approved = $this->listBody('upcoming')['registrations'][0];
+    $this->assertTrue($approved['approved']);
+    $this->assertFalse($approved['waitlist']);
+  }
+
+  /**
    * The past filter excludes future registrations.
    */
   public function testPastFilterExcludesFuture(): void {

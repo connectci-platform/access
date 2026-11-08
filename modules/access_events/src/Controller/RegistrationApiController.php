@@ -96,6 +96,7 @@ class RegistrationApiController extends ControllerBase {
         'virtual_meeting_link' => $instance->get('virtual_meeting_link')->uri ?? NULL,
         'event_type' => $this->eventTypeLabel($instance),
         'waitlist' => (bool) $registrant->get('waitlist')->value,
+        'approved' => (bool) $registrant->get('status')->value,
         'registered_at' => gmdate('Y-m-d\TH:i:s\Z', (int) $registrant->get('created')->value),
       ];
     }
