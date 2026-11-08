@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace Drupal\access_events\Controller;
 
+use Drupal\access_events\EventDomainContext;
 use Drupal\access_events\RegistrationState;
+use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Component\Utility\Xss;
+use Drupal\Core\Cache\Cache;
 use Drupal\Core\Cache\CacheableJsonResponse;
 use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Controller\ControllerBase;
@@ -25,13 +29,21 @@ use Symfony\Component\HttpFoundation\RequestStack;
  */
 class EventDetailApiController extends ControllerBase {
 
-  public function __construct(protected RequestStack $requestStack) {}
+  public function __construct(
+    protected RequestStack $requestStack,
+    protected EventDomainContext $domainContext,
+    protected TimeInterface $time,
+  ) {}
 
   /**
    * {@inheritdoc}
    */
   public static function create(ContainerInterface $container): static {
-    return new static($container->get('request_stack'));
+    return new static(
+      $container->get('request_stack'),
+      $container->get('access_events.domain_context'),
+      $container->get('datetime.time'),
+    );
   }
 
   /**
@@ -88,7 +100,8 @@ class EventDetailApiController extends ControllerBase {
    *
    * Runs the full registration guard chain. Without a truthy `confirmed` in the
    * JSON body this is a PREVIEW (guards 1-7 run read-only, nothing is written).
-   * With `confirmed:true`, on passing every guard, a registrant is saved.
+   * With `confirmed:true`, on passing every guard, a registrant is saved and
+   * the person and the organizer are told, as the web form does.
    *
    * The acting uid comes ONLY from the acting_user_uid request
    * attribute set by the ActingUserAccess gate; the email is read from that
@@ -214,17 +227,106 @@ class EventDetailApiController extends ControllerBase {
       'eventseries_id' => $eventinstance->get('eventseries_id')->target_id,
       'waitlist' => $waitlisted ? 1 : 0,
     ]);
+    // These fields are config on the default registrant bundle only, so another
+    // bundle may not carry them.
+    foreach (['field_first_name' => 'field_user_first_name', 'field_last_name' => 'field_user_last_name'] as $registrantField => $userField) {
+      if ($registrant->hasField($registrantField) && $user?->hasField($userField)) {
+        $registrant->set($registrantField, $user->get($userField)->value);
+      }
+    }
+    $hasSurvey = $this->hasScreeningSurvey($eventinstance);
+    if ($hasSurvey && $registrant->hasField('field_screen_survey_sent')) {
+      $registrant->set('field_screen_survey_sent', $this->time->getRequestTime());
+    }
     $registrant->save();
+
+    Cache::invalidateTags(['config:views.view.events_facet']);
+    $this->notifyRegistration($eventinstance, $registrant, $waitlisted);
+
+    $message = 'Your registration was received. You will receive an email after your registration is approved.';
+    if ($waitlisted) {
+      $message = 'You have been added to the waitlist.';
+    }
+    elseif ($hasSurvey) {
+      $message = 'You will receive a screening survey email shortly after registering. If you do not see it, please check your spam folder.';
+    }
 
     return (new JsonResponse([
       'success' => TRUE,
       'status' => $waitlisted ? 'waitlisted' : 'registered',
+      // Every new registrant waits for the organizer. This stays separate from
+      // status, which the MCP server reads as seat or waitlist.
+      'approval' => 'pending',
       'registrant_id' => $registrant->uuid(),
       'eventinstance_id' => (string) $eventinstance->id(),
-      'message' => $waitlisted
-        ? 'You have been added to the waitlist.'
-        : 'You are registered.',
+      'message' => $message,
     ]))->setPrivate()->setMaxAge(0);
+  }
+
+  /**
+   * Whether the instance's series asks registrants for a screening survey.
+   *
+   * Reads the series field, the same test the registration form uses in
+   * access_misc_registrant_submit().
+   */
+  protected function hasScreeningSurvey(EventInstance $instance): bool {
+    $series = $instance->getEventSeries();
+    return $series->hasField('field_screen_survey_url')
+      && !$series->get('field_screen_survey_url')->isEmpty();
+  }
+
+  /**
+   * Sends the registrant email and adds the organizer digest entry.
+   *
+   * The registrant is already saved, so no failure here can fail the request:
+   * a 500 would read as failed while a retry is refused as already_registered.
+   * Mail and digest are caught separately so a mail outage still reaches the
+   * organizer's digest. Both run in the event's own domain context, because the API host is
+   * often not the event's domain and mail transport follows the active domain.
+   */
+  protected function notifyRegistration(EventInstance $instance, Registrant $registrant, bool $waitlisted): void {
+    $logger = $this->getLogger('access_events');
+    $context = ['@registrant' => $registrant->id(), '@instance' => $instance->id()];
+
+    try {
+      $this->domainContext->forEntity($instance, function () use ($instance, $registrant, $waitlisted, $logger, $context): void {
+        $email = (string) $registrant->get('email')->value;
+        if ($email === '') {
+          $logger->warning('Registrant @registrant on event @instance has no email address, so no registration email was sent.', $context);
+        }
+        else {
+          try {
+            access_misc_registrant_send_email($instance, $email, $this->registrantName($registrant), $waitlisted);
+          }
+          catch (\Throwable $e) {
+            $logger->error('Registration email failed for registrant @registrant on event @instance: @error', $context + ['@error' => $e->getMessage()]);
+          }
+        }
+
+        try {
+          access_misc_registrant_add_to_digest($instance);
+        }
+        catch (\Throwable $e) {
+          $logger->error('Registration digest entry failed for registrant @registrant on event @instance: @error', $context + ['@error' => $e->getMessage()]);
+        }
+      });
+    }
+    catch (\Throwable $e) {
+      $logger->error('Registration notifications failed for registrant @registrant on event @instance: @error', $context + ['@error' => $e->getMessage()]);
+    }
+  }
+
+  /**
+   * Returns the registrant's full name, filtered as the form handler does.
+   */
+  protected function registrantName(Registrant $registrant): string {
+    $parts = [];
+    foreach (['field_first_name', 'field_last_name'] as $field) {
+      if ($registrant->hasField($field)) {
+        $parts[] = Xss::filter((string) $registrant->get($field)->value);
+      }
+    }
+    return trim(implode(' ', $parts));
   }
 
   /**

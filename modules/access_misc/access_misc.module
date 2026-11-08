@@ -20,6 +20,7 @@ use Drupal\Core\Url;
 use Drupal\content_moderation_notifications\ContentModerationNotificationInterface;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\node\NodeInterface;
+use Drupal\recurring_events\Entity\EventInstance;
 use Drupal\user\UserInterface;
 use Drupal\user\Entity\User;
 use Drupal\symfony_mailer\Entity\MailerTransport;
@@ -1347,10 +1348,32 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
   $event_instance_id = is_numeric($url[2]) ? $url[2] : '';
   // Entity load eventinctance by id.
   $event_instance = \Drupal::entityTypeManager()->getStorage('eventinstance')->load($event_instance_id);
-  $series = $event_instance->getEventSeries();
 
-  $author = $series->getOwner();
-  $author_email = $author->getEmail();
+  $registered_person_email = Xss::filter($form_state->getValues()['email'][0]['value']);
+  $name = Xss::filter($form_state->getValues()['field_first_name'][0]['value']) . ' ' . Xss::filter($form_state->getValues()['field_last_name'][0]['value']);
+  $waitlist = Xss::filter($form_state->getValues()['add_to_waitlist']);
+
+  access_misc_registrant_send_email($event_instance, $registered_person_email, $name, (bool) $waitlist);
+  access_misc_registrant_add_to_digest($event_instance);
+}
+
+/**
+ * Emails a person that their registration was received.
+ *
+ * Shared by the registration form and the registration API.
+ *
+ * @param \Drupal\recurring_events\Entity\EventInstance $event_instance
+ *   The event instance registered for.
+ * @param string $registered_person_email
+ *   The address to send to.
+ * @param string $name
+ *   The registrant's full name, already filtered.
+ * @param bool $waitlist
+ *   Whether the registrant joined the waitlist.
+ */
+function access_misc_registrant_send_email(EventInstance $event_instance, string $registered_person_email, string $name, bool $waitlist): void {
+  $event_instance_id = $event_instance->id();
+  $series = $event_instance->getEventSeries();
 
   $series_title = $series->get('title')->value;
   $series_contact = $series->get('field_contact')->getValue();
@@ -1374,11 +1397,6 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
   // Inheritance computed fields — per-instance overrides fall back to series.
   $screen_survey_url = $event_instance->get('screen_survey_url')->uri;
   $email_template = $event_instance->get('screen_survey_email_text')->value;
-
-  $registered_person_email = Xss::filter($form_state->getValues()['email'][0]['value']);
-  $name = Xss::filter($form_state->getValues()['field_first_name'][0]['value']) . ' ' . Xss::filter($form_state->getValues()['field_last_name'][0]['value']);
-  $uid = Xss::filter($form_state->getValues()['user_id'][0]['target_id']);
-  $waitlist = Xss::filter($form_state->getValues()['add_to_waitlist']);
 
   // Subject for email.
   $email_title = empty($screen_survey_url) ? t('Registration Pending for ') . $series_title : t('Please Complete a Pre-Screening Survey for ') . $series_title;
@@ -1416,6 +1434,19 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
     $policy_subtype = 'register';
     \Drupal::service('access_misc.symfony.mail')->email($policy, $policy_subtype, $registered_person_email, $variables);
   }
+}
+
+/**
+ * Adds a registration to the organizer's daily digest.
+ *
+ * Shared by the registration form and the registration API.
+ *
+ * @param \Drupal\recurring_events\Entity\EventInstance $event_instance
+ *   The event instance registered for.
+ */
+function access_misc_registrant_add_to_digest(EventInstance $event_instance): void {
+  $event_instance_id = $event_instance->id();
+  $series = $event_instance->getEventSeries();
 
   // Add to email digest list.
   $digest = \Drupal::state()->get('access_misc_email_digest', []);
@@ -1424,9 +1455,9 @@ function access_misc_registrant_email_submit($form, FormStateInterface $form_sta
   if (!isset($digest[$event_instance_id])) {
     $active_domain = \Drupal::service('domain.negotiator')->getActiveDomain();
     $digest[$event_instance_id] = [
-      'event_title' => $series_title,
+      'event_title' => $series->get('title')->value,
       'event_url' => _access_misc_get_event_domain_url($event_instance_id),
-      'author_email' => $author_email,
+      'author_email' => $series->getOwner()->getEmail(),
       'registration_count' => 1,
       'first_registration' => date('Y-m-d H:i:s'),
       'domain_id' => $active_domain ? $active_domain->id() : NULL,

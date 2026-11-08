@@ -57,7 +57,12 @@ paths:
         registration.
 
         The acting user's identity is bound from the `X-Acting-User` gate, never from the request
-        body. A committed registration returns a `status` of `registered` or `waitlisted`.
+        body. A committed registration returns a `status` of `registered` or `waitlisted`, and an
+        `approval` of `pending`: the organizer approves each registration, so a `registered` status
+        holds a seat but is not yet approved. Committing sends the person the same email as the web
+        form and adds the registration to the organizer's digest. A mail failure does not fail the
+        registration. On an event with a screening survey, `message` tells the person to expect the
+        survey email instead.
 
         **Write-contract envelope (as surfaced to consumers).** The ACCESS MCP `register_for_event`
         tool remaps these raw responses onto the standard write envelope
@@ -129,14 +134,16 @@ paths:
                   value:
                     success: true
                     status: "registered"
+                    approval: "pending"
                     registrant_id: "550e8400-e29b-41d4-a716-446655440000"
                     eventinstance_id: "4567"
-                    message: "You are registered."
+                    message: "Your registration was received. You will receive an email after your registration is approved."
                 committed_waitlisted:
                   summary: Commit — added to the waitlist
                   value:
                     success: true
                     status: "waitlisted"
+                    approval: "pending"
                     registrant_id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
                     eventinstance_id: "4567"
                     message: "You have been added to the waitlist."
@@ -238,6 +245,7 @@ paths:
                         virtual_meeting_link: "https://example.zoom.us/j/123456789"
                         event_type: "Workshop"
                         waitlist: false
+                        approved: false
                         registered_at: "2026-08-02T14:30:00Z"
         '400':
           description: An invalid `when` query value was supplied.
@@ -376,6 +384,13 @@ components:
           description: The resulting registration status.
           enum: [registered, waitlisted]
           example: "registered"
+        approval:
+          type: string
+          description: >-
+            Whether the organizer has approved the registration. Always `pending` on a new
+            registration. Read `approved` from `GET /registrations` for the current state.
+          enum: [pending]
+          example: "pending"
         registrant_id:
           type: string
           format: uuid
@@ -387,7 +402,7 @@ components:
           example: "4567"
         message:
           type: string
-          example: "You are registered."
+          example: "Your registration was received. You will receive an email after your registration is approved."
 
     Registration:
       type: object
@@ -437,6 +452,10 @@ components:
         waitlist:
           type: boolean
           description: Whether this registration is on the waitlist.
+          example: false
+        approved:
+          type: boolean
+          description: Whether the organizer has approved this registration.
           example: false
         registered_at:
           type: string
