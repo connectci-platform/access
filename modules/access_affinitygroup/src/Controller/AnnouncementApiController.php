@@ -4,7 +4,10 @@ namespace Drupal\access_affinitygroup\Controller;
 
 use Drupal\access_affinitygroup\Access\CoordinatorAccess;
 use Drupal\access_misc\Plugin\Util\SiteTools;
+use Drupal\content_moderation\ModerationInformationInterface;
+use Drupal\content_moderation\StateTransitionValidationInterface;
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\node\Entity\Node;
 use Drupal\node\NodeInterface;
@@ -22,10 +25,11 @@ use Symfony\Component\HttpFoundation\Request;
  * callback (access_news_validate) applies — that callback does not run on this
  * non-form write path.
  *
- * SECURITY — draft-only: create HARDCODES moderation_state='draft' and ignores
- * any caller-supplied moderation_state/status/publish. update edits content
- * fields only and never touches moderation_state. There is no publish endpoint.
- * This prevents the AI caller from self-publishing.
+ * SECURITY — no self-publishing: create HARDCODES moderation_state='draft' and
+ * ignores any caller-supplied moderation_state/status/publish. update never
+ * publishes either: it edits content fields on the newest revision, and an
+ * edit to a published announcement by someone who may not publish is saved as
+ * a draft for review, as the web form does. There is no publish endpoint.
  */
 class AnnouncementApiController extends ControllerBase {
 
@@ -33,7 +37,8 @@ class AnnouncementApiController extends ControllerBase {
    * Content fields the endpoint accepts from the request body.
    *
    * moderation_state / status / publish are deliberately absent: create locks
-   * the node to draft and update never changes the moderation state.
+   * the node to draft, and update only ever moves a published announcement
+   * back to draft for review.
    */
   private const CONTENT_ATTRIBUTES = [
     'title',
@@ -41,6 +46,14 @@ class AnnouncementApiController extends ControllerBase {
     'field_affiliation',
     'field_news_external_link',
     'field_choose_where_to_share_this',
+  ];
+
+  /**
+   * Sharing options that need at least one affinity group.
+   */
+  private const GROUP_SHARING = [
+    'on_your_affinity_group_page',
+    'email_to_your_affinity_group',
   ];
 
   /**
@@ -55,8 +68,19 @@ class AnnouncementApiController extends ControllerBase {
    *
    * @param \Drupal\access_affinitygroup\Access\CoordinatorAccess $coordinator_access
    *   The shared coordinator-membership access check.
+   * @param \Drupal\content_moderation\ModerationInformationInterface|null $moderationInfo
+   *   Moderation information, or NULL without content_moderation.
+   * @param \Drupal\content_moderation\StateTransitionValidationInterface|null $transitionValidation
+   *   Transition validation, or NULL without content_moderation.
+   * @param \Drupal\Core\Entity\EntityFieldManagerInterface|null $entityFieldManager
+   *   The entity field manager.
    */
-  public function __construct(CoordinatorAccess $coordinator_access) {
+  public function __construct(
+    CoordinatorAccess $coordinator_access,
+    protected ?ModerationInformationInterface $moderationInfo = NULL,
+    protected ?StateTransitionValidationInterface $transitionValidation = NULL,
+    protected ?EntityFieldManagerInterface $entityFieldManager = NULL,
+  ) {
     $this->coordinatorAccess = $coordinator_access;
   }
 
@@ -66,6 +90,9 @@ class AnnouncementApiController extends ControllerBase {
   public static function create(ContainerInterface $container) {
     return new static(
       $container->get('access_affinitygroup.coordinator_access'),
+      $container->get('content_moderation.moderation_information', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+      $container->get('content_moderation.state_transition_validation', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+      $container->get('entity_field.manager'),
     );
   }
 
@@ -84,9 +111,11 @@ class AnnouncementApiController extends ControllerBase {
 
     $body = json_decode($request->getContent(), TRUE) ?: [];
 
-    $groupNodes = $this->resolveGroupNodes($body['field_affinity_group_node'] ?? []);
-    if (!$this->userMayPostToGroups($user, $groupNodes)) {
-      return $this->refuse('not_coordinator', 'You are not a coordinator of every selected affinity group.', 409);
+    $submittedGroups = $body['field_affinity_group_node'] ?? [];
+    $groupNodes = $this->resolveGroupNodes($submittedGroups);
+    $sharing = $this->sharingValues($body['field_choose_where_to_share_this'] ?? []);
+    if ($refusal = $this->refuseInvalid($body, $submittedGroups, $groupNodes, $sharing, $user)) {
+      return $refusal;
     }
 
     $values = [
@@ -168,6 +197,13 @@ class AnnouncementApiController extends ControllerBase {
         'summary' => $this->buildSummary($node),
         // Tags as english NAMES, never term ids — this is what the user sees.
         'tags' => $this->tagNames($node),
+        'affiliation' => $node->hasField('field_affiliation') && !$node->get('field_affiliation')->isEmpty()
+          ? $node->get('field_affiliation')->value
+          : NULL,
+        'where_to_share' => $node->hasField('field_choose_where_to_share_this')
+          ? $this->sharingValues($node->get('field_choose_where_to_share_this')->getValue())
+          : [],
+        'affinity_groups' => $this->groupsFor($node),
         'edit_url' => $this->editUrl($node),
       ];
     }
@@ -183,6 +219,9 @@ class AnnouncementApiController extends ControllerBase {
     if (!$node) {
       return $this->refuse('not_found', 'Announcement not found.', 404);
     }
+    // Edit the newest revision, so a second edit builds on a draft that is
+    // still waiting for review rather than discarding it.
+    $node = $this->latestRevision($node);
     $user = $this->currentUser();
 
     if (!$node->access('update', $user, TRUE)->isAllowed()) {
@@ -191,13 +230,20 @@ class AnnouncementApiController extends ControllerBase {
 
     $body = json_decode($request->getContent(), TRUE) ?: [];
 
-    // If the caller changes the affinity groups, re-run the coordinator check
-    // against the NEW set before applying it.
-    if (array_key_exists('field_affinity_group_node', $body)) {
-      $groupNodes = $this->resolveGroupNodes($body['field_affinity_group_node']);
-      if (!$this->userMayPostToGroups($user, $groupNodes)) {
-        return $this->refuse('not_coordinator', 'You are not a coordinator of every selected affinity group.', 409);
-      }
+    // The rules run against the announcement as it will be after this edit:
+    // groups and sharing the caller leaves out keep their stored values.
+    $groupsInBody = array_key_exists('field_affinity_group_node', $body);
+    $submittedGroups = $groupsInBody ? $body['field_affinity_group_node'] : NULL;
+    $groupNodes = $groupsInBody
+      ? $this->resolveGroupNodes($submittedGroups)
+      : $node->get('field_affinity_group_node')->referencedEntities();
+    $sharing = $this->sharingValues(array_key_exists('field_choose_where_to_share_this', $body)
+      ? $body['field_choose_where_to_share_this']
+      : $node->get('field_choose_where_to_share_this')->getValue());
+    if ($refusal = $this->refuseInvalid($body, $submittedGroups, $groupNodes, $sharing, $user)) {
+      return $refusal;
+    }
+    if ($groupsInBody) {
       $node->set('field_affinity_group_node', array_map(fn (NodeInterface $n) => $n->id(), $groupNodes));
     }
 
@@ -215,14 +261,186 @@ class AnnouncementApiController extends ControllerBase {
       $node->set($field, $value);
     }
 
+    // The web form only lets someone who may publish keep a published
+    // announcement published. Anyone else's edit becomes a draft for review,
+    // and the published version stays live until it is approved.
+    $node->setNewRevision(TRUE);
+    $node->setRevisionUserId((int) $user->id());
+    $node->setRevisionLogMessage('Edited through the announcements API.');
+    if ($node->isPublished() && !$this->mayKeepPublished($node, $user)) {
+      $node->set('moderation_state', 'draft');
+      $node->setRevisionLogMessage('Edited through the announcements API; waiting for review.');
+    }
+
     $node->save();
 
-    return $this->success([
+    $reviewRequired = !$node->isDefaultRevision();
+    $payload = [
       'success' => TRUE,
       'uuid' => $node->uuid(),
       'title' => $node->getTitle(),
+      'review_required' => $reviewRequired,
       'edit_url' => $this->editUrl($node),
-    ]);
+    ];
+    if ($reviewRequired) {
+      $payload['message'] = 'Your changes were saved as a draft for review. The published announcement stays as it is until an editor approves them.';
+    }
+    return $this->success($payload);
+  }
+
+  /**
+   * Returns the newest revision of a node, pending or not.
+   */
+  private function latestRevision(NodeInterface $node): NodeInterface {
+    $storage = $this->entityTypeManager()->getStorage('node');
+    $latestId = $storage->getLatestRevisionId($node->id());
+    if ($latestId && (int) $latestId !== (int) $node->getRevisionId()) {
+      $latest = $storage->loadRevision($latestId);
+      if ($latest instanceof NodeInterface) {
+        return $latest;
+      }
+    }
+    return $node;
+  }
+
+  /**
+   * Whether $user may save $node and keep it published.
+   */
+  private function mayKeepPublished(NodeInterface $node, AccountInterface $user): bool {
+    $workflow = $this->moderationInfo?->getWorkflowForEntity($node);
+    if (!$workflow || !$this->transitionValidation) {
+      return TRUE;
+    }
+    $published = $workflow->getTypePlugin()->getState('published');
+    return $this->transitionValidation->isTransitionValid($workflow, $published, $published, $user, $node);
+  }
+
+  /**
+   * Refuses a body that breaks a rule the web form enforces.
+   *
+   * These are 409s, never 401 or 403: the MCP auth layer treats those as an
+   * expired session and retries. The messages are shown to the announcement's
+   * author.
+   *
+   * @param array<string, mixed> $body
+   *   The decoded request body.
+   * @param mixed $submittedGroups
+   *   The group UUIDs the caller sent, or NULL when it sent none.
+   * @param \Drupal\node\NodeInterface[] $groupNodes
+   *   The groups the announcement will have.
+   * @param array<int, mixed> $sharing
+   *   The sharing options the announcement will have.
+   * @param \Drupal\Core\Session\AccountInterface $user
+   *   The acting user.
+   *
+   * @return \Symfony\Component\HttpFoundation\JsonResponse|null
+   *   The refusal, or NULL when the body is acceptable.
+   */
+  private function refuseInvalid(array $body, $submittedGroups, array $groupNodes, array $sharing, AccountInterface $user): ?JsonResponse {
+    if ($submittedGroups !== NULL && count($groupNodes) !== count($this->submittedUuids($submittedGroups))) {
+      return $this->refuse('unknown_group', 'One of the selected affinity groups could not be found. Choose the group again and retry.', 409);
+    }
+    if (array_key_exists('field_affiliation', $body)) {
+      $affiliation = $body['field_affiliation'];
+      $allowed = $this->allowedValues('field_affiliation');
+      if ($affiliation !== NULL && $affiliation !== '' && (!is_string($affiliation) || ($allowed && !in_array($affiliation, $allowed, TRUE)))) {
+        return $this->refuse('invalid_affiliation', 'The affiliation must be one of: ' . implode(', ', $allowed) . '.', 409);
+      }
+    }
+    $allowedSharing = $this->allowedValues('field_choose_where_to_share_this');
+    foreach ($sharing as $option) {
+      if (!is_string($option) || ($allowedSharing && !in_array($option, $allowedSharing, TRUE))) {
+        return $this->refuse('invalid_sharing', 'One of the sharing options is not recognized.', 409);
+      }
+    }
+    if (array_intersect($sharing, self::GROUP_SHARING) && !$groupNodes) {
+      return $this->refuse('group_required', 'Choose at least one affinity group to email your affinity group or show the announcement on your affinity group page.', 409);
+    }
+    if (!$this->userMayPostToGroups($user, $groupNodes)) {
+      return $this->refuse('not_coordinator', 'You are not a coordinator of every selected affinity group.', 409);
+    }
+    return NULL;
+  }
+
+  /**
+   * The allowed stored values of an access_news list field.
+   *
+   * @return string[]
+   *   The machine values, or an empty array when the field is absent.
+   */
+  private function allowedValues(string $field): array {
+    $definitions = $this->entityFieldManager?->getFieldDefinitions('node', 'access_news') ?? [];
+    if (!isset($definitions[$field])) {
+      return [];
+    }
+    return array_map('strval', array_keys(options_allowed_values($definitions[$field]->getFieldStorageDefinition())));
+  }
+
+  /**
+   * Normalizes sharing options to a list of stored values.
+   *
+   * Accepts plain strings or field items with a 'value' key.
+   *
+   * @param mixed $options
+   *   The submitted or stored options.
+   *
+   * @return array<int, mixed>
+   *   The values, in order. Anything that is not a string is kept so the
+   *   caller can refuse it.
+   */
+  private function sharingValues($options): array {
+    if (!is_array($options)) {
+      $options = $options === NULL || $options === '' ? [] : [$options];
+    }
+    return array_values(array_map(fn ($o) => is_array($o) ? ($o['value'] ?? NULL) : $o, $options));
+  }
+
+  /**
+   * The non-empty UUIDs a caller submitted, without duplicates.
+   *
+   * @param mixed $uuids
+   *   A UUID or a list of them.
+   *
+   * @return string[]
+   *   The UUIDs.
+   */
+  private function submittedUuids($uuids): array {
+    if (!is_array($uuids)) {
+      $uuids = $uuids === NULL || $uuids === '' ? [] : [$uuids];
+    }
+    // Count every non-empty entry, strings or not, so an id that is not a UUID
+    // string is refused as unknown rather than silently dropped.
+    $submitted = [];
+    foreach ($uuids as $uuid) {
+      if ($uuid !== NULL && $uuid !== '') {
+        $submitted[] = is_string($uuid) ? strtolower($uuid) : json_encode($uuid);
+      }
+    }
+    return array_values(array_unique($submitted));
+  }
+
+  /**
+   * The announcement's groups as uuid and title.
+   *
+   * A group the acting user may not view keeps its uuid with a NULL title,
+   * because dropping it would let a replace-all update remove it unseen.
+   *
+   * @return array<int, array{uuid: string|null, title: string|null}>
+   *   One entry per referenced group.
+   */
+  private function groupsFor(NodeInterface $node): array {
+    if (!$node->hasField('field_affinity_group_node')) {
+      return [];
+    }
+    $user = $this->currentUser();
+    $groups = [];
+    foreach ($node->get('field_affinity_group_node')->referencedEntities() as $group) {
+      $groups[] = [
+        'uuid' => $group->uuid(),
+        'title' => $group->access('view', $user) ? $group->label() : NULL,
+      ];
+    }
+    return $groups;
   }
 
   /**
@@ -286,10 +504,8 @@ class AnnouncementApiController extends ControllerBase {
     }
     $storage = $this->entityTypeManager()->getStorage('node');
     $nodes = [];
-    foreach ($uuids as $uuid) {
-      if (!is_string($uuid) || $uuid === '') {
-        continue;
-      }
+    $strings = array_map('strtolower', array_filter($uuids, fn ($u) => is_string($u) && $u !== ''));
+    foreach (array_unique($strings) as $uuid) {
       $matches = $storage->loadByProperties(['uuid' => $uuid, 'type' => 'affinity_group']);
       if ($matches) {
         $nodes[] = reset($matches);
