@@ -16,11 +16,17 @@ use Drupal\key\KeyRepository;
 use Drupal\node\NodeInterface;
 use Gioni06\Gpt3Tokenizer\Gpt3Tokenizer;
 use Gioni06\Gpt3Tokenizer\Gpt3TokenizerConfig;
+use OpenAI\Contracts\ClientContract;
 
 /**
  * Class AiReferencesGenerator.
  */
 class AiReferenceGenerator {
+
+  /**
+   * The model used when access_llm.settings sets none.
+   */
+  public const DEFAULT_MODEL = 'gpt-4.1-mini';
 
   /**
    * Drupal\Core\Entity\EntityTypeManagerInterface definition.
@@ -355,8 +361,9 @@ class AiReferenceGenerator {
   public function generateSummaryPrompt($text): void {
 
     $prompt = 'For the contents within brackets: ({BODY}) ';
-    $prompt .= 'Return a summary of the text.';
-    $prompt .= 'It is very important that you do not exceed 150 characters.';
+    $prompt .= 'Return a summary of the text. ';
+    $prompt .= 'It is very important that you do not exceed 150 characters. ';
+    $prompt .= 'Respond with a JSON object whose only key is "summary".';
 
     $prompt = str_replace('{BODY}', $text, $prompt);
 
@@ -371,7 +378,10 @@ class AiReferenceGenerator {
    */
   public function summarySuggested(): string {
     $suggestion = $this->aiApiCall();
-
+    $decoded = json_decode($suggestion, TRUE);
+    if (is_array($decoded) && isset($decoded['summary']) && is_string($decoded['summary'])) {
+      return $decoded['summary'];
+    }
     return $suggestion;
   }
 
@@ -379,7 +389,7 @@ class AiReferenceGenerator {
    * Performs AI API call.
    *
    * @param \Drupal\Core\Config\ImmutableConfig|null $config
-   *   The ai_auto_reference settings, used to determine the model to use.
+   *   Settings carrying a 'model' to use instead of access_llm.settings.
    * @param string|null $prompt
    *   The prompt to send, or NULL to use the previously generated prompt.
    *
@@ -390,8 +400,10 @@ class AiReferenceGenerator {
     $result = '';
     $key_id = 'access_llm_open_ai_api';
     $api_key = $this->key->getKey($key_id)->getKeyValue();
-    $openai_client = \OpenAI::client($api_key);
-    $service_model = $config?->get('model') ?? 'gpt-4';
+    $openai_client = $this->client($api_key);
+    $service_model = $config?->get('model')
+      ?: $this->config->get('access_llm.settings')->get('model')
+      ?: self::DEFAULT_MODEL;
 
     // Default payload applicable to all models.
     $payload = [
@@ -416,6 +428,19 @@ class AiReferenceGenerator {
       $result = $response->choices[0]->message->content;
     }
     return $result;
+  }
+
+  /**
+   * Returns the OpenAI client for an API key.
+   *
+   * @param string $api_key
+   *   The OpenAI API key.
+   *
+   * @return \OpenAI\Contracts\ClientContract
+   *   The client.
+   */
+  protected function client(string $api_key): ClientContract {
+    return \OpenAI::client($api_key);
   }
 
 }
