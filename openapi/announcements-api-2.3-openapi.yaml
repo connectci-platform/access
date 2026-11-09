@@ -152,6 +152,43 @@ paths:
                     message: "The acting user does not coordinate all selected affinity groups."
 
   /announcements/{uuid}:
+    get:
+      summary: Read one announcement
+      description: |
+        Return one announcement in the same shape as a `GET /announcements/mine` item, including
+        an edit still waiting for review. Open to anyone who may edit the announcement, so an
+        administrator or news manager can read an announcement they do not own before changing it.
+        Someone who may not edit the announcement gets the same `404` as for an unknown UUID.
+      operationId: getAnnouncement
+      tags:
+        - Announcements
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          description: The UUID of the announcement.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The announcement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyAnnouncement'
+        '404':
+          description: No announcement has this UUID, or the acting user may not edit it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_found:
+                  summary: Announcement not found
+                  value:
+                    error: "not_found"
+                    message: "Announcement not found."
     patch:
       summary: Update an announcement
       description: |
@@ -562,7 +599,11 @@ components:
 
     MyAnnouncement:
       type: object
-      description: A single announcement in the acting user's own listing.
+      description: |
+        One announcement as `GET /announcements/mine` and `GET /announcements/{uuid}` return it.
+        Content fields come from the newest revision, the one `PATCH` edits, so a client that
+        rebuilds a field from this read (for example the group list) keeps an edit that is still
+        waiting for review. `status` is the live state.
       properties:
         uuid:
           type: string
@@ -577,9 +618,15 @@ components:
           example: "New Funding Opportunity for AI Research"
         status:
           type: string
-          description: Moderation status of the announcement.
+          description: Whether the live announcement is published. A published announcement keeps
+            this value while an edit waits for review.
           enum: [published, draft]
           example: "published"
+        has_pending_revision:
+          type: boolean
+          description: True when the newest revision is an edit waiting for review that is not
+            live yet. The other content fields show that edit.
+          example: false
         created:
           type: integer
           description: Creation time as a Unix timestamp.
@@ -602,6 +649,31 @@ components:
           example:
             - "funding"
             - "ai"
+        affiliation:
+          type: string
+          nullable: true
+          example: "ACCESS Collaboration"
+        where_to_share:
+          type: array
+          description: Values of `field_choose_where_to_share_this`.
+          items:
+            type: string
+          example:
+            - "on_the_announcements_page"
+        affinity_groups:
+          type: array
+          description: |
+            The announcement's affinity groups. `title` is null for a group the acting user may
+            not view; the uuid is kept so a replace-all update does not drop it unseen.
+          items:
+            type: object
+            properties:
+              uuid:
+                type: string
+                format: uuid
+              title:
+                type: string
+                nullable: true
         edit_url:
           type: string
           format: uri

@@ -1371,4 +1371,141 @@ class AnnouncementApiControllerTest extends KernelTestBase {
     return $nodes ? reset($nodes) : NULL;
   }
 
+  // ---------------------------------------------------------------------------
+  // D8-3000: reads show the revision PATCH edits, plus a single-item read.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Makes a published announcement whose owner's edit waits for review.
+   *
+   * The pending edit retitles it and adds a second group.
+   *
+   * @return array{0: \Drupal\user\UserInterface, 1: string, 2: \Drupal\node\NodeInterface, 3: \Drupal\node\NodeInterface}
+   *   The owner, the uuid, and the original and added groups.
+   */
+  protected function publishedWithPendingEdit(): array {
+    $owner = $this->author();
+    $groupA = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    $groupB = $this->makeSavedGroup([(int) $owner->id()], 'Group B');
+    $uuid = $this->createPublished($owner, $groupA, 'Live title');
+    [$status, $data] = $this->patch($owner, $uuid, [
+      'title' => 'Edited title',
+      'field_affinity_group_node' => [$groupA->uuid(), $groupB->uuid()],
+    ]);
+    $this->assertSame(200, $status);
+    $this->assertTrue($data['review_required']);
+    return [$owner, $uuid, $groupA, $groupB];
+  }
+
+  /**
+   * The /mine item shows the pending edit, the live status and the flag.
+   *
+   * Tools that rebuild the group list from /mine must start from the
+   * revision PATCH edits, or they would undo the pending change.
+   */
+  public function testMineShowsPendingEdit(): void {
+    [$owner, $uuid, $groupA, $groupB] = $this->publishedWithPendingEdit();
+
+    $item = $this->mineItem($owner, $uuid);
+
+    $this->assertSame('Edited title', $item['title']);
+    $this->assertSame([$groupA->uuid(), $groupB->uuid()], array_column($item['affinity_groups'], 'uuid'));
+    $this->assertSame('published', $item['status']);
+    $this->assertTrue($item['has_pending_revision']);
+  }
+
+  /**
+   * Drafts and published announcements with no pending edit are not flagged.
+   */
+  public function testMineFlagsOnlyPendingEdits(): void {
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    $draft = $this->createDraft($owner, $group, 'Draft');
+    $live = $this->createPublished($owner, $group, 'Live');
+    $this->patch($owner, $draft, ['title' => 'Draft edited']);
+
+    $this->assertFalse($this->mineItem($owner, $draft)['has_pending_revision']);
+    $this->assertSame('Draft edited', $this->mineItem($owner, $draft)['title']);
+    $this->assertFalse($this->mineItem($owner, $live)['has_pending_revision']);
+  }
+
+  /**
+   * The single-item read returns the same item /mine lists.
+   */
+  public function testShowMatchesMineItem(): void {
+    [$owner, $uuid] = $this->publishedWithPendingEdit();
+
+    [$status, $data] = $this->show($owner, $uuid);
+
+    $this->assertSame(200, $status);
+    $this->assertSame($this->mineItem($owner, $uuid), $data);
+  }
+
+  /**
+   * A news_pm may read an announcement they do not own, pending edit included.
+   */
+  public function testShowAllowsEditorOfAnotherOwner(): void {
+    [, $uuid] = $this->publishedWithPendingEdit();
+    $this->createRole(['edit any access_news content', 'use editorial transition publish'], 'news_pm');
+    $newsPm = $this->author(['news_pm']);
+
+    [$status, $data] = $this->show($newsPm, $uuid);
+
+    $this->assertSame(200, $status);
+    $this->assertSame('Edited title', $data['title']);
+    $this->assertTrue($data['has_pending_revision']);
+  }
+
+  /**
+   * Someone who may not edit gets exactly the answer for a missing uuid.
+   *
+   * Not a 403, which the MCP client reads as an expired session, and nothing
+   * that tells them the announcement exists.
+   */
+  public function testShowRefusesUserWhoMayNotEditAsNotFound(): void {
+    [, $uuid] = $this->publishedWithPendingEdit();
+    $stranger = $this->author();
+
+    $refused = $this->show($stranger, $uuid);
+
+    $this->assertSame($this->show($stranger, '00000000-0000-4000-8000-000000000000'), $refused);
+    $this->assertSame(404, $refused[0]);
+    $this->assertArrayNotHasKey('title', $refused[1]);
+  }
+
+  /**
+   * The owner can read a plain draft, which has no pending revision.
+   */
+  public function testShowOwnDraft(): void {
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+    $uuid = $this->createDraft($owner, $group, 'Draft');
+
+    [$status, $data] = $this->show($owner, $uuid);
+
+    $this->assertSame(200, $status);
+    $this->assertSame('Draft', $data['title']);
+    $this->assertSame('draft', $data['status']);
+    $this->assertFalse($data['has_pending_revision']);
+  }
+
+  /**
+   * An unknown uuid, or one that is not an announcement, is not found.
+   */
+  public function testShowUnknownIsNotFound(): void {
+    $owner = $this->author();
+    $group = $this->makeSavedGroup([(int) $owner->id()], 'Group A');
+
+    $this->assertSame(404, $this->show($owner, '00000000-0000-4000-8000-000000000000')[0]);
+    $this->assertSame(404, $this->show($owner, $group->uuid())[0]);
+  }
+
+  /**
+   * Sends GET /api/2.3/announcements/{uuid} as $user.
+   */
+  protected function show($user, string $uuid): array {
+    $response = $this->asActingUser($user, fn () => $this->controller()->show($uuid));
+    return [$response->getStatusCode(), json_decode($response->getContent(), TRUE)];
+  }
+
 }

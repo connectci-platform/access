@@ -185,30 +185,67 @@ class AnnouncementApiController extends ControllerBase {
 
     $items = [];
     foreach ($storage->loadMultiple($ids) as $node) {
-      $items[] = [
-        'uuid' => $node->uuid(),
-        'nid' => (int) $node->id(),
-        'title' => $node->label(),
-        'status' => $node->isPublished() ? 'published' : 'draft',
-        'created' => (int) $node->getCreatedTime(),
-        'published_date' => $node->hasField('field_published_date') && !$node->get('field_published_date')->isEmpty()
-          ? $node->get('field_published_date')->value
-          : NULL,
-        'summary' => $this->buildSummary($node),
-        // Tags as english NAMES, never term ids — this is what the user sees.
-        'tags' => $this->tagNames($node),
-        'affiliation' => $node->hasField('field_affiliation') && !$node->get('field_affiliation')->isEmpty()
-          ? $node->get('field_affiliation')->value
-          : NULL,
-        'where_to_share' => $node->hasField('field_choose_where_to_share_this')
-          ? $this->sharingValues($node->get('field_choose_where_to_share_this')->getValue())
-          : [],
-        'affinity_groups' => $this->groupsFor($node),
-        'edit_url' => $this->editUrl($node),
-      ];
+      $items[] = $this->item($node);
     }
 
     return (new JsonResponse(['items' => $items]))->setPrivate()->setMaxAge(0);
+  }
+
+  /**
+   * GET /api/2.3/announcements/{uuid} — one announcement, as /mine lists it.
+   *
+   * Open to anyone who may edit the announcement, not only its owner, so an
+   * editor can read what a PATCH would change before sending it. Someone who
+   * may not edit it gets the same 404 as for a missing uuid: a 403 would be
+   * read by the MCP client as an expired session, and the shared answer does
+   * not reveal which drafts exist.
+   */
+  public function show(string $uuid): JsonResponse {
+    $node = $this->loadAnnouncement($uuid);
+    if (!$node || !$this->latestRevision($node)->access('update', $this->currentUser(), TRUE)->isAllowed()) {
+      return $this->refuse('not_found', 'Announcement not found.', 404);
+    }
+    return (new JsonResponse($this->item($node)))->setPrivate()->setMaxAge(0);
+  }
+
+  /**
+   * The read shape of an announcement.
+   *
+   * Content fields come from the newest revision, the one PATCH edits, so a
+   * client that rebuilds a field from this read keeps an edit still waiting
+   * for review. status is the live state. has_pending_revision is TRUE when
+   * that newest revision is a draft not yet live.
+   *
+   * @param \Drupal\node\NodeInterface $live
+   *   The announcement's default revision.
+   *
+   * @return array<string, mixed>
+   *   The item.
+   */
+  private function item(NodeInterface $live): array {
+    $node = $this->latestRevision($live);
+    return [
+      'uuid' => $node->uuid(),
+      'nid' => (int) $node->id(),
+      'title' => $node->label(),
+      'status' => $live->isPublished() ? 'published' : 'draft',
+      'has_pending_revision' => (int) $node->getRevisionId() !== (int) $live->getRevisionId(),
+      'created' => (int) $node->getCreatedTime(),
+      'published_date' => $node->hasField('field_published_date') && !$node->get('field_published_date')->isEmpty()
+        ? $node->get('field_published_date')->value
+        : NULL,
+      'summary' => $this->buildSummary($node),
+      // Tags as english NAMES, never term ids — this is what the user sees.
+      'tags' => $this->tagNames($node),
+      'affiliation' => $node->hasField('field_affiliation') && !$node->get('field_affiliation')->isEmpty()
+        ? $node->get('field_affiliation')->value
+        : NULL,
+      'where_to_share' => $node->hasField('field_choose_where_to_share_this')
+        ? $this->sharingValues($node->get('field_choose_where_to_share_this')->getValue())
+        : [],
+      'affinity_groups' => $this->groupsFor($node),
+      'edit_url' => $this->editUrl($node),
+    ];
   }
 
   /**
