@@ -20,7 +20,8 @@ use Symfony\Component\HttpFoundation\Request;
  * A registered confidential client authenticates with HTTP Basic and
  * presents a user's agent token as the subject token. If the agent token is
  * valid, the response is a 15-minute at+jwt token for the same user,
- * addressed to the client's own audience and signed with the xdmod key.
+ * addressed to the one of the client's audiences it asked for (XDMoD, or the
+ * MCP tool servers), and signed with the exchange key (the xdmod slot).
  *
  * The subject token is verified against the agent key only. An exchanged
  * token is signed with a different key, so it can never be exchanged again,
@@ -125,11 +126,14 @@ class TokenExchangeController {
     if (!is_string($audience) || $audience === '' || !is_string($scope) || trim($scope) === '') {
       return $this->error(400, 'invalid_request', 'audience and scope are required.');
     }
-    if ($audience !== $client['audience']) {
+    // Scopes are checked against the requested audience's own list, so a
+    // scope granted for one service can't be put on another service's token.
+    $allowed = $client['audiences'][$audience] ?? NULL;
+    if ($allowed === NULL) {
       return $this->error(400, 'invalid_target', 'The audience is not allowed for this client.');
     }
     $scopes = array_values(array_unique(preg_split('/ +/', trim($scope)) ?: []));
-    if (array_diff($scopes, $client['scopes'])) {
+    if (array_diff($scopes, $allowed)) {
       return $this->error(400, 'invalid_scope', 'The scope is not allowed for this client.');
     }
 
@@ -139,7 +143,7 @@ class TokenExchangeController {
       return $this->error(500, 'server_error', 'Token exchange is not available.');
     }
 
-    $sub = $this->verifySubjectToken($subject_token, $client, $agent_key, $signer['iss'], $client_id);
+    $sub = $this->verifySubjectToken($subject_token, $client, $agent_key, $signer['iss'], $client_id, $scopes);
     if ($sub === NULL) {
       return $this->error(400, 'invalid_grant', 'The subject token is not valid.');
     }
@@ -158,7 +162,7 @@ class TokenExchangeController {
       AccessJwtKeyProvider::PURPOSE_XDMOD,
       $request->getHost(),
       $sub,
-      $client['audience'],
+      $audience,
       $client_id,
       $scopes,
       ['endpoint' => 'token-exchange']
@@ -222,11 +226,13 @@ class TokenExchangeController {
    *   This site's explicit issuer.
    * @param string $client_id
    *   The client id, for logging.
+   * @param string[] $scopes
+   *   The scopes requested for the new token.
    *
    * @return string|null
    *   The subject's ACCESS ID, or NULL if the token is not acceptable.
    */
-  protected function verifySubjectToken(string $jwt, array $client, \OpenSSLAsymmetricKey $agent_key, string $issuer, string $client_id): ?string {
+  protected function verifySubjectToken(string $jwt, array $client, \OpenSSLAsymmetricKey $agent_key, string $issuer, string $client_id, array $scopes): ?string {
     $reject = function (string $why) use ($client_id): ?string {
       $this->logger->notice('Token exchange refused for client @client: subject token @why.', [
         '@client' => $client_id,
@@ -274,8 +280,14 @@ class TokenExchangeController {
     }
 
     $scope = $claims->scope ?? NULL;
-    if (!is_string($scope) || !in_array('agent:read', explode(' ', $scope), TRUE)) {
+    $subject_scopes = is_string($scope) ? explode(' ', $scope) : [];
+    if (!in_array('agent:read', $subject_scopes, TRUE)) {
       return $reject('lacks agent:read');
+    }
+    // mcp:write lets the tool servers write as the user, so only an agent
+    // token that may itself write can be exchanged for it.
+    if (in_array('mcp:write', $scopes, TRUE) && !in_array('agent:write', $subject_scopes, TRUE)) {
+      return $reject('lacks agent:write, which mcp:write needs');
     }
 
     $sub = $claims->sub ?? NULL;

@@ -14,7 +14,7 @@ access.token_exchange:
             label: 'Client type: browser or confidential'
           audience:
             type: string
-            label: 'Token audience'
+            label: 'Token audience (browser clients, or the single-audience confidential form)'
           origins:
             type: sequence
             label: 'Browser origins and the scopes each receives'
@@ -33,10 +33,26 @@ access.token_exchange:
                     label: 'Scope'
           scopes:
             type: sequence
-            label: 'Confidential client scopes'
+            label: 'Confidential client scopes (single-audience form)'
             sequence:
               type: string
               label: 'Scope'
+          audiences:
+            type: sequence
+            label: 'Confidential client audiences and the scopes each may carry'
+            sequence:
+              type: mapping
+              label: 'Audience'
+              mapping:
+                audience:
+                  type: string
+                  label: 'Token audience'
+                scopes:
+                  type: sequence
+                  label: 'Scopes'
+                  sequence:
+                    type: string
+                    label: 'Scope'
           subject_clients:
             type: sequence
             label: 'Browser clients whose tokens this client may exchange'
