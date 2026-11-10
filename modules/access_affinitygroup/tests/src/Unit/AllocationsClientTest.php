@@ -8,6 +8,8 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\Tests\UnitTestCase;
 use GuzzleHttp\ClientInterface;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use org\bovigo\vfs\vfsStream;
 use Prophecy\Argument;
@@ -134,6 +136,171 @@ class AllocationsClientTest extends UnitTestCase {
       ->willReturn(new Response(500, [], 'oops'));
     $client = $this->makeClient($http->reveal());
     $this->assertNull($client->getResourcesForUser('foo'));
+  }
+
+  /**
+   * Sample site_logins payload (top-level list of organizations).
+   */
+  protected function siteLoginsFixture(): array {
+    return [
+      [
+        'organizationId' => 1,
+        'organizationName' => 'ACCESS',
+        'logins' => [[
+          'resourceName' => 'portal.teragrid',
+          'displayName' => 'portal.teragrid',
+          'rdrResourceId' => 130827,
+          'ciderResourceId' => 'portal.teragrid',
+          'username' => 'hackwort',
+        ],
+        ],
+      ],
+      [
+        'organizationId' => 2440,
+        'organizationName' => 'OSG Consortium',
+        'logins' => [[
+          'resourceName' => 'grid1.osg.xsede',
+          'displayName' => 'OSG Open Science Pool',
+          'rdrResourceId' => 142288,
+          'ciderResourceId' => 'grid1.osg.access-ci.org',
+          'username' => 'ux454936',
+        ],
+        ],
+      ],
+      [
+        'organizationId' => 848,
+        'organizationName' => 'Pittsburgh Supercomputing Center',
+        'logins' => [
+          [
+            'resourceName' => 'bridges2-gpu.psc.xsede.org',
+            'ciderResourceId' => 'bridges2-gpu.psc.access-ci.org',
+            'username' => 'hackwort',
+          ],
+          [
+            'resourceName' => 'bridges2-rm.psc.xsede.org',
+            'ciderResourceId' => 'bridges2-rm.psc.access-ci.org',
+            'username' => 'hackwort',
+          ],
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Builds a client whose HTTP call to site_logins returns the given response.
+   */
+  protected function siteLoginsClient(Response $response, string $username = 'aaadhavan'): AllocationsClient {
+    $http = $this->prophesize(ClientInterface::class);
+    $http->request('GET', Argument::any(), Argument::any())->willReturn($response);
+    return $this->makeClient($http->reveal());
+  }
+
+  public function testGetSiteLoginsForUserFlattensNestedOrgs(): void {
+    $client = $this->siteLoginsClient(new Response(200, [], json_encode($this->siteLoginsFixture())));
+    $logins = $client->getSiteLoginsForUser('aaadhavan');
+    $this->assertIsArray($logins);
+    $this->assertSame('ux454936', $logins['grid1.osg.access-ci.org']);
+    $this->assertSame('hackwort', $logins['portal.teragrid']);
+    $this->assertSame('hackwort', $logins['bridges2-gpu.psc.access-ci.org']);
+    $this->assertSame('hackwort', $logins['bridges2-rm.psc.access-ci.org']);
+  }
+
+  public function testGetSiteLoginsForUserAddsResourceNameFallback(): void {
+    $client = $this->siteLoginsClient(new Response(200, [], json_encode($this->siteLoginsFixture())));
+    $logins = $client->getSiteLoginsForUser('aaadhavan');
+    $this->assertSame('ux454936', $logins['grid1.osg.xsede']);
+    $this->assertSame('hackwort', $logins['bridges2-rm.psc.xsede.org']);
+  }
+
+  public function testGetSiteLoginsForUserCiderIdWinsOverResourceNameCollision(): void {
+    // First login's resourceName equals the second login's ciderResourceId.
+    $payload = [[
+      'organizationId' => 1,
+      'logins' => [
+        [
+          'resourceName' => 'shared.id',
+          'ciderResourceId' => 'first.access-ci.org',
+          'username' => 'wrong',
+        ],
+        [
+          'resourceName' => 'second.xsede.org',
+          'ciderResourceId' => 'shared.id',
+          'username' => 'right',
+        ],
+      ],
+    ],
+    ];
+    $client = $this->siteLoginsClient(new Response(200, [], json_encode($payload)));
+    $logins = $client->getSiteLoginsForUser('aaadhavan');
+    $this->assertSame('right', $logins['shared.id']);
+    $this->assertSame('wrong', $logins['first.access-ci.org']);
+    $this->assertSame('right', $logins['second.xsede.org']);
+  }
+
+  public function testGetSiteLoginsForUserReturnsNullOn404(): void {
+    $client = $this->siteLoginsClient(new Response(404, [], '{}'));
+    $this->assertNull($client->getSiteLoginsForUser('nobody'));
+  }
+
+  public function testGetSiteLoginsForUserReturnsNullOnMalformedJson(): void {
+    $client = $this->siteLoginsClient(new Response(200, [], 'not-json{'));
+    $this->assertNull($client->getSiteLoginsForUser('aaadhavan'));
+  }
+
+  public function testGetSiteLoginsForUserReturnsNullWhenSecretsMissingKey(): void {
+    $http = $this->prophesize(ClientInterface::class);
+    $http->request(Argument::cetera())->shouldNotBeCalled();
+    $client = $this->makeClient($http->reveal(), '{"other_key":"x"}');
+    $this->assertNull($client->getSiteLoginsForUser('aaadhavan'));
+  }
+
+  public function testGetSiteLoginsForUserReturnsNullOnGuzzleException(): void {
+    $http = $this->prophesize(ClientInterface::class);
+    $http->request('GET', Argument::any(), Argument::any())
+      ->willThrow(new ConnectException('boom', new Request('GET', 'https://example.test')));
+    $client = $this->makeClient($http->reveal());
+    $this->assertNull($client->getSiteLoginsForUser('aaadhavan'));
+  }
+
+  public function testGetSiteLoginsForUserReturnsEmptyArrayForEmptyList(): void {
+    $client = $this->siteLoginsClient(new Response(200, [], '[]'));
+    $this->assertSame([], $client->getSiteLoginsForUser('aaadhavan'));
+  }
+
+  public function testGetSiteLoginsForUserSkipsInvalidEntries(): void {
+    $payload = [
+      ['organizationId' => 1],
+      ['organizationId' => 2, 'logins' => 'nope'],
+      'not-an-org',
+      [
+        'organizationId' => 3,
+        'logins' => [
+          ['ciderResourceId' => 'a.access-ci.org', 'username' => ''],
+          ['ciderResourceId' => 'b.access-ci.org', 'username' => '   '],
+          ['ciderResourceId' => 'c.access-ci.org'],
+          ['ciderResourceId' => 'd.access-ci.org', 'username' => 42],
+          ['resourceName' => 'e.xsede.org', 'username' => 'nocider'],
+          ['ciderResourceId' => '', 'username' => 'emptycider'],
+          'not-a-login',
+          ['ciderResourceId' => 'ok.access-ci.org', 'username' => '  padded  '],
+        ],
+      ],
+    ];
+    $client = $this->siteLoginsClient(new Response(200, [], json_encode($payload)));
+    $this->assertSame(['ok.access-ci.org' => 'padded'], $client->getSiteLoginsForUser('aaadhavan'));
+  }
+
+  public function testGetSiteLoginsForUserRequestUrlAndHeaders(): void {
+    $http = $this->prophesize(ClientInterface::class);
+    $http->request(
+      'GET',
+      'https://allocations-api.access-ci.org/identity/profiles/v1/people/' . rawurlencode('user+name@x') . '/site_logins',
+      Argument::that(function ($opts) {
+        return ($opts['headers']['XA-API-KEY'] ?? NULL) === 'test-ramps';
+      })
+    )->shouldBeCalledOnce()->willReturn(new Response(200, [], '[]'));
+    $client = $this->makeClient($http->reveal());
+    $this->assertSame([], $client->getSiteLoginsForUser('user+name@x'));
   }
 
 }

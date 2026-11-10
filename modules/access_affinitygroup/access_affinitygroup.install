@@ -1109,6 +1109,30 @@ function access_affinitygroup_update_10015(array &$sandbox): string {
 }
 
 /**
+ * Clears access_user_rp_account.rp_username, which held the wrong value.
+ *
+ * Every stored value was the ACCESS portal username taken from xdusage, never
+ * the login on the resource itself. Values repopulate from the site_logins API
+ * on each user's next refresh. Safe to re-run: it only touches rows that are
+ * still non-NULL. There is no UI to hand-correct this column, so nothing
+ * hand-edited is lost.
+ */
+function access_affinitygroup_update_10016(): string {
+  $db = \Drupal::database();
+
+  if (!$db->schema()->tableExists('access_user_rp_account')) {
+    return 'access_user_rp_account does not exist; nothing to clear.';
+  }
+
+  $cleared = $db->update('access_user_rp_account')
+    ->fields(['rp_username' => NULL])
+    ->isNotNull('rp_username')
+    ->execute();
+
+  return sprintf('Cleared rp_username on %d access_user_rp_account rows; they repopulate from the site_logins API on each user\'s next refresh.', $cleared);
+}
+
+/**
  * Resolves an allocations resource id to the one live resource node for it.
  *
  * Deliberately does NOT use field_rp_xdmod_resource_id. That field holds

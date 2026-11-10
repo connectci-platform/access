@@ -99,6 +99,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $alloc->getResourcesForUser('aaadhavan')->willReturn([
       ['cider_resource_id' => 'delta-cpu.ncsa.access-ci.org', 'billable_unit_type' => 'Core-hours'],
     ]);
+    $alloc->getSiteLoginsForUser('aaadhavan')->willReturn(['delta-cpu.ncsa.access-ci.org' => 'u.sl121488']);
 
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getPersonByPortalUsername('aaadhavan')->willReturn(['person_id' => 297776]);
@@ -129,7 +130,7 @@ class RpAccountServiceTest extends KernelTestBase {
       ->execute()
       ->fetchAssoc();
     $this->assertNotEmpty($row);
-    $this->assertSame('aaadhavan', $row['rp_username']);
+    $this->assertSame('u.sl121488', $row['rp_username']);
     $this->assertSame('active', $row['account_state']);
     $this->assertSame('PHY250173', $row['grant_number']);
     $this->assertSame('Halo finding', $row['grant_title']);
@@ -141,6 +142,154 @@ class RpAccountServiceTest extends KernelTestBase {
 
     $marker = \Drupal::cache()->get('rp_account:user_synced:' . $user->id());
     $this->assertNotFalse($marker);
+  }
+
+  /**
+   * Seeds one RP node, a user and the xdusage/allocations doubles for a refresh.
+   *
+   * @param array<string, string> $resources
+   *   Global resource id => short title; one RP node and one grant tuple each.
+   * @param array<string, string>|null $siteLogins
+   *   What getSiteLoginsForUser() returns.
+   *
+   * @return array{0: int, 1: array<string, int>}
+   *   The uid and a map of global resource id => rp nid.
+   */
+  private function runRefresh(array $resources, ?array $siteLogins, bool $preInsertKeptLogin = FALSE): array {
+    $nids = [];
+    $map = [];
+    $rid = 3000;
+    foreach ($resources as $gid => $title) {
+      $rp = Node::create([
+        'type' => 'access_active_resources_from_cid',
+        'title' => $title,
+        'field_access_global_resource_id' => $gid,
+      ]);
+      $rp->save();
+      $nids[$gid] = (int) $rp->id();
+      $rid++;
+      $map[$gid] = [
+        'project_id' => 66897,
+        'resource_id' => $rid,
+        'project_balance' => '777.00',
+        'project_end' => '2027-01-01',
+        'project_state' => 'active',
+        'is_expired' => FALSE,
+        'billable_unit' => 'Core-hours',
+      ];
+    }
+    $user = User::create([
+      'name' => 'aaadhavan@access-ci.org',
+      'mail' => 'a@example.com',
+      'field_xdusage_person_id' => 297776,
+    ]);
+    $user->save();
+    $uid = (int) $user->id();
+
+    if ($preInsertKeptLogin) {
+      \Drupal::database()->insert('access_user_rp_account')->fields([
+        'uid' => $uid,
+        'rp_nid' => reset($nids),
+        'grant_number' => 'PHY250173',
+        'project_id' => 66897,
+        'resource_id' => reset($map)['resource_id'],
+        'rp_username' => 'kept-login',
+        'account_state' => 'active',
+        'project_balance' => '1.00',
+        'is_expired' => 0,
+        'synced_at' => 1000,
+      ])->execute();
+    }
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $alloc->getProjectsForUser('aaadhavan')->willReturn([
+      ['grant_number' => 'PHY250173', 'title' => 'Halo', 'allocation_type' => 'Accelerate', 'grant_type' => 'Diss.'],
+    ]);
+    $alloc->getResourcesForUser('aaadhavan')->willReturn([]);
+    $alloc->getSiteLoginsForUser('aaadhavan')->willReturn($siteLogins);
+
+    $xd = $this->prophesize(XdusageClient::class);
+    $xd->getProjectsMap()->willReturn(['PHY250173' => $map]);
+    foreach ($map as $tuple) {
+      $xd->getAccountForUser(66897, $tuple['resource_id'], 297776)->willReturn([
+        'portal_username' => 'aaadhavan',
+        'account_state' => 'active',
+      ]);
+    }
+
+    $this->makeService($alloc->reveal(), $xd->reveal())->refreshUserRpAccounts($uid);
+    return [$uid, $nids];
+  }
+
+  private function loadRows(int $uid): array {
+    $rows = \Drupal::database()->select('access_user_rp_account', 'a')
+      ->fields('a')
+      ->condition('uid', $uid)
+      ->orderBy('rp_nid')
+      ->execute()
+      ->fetchAllAssoc('rp_nid');
+    return array_map(fn ($r) => (array) $r, $rows);
+  }
+
+  public function testRpUsernameComesFromSiteLoginsNotPortalUsername(): void {
+    [$uid, $nids] = $this->runRefresh(
+      ['bridges2-gpu.psc.access-ci.org' => 'Bridges-2 GPU'],
+      ['bridges2-gpu.psc.access-ci.org' => 'u.sl121488'],
+    );
+    $rows = $this->loadRows($uid);
+    $row = $rows[$nids['bridges2-gpu.psc.access-ci.org']];
+    $this->assertSame('u.sl121488', $row['rp_username']);
+    $this->assertNotSame('aaadhavan', $row['rp_username']);
+  }
+
+  public function testDistinctLoginsAcrossTwoResources(): void {
+    [$uid, $nids] = $this->runRefresh(
+      [
+        'bridges2-gpu.psc.access-ci.org' => 'Bridges-2 GPU',
+        'delta-cpu.ncsa.access-ci.org' => 'Delta CPU',
+      ],
+      [
+        'bridges2-gpu.psc.access-ci.org' => 'u.sl121488',
+        'delta-cpu.ncsa.access-ci.org' => 'aaadhavan_ncsa',
+      ],
+    );
+    $rows = $this->loadRows($uid);
+    $this->assertCount(2, $rows);
+    $this->assertSame('u.sl121488', $rows[$nids['bridges2-gpu.psc.access-ci.org']]['rp_username']);
+    $this->assertSame('aaadhavan_ncsa', $rows[$nids['delta-cpu.ncsa.access-ci.org']]['rp_username']);
+  }
+
+  /**
+   * Data provider: an empty login map, and one lacking the refreshed resource.
+   */
+  public static function missingSiteLoginProvider(): array {
+    return [
+      'empty map' => [[]],
+      'map lacks this resource' => [['other.example.access-ci.org' => 'zzz']],
+    ];
+  }
+
+  /**
+   * @dataProvider missingSiteLoginProvider
+   */
+  public function testMissingSiteLoginStoresNullNotPortalUsername(array $logins): void {
+    [$uid, $nids] = $this->runRefresh(['bridges2-gpu.psc.access-ci.org' => 'Bridges-2 GPU'], $logins);
+    $rows = $this->loadRows($uid);
+    $this->assertCount(1, $rows);
+    $this->assertNull($rows[$nids['bridges2-gpu.psc.access-ci.org']]['rp_username']);
+  }
+
+  public function testSiteLoginsFailurePreservesExistingRpUsername(): void {
+    [$uid, $nids] = $this->runRefresh(
+      ['bridges2-gpu.psc.access-ci.org' => 'Bridges-2 GPU'],
+      NULL,
+      TRUE,
+    );
+    $row = $this->loadRows($uid)[$nids['bridges2-gpu.psc.access-ci.org']];
+    $this->assertSame('kept-login', $row['rp_username']);
+    $this->assertEquals(777, $row['project_balance']);
+    $this->assertGreaterThan(1000, (int) $row['synced_at']);
+    $this->assertNotFalse(\Drupal::cache()->get('rp_account:user_synced:' . $uid));
   }
 
   public function testRefreshSkipsUsersWithoutAccessCiSuffix(): void {
@@ -233,6 +382,7 @@ class RpAccountServiceTest extends KernelTestBase {
       ['grant_number' => 'PHY250173', 'title' => 'Halo', 'allocation_type' => 'Accelerate', 'grant_type' => 'Diss.'],
     ]);
     $alloc->getResourcesForUser(\Prophecy\Argument::any())->willReturn([]);
+    $alloc->getSiteLoginsForUser(\Prophecy\Argument::any())->willReturn([]);
 
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getPersonByPortalUsername(\Prophecy\Argument::any())->shouldNotBeCalled(); // person_id already on user
@@ -300,6 +450,7 @@ class RpAccountServiceTest extends KernelTestBase {
       ['grant_number' => 'PHY250173', 'title' => 'Halo', 'allocation_type' => 'Accelerate', 'grant_type' => 'Diss.'],
     ]);
     $alloc->getResourcesForUser(\Prophecy\Argument::any())->willReturn([]);
+    $alloc->getSiteLoginsForUser(\Prophecy\Argument::any())->willReturn([]);
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getPersonByPortalUsername(\Prophecy\Argument::any())->shouldNotBeCalled();
     $xd->getProjectsMap()->willReturn([]); // empty map
@@ -421,6 +572,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $alloc = $this->prophesize(AllocationsClient::class);
     $alloc->getProjectsForUser('aaadhavan')->willReturn([]);
     $alloc->getResourcesForUser(\Prophecy\Argument::any())->willReturn([]);
+    $alloc->getSiteLoginsForUser(\Prophecy\Argument::any())->willReturn([]);
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getProjectsMap()->willReturn([]);
     $xd->getAccountForUser(\Prophecy\Argument::cetera())->shouldNotBeCalled();
@@ -627,6 +779,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $alloc = $this->prophesize(AllocationsClient::class);
     $alloc->getProjectsForUser('guarded')->willReturn([])->shouldBeCalled();
     $alloc->getResourcesForUser('guarded')->willReturn([]);
+    $alloc->getSiteLoginsForUser(\Prophecy\Argument::any())->willReturn([]);
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getPersonByPortalUsername('guarded')->willReturn(['person_id' => 111]);
     $xd->getProjectsMap()->willReturn([]);
