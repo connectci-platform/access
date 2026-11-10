@@ -6,7 +6,7 @@ info:
     Drives syndication to Elastic search and the RAG ingestion pipeline.
 
     ## What's in it
-    - **Resources** — ACCESS-allocated compute, storage, and cloud resources with team-authored documentation. Includes per-resource login info, file transfer methods, storage filesystems, queue specs, top software, and datasets.
+    - **Resources** — ACCESS compute, storage, and cloud resources with team-authored documentation, including resources that are not in CIDER (fetch those by node ID). Includes per-resource login info, file transfer methods, storage filesystems, queue specs, top software, and datasets.
     - **Resource Groups** — logical groupings of related resources (e.g. "Bridges-2" covers Bridges-2 RM, GPU, EM). Used to set shared defaults that child resources inherit.
     - **Inheritance** — when a resource leaves a field empty and its parent group has a value, the group's value is returned as the effective value. The API surfaces the resolved value so consumers don't need to track inheritance themselves.
 
@@ -108,6 +108,57 @@ paths:
                   error:
                     type: string
 
+  /resources/node/{nid}:
+    get:
+      summary: Get a resource by node ID
+      description: |
+        Returns the same ResourceDetail as `/resources/{resource_id}`, looked up by Drupal node ID instead of CIDER resource identifier.
+
+        Use this for resources that have no CIDER `resource_id` (for example, resources documented on the portal but not in CIDER). Get the `nid` from the `/resources` list or from the `/resource-groups` variants.
+
+        Field values reflect Resource Group inheritance, the same as `/resources/{resource_id}`.
+      operationId: getResourceByNid
+      tags:
+        - Resources
+      parameters:
+        - name: nid
+          in: path
+          required: true
+          description: Drupal node ID of the resource.
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: |
+            Resource detail. Response includes conditional-request headers:
+            - `ETag`: Revalidation token (not a content fingerprint). Pass this value as `If-None-Match` to receive a 304 response if the resource has not changed.
+            - `Last-Modified`: ISO 8601 timestamp of the resource's last modification.
+          headers:
+            ETag:
+              description: Revalidation token for conditional requests. Pass to If-None-Match for cache validation.
+              schema:
+                type: string
+            Last-Modified:
+              description: ISO 8601 timestamp of the resource's last modification.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceDetail'
+        '304':
+          description: |
+            Not modified. Returned when the `If-None-Match` header matches the current `ETag`, indicating the resource has not changed since the client's last request.
+        '404':
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
   /resource-groups:
     get:
       summary: List resource groups
@@ -148,10 +199,12 @@ components:
           description: Shorter display name from CIDER (e.g. "Jetstream2 LM"). May be null for stale resources no longer in the active feed.
         resource_id:
           type: string
-          description: CIDER resource identifier, used as the path argument for the detail endpoint.
+          nullable: true
+          description: CIDER resource identifier, used as the path argument for the detail endpoint. Null for resources not in CIDER; fetch those with `/resources/node/{nid}`.
         global_resource_id:
           type: string
-          description: ACCESS global resource ID (e.g. `expanse.sdsc.access-ci.org`).
+          nullable: true
+          description: ACCESS global resource ID (e.g. `expanse.sdsc.access-ci.org`). Null for resources not in CIDER.
         org_name:
           type: string
         status:
@@ -163,6 +216,9 @@ components:
         has_documentation:
           type: boolean
           description: True if team-authored description content exists.
+        listed:
+          type: boolean
+          description: "True when the resource appears on /documentation/resources: its own listing box is checked, or it belongs to a listed resource group. Only nodes on the ACCESS support domain count."
         url:
           type: string
           format: uri
@@ -186,8 +242,12 @@ components:
           description: Shorter display name from CIDER. May be null for stale resources.
         resource_id:
           type: string
+          nullable: true
+          description: CIDER resource identifier. Null for resources not in CIDER.
         global_resource_id:
           type: string
+          nullable: true
+          description: ACCESS global resource ID. Null for resources not in CIDER.
         resource_type:
           type: string
         org_name:
@@ -198,6 +258,9 @@ components:
           nullable: true
         status:
           type: string
+        listed:
+          type: boolean
+          description: "True when the resource appears on /documentation/resources: its own listing box is checked, or it belongs to a listed resource group. Only nodes on the ACCESS support domain count."
         url:
           type: string
           format: uri
@@ -494,5 +557,9 @@ components:
                 description: Shorter display name from CIDER.
               resource_id:
                 type: string
+                nullable: true
+                description: CIDER resource identifier. Null for resources not in CIDER.
               global_resource_id:
                 type: string
+                nullable: true
+                description: ACCESS global resource ID. Null for resources not in CIDER.
