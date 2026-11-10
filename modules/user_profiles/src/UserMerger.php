@@ -4,8 +4,10 @@ namespace Drupal\user_profiles;
 
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\ContentEntityInterface;
+use Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Extension\ModuleHandlerInterface;
+use Drupal\field\FieldStorageConfigInterface;
 use Drupal\flag\FlagServiceInterface;
 use Drupal\node\Entity\Node;
 use Drupal\recurring_events\EventInterface;
@@ -29,6 +31,7 @@ class UserMerger {
     protected Connection $database,
     protected FlagServiceInterface $flagService,
     protected LoggerInterface $logger,
+    protected EntityFieldManagerInterface $entityFieldManager,
   ) {}
 
   /**
@@ -39,8 +42,10 @@ class UserMerger {
    *  - webform submissions
    *  - roles
    *  - user fields
-   *  - nodes (ownership and user reference fields)
-   *  - event series (ownership and other authors)
+   *  - nodes (ownership)
+   *  - user reference fields on any entity type (e.g. nodes, paragraphs,
+   *    event series)
+   *  - event series (ownership)
    *  - event instances (ownership)
    *  - event registrations.
    *
@@ -49,7 +54,7 @@ class UserMerger {
    * @param int $to_user_id
    *   Id of user to merge to.
    *
-   * @return array
+   * @return array<string, mixed>
    *   Summary array with counts of items merged per category.
    */
   public function mergeUser(int $from_user_id, int $to_user_id): array {
@@ -78,7 +83,7 @@ class UserMerger {
 
     $summary = [];
     $summary['nodes'] = $this->mergeNodes($user_from, $user_to);
-    $summary['node_references'] = $this->mergeNodeUserReferences($user_from, $user_to);
+    $summary['user_references'] = $this->mergeUserReferences($user_from, $user_to);
     $summary['event_series'] = $this->mergeEventSeries($user_from, $user_to);
     $summary['event_instances'] = $this->mergeEventInstances($user_from, $user_to);
     $summary['event_registrations'] = $this->mergeEventRegistrations($user_from, $user_to);
@@ -109,7 +114,7 @@ class UserMerger {
    * from-user would be orphaned by a delete) and from any non-transactional
    * user_delete hooks.
    *
-   * @return array
+   * @return array<string, mixed>
    *   Summary of merged item counts.
    *
    * @throws \Drupal\user_profiles\Exception\UserMergeException
@@ -193,91 +198,153 @@ class UserMerger {
   }
 
   /**
-   * Update user reference fields in nodes.
+   * Point every configurable user-reference field at the surviving user.
    *
-   * Updates referenced users, not ownership. This handles:
-   *  - match_engagement: field_students, field_mentor, field_researcher
-   *  - mentorship_engagement: field_mentor, field_mentee.
+   * Discovers all configurable entity_reference fields whose target type is
+   * user, on every entity type except user itself, so new fields are covered
+   * without editing this list. Base fields (node uid, revision_uid,
+   * registrant user_id, webform uid, etc.) are deliberately excluded: those
+   * are ownership fields with their own handling elsewhere in the merge.
+   *
+   * The user entity type is skipped because mergeUserFields() later saves the
+   * in-memory user objects and would overwrite any change made here.
+   *
+   * If the to-user is already referenced in the same field, the from-user
+   * reference is dropped rather than duplicated. Each entity is saved once,
+   * even when several of its fields change.
    *
    * @param \Drupal\user\Entity\User $user_from
    *   From user.
    * @param \Drupal\user\Entity\User $user_to
    *   To user.
    *
-   * @return int
-   *   Number of nodes updated.
+   * @return array<string, int>
+   *   Number of entities updated, keyed by "entity_type.field_name". Fields
+   *   with no updates are omitted.
    */
-  private function mergeNodeUserReferences(User $user_from, User $user_to): int {
+  public function mergeUserReferences(User $user_from, User $user_to): array {
+    $this->logger->info("Migrating user references");
 
-    if (!$this->entityTypeManager->hasDefinition('node')) {
-      return 0;
-    }
+    $from_id = (int) $user_from->id();
+    $to_id = (int) $user_to->id();
+    $counts = [];
 
-    $this->logger->info("Migrating user references in nodes");
+    foreach ($this->getUserReferenceFields() as $entity_type_id => $field_names) {
+      $storage = $this->entityTypeManager->getStorage($entity_type_id);
 
-    // Define which content types have which user reference fields.
-    $content_type_fields = [
-      'match_engagement' => ['field_students', 'field_mentor', 'field_researcher'],
-      'mentorship_engagement' => ['field_mentor', 'field_mentee'],
-    ];
-
-    $node_storage = $this->entityTypeManager->getStorage('node');
-    $count = 0;
-
-    foreach ($content_type_fields as $content_type => $fields) {
-      foreach ($fields as $field_name) {
-        // Find nodes where this field references the from_user.
-        $query = $node_storage->getQuery()
+      // Collect the fields to rewrite per entity, so each entity saves once.
+      $entity_fields = [];
+      foreach ($field_names as $field_name) {
+        $ids = $storage->getQuery()
           ->accessCheck(FALSE)
-          ->condition('type', $content_type)
-          ->condition($field_name, $user_from->id());
-        $nids = $query->execute();
+          ->condition($field_name, $from_id)
+          ->execute();
+        foreach ($ids as $id) {
+          $entity_fields[$id][] = $field_name;
+        }
+      }
 
-        if (empty($nids)) {
+      foreach ($entity_fields as $id => $fields) {
+        $entity = $storage->load($id);
+        if (!$entity instanceof ContentEntityInterface) {
           continue;
         }
-
-        $this->logger->info("  Updating $field_name in $content_type nodes");
-        foreach ($nids as $nid) {
-          $node = $node_storage->load($nid);
-          if (!$node instanceof Node) {
+        $updated_fields = [];
+        foreach ($fields as $field_name) {
+          if (!$entity->hasField($field_name)) {
             continue;
           }
-          $field_values = $node->get($field_name)->getValue();
-          $updated = FALSE;
-
-          foreach ($field_values as $delta => $value) {
-            if ($value['target_id'] == $user_from->id()) {
-              $field_values[$delta]['target_id'] = $user_to->id();
-              $updated = TRUE;
-            }
+          $values = $this->replaceUserReference($entity->get($field_name)->getValue(), $from_id, $to_id);
+          if ($values !== NULL) {
+            $entity->set($field_name, $values);
+            $updated_fields[] = $field_name;
           }
-
-          if ($updated) {
-            // Remove duplicates if to_user was already referenced.
-            $unique_ids = [];
-            $unique_values = [];
-            foreach ($field_values as $value) {
-              if (!in_array($value['target_id'], $unique_ids)) {
-                $unique_ids[] = $value['target_id'];
-                $unique_values[] = $value;
-              }
-            }
-
-            $node->set($field_name, $unique_values);
-            $node->save();
-            $this->logger->info("    Updated node '{$node->getTitle()}' (nid: $nid)");
-            $count++;
-          }
+        }
+        if (!$updated_fields) {
+          continue;
+        }
+        // A reference rewrite is a data migration, not an editorial event:
+        // opt out of save-time notifications that honor this flag
+        // (see ood_software_node_update()). ContentEntityBase::__set()
+        // stores unknown names as runtime values.
+        // @phpstan-ignore-next-line property.notFound
+        $entity->_ood_software_suppress_notifications = TRUE;
+        $entity->save();
+        foreach ($updated_fields as $field_name) {
+          $key = "$entity_type_id.$field_name";
+          $counts[$key] = ($counts[$key] ?? 0) + 1;
+          $this->logger->info("  Updated $key on '{$entity->label()}' (id: $id)");
         }
       }
     }
 
-    return $count;
+    if (!$counts) {
+      $this->logger->info("  No user references to migrate");
+    }
+
+    return $counts;
   }
 
   /**
-   * Merge event series ownership and other authors from $user_from to $user_to.
+   * Find configurable entity_reference fields that target users.
+   *
+   * @return array<string, string[]>
+   *   Field names keyed by entity type id.
+   */
+  private function getUserReferenceFields(): array {
+    $fields = [];
+    $map = $this->entityFieldManager->getFieldMapByFieldType('entity_reference');
+    foreach ($map as $entity_type_id => $entity_fields) {
+      if ($entity_type_id === 'user' || !$this->entityTypeManager->hasDefinition($entity_type_id)) {
+        continue;
+      }
+      $storage_definitions = $this->entityFieldManager->getFieldStorageDefinitions($entity_type_id);
+      foreach (array_keys($entity_fields) as $field_name) {
+        $definition = $storage_definitions[$field_name] ?? NULL;
+        if ($definition instanceof FieldStorageConfigInterface
+          && $definition->getSetting('target_type') === 'user') {
+          $fields[$entity_type_id][] = $field_name;
+        }
+      }
+    }
+    return $fields;
+  }
+
+  /**
+   * Replace a user id in entity reference field values, dropping duplicates.
+   *
+   * @param array<int, array<string, mixed>> $values
+   *   Field item values.
+   * @param int $from_id
+   *   User id to replace.
+   * @param int $to_id
+   *   Replacement user id.
+   *
+   * @return array<int, array<string, mixed>>|null
+   *   The new values, or NULL when $from_id was not referenced.
+   */
+  private function replaceUserReference(array $values, int $from_id, int $to_id): ?array {
+    $updated = FALSE;
+    foreach ($values as $delta => $value) {
+      if ((int) ($value['target_id'] ?? 0) === $from_id) {
+        $values[$delta]['target_id'] = $to_id;
+        $updated = TRUE;
+      }
+    }
+    if (!$updated) {
+      return NULL;
+    }
+    $unique = [];
+    foreach ($values as $value) {
+      $unique[(int) $value['target_id']] ??= $value;
+    }
+    return array_values($unique);
+  }
+
+  /**
+   * Merge event series ownership from $user_from to $user_to.
+   *
+   * The field_other_authors reference is handled by mergeUserReferences().
    *
    * @param \Drupal\user\Entity\User $user_from
    *   From user.
@@ -318,48 +385,7 @@ class UserMerger {
       }
     }
 
-    // Update field_other_authors references.
-    $series_with_author = $series_storage->getQuery()
-      ->accessCheck(FALSE)
-      ->condition('field_other_authors', $user_from->id())
-      ->execute();
-
-    if (!empty($series_with_author)) {
-      $this->logger->info("  Updating field_other_authors in event series");
-      foreach ($series_with_author as $series_id) {
-        $series = $series_storage->load($series_id);
-        if ($series instanceof EventInterface && $series->hasField('field_other_authors')) {
-          $authors = $series->get('field_other_authors')->getValue();
-          $updated = FALSE;
-
-          foreach ($authors as $delta => $value) {
-            if ($value['target_id'] == $user_from->id()) {
-              $authors[$delta]['target_id'] = $user_to->id();
-              $updated = TRUE;
-            }
-          }
-
-          if ($updated) {
-            // Remove duplicates if to_user was already an author.
-            $unique_ids = [];
-            $unique_authors = [];
-            foreach ($authors as $value) {
-              if (!in_array($value['target_id'], $unique_ids)) {
-                $unique_ids[] = $value['target_id'];
-                $unique_authors[] = $value;
-              }
-            }
-
-            $series->set('field_other_authors', $unique_authors);
-            $series->save();
-            $this->logger->info("    Updated other authors in '{$series->label()}' (id: $series_id)");
-            $count++;
-          }
-        }
-      }
-    }
-
-    if (empty($series_ids) && empty($series_with_author)) {
+    if (empty($series_ids)) {
       $this->logger->info("  No event series to migrate");
     }
 

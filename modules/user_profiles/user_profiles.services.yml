@@ -11,3 +11,4 @@ services:
       - '@database'
       - '@flag'
       - '@logger.channel.user_profiles'
+      - '@entity_field.manager'
