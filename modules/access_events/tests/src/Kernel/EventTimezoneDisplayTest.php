@@ -169,6 +169,46 @@ class EventTimezoneDisplayTest extends EventKernelTestBase {
   }
 
   /**
+   * A serialized API response keeps the display's zone, not the venue's.
+   *
+   * The events API exports use 'Y-m-d\TH:i:s\Z'. Rendering an in-person
+   * Chicago event's 14:30 UTC start in venue time gave 08:30:00Z, which sorts
+   * ahead of an online 14:00 UTC event emitted as 09:00:00Z from an Eastern
+   * request, so the API looked out of order (D8-3070). The UTC-pinned
+   * api/2.4 shape must keep emitting the true instant.
+   */
+  public function testJsonRequestIgnoresTheVenueZone(): void {
+    $instance = $this->instanceWithZone('America/Chicago', TRUE);
+    $request = \Drupal::requestStack()->getCurrentRequest();
+    $request->setRequestFormat('json');
+    $original = date_default_timezone_get();
+    date_default_timezone_set('America/New_York');
+    try {
+      $legacy = $this->renderDate($instance, 'daterange_custom', [
+        'timezone_override' => '',
+        'date_format' => 'Y-m-d\\TH:i:s\\Z',
+        'from_to' => 'start_date',
+        'separator' => '::',
+      ]);
+      $utc = $this->renderDate($instance, 'daterange_custom', [
+        'timezone_override' => 'UTC',
+        'date_format' => 'Y-m-d\\TH:i:s\\Z',
+        'from_to' => 'start_date',
+        'separator' => '::',
+      ]);
+    }
+    finally {
+      date_default_timezone_set($original);
+      $request->setRequestFormat('html');
+    }
+
+    $this->assertStringContainsString('2026-07-15T15:00:00Z', $legacy,
+      'a legacy export renders in the ambient zone like every online event');
+    $this->assertStringContainsString('2026-07-15T19:00:00Z', $utc,
+      'and the UTC-pinned export emits the stored instant');
+  }
+
+  /**
    * An ONLINE event keeps the viewer-timezone cache context.
    *
    * This is the direction that leaks. An online event's rendered time
