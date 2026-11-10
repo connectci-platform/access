@@ -54,6 +54,15 @@ trait EventVenueTimezoneFormatterTrait {
     if ($entity === NULL) {
       return NULL;
     }
+    // The venue clock is for a person reading a page. The api/2.1-2.3 events
+    // exports render through this same formatter in the ambient zone with a
+    // literal Z, and their consumers expect every event in that one zone. A
+    // venue-local number there puts in-person events in a different zone from
+    // their online neighbours, so the true-instant sort reads out of order.
+    $format = \Drupal::requestStack()->getCurrentRequest()?->getRequestFormat() ?? 'html';
+    if ($format !== 'html') {
+      return NULL;
+    }
     // Both fields live on the series and reach the instance through
     // field_inheritance, which exposes them under names with the
     // eventinstance_default_ prefix stripped. An instance whose inheritance
@@ -117,6 +126,11 @@ trait EventVenueTimezoneFormatterTrait {
         $series->getCacheTags()
       );
     }
+    // Whether the venue zone applies depends on the response format.
+    $elements['#cache']['contexts'] = array_merge(
+      $elements['#cache']['contexts'] ?? [],
+      ['request_format']
+    );
 
     $venueZone = $this->venueTimezone();
     if ($venueZone === NULL) {
