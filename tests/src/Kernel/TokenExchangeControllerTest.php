@@ -147,6 +147,24 @@ class TokenExchangeControllerTest extends TokenEndpointTestBase {
   }
 
   /**
+   * An MCP write token needs an agent token that may itself write.
+   *
+   * The scope mcp:write lets the tool servers write as the user, so a
+   * read-only agent token can't be exchanged for one.
+   */
+  public function testMcpWriteNeedsAgentWrite(): void {
+    $read_only = $this->agentToken(['scope' => 'agent:read']);
+    $response = $this->exchange($this->request($this->fields([
+      'subject_token' => $read_only,
+      'audience' => self::MCP,
+      'scope' => 'mcp:write',
+    ])));
+    $this->assertError($response, 400, 'invalid_grant');
+    // XDMoD's read scope still needs only agent:read.
+    $this->assertSame(200, $this->exchange($this->request($this->fields(['subject_token' => $this->agentToken(['scope' => 'agent:read'])])))->getStatusCode());
+  }
+
+  /**
    * The single-audience config form still exchanges, for that audience only.
    */
   public function testSingleAudienceFormStillExchanges(): void {

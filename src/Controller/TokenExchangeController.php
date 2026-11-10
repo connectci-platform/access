@@ -143,7 +143,7 @@ class TokenExchangeController {
       return $this->error(500, 'server_error', 'Token exchange is not available.');
     }
 
-    $sub = $this->verifySubjectToken($subject_token, $client, $agent_key, $signer['iss'], $client_id);
+    $sub = $this->verifySubjectToken($subject_token, $client, $agent_key, $signer['iss'], $client_id, $scopes);
     if ($sub === NULL) {
       return $this->error(400, 'invalid_grant', 'The subject token is not valid.');
     }
@@ -226,11 +226,13 @@ class TokenExchangeController {
    *   This site's explicit issuer.
    * @param string $client_id
    *   The client id, for logging.
+   * @param string[] $scopes
+   *   The scopes requested for the new token.
    *
    * @return string|null
    *   The subject's ACCESS ID, or NULL if the token is not acceptable.
    */
-  protected function verifySubjectToken(string $jwt, array $client, \OpenSSLAsymmetricKey $agent_key, string $issuer, string $client_id): ?string {
+  protected function verifySubjectToken(string $jwt, array $client, \OpenSSLAsymmetricKey $agent_key, string $issuer, string $client_id, array $scopes): ?string {
     $reject = function (string $why) use ($client_id): ?string {
       $this->logger->notice('Token exchange refused for client @client: subject token @why.', [
         '@client' => $client_id,
@@ -278,8 +280,14 @@ class TokenExchangeController {
     }
 
     $scope = $claims->scope ?? NULL;
-    if (!is_string($scope) || !in_array('agent:read', explode(' ', $scope), TRUE)) {
+    $subject_scopes = is_string($scope) ? explode(' ', $scope) : [];
+    if (!in_array('agent:read', $subject_scopes, TRUE)) {
       return $reject('lacks agent:read');
+    }
+    // mcp:write lets the tool servers write as the user, so only an agent
+    // token that may itself write can be exchanged for it.
+    if (in_array('mcp:write', $scopes, TRUE) && !in_array('agent:write', $subject_scopes, TRUE)) {
+      return $reject('lacks agent:write, which mcp:write needs');
     }
 
     $sub = $claims->sub ?? NULL;
