@@ -475,7 +475,7 @@ components:
           format: uri
         populated_sections:
           type: array
-          description: Section identifiers that have content on any member resource (e.g. `login`, `file_transfer`, `storage`, `queue_specs`, `top_software`, `datasets`).
+          description: Section identifiers the detail endpoint would return content for on any member resource, including sections inherited from the Resource Group. Empty paragraph arrays and a top_software of `[]` do not count. `login` counts when the resource has SSH login nodes, an OnDemand URL, login text or login help links (e.g. `login`, `file_transfer`, `storage`, `queue_specs`, `top_software`, `datasets`).
           items:
             type: string
         variants:
