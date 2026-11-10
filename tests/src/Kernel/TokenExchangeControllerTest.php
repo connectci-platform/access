@@ -9,7 +9,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Covers POST /api/token-exchange (RFC 8693) for the XDMoD audience.
+ * Covers POST /api/token-exchange (RFC 8693) for the XDMoD and MCP audiences.
  *
  * @group access
  */
@@ -123,6 +123,43 @@ class TokenExchangeControllerTest extends TokenEndpointTestBase {
     $this->assertNotLogged($subject);
     $this->assertNotLogged(self::SECRET);
     $this->assertNotLogged(base64_encode('access-assistant:' . rawurlencode(self::SECRET)));
+  }
+
+  /**
+   * The MCP tool servers' token: the same user, the MCP audience, mcp:write.
+   */
+  public function testExchangeMintsAnMcpToken(): void {
+    $response = $this->exchange($this->request($this->fields(['audience' => self::MCP, 'scope' => 'mcp:write'])));
+
+    $this->assertSame(200, $response->getStatusCode(), $response->getContent());
+    $body = $this->body($response);
+    [$header, $claims] = $this->parts($body['access_token']);
+    $this->assertSame('at+jwt', $header['typ']);
+    $this->assertSame($this->kidFor($this->keys['xdmod']['private']), $header['kid'], 'Exchanged tokens share the exchange key.');
+    $this->assertSame(self::ISSUER, $claims['iss']);
+    $this->assertSame('jsmith@access-ci.org', $claims['sub']);
+    $this->assertSame(self::MCP, $claims['aud']);
+    $this->assertSame('access-assistant', $claims['azp']);
+    $this->assertSame('mcp:write', $claims['scope']);
+    $this->assertSame(900, $claims['exp'] - $claims['iat']);
+    $this->assertSame(self::MCP, $this->verifyWith('xdmod', $body['access_token'])->aud);
+    $this->assertNotLogged($body['access_token']);
+  }
+
+  /**
+   * The single-audience config form still exchanges, for that audience only.
+   */
+  public function testSingleAudienceFormStillExchanges(): void {
+    $clients = self::clients();
+    $clients['access-assistant'] = [
+      'type' => 'confidential',
+      'audience' => self::XDMOD,
+      'scopes' => ['xdmod:read'],
+      'subject_clients' => ['access-qa-bot'],
+    ];
+    $this->configure([], self::ISSUER, $clients);
+    $this->assertSame(200, $this->exchange()->getStatusCode());
+    $this->assertError($this->exchange($this->request($this->fields(['audience' => self::MCP, 'scope' => 'mcp:write']))), 400, 'invalid_target');
   }
 
   /**
@@ -269,6 +306,10 @@ class TokenExchangeControllerTest extends TokenEndpointTestBase {
       'scope missing' => [['scope' => NULL], 'invalid_request'],
       'audience not allowed' => [['audience' => 'https://qa.access-ci.org'], 'invalid_target'],
       'scope not allowed' => [['scope' => 'xdmod:read agent:write'], 'invalid_scope'],
+      'mcp scope on the xdmod audience' => [['scope' => 'mcp:write'], 'invalid_scope'],
+      'xdmod scope on the mcp audience' => [['audience' => self::MCP, 'scope' => 'xdmod:read'], 'invalid_scope'],
+      'both scopes on the mcp audience' => [['audience' => self::MCP, 'scope' => 'mcp:write xdmod:read'], 'invalid_scope'],
+      'mcp audience with a trailing slash' => [['audience' => self::MCP . '/', 'scope' => 'mcp:write'], 'invalid_target'],
     ];
   }
 

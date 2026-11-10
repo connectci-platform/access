@@ -15,7 +15,11 @@ use Psr\Log\LoggerInterface;
  * - browser clients get tokens from /api/agent-token. They are identified by
  *   the page's Origin, and each registered origin carries its own scopes.
  * - confidential clients authenticate to /api/token-exchange with a secret,
- *   and exchange a browser client's token for one with their own audience.
+ *   and exchange a browser client's token for one addressed to one of their
+ *   own audiences. Each audience carries its own scopes, so a scope granted
+ *   for one service never appears on a token for another. The access-assistant
+ *   client holds XDMoD (xdmod:read) and the MCP tool servers (mcp:write).
+ *   A single top-level audience and scopes pair is still read, as one entry.
  *
  * Every client is validated on load, and a client that breaks a rule is
  * unusable (and logged) rather than partly honored. The rules keep the token
@@ -47,7 +51,7 @@ class ClientRegistry {
   const TYPE_BROWSER = 'browser';
   const TYPE_CONFIDENTIAL = 'confidential';
 
-  const KNOWN_SCOPES = ['agent:read', 'agent:write', 'xdmod:read'];
+  const KNOWN_SCOPES = ['agent:read', 'agent:write', 'xdmod:read', 'mcp:write'];
 
   /**
    * Valid clients keyed by id, built on first use.
@@ -69,9 +73,9 @@ class ClientRegistry {
    *   The client id.
    *
    * @return array<string, mixed>|null
-   *   The client: id, type, audience, and for browser clients origins
-   *   (origin => scopes), or for confidential clients scopes and
-   *   subject_clients. NULL if unknown or invalid.
+   *   The client: id, type, and for browser clients audience and origins
+   *   (origin => scopes), or for confidential clients audiences
+   *   (audience => scopes) and subject_clients. NULL if unknown or invalid.
    */
   public function getClient(string $id): ?array {
     return $this->clients()[$id] ?? NULL;
@@ -172,8 +176,8 @@ class ClientRegistry {
         continue;
       }
       $error = NULL;
-      if (in_array($client['audience'], $browser_audiences, TRUE)) {
-        $error = 'its audience belongs to a browser client';
+      if (array_intersect(array_keys($client['audiences']), $browser_audiences)) {
+        $error = 'an audience belongs to a browser client';
       }
       foreach ($client['subject_clients'] as $subject) {
         if (($valid[$subject]['type'] ?? NULL) !== self::TYPE_BROWSER) {
@@ -206,12 +210,10 @@ class ClientRegistry {
     if (!in_array($type, [self::TYPE_BROWSER, self::TYPE_CONFIDENTIAL], TRUE)) {
       return 'type must be browser or confidential';
     }
-    $audience = $client['audience'] ?? NULL;
-    if (!is_string($audience) || !preg_match('#^(https://[^\s/]+(/\S*)?|http://localhost:[1-9][0-9]{0,4})$#', $audience)) {
-      return 'it must have exactly one https (or http://localhost) audience';
-    }
-
     if ($type === self::TYPE_BROWSER) {
+      if (!$this->isAudience($client['audience'] ?? NULL)) {
+        return 'it must have exactly one https (or http://localhost) audience';
+      }
       $origins = $client['origins'] ?? NULL;
       if (!is_array($origins) || $origins === []) {
         return 'a browser client needs at least one origin';
@@ -234,15 +236,57 @@ class ClientRegistry {
       return NULL;
     }
 
-    $error = $this->validateScopes($client['scopes'] ?? NULL, FALSE);
-    if ($error !== NULL) {
-      return $error;
+    $audiences = $this->confidentialAudiences($client);
+    if (is_string($audiences)) {
+      return $audiences;
+    }
+    foreach ($audiences as $entry) {
+      if (!$this->isAudience($entry['audience'] ?? NULL)) {
+        return 'each audience must be one https (or http://localhost) URL';
+      }
+      $error = $this->validateScopes($entry['scopes'] ?? NULL, FALSE);
+      if ($error !== NULL) {
+        return $error;
+      }
+    }
+    if (count(array_unique(array_column($audiences, 'audience'))) !== count($audiences)) {
+      return 'an audience is listed twice';
     }
     $subjects = $client['subject_clients'] ?? NULL;
     if (!is_array($subjects) || $subjects === [] || array_filter($subjects, fn($s) => !is_string($s))) {
       return 'a confidential client needs subject_clients';
     }
     return NULL;
+  }
+
+  /**
+   * A confidential client's audience entries, or what is wrong with them.
+   *
+   * @param array<string, mixed> $client
+   *   The config entry.
+   *
+   * @return array<int, mixed>|string
+   *   The entries, each meant to hold audience and scopes, or an error.
+   */
+  protected function confidentialAudiences(array $client): array|string {
+    if (!array_key_exists('audiences', $client)) {
+      return [['audience' => $client['audience'] ?? NULL, 'scopes' => $client['scopes'] ?? NULL]];
+    }
+    if (array_key_exists('audience', $client) || array_key_exists('scopes', $client)) {
+      return 'use either audiences or a single audience and scopes, not both';
+    }
+    $audiences = $client['audiences'];
+    if (!is_array($audiences) || $audiences === [] || !array_is_list($audiences) || array_filter($audiences, fn($e) => !is_array($e))) {
+      return 'audiences must be a non-empty list of audience and scopes entries';
+    }
+    return $audiences;
+  }
+
+  /**
+   * Whether a value is one https URL, or http://localhost:<port>.
+   */
+  protected function isAudience(mixed $audience): bool {
+    return is_string($audience) && (bool) preg_match('#^(https://[^\s/]+(/\S*)?|http://localhost:[1-9][0-9]{0,4})$#', $audience);
   }
 
   /**
@@ -287,15 +331,19 @@ class ClientRegistry {
     $out = [
       'id' => $id,
       'type' => $client['type'],
-      'audience' => $client['audience'],
     ];
     if ($client['type'] === self::TYPE_BROWSER) {
+      $out['audience'] = $client['audience'];
       foreach ($client['origins'] as $entry) {
         $out['origins'][$entry['origin']] = array_values(array_unique($entry['scopes']));
       }
     }
     else {
-      $out['scopes'] = array_values(array_unique($client['scopes']));
+      $audiences = $this->confidentialAudiences($client);
+      assert(is_array($audiences));
+      foreach ($audiences as $entry) {
+        $out['audiences'][$entry['audience']] = array_values(array_unique($entry['scopes']));
+      }
       $out['subject_clients'] = array_values($client['subject_clients']);
     }
     return $out;

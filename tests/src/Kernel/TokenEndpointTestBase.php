@@ -28,6 +28,7 @@ abstract class TokenEndpointTestBase extends KernelTestBase {
   const ISSUER = 'https://test.access-ci.org';
   const QA = 'https://qa.access-ci.org';
   const XDMOD = 'https://xdmod.access-ci.org';
+  const MCP = 'https://mcp.access-ci.org';
   const SECRET = 'correct horse battery staple';
 
   /**
@@ -94,8 +95,10 @@ abstract class TokenEndpointTestBase extends KernelTestBase {
       ],
       'access-assistant' => [
         'type' => 'confidential',
-        'audience' => self::XDMOD,
-        'scopes' => ['xdmod:read'],
+        'audiences' => [
+          ['audience' => self::XDMOD, 'scopes' => ['xdmod:read']],
+          ['audience' => self::MCP, 'scopes' => ['mcp:write']],
+        ],
         'subject_clients' => ['access-qa-bot'],
       ],
     ];

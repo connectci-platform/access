@@ -11,7 +11,8 @@ namespace Drupal\access;
  * There is one key per purpose, each with its own kid:
  *   - cookie: signs SESSaccess_auth. Published in /.well-known/jwks.json.
  *   - agent: signs agent tokens (/api/agent-token).
- *   - xdmod: signs XDMoD tokens (/api/token-exchange).
+ *   - xdmod: signs every exchanged token (/api/token-exchange), for XDMoD
+ *     and for the MCP tool servers; their audiences tell them apart.
  * The agent and xdmod keys are published in /.well-known/exchange-jwks.json
  * and the cookie key in /.well-known/jwks.json, so each document holds one
  * kind of key and a verifier of one kind never sees the other's keys.

@@ -67,7 +67,29 @@ class ClientRegistryTest extends KernelTestBase {
 
     $assistant = $registry->getClient('access-assistant');
     $this->assertSame('confidential', $assistant['type']);
-    $this->assertSame(['xdmod:read'], $assistant['scopes'], 'A confidential client keeps its non-agent scopes.');
+    $this->assertSame(['https://xdmod.access-ci.org' => ['xdmod:read']], $assistant['audiences'], 'The single-audience form reads as one audience.');
+    $this->assertSame([], $this->logger->getRecords());
+  }
+
+  /**
+   * A confidential client may hold several audiences, each with its scopes.
+   */
+  public function testConfidentialClientWithSeveralAudiences(): void {
+    $clients = self::validClients();
+    $clients['access-assistant'] = [
+      'type' => 'confidential',
+      'audiences' => [
+        ['audience' => 'https://xdmod.access-ci.org', 'scopes' => ['xdmod:read']],
+        ['audience' => 'https://mcp.access-ci.org', 'scopes' => ['mcp:write', 'mcp:write']],
+      ],
+      'subject_clients' => ['access-qa-bot'],
+    ];
+    $assistant = $this->registry($clients)->getClient('access-assistant');
+    $this->assertSame([
+      'https://xdmod.access-ci.org' => ['xdmod:read'],
+      'https://mcp.access-ci.org' => ['mcp:write'],
+    ], $assistant['audiences']);
+    $this->assertArrayNotHasKey('scopes', $assistant);
     $this->assertSame([], $this->logger->getRecords());
   }
 
@@ -108,6 +130,11 @@ class ClientRegistryTest extends KernelTestBase {
       'scopes' => ['xdmod:read'],
       'subject_clients' => ['access-qa-bot'],
     ];
+    $multi = fn(mixed $audiences) => [
+      'type' => 'confidential',
+      'audiences' => $audiences,
+      'subject_clients' => ['access-qa-bot'],
+    ];
     return [
       'bad id' => ['Bad_Id', $browser([])],
       'missing type' => ['no-type', array_diff_key($browser([]), ['type' => 1])],
@@ -126,6 +153,22 @@ class ClientRegistryTest extends KernelTestBase {
       'confidential with qa audience' => ['cq', $confidential(['audience' => 'https://qa.access-ci.org'])],
       'confidential naming an unknown subject client' => ['cu', $confidential(['subject_clients' => ['nobody']])],
       'confidential naming a confidential subject client' => ['cc', $confidential(['subject_clients' => ['access-assistant']])],
+      'browser with mcp:write' => ['bm', $browser(['origins' => [['origin' => 'https://ara.access-ci.org', 'scopes' => ['agent:read', 'mcp:write']]]])],
+      'audiences and a single audience' => ['cboth', $confidential(['audiences' => [['audience' => 'https://mcp.access-ci.org', 'scopes' => ['mcp:write']]]])],
+      'empty audiences' => ['cempty', $multi([])],
+      'audiences not a list' => ['cmap', $multi(['mcp' => ['audience' => 'https://mcp.access-ci.org', 'scopes' => ['mcp:write']]])],
+      'audience entry not a mapping' => ['cstr', $multi(['https://mcp.access-ci.org'])],
+      'audience entry without scopes' => ['cnos', $multi([['audience' => 'https://mcp.access-ci.org']])],
+      'audience entry with a bad URL' => ['cbad', $multi([['audience' => 'http://mcp.access-ci.org', 'scopes' => ['mcp:write']]])],
+      'audience entry with agent:write' => ['cag', $multi([['audience' => 'https://mcp.access-ci.org', 'scopes' => ['mcp:write', 'agent:write']]])],
+      'audience listed twice' => ['cdup', $multi([
+        ['audience' => 'https://mcp.access-ci.org', 'scopes' => ['mcp:write']],
+        ['audience' => 'https://mcp.access-ci.org', 'scopes' => ['xdmod:read']],
+      ])],
+      'one of several audiences is the qa audience' => ['cqa', $multi([
+        ['audience' => 'https://mcp.access-ci.org', 'scopes' => ['mcp:write']],
+        ['audience' => 'https://qa.access-ci.org', 'scopes' => ['mcp:write']],
+      ])],
     ];
   }
 
