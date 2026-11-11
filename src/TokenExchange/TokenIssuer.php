@@ -46,11 +46,14 @@ class TokenIssuer {
    * @param array<string, string> $log_context
    *   Extra fields for the issuance log line: endpoint, and origin for the
    *   browser grant.
+   * @param array<string, string> $profile
+   *   Claims about the user, such as email and name. They never replace a
+   *   registered claim and are not logged.
    *
    * @return string|null
    *   The token, or NULL if signing is unavailable (already logged).
    */
-  public function issue(string $purpose, string $host, string $sub, string $audience, string $client_id, array $scopes, array $log_context): ?string {
+  public function issue(string $purpose, string $host, string $sub, string $audience, string $client_id, array $scopes, array $log_context, array $profile = []): ?string {
     $signer = $this->keyProvider->getSigningKey($purpose, $host);
     if ($signer === NULL) {
       return NULL;
@@ -67,6 +70,7 @@ class TokenIssuer {
       'exp' => $now + self::LIFETIME,
       'jti' => rtrim(strtr(base64_encode(random_bytes(16)), '+/', '-_'), '='),
     ];
+    $payload += $profile;
 
     try {
       $token = JWT::encode($payload, $signer['key'], 'ES256', $signer['kid'], ['typ' => 'at+jwt']);
