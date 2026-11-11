@@ -7,6 +7,7 @@ use Drupal\access\AccessJwtKeyProvider;
 use Drupal\access\TokenExchange\ClientRegistry;
 use Drupal\access\TokenExchange\TokenIssuer;
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Component\Utility\EmailValidatorInterface;
 use Drupal\Core\Flood\FloodInterface;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
@@ -61,6 +62,7 @@ class TokenExchangeController {
     protected readonly FloodInterface $flood,
     protected readonly LoggerInterface $logger,
     protected readonly TimeInterface $time,
+    protected readonly EmailValidatorInterface $emailValidator,
   ) {}
 
   /**
@@ -165,7 +167,8 @@ class TokenExchangeController {
       $audience,
       $client_id,
       $scopes,
-      ['endpoint' => 'token-exchange']
+      ['endpoint' => 'token-exchange'],
+      in_array('mcp:write', $scopes, TRUE) ? $this->profileClaims($sub) : []
     );
     if ($token === NULL) {
       return $this->error(500, 'server_error', 'Token exchange is not available.');
@@ -179,6 +182,42 @@ class TokenExchangeController {
       'token_type' => 'Bearer',
       'expires_in' => TokenIssuer::LIFETIME,
     ]));
+  }
+
+  /**
+   * The account's email and name, for a token the tool servers act on.
+   *
+   * The ticket server files a ticket under these (D8-3069), so they come from
+   * the account the verified sub resolves to. A value that is missing or not
+   * an email address is left out rather than guessed.
+   *
+   * @param string $sub
+   *   The verified ACCESS ID.
+   *
+   * @return array<string, string>
+   *   Any of email and name.
+   */
+  protected function profileClaims(string $sub): array {
+    $user = $this->accessIdResolver->resolve($sub);
+    if ($user === NULL) {
+      return [];
+    }
+    $claims = [];
+    $mail = trim((string) $user->getEmail());
+    if ($mail !== '' && $this->emailValidator->isValid($mail)) {
+      $claims['email'] = $mail;
+    }
+    $parts = [];
+    foreach (['field_user_first_name', 'field_user_last_name'] as $field) {
+      if ($user->hasField($field)) {
+        $parts[] = trim((string) $user->get($field)->value);
+      }
+    }
+    $name = trim(implode(' ', array_filter($parts)));
+    if ($name !== '') {
+      $claims['name'] = $name;
+    }
+    return $claims;
   }
 
   /**

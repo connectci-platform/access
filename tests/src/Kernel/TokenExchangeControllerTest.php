@@ -4,6 +4,9 @@ namespace Drupal\Tests\access\Kernel;
 
 use Drupal\access\Controller\TokenExchangeController;
 use Drupal\Core\Flood\FloodInterface;
+use Drupal\field\Entity\FieldConfig;
+use Drupal\field\Entity\FieldStorageConfig;
+use Drupal\user\Entity\User;
 use Firebase\JWT\JWT;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -28,6 +31,16 @@ class TokenExchangeControllerTest extends TokenEndpointTestBase {
     $this->createAccessUser('jsmith', 'jsmith@access-ci.org');
   }
 
+  /**
+   * Adds the site's first and last name fields to user accounts.
+   */
+  protected function createNameFields(): void {
+    foreach (['field_user_first_name', 'field_user_last_name'] as $field) {
+      FieldStorageConfig::create(['field_name' => $field, 'entity_type' => 'user', 'type' => 'string'])->save();
+      FieldConfig::create(['field_name' => $field, 'entity_type' => 'user', 'bundle' => 'user'])->save();
+    }
+  }
+
   protected function controller(): TokenExchangeController {
     return new TokenExchangeController(
       $this->registry,
@@ -37,6 +50,7 @@ class TokenExchangeControllerTest extends TokenEndpointTestBase {
       $this->flood ?? \Drupal::flood(),
       $this->logger,
       \Drupal::time(),
+      \Drupal::service('email.validator'),
     );
   }
 
@@ -144,6 +158,82 @@ class TokenExchangeControllerTest extends TokenEndpointTestBase {
     $this->assertSame(900, $claims['exp'] - $claims['iat']);
     $this->assertSame(self::MCP, $this->verifyWith('xdmod', $body['access_token'])->aud);
     $this->assertNotLogged($body['access_token']);
+  }
+
+  /**
+   * An MCP write token names the account's email and name (D8-3069).
+   *
+   * The ticket server files a ticket under them, so they come from the
+   * account the verified sub resolves to, never from the agent.
+   */
+  public function testMcpTokenCarriesTheAccountsEmailAndName(): void {
+    $this->createNameFields();
+    $user = \Drupal::service('access.access_id_resolver')->resolve('jsmith@access-ci.org');
+    $user->set('field_user_first_name', 'Jane');
+    $user->set('field_user_last_name', 'Smith');
+    $user->save();
+
+    $response = $this->exchange($this->request($this->fields(['audience' => self::MCP, 'scope' => 'mcp:write'])));
+
+    $this->assertSame(200, $response->getStatusCode(), $response->getContent());
+    [, $claims] = $this->parts($this->body($response)['access_token']);
+    $this->assertSame('jsmith@example.com', $claims['email']);
+    $this->assertSame('Jane Smith', $claims['name']);
+    $this->assertNotLogged('jsmith@example.com');
+  }
+
+  /**
+   * A missing or unusable email or name is left out, not guessed.
+   */
+  public function testMcpTokenLeavesOutUnusableEmailAndMissingName(): void {
+    $user = User::create(['name' => 'nomail', 'mail' => 'not an email', 'status' => 1]);
+    $user->save();
+    \Drupal::database()->insert('openid_connect_authmap')
+      ->fields(['uid' => (int) $user->id(), 'client_name' => 'cilogon', 'sub' => 'nomail@access-ci.org'])
+      ->execute();
+    $subject = $this->agentToken(['sub' => 'nomail@access-ci.org']);
+
+    $response = $this->exchange($this->request($this->fields([
+      'audience' => self::MCP,
+      'scope' => 'mcp:write',
+      'subject_token' => $subject,
+    ])));
+
+    $this->assertSame(200, $response->getStatusCode(), $response->getContent());
+
+    [, $claims] = $this->parts($this->body($response)['access_token']);
+    $this->assertArrayNotHasKey('email', $claims);
+    $this->assertArrayNotHasKey('name', $claims);
+  }
+
+  /**
+   * Empty name fields leave the name out.
+   */
+  public function testMcpTokenLeavesOutEmptyNameFields(): void {
+    $this->createNameFields();
+
+    $response = $this->exchange($this->request($this->fields(['audience' => self::MCP, 'scope' => 'mcp:write'])));
+
+    [, $claims] = $this->parts($this->body($response)['access_token']);
+    $this->assertSame('jsmith@example.com', $claims['email']);
+    $this->assertArrayNotHasKey('name', $claims);
+  }
+
+  /**
+   * XDMoD tokens leave the portal, so they carry no email or name.
+   */
+  public function testXdmodTokenCarriesNoEmailOrName(): void {
+    $this->createNameFields();
+    $user = \Drupal::service('access.access_id_resolver')->resolve('jsmith@access-ci.org');
+    $user->set('field_user_first_name', 'Jane');
+    $user->save();
+
+    $response = $this->exchange($this->request($this->fields()));
+
+    [, $claims] = $this->parts($this->body($response)['access_token']);
+    $this->assertSame('xdmod:read', $claims['scope']);
+    $this->assertArrayNotHasKey('email', $claims);
+    $this->assertArrayNotHasKey('name', $claims);
   }
 
   /**

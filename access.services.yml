@@ -44,7 +44,7 @@ services:
 
   access.token_exchange_controller:
     class: Drupal\access\Controller\TokenExchangeController
-    arguments: ['@access.token_client_registry', '@access.token_issuer', '@access.jwt_key_provider', '@access.access_id_resolver', '@flood', '@logger.channel.access', '@datetime.time']
+    arguments: ['@access.token_client_registry', '@access.token_issuer', '@access.jwt_key_provider', '@access.access_id_resolver', '@flood', '@logger.channel.access', '@datetime.time', '@email.validator']
 
   access.token_endpoint_cors_subscriber:
     class: Drupal\access\EventSubscriber\TokenEndpointCorsSubscriber
