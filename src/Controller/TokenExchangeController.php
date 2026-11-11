@@ -7,6 +7,7 @@ use Drupal\access\AccessJwtKeyProvider;
 use Drupal\access\TokenExchange\ClientRegistry;
 use Drupal\access\TokenExchange\TokenIssuer;
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Component\Utility\EmailValidatorInterface;
 use Drupal\Core\Flood\FloodInterface;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
@@ -61,6 +62,7 @@ class TokenExchangeController {
     protected readonly FloodInterface $flood,
     protected readonly LoggerInterface $logger,
     protected readonly TimeInterface $time,
+    protected readonly EmailValidatorInterface $emailValidator,
   ) {}
 
   /**
@@ -202,7 +204,7 @@ class TokenExchangeController {
     }
     $claims = [];
     $mail = trim((string) $user->getEmail());
-    if (filter_var($mail, FILTER_VALIDATE_EMAIL)) {
+    if ($mail !== '' && $this->emailValidator->isValid($mail)) {
       $claims['email'] = $mail;
     }
     $parts = [];

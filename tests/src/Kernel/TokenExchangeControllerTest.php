@@ -50,6 +50,7 @@ class TokenExchangeControllerTest extends TokenEndpointTestBase {
       $this->flood ?? \Drupal::flood(),
       $this->logger,
       \Drupal::time(),
+      \Drupal::service('email.validator'),
     );
   }
 
@@ -201,6 +202,36 @@ class TokenExchangeControllerTest extends TokenEndpointTestBase {
     $this->assertSame(200, $response->getStatusCode(), $response->getContent());
 
     [, $claims] = $this->parts($this->body($response)['access_token']);
+    $this->assertArrayNotHasKey('email', $claims);
+    $this->assertArrayNotHasKey('name', $claims);
+  }
+
+  /**
+   * Empty name fields leave the name out.
+   */
+  public function testMcpTokenLeavesOutEmptyNameFields(): void {
+    $this->createNameFields();
+
+    $response = $this->exchange($this->request($this->fields(['audience' => self::MCP, 'scope' => 'mcp:write'])));
+
+    [, $claims] = $this->parts($this->body($response)['access_token']);
+    $this->assertSame('jsmith@example.com', $claims['email']);
+    $this->assertArrayNotHasKey('name', $claims);
+  }
+
+  /**
+   * XDMoD tokens leave the portal, so they carry no email or name.
+   */
+  public function testXdmodTokenCarriesNoEmailOrName(): void {
+    $this->createNameFields();
+    $user = \Drupal::service('access.access_id_resolver')->resolve('jsmith@access-ci.org');
+    $user->set('field_user_first_name', 'Jane');
+    $user->save();
+
+    $response = $this->exchange($this->request($this->fields()));
+
+    [, $claims] = $this->parts($this->body($response)['access_token']);
+    $this->assertSame('xdmod:read', $claims['scope']);
     $this->assertArrayNotHasKey('email', $claims);
     $this->assertArrayNotHasKey('name', $claims);
   }
