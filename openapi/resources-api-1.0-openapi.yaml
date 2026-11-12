@@ -272,10 +272,12 @@ components:
           type: string
           description: >-
             Deterministic, host-independent SHA-256 fingerprint of the resource
-            payload, computed over the assembled content with last_modified and
-            absolute-URL fields excluded. Use this (not last_modified) to skip
-            re-embedding unchanged resources, since changed time bumps on no-op
-            saves. Present on the detail endpoint only.
+            payload, computed over the assembled content with last_modified,
+            listed, and absolute-URL fields excluded. Use this (not last_modified)
+            to skip re-embedding unchanged resources, since changed time bumps on
+            no-op saves. Because listed is excluded, a consumer that skips
+            re-fetching on an unchanged hash should read listed from the
+            /resources list endpoint instead. Present on the detail endpoint only.
         description:
           type: string
           nullable: true
