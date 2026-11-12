@@ -1109,6 +1109,59 @@ function access_affinitygroup_update_10015(array &$sandbox): string {
 }
 
 /**
+ * Clears access_user_rp_account.rp_username, which held the wrong value.
+ *
+ * Old code only ever stored the user's own ACCESS portal username (taken from
+ * xdusage) here, never the login on the resource itself. This clears only that
+ * old fallback value: a row is cleared when rp_username equals its owner's
+ * ACCESS username, i.e. the Drupal account name with the @access-ci.org suffix
+ * stripped (the same derivation RpAccountService::refreshUserRpAccounts()
+ * uses). Any other value, such as a hand-seeded fixture, is kept.
+ *
+ * A user whose real resource login happens to equal their ACCESS username is
+ * also cleared. That is harmless: the next refresh repopulates the value from
+ * the site_logins API. Safe to re-run: it only touches rows that still match.
+ */
+function access_affinitygroup_update_10016(): string {
+  $db = \Drupal::database();
+
+  if (!$db->schema()->tableExists('access_user_rp_account')) {
+    return 'access_user_rp_account does not exist; nothing to clear.';
+  }
+
+  $suffix = '@access-ci.org';
+  $query = $db->select('users_field_data', 'u');
+  $query->join('access_user_rp_account', 'a', 'a.uid = u.uid');
+  $owners = $query
+    ->fields('u', ['uid', 'name'])
+    ->distinct()
+    ->condition('u.default_langcode', 1)
+    ->condition('u.name', '%' . $db->escapeLike($suffix), 'LIKE')
+    ->isNotNull('a.rp_username')
+    ->execute()
+    ->fetchAll();
+
+  $cleared = 0;
+  foreach ($owners as $owner) {
+    $name = (string) $owner->name;
+    if (!str_ends_with($name, $suffix)) {
+      continue;
+    }
+    $portal = substr($name, 0, -strlen($suffix));
+    if ($portal === '') {
+      continue;
+    }
+    $cleared += (int) $db->update('access_user_rp_account')
+      ->fields(['rp_username' => NULL])
+      ->condition('uid', (int) $owner->uid)
+      ->condition('rp_username', $portal)
+      ->execute();
+  }
+
+  return sprintf('Cleared rp_username on %d access_user_rp_account rows; they repopulate from the site_logins API on each user\'s next refresh.', $cleared);
+}
+
+/**
  * Resolves an allocations resource id to the one live resource node for it.
  *
  * Deliberately does NOT use field_rp_xdmod_resource_id. That field holds

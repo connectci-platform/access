@@ -28,7 +28,7 @@ class AllocationsClient {
    * - grant_number  (string) e.g. "PHY250173"
    * - allocation_type (string) e.g. "Accelerate", "Explore"
    * - grant_type    (string) e.g. "Dissertation or Thesis"
-   * - title         (string) free-form project title
+   * - title         (string) free-form project title.
    *
    * Additional keys may be present and should be passed through opaquely.
    *
@@ -39,38 +39,7 @@ class AllocationsClient {
    *   success ([]) from failure (null) — they have different semantics.
    */
   public function getProjectsForUser(string $username): ?array {
-    $apiKey = $this->getApiKey();
-    if (!$apiKey) {
-      return NULL;
-    }
-    $url = self::BASE . '/identity/profiles/v1/people/' . rawurlencode($username) . '?projects=1';
-    try {
-      $response = $this->http->request('GET', $url, [
-        'headers' => [
-          'XA-API-KEY' => $apiKey,
-          'XA-REQUESTER' => 'MATCH',
-          'Content-Type' => 'application/json',
-        ],
-        'http_errors' => FALSE,
-        'timeout' => 8,
-      ]);
-    }
-    catch (GuzzleException $e) {
-      $this->loggerFactory->get('access_affinitygroup')
-        ->error('Identity API HTTP error for user @u: @msg', [
-          '@u' => $username, '@msg' => $e->getMessage(),
-        ]);
-      return NULL;
-    }
-    $status = $response->getStatusCode();
-    if ($status !== 200) {
-      $this->loggerFactory->get('access_affinitygroup')
-        ->warning('Identity API HTTP @status for user @u', [
-          '@status' => $status, '@u' => $username,
-        ]);
-      return NULL;
-    }
-    $data = json_decode((string) $response->getBody(), TRUE);
+    $data = $this->getJson('?projects=1', $username, '');
     if (!is_array($data) || !array_key_exists('projects', $data) || !is_array($data['projects'])) {
       return NULL;
     }
@@ -93,40 +62,10 @@ class AllocationsClient {
    * array of resources on success.
    *
    * @return array<int, array<string, mixed>>|null
+   *   The resources array on success (may be empty), or NULL on failure.
    */
   public function getResourcesForUser(string $username): ?array {
-    $apiKey = $this->getApiKey();
-    if (!$apiKey) {
-      return NULL;
-    }
-    $url = self::BASE . '/identity/profiles/v1/people/' . rawurlencode($username) . '?resources=1';
-    try {
-      $response = $this->http->request('GET', $url, [
-        'headers' => [
-          'XA-API-KEY' => $apiKey,
-          'XA-REQUESTER' => 'MATCH',
-          'Content-Type' => 'application/json',
-        ],
-        'http_errors' => FALSE,
-        'timeout' => 8,
-      ]);
-    }
-    catch (GuzzleException $e) {
-      $this->loggerFactory->get('access_affinitygroup')
-        ->error('Identity API HTTP error (resources) for user @u: @msg', [
-          '@u' => $username, '@msg' => $e->getMessage(),
-        ]);
-      return NULL;
-    }
-    $status = $response->getStatusCode();
-    if ($status !== 200) {
-      $this->loggerFactory->get('access_affinitygroup')
-        ->warning('Identity API HTTP @status (resources) for user @u', [
-          '@status' => $status, '@u' => $username,
-        ]);
-      return NULL;
-    }
-    $data = json_decode((string) $response->getBody(), TRUE);
+    $data = $this->getJson('?resources=1', $username, 'resources');
     if (!is_array($data)
         || !array_key_exists('resources', $data)
         || !is_array($data['resources'])) {
@@ -154,11 +93,81 @@ class AllocationsClient {
    *   !== NULL` to decide whether to display a reason message.
    */
   public function getEligibilityForUser(string $username): ?array {
+    $data = $this->getJson('', $username, 'eligibility');
+    if (!is_array($data) || !array_key_exists('isEligible', $data)) {
+      return NULL;
+    }
+    $eligible = ($data['isEligible'] === 'yes');
+    $reason = $eligible ? NULL : (string) ($data['eligibleReason'] ?? '');
+    return ['eligible' => $eligible, 'reason' => $reason ?: NULL];
+  }
+
+  /**
+   * Returns the user's RP-issued site logins, keyed by resource id.
+   *
+   * GET /identity/profiles/v1/people/{username}/site_logins.
+   *
+   * The API returns a top-level list of organizations, each with a `logins`
+   * list. The result is flattened to [ciderResourceId => username]. Logins
+   * without a usable ciderResourceId or a non-empty username are skipped.
+   * A non-list top-level body (for example an error object or a shape change)
+   * is treated as failure.
+   *
+   * @return array<string, string>|null
+   *   Map of resource id to RP login username (may be empty), or NULL on any
+   *   failure (missing API key, HTTP error, non-200, malformed JSON, or a
+   *   non-list top-level body).
+   */
+  public function getSiteLoginsForUser(string $username): ?array {
+    $data = $this->getJson('/site_logins', $username, 'site logins');
+    if (!is_array($data) || !array_is_list($data)) {
+      return NULL;
+    }
+    $logins = [];
+    foreach ($data as $org) {
+      if (!is_array($org) || !isset($org['logins']) || !is_array($org['logins'])) {
+        continue;
+      }
+      foreach ($org['logins'] as $login) {
+        if (!is_array($login) || !isset($login['username']) || !is_string($login['username'])) {
+          continue;
+        }
+        $name = trim($login['username']);
+        if ($name === '') {
+          continue;
+        }
+        $cider = $login['ciderResourceId'] ?? NULL;
+        if (!is_string($cider) || trim($cider) === '') {
+          continue;
+        }
+        $logins[$cider] = $name;
+      }
+    }
+    return $logins;
+  }
+
+  /**
+   * Performs an authenticated GET against the identity profiles API.
+   *
+   * @param string $suffix
+   *   Appended to /identity/profiles/v1/people/{username} (a path segment or
+   *   query string, or empty).
+   * @param string $username
+   *   The ACCESS username.
+   * @param string $context
+   *   Short label included in log messages, or empty for none.
+   *
+   * @return mixed
+   *   The decoded JSON, or NULL on missing API key, HTTP exception, non-200
+   *   response, or invalid JSON.
+   */
+  private function getJson(string $suffix, string $username, string $context): mixed {
     $apiKey = $this->getApiKey();
     if (!$apiKey) {
       return NULL;
     }
-    $url = self::BASE . '/identity/profiles/v1/people/' . rawurlencode($username);
+    $label = $context !== '' ? ' (' . $context . ')' : '';
+    $url = self::BASE . '/identity/profiles/v1/people/' . rawurlencode($username) . $suffix;
     try {
       $response = $this->http->request('GET', $url, [
         'headers' => [
@@ -172,28 +181,32 @@ class AllocationsClient {
     }
     catch (GuzzleException $e) {
       $this->loggerFactory->get('access_affinitygroup')
-        ->error('Identity API HTTP error for user @u (eligibility): @msg', [
-          '@u' => $username, '@msg' => $e->getMessage(),
+        ->error('Identity API HTTP error@label for user @u: @msg', [
+          '@label' => $label,
+          '@u' => $username,
+          '@msg' => $e->getMessage(),
         ]);
       return NULL;
     }
     $status = $response->getStatusCode();
     if ($status !== 200) {
       $this->loggerFactory->get('access_affinitygroup')
-        ->warning('Identity API HTTP @status for user @u (eligibility)', [
-          '@status' => $status, '@u' => $username,
+        ->warning('Identity API HTTP @status@label for user @u', [
+          '@status' => $status,
+          '@label' => $label,
+          '@u' => $username,
         ]);
       return NULL;
     }
-    $data = json_decode((string) $response->getBody(), TRUE);
-    if (!is_array($data) || !array_key_exists('isEligible', $data)) {
-      return NULL;
-    }
-    $eligible = ($data['isEligible'] === 'yes');
-    $reason = $eligible ? NULL : (string) ($data['eligibleReason'] ?? '');
-    return ['eligible' => $eligible, 'reason' => $reason ?: NULL];
+    return json_decode((string) $response->getBody(), TRUE);
   }
 
+  /**
+   * Reads the RAMPS API key from private secrets.json.
+   *
+   * @return string|null
+   *   The API key, or NULL when secrets are unavailable or malformed.
+   */
   private function getApiKey(): ?string {
     $base = $this->fileSystem->realpath('private://');
     if ($base === FALSE) {

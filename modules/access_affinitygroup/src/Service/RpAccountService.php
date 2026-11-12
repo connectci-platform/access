@@ -106,6 +106,11 @@ class RpAccountService {
    * pruned. If the identity API itself fails (returns null), the entire
    * refresh is aborted with no DB writes and no marker change.
    *
+   * rp_username comes from the site_logins API (the login on each resource),
+   * not from xdusage's portal_username (the ACCESS username). If that API
+   * fails, existing rp_username values are preserved. The API is only called
+   * when there is at least one row to upsert.
+   *
    * Skips users whose Drupal account name does not end in @access-ci.org.
    */
   public function refreshUserRpAccounts(int $uid): void {
@@ -201,32 +206,49 @@ class RpAccountService {
       }
     }
 
+    // 5b. Per-resource login names: [info_resource_id => login username] from
+    // the site_logins API. This is the ONLY source of rp_username; the
+    // xdusage portal_username is the ACCESS username, not the login on the
+    // resource. The call is skipped when there are no rows to upsert, which
+    // avoids an extra identity API request (8-second timeout) for users with
+    // no grant on a known resource. NULL (API failure, or skipped) is
+    // non-fatal: rp_username is then left out of the upsert so any stored
+    // value is preserved.
+    $siteLogins = $work ? $this->allocations->getSiteLoginsForUser($username) : NULL;
+
     // 6. Fetch per-user account data + upsert.
     $now = $this->time->getRequestTime();
     foreach ($work as $w) {
       $acct = $this->xdusage->getAccountForUser($w['pid'], $w['rid'], $personId);
-      $rpUsername = $acct['portal_username'] ?? NULL;
       $accountState = $acct['account_state'] ?? NULL;
       $spState = $acct['sp_state'] ?? NULL;
+
+      $fields = [
+        'project_id' => $w['pid'],
+        'resource_id' => $w['rid'],
+        'grant_title' => $w['title'] !== '' ? mb_substr($w['title'], 0, 255) : NULL,
+        'account_state' => $accountState,
+        'sp_state' => $spState,
+        'project_balance' => $w['tuple']['project_balance'] ?? NULL,
+        'project_end' => $w['tuple']['project_end'] ?? NULL,
+        'project_state' => $w['tuple']['project_state'] ?? NULL,
+        'is_expired' => !empty($w['tuple']['is_expired']) ? 1 : 0,
+        'billable_unit' => $resourceUnits[$w['iri']] ?? ($w['tuple']['billable_unit'] ?? NULL),
+        'synced_at' => $now,
+      ];
+      // rp_username is the resource-local login from the site_logins API,
+      // never the ACCESS portal username. A resource with no login stores
+      // NULL. When the API failed ($siteLogins === NULL) the key is omitted
+      // so an existing stored value survives.
+      if (is_array($siteLogins)) {
+        $fields['rp_username'] = $siteLogins[$w['iri']] ?? NULL;
+      }
 
       $this->db->merge(self::TABLE)
         ->keys([
           'uid' => $uid, 'rp_nid' => $w['rp_nid'], 'grant_number' => $w['gn'],
         ])
-        ->fields([
-          'project_id' => $w['pid'],
-          'resource_id' => $w['rid'],
-          'grant_title' => $w['title'] !== '' ? mb_substr($w['title'], 0, 255) : NULL,
-          'rp_username' => $rpUsername,
-          'account_state' => $accountState,
-          'sp_state' => $spState,
-          'project_balance' => $w['tuple']['project_balance'] ?? NULL,
-          'project_end' => $w['tuple']['project_end'] ?? NULL,
-          'project_state' => $w['tuple']['project_state'] ?? NULL,
-          'is_expired' => !empty($w['tuple']['is_expired']) ? 1 : 0,
-          'billable_unit' => $resourceUnits[$w['iri']] ?? ($w['tuple']['billable_unit'] ?? NULL),
-          'synced_at' => $now,
-        ])
+        ->fields($fields)
         ->execute();
     }
 
