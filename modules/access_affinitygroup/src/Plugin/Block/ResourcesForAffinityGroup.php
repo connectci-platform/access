@@ -32,6 +32,15 @@ class ResourcesForAffinityGroup extends BlockBase {
     }
     // Visibility depends on the node's privacy and coordinators.
     $cache->addCacheableDependency($node);
+    // The block runs on any route with an affinity group node parameter, so
+    // do not rely on the page's own access check to keep non-members out.
+    $view_access = $node->access('view', NULL, TRUE);
+    $cache->addCacheableDependency($view_access);
+    if (!$view_access->isAllowed()) {
+      $build = [];
+      $cache->applyTo($build);
+      return $build;
+    }
     $cache->addCacheTags(['webform_submission_list']);
 
     // Load field_resources_entity_reference field.
@@ -69,13 +78,13 @@ class ResourcesForAffinityGroup extends BlockBase {
     }
     $field_resources_entity_reference = array_values($field_resources_entity_reference);
 
-    // Only administrators and this group's coordinators may allow resources.
+    // Only administrators and this group's coordinators see pending resources
+    // and may allow them.
     $user = \Drupal::currentUser();
     $roles = $user->getRoles();
     $coordinator_ids = array_map('intval', array_column($node->get('field_coordinator')->getValue(), 'target_id'));
     $is_coordinator = $user->isAuthenticated() && in_array((int) $user->id(), $coordinator_ids, TRUE);
     $can_allow = in_array('administrator', $roles) || $is_coordinator;
-    $can_see_pending = $can_allow || in_array('match_pm', $roles);
 
     if (array_key_exists(0, $field_resources_entity_reference)) {
       $rendered = '<h2 class="text-white-er text-xl font-semibold border-bottom pb-2 bg-dark-teal py-2 px-4">Knowledge Base Resources</h2>';
@@ -137,22 +146,19 @@ class ResourcesForAffinityGroup extends BlockBase {
             }
 
             if ($submission_data['resource_allowed_on_affinity_group'] == 0) {
-              // Pending resources are visible to admins, coordinators of this
-              // group and match PMs only.
-              if (!$can_see_pending) {
+              // Pending resources are visible only to administrators and this
+              // group's coordinators, who also get the Allow link.
+              if (!$can_allow) {
                 continue;
               }
-              // Only those who can edit the submission get the link.
-              if ($can_allow) {
-                $needs_approval = [
-                  '#type' => 'link',
-                  '#title' => '⚠️ Allow on this Affinity Group ⚠️ ',
-                  '#url' => Url::fromRoute('entity.webform_submission.edit_form', ['webform' => 'resource', 'webform_submission' => $value['target_id']]),
-                  '#attributes' => ['class' => ['text-red-500', 'font-bold']],
-                ];
+              $needs_approval = [
+                '#type' => 'link',
+                '#title' => '⚠️ Allow on this Affinity Group ⚠️ ',
+                '#url' => Url::fromRoute('entity.webform_submission.edit_form', ['webform' => 'resource', 'webform_submission' => $value['target_id']]),
+                '#attributes' => ['class' => ['text-red-500', 'font-bold']],
+              ];
 
-                $needs_approval = \Drupal::service('renderer')->render($needs_approval)->__toString();
-              }
+              $needs_approval = \Drupal::service('renderer')->render($needs_approval)->__toString();
             }
           }
         }
