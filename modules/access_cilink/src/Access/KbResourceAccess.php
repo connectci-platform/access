@@ -18,9 +18,10 @@ use Drupal\webform\WebformSubmissionInterface;
  * user owns it or is an administrator or kb_pm, or through a private affinity
  * group the resource is linked to (referenced in
  * field_resources_entity_reference or tagged via the affinity_group term).
- * A private group (field_ag_private = 1) grants access to its members only when
- * the resource is allowed on affinity groups, and to its coordinators always.
- * Public groups never grant access.
+ * A private group (field_ag_private = 1) grants access to its members when the
+ * resource is approved or allowed on affinity groups (the allowed flag only
+ * matters while the resource is pending), and to its coordinators always.
+ * Public and unpublished groups never grant access.
  */
 class KbResourceAccess {
 
@@ -73,13 +74,17 @@ class KbResourceAccess {
     if ($uid > 0) {
       $data = $submission->getData();
       $allowed_on_group = (int) ($data['resource_allowed_on_affinity_group'] ?? 0) === 1;
+      $approved = (int) ($data['approved'] ?? 0) === 1;
       foreach ($this->loadGroups($submission) as $node) {
         // Toggling field_ag_private or editing membership must invalidate.
         $cacheability->addCacheableDependency($node);
         if ((int) $node->get('field_ag_private')->value !== 1) {
           continue;
         }
-        $is_member = $allowed_on_group
+        // The group page lists every approved resource and the form hides the
+        // allowed checkbox once approved, so approval opens it to members. The
+        // allowed flag only matters while the resource is pending.
+        $is_member = ($approved || $allowed_on_group)
           && in_array($uid, $this->referencedUids($node, 'field_ag_private_users'), TRUE);
         // Coordinators approve the resource, so they see it while pending
         // regardless of the allowed checkbox.
@@ -99,7 +104,8 @@ class KbResourceAccess {
    *
    * A group is linked when it references the submission in
    * field_resources_entity_reference, or is tagged (field_affinity_group) with
-   * one of the submission's affinity_group term IDs.
+   * one of the submission's affinity_group term IDs. Unpublished groups are
+   * skipped.
    *
    * @return \Drupal\node\NodeInterface[]
    *   The distinct group nodes.
@@ -112,6 +118,7 @@ class KbResourceAccess {
     $nids = $storage->getQuery()
       ->accessCheck(FALSE)
       ->condition('type', 'affinity_group')
+      ->condition('status', 1)
       ->condition('field_resources_entity_reference', $submission->id())
       ->execute();
 
@@ -123,6 +130,7 @@ class KbResourceAccess {
       $tagged = $storage->getQuery()
         ->accessCheck(FALSE)
         ->condition('type', 'affinity_group')
+        ->condition('status', 1)
         ->condition('field_affinity_group', $tids, 'IN')
         ->execute();
       $nids = array_unique(array_merge(array_values($nids), array_values($tagged)));

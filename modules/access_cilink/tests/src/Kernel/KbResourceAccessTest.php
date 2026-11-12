@@ -206,12 +206,13 @@ class KbResourceAccessTest extends KbResourceKernelTestBase {
   }
 
   /**
-   * Affinity group exception: members only, and only when allowed on the AG.
+   * Affinity group exception: members only, for pending and approved resources.
    */
   public function testPrivateAffinityGroupException(): void {
     $member = $this->createUser();
     $non_member = $this->createUser();
 
+    // Pending: the allowed flag opens it to members.
     $allowed = $this->createResource([
       'approved' => 0,
       'resource_allowed_on_affinity_group' => 1,
@@ -222,14 +223,74 @@ class KbResourceAccessTest extends KbResourceKernelTestBase {
     $this->assertStatus(403, $allowed, self::SUPPORT_HOST, $non_member);
     $this->assertStatus(403, $allowed);
 
-    // The exception overrides private too.
+    // Approved and private with the allowed flag unset, which is what the form
+    // produces: the exception overrides private for members.
     $private = $this->createResource([
       'private' => 1,
-      'resource_allowed_on_affinity_group' => 1,
+      'resource_allowed_on_affinity_group' => 0,
     ]);
     $this->createPrivateGroup($private, [$member]);
     $this->assertStatus(200, $private, self::SUPPORT_HOST, $member);
     $this->assertStatus(403, $private, self::SUPPORT_HOST, $non_member);
+    $this->assertStatus(403, $private);
+  }
+
+  /**
+   * Approved private resources open to members without the allowed flag.
+   */
+  public function testApprovedPrivateResourceOpenToMembers(): void {
+    $member = $this->createUser();
+    $stranger = $this->createUser();
+    $submission = $this->createResource([
+      'approved' => 1,
+      'private' => 1,
+      'resource_allowed_on_affinity_group' => 0,
+    ]);
+    $this->createPrivateGroup($submission, [$member]);
+
+    $this->assertStatus(200, $submission, self::SUPPORT_HOST, $member);
+    $this->assertStatus(403, $submission, self::SUPPORT_HOST, $stranger);
+    $this->assertStatus(403, $submission);
+  }
+
+  /**
+   * Members of an unpublished private group lose access, as do coordinators.
+   */
+  public function testUnpublishedGroupDoesNotGrantAccess(): void {
+    $member = $this->createUser();
+    $coordinator = $this->createUser();
+    $pending = $this->createResource([
+      'approved' => 0,
+      'resource_allowed_on_affinity_group' => 1,
+    ]);
+    $approved_private = $this->createResource([
+      'private' => 1,
+      'resource_allowed_on_affinity_group' => 0,
+    ]);
+    $groups = [];
+    foreach ([$pending, $approved_private] as $submission) {
+      $group = $this->createGroup(1, [$member], [$coordinator], $submission);
+      $groups[] = $group;
+      $this->assertStatus(200, $submission, self::SUPPORT_HOST, $member);
+      $this->assertStatus(200, $submission, self::SUPPORT_HOST, $coordinator);
+
+      $group->setUnpublished()->save();
+      $this->assertStatus(403, $submission, self::SUPPORT_HOST, $member);
+      $this->assertStatus(403, $submission, self::SUPPORT_HOST, $coordinator);
+    }
+
+    // Publishing the group again flips the result back.
+    foreach ($groups as $i => $group) {
+      $submission = [$pending, $approved_private][$i];
+      $result = $this->container->get('access_cilink.kb_resource_access')
+        ->access($submission->id(), $member);
+      $this->assertTrue($result->isForbidden());
+      $this->assertContains('node_list:affinity_group', $result->getCacheTags());
+
+      $group->setPublished()->save();
+      $this->assertStatus(200, $submission, self::SUPPORT_HOST, $member);
+      $this->assertStatus(200, $submission, self::SUPPORT_HOST, $coordinator);
+    }
   }
 
   /**

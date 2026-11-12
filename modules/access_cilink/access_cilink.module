@@ -7,6 +7,7 @@
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Render\Markup;
+use Drupal\Core\Session\AccountInterface;
 use Drupal\node\Entity\Node;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\user\Entity\User;
@@ -571,10 +572,155 @@ function access_cilink_form_alter(&$form, FormStateInterface $form_state, $form_
       $form['elements']['approved']['#disabled'] = FALSE;
     }
 
+    access_cilink_restrict_allowed_on_group($form, $form_state, $form_id);
+
     $form['actions']['submit']['#submit'][] = 'access_cilink_webform_submission_resource_submit';
   }
 }
 
+
+/**
+ * Restricts "Resource allowed on Affinity Group" on the resource webform.
+ *
+ * Allowing a resource on a private affinity group is the coordinator's
+ * approval step, so the submitter must not be able to tick it. On the edit
+ * form the tagged group is known; on the add form it is picked in the
+ * browser, so the element is shown to anyone who coordinates a group and the
+ * chosen group is checked in access_cilink_allowed_on_group_validate().
+ */
+function access_cilink_restrict_allowed_on_group(array &$form, FormStateInterface $form_state, string $form_id): void {
+  if (!isset($form['elements']['resource_allowed_on_affinity_group'])) {
+    return;
+  }
+  $account = \Drupal::currentUser();
+  if ($form_id == 'webform_submission_resource_edit_form') {
+    $submission = $form_state->getFormObject()->getEntity();
+    $can_allow = access_cilink_user_can_allow_on_groups($account, (array) $submission->getElementData('affinity_group'));
+  }
+  else {
+    $can_allow = access_cilink_user_can_allow_on_groups($account, [])
+      || access_cilink_user_coordinates_any_group($account);
+  }
+  $element = &$form['elements']['resource_allowed_on_affinity_group'];
+  $element['#access'] = ($element['#access'] ?? TRUE) && $can_allow;
+  $form['#validate'][] = 'access_cilink_allowed_on_group_validate';
+}
+
+/**
+ * Normalizes affinity group term IDs to a sorted list of unique integers.
+ *
+ * @param mixed $tids
+ *   A term ID, a list of term IDs, or NULL.
+ *
+ * @return int[]
+ *   The term IDs.
+ */
+function access_cilink_normalize_tids($tids): array {
+  $tids = array_values(array_unique(array_filter(array_map('intval', (array) $tids))));
+  sort($tids);
+  return $tids;
+}
+
+/**
+ * Whether a user may allow a resource on the given affinity groups.
+ *
+ * Administrators and KB PMs always may. Anyone else must coordinate every
+ * affinity_group node tagged with one of the terms, and at least one such
+ * node must exist.
+ *
+ * @param \Drupal\Core\Session\AccountInterface $account
+ *   The user.
+ * @param array $tids
+ *   Affinity group term IDs from the submission's affinity_group element.
+ */
+function access_cilink_user_can_allow_on_groups(AccountInterface $account, array $tids): bool {
+  $roles = $account->getRoles();
+  if (in_array('administrator', $roles, TRUE) || in_array('kb_pm', $roles, TRUE)) {
+    return TRUE;
+  }
+  $tids = access_cilink_normalize_tids($tids);
+  if (!$tids || !$account->isAuthenticated()) {
+    return FALSE;
+  }
+  $storage = \Drupal::entityTypeManager()->getStorage('node');
+  // accessCheck(FALSE): coordinators are checked explicitly below.
+  $nids = $storage->getQuery()
+    ->accessCheck(FALSE)
+    ->condition('type', 'affinity_group')
+    ->condition('field_affinity_group', $tids, 'IN')
+    ->execute();
+  if (!$nids) {
+    return FALSE;
+  }
+  $uid = (int) $account->id();
+  foreach ($storage->loadMultiple($nids) as $node) {
+    if (!$node->hasField('field_coordinator')) {
+      return FALSE;
+    }
+    $coordinators = array_map('intval', array_column($node->get('field_coordinator')->getValue(), 'target_id'));
+    if (!in_array($uid, $coordinators, TRUE)) {
+      return FALSE;
+    }
+  }
+  return TRUE;
+}
+
+/**
+ * Whether a user coordinates at least one affinity group.
+ */
+function access_cilink_user_coordinates_any_group(AccountInterface $account): bool {
+  if (!$account->isAuthenticated()) {
+    return FALSE;
+  }
+  $count = \Drupal::entityTypeManager()->getStorage('node')->getQuery()
+    ->accessCheck(FALSE)
+    ->condition('type', 'affinity_group')
+    ->condition('field_coordinator', $account->id())
+    ->count()
+    ->execute();
+  return $count > 0;
+}
+
+/**
+ * Validates "Resource allowed on Affinity Group" against the chosen group.
+ *
+ * The flag may only be set by someone who can allow on the submitted group.
+ * A user who ticked it themselves gets an error. When the element was hidden,
+ * a value the coordinator already set is kept as long as the group is
+ * unchanged; moving the resource to another group resets it to 0, so the new
+ * group's coordinator has to allow it again.
+ */
+function access_cilink_allowed_on_group_validate(array &$form, FormStateInterface $form_state) {
+  if ((int) $form_state->getValue('resource_allowed_on_affinity_group') !== 1) {
+    return;
+  }
+  $account = \Drupal::currentUser();
+  $tids = access_cilink_normalize_tids($form_state->getValue('affinity_group'));
+  if (access_cilink_user_can_allow_on_groups($account, $tids)) {
+    return;
+  }
+
+  /** @var \Drupal\webform\WebformSubmissionInterface $submission */
+  $submission = $form_state->getFormObject()->getEntity();
+  $visible = $form['elements']['resource_allowed_on_affinity_group']['#access'] ?? TRUE;
+  if (!$visible && !$submission->isNew()) {
+    // The form entity may already hold the submitted values, so compare
+    // against the data as loaded. (loadUnchanged() does not load webform
+    // submission data, so it cannot be used here.)
+    $original = $submission->getOriginalData();
+    if ((int) ($original['resource_allowed_on_affinity_group'] ?? 0) === 1
+      && access_cilink_normalize_tids($original['affinity_group'] ?? NULL) === $tids) {
+      return;
+    }
+  }
+
+  if ($visible) {
+    $form_state->setErrorByName('resource_allowed_on_affinity_group', t('You can only allow a resource on an Affinity Group you coordinate.'));
+    return;
+  }
+  $form_state->setValue('resource_allowed_on_affinity_group', 0);
+  $submission->setElementData('resource_allowed_on_affinity_group', 0);
+}
 
 /**
  * Webform submission validate.

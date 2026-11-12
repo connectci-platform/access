@@ -93,6 +93,7 @@ class ResourcesForAffinityGroupTest extends KernelTestBase implements TrustedCal
     }
     foreach ([
       'field_coordinator' => 'user',
+      'field_ag_private_users' => 'user',
       'field_resources_entity_reference' => 'webform_submission',
     ] as $name => $target) {
       $this->addNodeField($name, 'entity_reference', -1, ['target_type' => $target]);
@@ -152,7 +153,7 @@ YAML,
   /**
    * Creates an affinity group node and makes it the current route's node.
    */
-  protected function createGroup(bool $private, array $referenced = [], array $coordinators = []): NodeInterface {
+  protected function createGroup(bool $private, array $referenced = [], array $coordinators = [], array $members = []): NodeInterface {
     $group = Node::create([
       'type' => 'affinity_group',
       'title' => 'Access Group',
@@ -162,6 +163,7 @@ YAML,
       'field_use_ext_email_list' => 0,
       'field_resources_entity_reference' => $referenced,
       'field_coordinator' => array_map(fn($account) => ['target_id' => $account->id()], $coordinators),
+      'field_ag_private_users' => array_map(fn($account) => ['target_id' => $account->id()], $members),
     ]);
     $group->save();
 
@@ -249,14 +251,15 @@ YAML,
    * Allowed unapproved resources on a private group show without a link.
    */
   public function testAllowedUnapprovedShownOnPrivateGroup(): void {
-    $group = $this->createGroup(TRUE);
+    $member = $this->createUser(['access content']);
+    $group = $this->createGroup(TRUE, [], [], [$member]);
     $this->createResource('Allowed resource', [
       'approved' => 0,
       'resource_allowed_on_affinity_group' => 1,
       'affinity_group' => $this->groupTid($group),
     ]);
 
-    $html = $this->renderBlock($this->createUser(['access content']));
+    $html = $this->renderBlock($member);
     $this->assertStringContainsString('Allowed resource', $html);
     $this->assertStringNotContainsString(self::ALLOW_TEXT, $html);
   }
@@ -264,8 +267,8 @@ YAML,
   /**
    * Creates a private group with one pending, not-allowed resource.
    */
-  protected function pendingSetup(array $coordinators = []): NodeInterface {
-    $group = $this->createGroup(TRUE, [], $coordinators);
+  protected function pendingSetup(array $coordinators = [], array $members = []): NodeInterface {
+    $group = $this->createGroup(TRUE, [], $coordinators, $members);
     $this->createResource('Disallowed resource', [
       'approved' => 0,
       'resource_allowed_on_affinity_group' => 0,
@@ -288,12 +291,13 @@ YAML,
    * Regular users never see not-allowed pending resources.
    */
   public function testDisallowedHiddenFromMembers(): void {
-    $this->pendingSetup();
-    $this->assertStringNotContainsString('Disallowed resource', $this->renderBlock($this->createUser(['access content'])));
+    $member = $this->createUser(['access content']);
+    $this->pendingSetup([], [$member]);
+    $this->assertStringNotContainsString('Disallowed resource', $this->renderBlock($member));
   }
 
   /**
-   * A leader of a different group sees nothing.
+   * A leader of a different group, who is only a member here, sees nothing.
    */
   public function testLeaderOfOtherGroupSeesNothing(): void {
     $leader = $this->userWithRole('affinity_group_leader');
@@ -305,7 +309,7 @@ YAML,
       'field_coordinator' => [['target_id' => $leader->id()]],
     ]);
     $other->save();
-    $this->pendingSetup();
+    $this->pendingSetup([], [$leader]);
     $html = $this->renderBlock($leader);
     $this->assertStringNotContainsString('Disallowed resource', $html);
     $this->assertStringNotContainsString(self::ALLOW_TEXT, $html);
@@ -323,12 +327,14 @@ YAML,
   }
 
   /**
-   * Match PMs see the resource but get no Allow link.
+   * Match PMs do not see pending resources that are not allowed.
    */
-  public function testMatchPmSeesNoAllowLink(): void {
-    $this->pendingSetup();
-    $html = $this->renderBlock($this->userWithRole('match_pm'));
-    $this->assertStringContainsString('Disallowed resource', $html);
+  public function testMatchPmDoesNotSeePending(): void {
+    $match_pm = $this->userWithRole('match_pm');
+    // A member, so only the role rule is under test.
+    $this->pendingSetup([], [$match_pm]);
+    $html = $this->renderBlock($match_pm);
+    $this->assertStringNotContainsString('Disallowed resource', $html);
     $this->assertStringNotContainsString(self::ALLOW_TEXT, $html);
   }
 
@@ -336,8 +342,11 @@ YAML,
    * Administrators see the resource with the Allow link.
    */
   public function testAdministratorSeesAllowLink(): void {
-    $submission_group = $this->pendingSetup();
-    $html = $this->renderBlock($this->userWithRole('administrator'));
+    $admin = $this->userWithRole('administrator');
+    // This test's administrator role lacks "bypass node access" (which the
+    // real role has), so make it a member to pass the group view check.
+    $submission_group = $this->pendingSetup([], [$admin]);
+    $html = $this->renderBlock($admin);
     $this->assertStringContainsString('Disallowed resource', $html);
     $this->assertStringContainsString(self::ALLOW_TEXT, $html);
     $this->assertStringContainsString('/edit', $html);
@@ -379,16 +388,29 @@ YAML,
   }
 
   /**
+   * A non-member gets an empty block on a private group; a member sees it.
+   */
+  public function testNonMemberSeesNothingOnPrivateGroup(): void {
+    $member = $this->createUser(['access content']);
+    $group = $this->createGroup(TRUE, [], [], [$member]);
+    $this->createResource('Approved resource', ['affinity_group' => $this->groupTid($group)]);
+
+    $this->assertSame('', trim($this->renderBlock($this->createUser(['access content']))));
+    $this->assertStringContainsString('Approved resource', $this->renderBlock($member));
+  }
+
+  /**
    * Un-ticking private clears the render-cached block.
    */
   public function testRenderCacheInvalidatedByNodeSave(): void {
-    $group = $this->createGroup(TRUE);
+    $member = $this->createUser(['access content']);
+    $group = $this->createGroup(TRUE, [], [], [$member]);
     $this->createResource('Cached resource', [
       'approved' => 0,
       'resource_allowed_on_affinity_group' => 1,
       'affinity_group' => $this->groupTid($group),
     ]);
-    $this->setCurrentUser($this->createUser(['access content']));
+    $this->setCurrentUser($member);
 
     $html = $this->renderCached();
     $this->assertStringContainsString('Cached resource', $html);
