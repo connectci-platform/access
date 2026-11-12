@@ -14,6 +14,7 @@ This directory contains the OpenAPI 3.0.3 specifications for the ACCESS APIs.
 - `events-api-2.4-openapi.yaml` - Events READ API v2.4 specification (YAML format) — start_date/end_date are true UTC instants; earlier versions stamped a `Z` on a site-local clock
 - `event-registration-api-1.0-openapi.yaml` - Event Registration API v1.0 specification (YAML format) — authenticated, acting-user registration endpoints
 - `kb-resources-api-1.0-openapi.yaml` - KB Resources API v1.0 specification (YAML format) — Knowledge Base resources (CI links) listing
+- `resources-api-1.0-openapi.yaml` - Resources API v1.0 specification (YAML format) — resource documentation, resource groups, and lookup by node ID
 
 ## Usage
 
@@ -27,6 +28,7 @@ These specifications are automatically loaded by the OpenAPI generator plugins:
 - `AccessEventsV24Generator` - Serves events v2.4 spec at `/openapi/access_events_v24`
 - `AccessEventRegistrationGenerator` - Serves event registration v1.0 spec at `/openapi/access_event_registration`
 - `AccessKbResourcesGenerator` - Serves KB resources spec at `/openapi/access_kb_resources`
+- `AccessResourcesGenerator` - Serves resources spec at `/openapi/access_resources`
 
 ## Endpoints
 
@@ -50,6 +52,11 @@ These specifications are automatically loaded by the OpenAPI generator plugins:
   - `DELETE /api/1.0/registrations/{registrant_id}` - cancel a registration
 - **KB Resources API (v1.0, public)**: `/api/1.0`
   - `GET /api/1.0/kb-resources` - list all approved Knowledge Base resources (CI links) for the requesting domain
+- **Resources API (v1.0, public)**: `/api/1.0`
+  - `GET /api/1.0/resources` - list resources (each item has `listed`)
+  - `GET /api/1.0/resources/{resource_id}` - resource detail by CIDER resource ID
+  - `GET /api/1.0/resources/node/{nid}` - resource detail by node ID
+  - `GET /api/1.0/resource-groups` - list resource groups
 
 ## OpenAPI Documentation
 
@@ -61,6 +68,7 @@ These specifications are automatically loaded by the OpenAPI generator plugins:
   - `/openapi/access_events_v23`
   - `/openapi/access_event_registration`
   - `/openapi/access_kb_resources`
+  - `/openapi/access_resources`
 
 - **Swagger UI**:
   - `/admin/config/services/openapi/swagger/access_announcements`
@@ -70,6 +78,8 @@ These specifications are automatically loaded by the OpenAPI generator plugins:
   - `/admin/config/services/openapi/swagger/access_events_v23`
   - `/admin/config/services/openapi/swagger/access_event_registration`
   - `/admin/config/services/openapi/swagger/access_kb_resources`
+  - `/admin/config/services/openapi/swagger/access_resources`
+  - `/api-docs/resources` (public Swagger UI for the Resources API)
 
 ## Maintenance
 
