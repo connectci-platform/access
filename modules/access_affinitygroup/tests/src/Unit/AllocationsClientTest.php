@@ -23,6 +23,9 @@ class AllocationsClientTest extends UnitTestCase {
 
   use ProphecyTrait;
 
+  /**
+   * Builds an AllocationsClient with mocked HTTP, file system, and logger.
+   */
   protected function makeClient($http, $secrets_content = '{"ramps_api_key":"test-ramps"}') {
     vfsStream::setup('private', NULL, ['.keys' => ['secrets.json' => $secrets_content]]);
 
@@ -40,6 +43,9 @@ class AllocationsClientTest extends UnitTestCase {
     );
   }
 
+  /**
+   * Verifies the projects request uses the correct URL and API headers.
+   */
   public function testGetProjectsForUserSendsCorrectHeaders(): void {
     $http = $this->prophesize(ClientInterface::class);
     $http->request(
@@ -56,7 +62,8 @@ class AllocationsClientTest extends UnitTestCase {
         'allocation_type' => 'Accelerate',
         'grant_type' => 'Dissertation or Thesis',
         'title' => 'Test',
-      ]],
+      ],
+      ],
     ])));
 
     $client = $this->makeClient($http->reveal());
@@ -65,6 +72,9 @@ class AllocationsClientTest extends UnitTestCase {
     $this->assertSame('PHY250173', $projects[0]['grant_number']);
   }
 
+  /**
+   * Verifies a non-200 response returns NULL.
+   */
   public function testGetProjectsForUserReturnsNullOnHttpError(): void {
     $http = $this->prophesize(ClientInterface::class);
     $http->request('GET', Argument::any(), Argument::any())
@@ -73,6 +83,9 @@ class AllocationsClientTest extends UnitTestCase {
     $this->assertNull($client->getProjectsForUser('foo'));
   }
 
+  /**
+   * Verifies a 200 body without a projects key returns NULL.
+   */
   public function testGetProjectsForUserReturnsNullWhenNoProjectsKey(): void {
     $http = $this->prophesize(ClientInterface::class);
     $http->request('GET', Argument::any(), Argument::any())
@@ -81,6 +94,9 @@ class AllocationsClientTest extends UnitTestCase {
     $this->assertNull($client->getProjectsForUser('aaadhavan'));
   }
 
+  /**
+   * Verifies a missing API key returns NULL without calling the API.
+   */
   public function testGetProjectsForUserReturnsNullWhenSecretsMissingKey(): void {
     $http = $this->prophesize(ClientInterface::class);
     // Should not be called when key is missing.
@@ -89,6 +105,9 @@ class AllocationsClientTest extends UnitTestCase {
     $this->assertNull($client->getProjectsForUser('foo'));
   }
 
+  /**
+   * Verifies malformed secrets JSON returns NULL without calling the API.
+   */
   public function testGetProjectsForUserReturnsNullWhenSecretsMalformed(): void {
     $http = $this->prophesize(ClientInterface::class);
     $http->request(Argument::cetera())->shouldNotBeCalled();
@@ -96,6 +115,9 @@ class AllocationsClientTest extends UnitTestCase {
     $this->assertNull($client->getProjectsForUser('foo'));
   }
 
+  /**
+   * Verifies a successful response with no projects returns an empty array.
+   */
   public function testGetProjectsForUserReturnsEmptyArrayWhenApiSucceedsWithZeroProjects(): void {
     $http = $this->prophesize(ClientInterface::class);
     $http->request('GET', Argument::any(), Argument::any())
@@ -104,6 +126,9 @@ class AllocationsClientTest extends UnitTestCase {
     $this->assertSame([], $client->getProjectsForUser('aaadhavan'));
   }
 
+  /**
+   * Verifies the resources array is returned on success.
+   */
   public function testGetResourcesForUserReturnsResourceArray(): void {
     $http = $this->prophesize(ClientInterface::class);
     $http->request(
@@ -130,6 +155,9 @@ class AllocationsClientTest extends UnitTestCase {
     $this->assertSame('delta-cpu.ncsa.access-ci.org', $resources[0]['cider_resource_id']);
   }
 
+  /**
+   * Verifies a non-200 response returns NULL for resources.
+   */
   public function testGetResourcesForUserReturnsNullOnHttpError(): void {
     $http = $this->prophesize(ClientInterface::class);
     $http->request('GET', Argument::any(), Argument::any())
@@ -189,12 +217,15 @@ class AllocationsClientTest extends UnitTestCase {
   /**
    * Builds a client whose HTTP call to site_logins returns the given response.
    */
-  protected function siteLoginsClient(Response $response, string $username = 'aaadhavan'): AllocationsClient {
+  protected function siteLoginsClient(Response $response): AllocationsClient {
     $http = $this->prophesize(ClientInterface::class);
     $http->request('GET', Argument::any(), Argument::any())->willReturn($response);
     return $this->makeClient($http->reveal());
   }
 
+  /**
+   * Verifies nested organization logins are flattened by ciderResourceId.
+   */
   public function testGetSiteLoginsForUserFlattensNestedOrgs(): void {
     $client = $this->siteLoginsClient(new Response(200, [], json_encode($this->siteLoginsFixture())));
     $logins = $client->getSiteLoginsForUser('aaadhavan');
@@ -205,48 +236,62 @@ class AllocationsClientTest extends UnitTestCase {
     $this->assertSame('hackwort', $logins['bridges2-rm.psc.access-ci.org']);
   }
 
-  public function testGetSiteLoginsForUserAddsResourceNameFallback(): void {
-    $client = $this->siteLoginsClient(new Response(200, [], json_encode($this->siteLoginsFixture())));
-    $logins = $client->getSiteLoginsForUser('aaadhavan');
-    $this->assertSame('ux454936', $logins['grid1.osg.xsede']);
-    $this->assertSame('hackwort', $logins['bridges2-rm.psc.xsede.org']);
-  }
-
-  public function testGetSiteLoginsForUserCiderIdWinsOverResourceNameCollision(): void {
-    // First login's resourceName equals the second login's ciderResourceId.
+  /**
+   * Verifies a login without ciderResourceId is skipped despite a resourceName.
+   */
+  public function testGetSiteLoginsForUserIgnoresLoginWithoutCiderIdEvenWithResourceName(): void {
     $payload = [[
       'organizationId' => 1,
       'logins' => [
         [
-          'resourceName' => 'shared.id',
-          'ciderResourceId' => 'first.access-ci.org',
-          'username' => 'wrong',
-        ],
-        [
-          'resourceName' => 'second.xsede.org',
-          'ciderResourceId' => 'shared.id',
-          'username' => 'right',
+          'resourceName' => 'orphan.xsede.org',
+          'username' => 'orphan',
         ],
       ],
     ],
     ];
     $client = $this->siteLoginsClient(new Response(200, [], json_encode($payload)));
     $logins = $client->getSiteLoginsForUser('aaadhavan');
-    $this->assertSame('right', $logins['shared.id']);
-    $this->assertSame('wrong', $logins['first.access-ci.org']);
-    $this->assertSame('right', $logins['second.xsede.org']);
+    $this->assertSame([], $logins);
+    $this->assertArrayNotHasKey('orphan.xsede.org', $logins);
   }
 
+  /**
+   * Verifies a 200 JSON object body (error envelope) returns NULL.
+   */
+  public function testGetSiteLoginsForUserReturnsNullForObjectBody(): void {
+    $client = $this->siteLoginsClient(new Response(200, [], '{"error":"Not authorized"}'));
+    $this->assertNull($client->getSiteLoginsForUser('aaadhavan'));
+  }
+
+  /**
+   * Verifies a single organization object instead of a list returns NULL.
+   */
+  public function testGetSiteLoginsForUserReturnsNullForSingleOrgObject(): void {
+    $body = '{"organizationId":1,"logins":[{"ciderResourceId":"x.access-ci.org","username":"u"}]}';
+    $client = $this->siteLoginsClient(new Response(200, [], $body));
+    $this->assertNull($client->getSiteLoginsForUser('aaadhavan'));
+  }
+
+  /**
+   * Verifies a 404 response returns NULL.
+   */
   public function testGetSiteLoginsForUserReturnsNullOn404(): void {
     $client = $this->siteLoginsClient(new Response(404, [], '{}'));
     $this->assertNull($client->getSiteLoginsForUser('nobody'));
   }
 
+  /**
+   * Verifies malformed JSON returns NULL.
+   */
   public function testGetSiteLoginsForUserReturnsNullOnMalformedJson(): void {
     $client = $this->siteLoginsClient(new Response(200, [], 'not-json{'));
     $this->assertNull($client->getSiteLoginsForUser('aaadhavan'));
   }
 
+  /**
+   * Verifies a missing API key returns NULL without calling the API.
+   */
   public function testGetSiteLoginsForUserReturnsNullWhenSecretsMissingKey(): void {
     $http = $this->prophesize(ClientInterface::class);
     $http->request(Argument::cetera())->shouldNotBeCalled();
@@ -254,6 +299,9 @@ class AllocationsClientTest extends UnitTestCase {
     $this->assertNull($client->getSiteLoginsForUser('aaadhavan'));
   }
 
+  /**
+   * Verifies a transport exception returns NULL.
+   */
   public function testGetSiteLoginsForUserReturnsNullOnGuzzleException(): void {
     $http = $this->prophesize(ClientInterface::class);
     $http->request('GET', Argument::any(), Argument::any())
@@ -262,11 +310,17 @@ class AllocationsClientTest extends UnitTestCase {
     $this->assertNull($client->getSiteLoginsForUser('aaadhavan'));
   }
 
+  /**
+   * Verifies an empty top-level list returns an empty array.
+   */
   public function testGetSiteLoginsForUserReturnsEmptyArrayForEmptyList(): void {
     $client = $this->siteLoginsClient(new Response(200, [], '[]'));
     $this->assertSame([], $client->getSiteLoginsForUser('aaadhavan'));
   }
 
+  /**
+   * Verifies malformed orgs and logins are skipped; usernames are trimmed.
+   */
   public function testGetSiteLoginsForUserSkipsInvalidEntries(): void {
     $payload = [
       ['organizationId' => 1],
@@ -290,6 +344,9 @@ class AllocationsClientTest extends UnitTestCase {
     $this->assertSame(['ok.access-ci.org' => 'padded'], $client->getSiteLoginsForUser('aaadhavan'));
   }
 
+  /**
+   * Verifies the site_logins URL is rawurlencoded and sends the API key.
+   */
   public function testGetSiteLoginsForUserRequestUrlAndHeaders(): void {
     $http = $this->prophesize(ClientInterface::class);
     $http->request(

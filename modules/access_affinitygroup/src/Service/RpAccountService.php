@@ -108,7 +108,8 @@ class RpAccountService {
    *
    * rp_username comes from the site_logins API (the login on each resource),
    * not from xdusage's portal_username (the ACCESS username). If that API
-   * fails, existing rp_username values are preserved.
+   * fails, existing rp_username values are preserved. The API is only called
+   * when there is at least one row to upsert.
    *
    * Skips users whose Drupal account name does not end in @access-ci.org.
    */
@@ -168,13 +169,6 @@ class RpAccountService {
       }
     }
 
-    // 2c. Per-resource login names: [info_resource_id => login username] from
-    // the site_logins API. This is the ONLY source of rp_username; the
-    // xdusage portal_username is the ACCESS username, not the login on the
-    // resource. NULL (API failure) is non-fatal: rp_username is then left
-    // out of the upsert so any stored value is preserved.
-    $siteLogins = $this->allocations->getSiteLoginsForUser($username);
-
     // 3. Cached projects map keyed by [grant_number][info_resource_id].
     $projectsMap = $this->xdusage->getProjectsMap();
 
@@ -211,6 +205,16 @@ class RpAccountService {
         ];
       }
     }
+
+    // 5b. Per-resource login names: [info_resource_id => login username] from
+    // the site_logins API. This is the ONLY source of rp_username; the
+    // xdusage portal_username is the ACCESS username, not the login on the
+    // resource. The call is skipped when there are no rows to upsert, which
+    // avoids an extra identity API request (8-second timeout) for users with
+    // no grant on a known resource. NULL (API failure, or skipped) is
+    // non-fatal: rp_username is then left out of the upsert so any stored
+    // value is preserved.
+    $siteLogins = $work ? $this->allocations->getSiteLoginsForUser($username) : NULL;
 
     // 6. Fetch per-user account data + upsert.
     $now = $this->time->getRequestTime();

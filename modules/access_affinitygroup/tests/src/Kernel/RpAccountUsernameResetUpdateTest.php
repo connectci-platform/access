@@ -3,6 +3,7 @@
 namespace Drupal\Tests\access_affinitygroup\Kernel;
 
 use Drupal\KernelTests\KernelTestBase;
+use Drupal\user\Entity\User;
 
 /**
  * Covers the update hook that clears the mis-sourced rp_username values.
@@ -11,16 +12,35 @@ use Drupal\KernelTests\KernelTestBase;
  */
 class RpAccountUsernameResetUpdateTest extends KernelTestBase {
 
+  /**
+   * {@inheritdoc}
+   */
   protected static $modules = [
     'access', 'access_affinitygroup', 'user', 'system', 'key',
   ];
 
+  /**
+   * {@inheritdoc}
+   */
   protected function setUp(): void {
     parent::setUp();
+    $this->installEntitySchema('user');
     $this->installSchema('access_affinitygroup', ['access_user_rp_account']);
     \Drupal::moduleHandler()->loadInclude('access_affinitygroup', 'install');
   }
 
+  /**
+   * Creates a user with the given account name and returns its uid.
+   */
+  private function makeUser(string $name): int {
+    $user = User::create(['name' => $name, 'mail' => $name . '@example.com', 'status' => 1]);
+    $user->save();
+    return (int) $user->id();
+  }
+
+  /**
+   * Inserts one access_user_rp_account row for the given user and grant.
+   */
   private function insertRow(int $uid, string $grant, ?string $rpUsername): void {
     \Drupal::database()->insert('access_user_rp_account')->fields([
       'uid' => $uid,
@@ -36,35 +56,61 @@ class RpAccountUsernameResetUpdateTest extends KernelTestBase {
     ])->execute();
   }
 
+  /**
+   * Returns every row, keyed by "uid:grant_number".
+   */
   private function snapshot(): array {
     $rows = \Drupal::database()->select('access_user_rp_account', 'a')
       ->fields('a')
       ->orderBy('uid')
+      ->orderBy('grant_number')
       ->execute()
-      ->fetchAllAssoc('uid');
-    return array_map(fn ($r) => (array) $r, $rows);
+      ->fetchAll();
+    $keyed = [];
+    foreach ($rows as $r) {
+      $keyed[$r->uid . ':' . $r->grant_number] = (array) $r;
+    }
+    return $keyed;
   }
 
-  public function testRpUsernamesAreClearedAndNothingElseChanges(): void {
-    $this->insertRow(1, 'AAA111', 'aaadhavan');
-    $this->insertRow(2, 'BBB222', 'someone');
-    $this->insertRow(3, 'CCC333', NULL);
+  /**
+   * Only rows holding the owner's own ACCESS username are cleared.
+   */
+  public function testOnlyOwnPortalUsernameIsCleared(): void {
+    $alice = $this->makeUser('aaadhavan@access-ci.org');
+    $walnut = $this->makeUser('test_walnut_pie@access-ci.org');
+    $nullUser = $this->makeUser('nullrow@access-ci.org');
+    $local = $this->makeUser('localuser');
+    $cross = $this->makeUser('crossuser@access-ci.org');
+
+    $this->insertRow($alice, 'AAA111', 'aaadhavan');
+    $this->insertRow($walnut, 'WWW111', 'walnut_alpha');
+    $this->insertRow($nullUser, 'NNN111', NULL);
+    $this->insertRow($local, 'LLL111', 'localuser');
+    // Matches a different user's portal username; must not be cleared.
+    $this->insertRow($cross, 'XXX111', 'aaadhavan');
     $before = $this->snapshot();
 
     $message = access_affinitygroup_update_10016();
-    $this->assertStringContainsString('on 2 access_user_rp_account rows', $message);
+    $this->assertStringContainsString('on 1 access_user_rp_account rows', $message);
 
     $after = $this->snapshot();
-    foreach ($after as $uid => $row) {
-      $this->assertNull($row['rp_username'], "uid $uid rp_username cleared");
-      $expected = $before[$uid];
-      $expected['rp_username'] = NULL;
-      $this->assertSame($expected, $row, "uid $uid other columns untouched");
-    }
+    $expected = $before;
+    $expected["$alice:AAA111"]['rp_username'] = NULL;
+    $this->assertSame($expected, $after);
+    $this->assertNull($after["$alice:AAA111"]['rp_username']);
+    $this->assertSame('walnut_alpha', $after["$walnut:WWW111"]['rp_username']);
+    $this->assertNull($after["$nullUser:NNN111"]['rp_username']);
+    $this->assertSame('localuser', $after["$local:LLL111"]['rp_username']);
+    $this->assertSame('aaadhavan', $after["$cross:XXX111"]['rp_username']);
   }
 
+  /**
+   * Re-running the update is a no-op.
+   */
   public function testSecondRunChangesNothing(): void {
-    $this->insertRow(1, 'AAA111', 'aaadhavan');
+    $alice = $this->makeUser('aaadhavan@access-ci.org');
+    $this->insertRow($alice, 'AAA111', 'aaadhavan');
     access_affinitygroup_update_10016();
     $afterFirst = $this->snapshot();
 

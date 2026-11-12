@@ -9,6 +9,7 @@ use Drupal\KernelTests\KernelTestBase;
 use Drupal\node\Entity\Node;
 use Drupal\node\Entity\NodeType;
 use Drupal\user\Entity\User;
+use Prophecy\Argument;
 use Prophecy\PhpUnit\ProphecyTrait;
 
 /**
@@ -297,9 +298,9 @@ class RpAccountServiceTest extends KernelTestBase {
     $user->save();
 
     $alloc = $this->prophesize(AllocationsClient::class);
-    $alloc->getProjectsForUser(\Prophecy\Argument::any())->shouldNotBeCalled();
+    $alloc->getProjectsForUser(Argument::any())->shouldNotBeCalled();
     $xd = $this->prophesize(XdusageClient::class);
-    $xd->getPersonByPortalUsername(\Prophecy\Argument::any())->shouldNotBeCalled();
+    $xd->getPersonByPortalUsername(Argument::any())->shouldNotBeCalled();
 
     $svc = $this->makeService($alloc->reveal(), $xd->reveal());
     $svc->refreshUserRpAccounts((int) $user->id());
@@ -336,7 +337,7 @@ class RpAccountServiceTest extends KernelTestBase {
     \Drupal::cache()->set('rp_account:user_synced:' . $user->id(), time(), time() + 86400);
 
     $alloc = $this->prophesize(AllocationsClient::class);
-    $alloc->getProjectsForUser(\Prophecy\Argument::any())->shouldNotBeCalled();
+    $alloc->getProjectsForUser(Argument::any())->shouldNotBeCalled();
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getProjectsMap()->shouldNotBeCalled();
 
@@ -381,11 +382,11 @@ class RpAccountServiceTest extends KernelTestBase {
     $alloc->getProjectsForUser('aaadhavan')->willReturn([
       ['grant_number' => 'PHY250173', 'title' => 'Halo', 'allocation_type' => 'Accelerate', 'grant_type' => 'Diss.'],
     ]);
-    $alloc->getResourcesForUser(\Prophecy\Argument::any())->willReturn([]);
-    $alloc->getSiteLoginsForUser(\Prophecy\Argument::any())->willReturn([]);
+    $alloc->getResourcesForUser(Argument::any())->willReturn([]);
+    $alloc->getSiteLoginsForUser(Argument::any())->willReturn([]);
 
     $xd = $this->prophesize(XdusageClient::class);
-    $xd->getPersonByPortalUsername(\Prophecy\Argument::any())->shouldNotBeCalled(); // person_id already on user
+    $xd->getPersonByPortalUsername(Argument::any())->shouldNotBeCalled(); // person_id already on user
     $xd->getProjectsMap()->willReturn([
       'PHY250173' => [
         'delta-cpu.ncsa.access-ci.org' => [
@@ -414,6 +415,38 @@ class RpAccountServiceTest extends KernelTestBase {
       ->execute()
       ->fetchCol();
     $this->assertEquals(['PHY250173'], $rows);
+  }
+
+  /**
+   * The site_logins API is not called when no grant maps to a resource node.
+   */
+  public function testRefreshSkipsSiteLoginsCallWhenNoWork(): void {
+    $user = User::create([
+      'name' => 'aaadhavan@access-ci.org',
+      'mail' => 'a@example.com',
+      'field_xdusage_person_id' => 297776,
+    ]);
+    $user->save();
+
+    $alloc = $this->prophesize(AllocationsClient::class);
+    $alloc->getProjectsForUser('aaadhavan')->willReturn([
+      ['grant_number' => 'PHY250173', 'title' => 'Halo', 'allocation_type' => 'Accelerate', 'grant_type' => 'Diss.'],
+    ]);
+    $alloc->getResourcesForUser(Argument::any())->willReturn([]);
+    $alloc->getSiteLoginsForUser(Argument::any())->shouldNotBeCalled();
+    $xd = $this->prophesize(XdusageClient::class);
+    // The grant maps to an info_resource_id that no published node has.
+    $xd->getProjectsMap()->willReturn([
+      'PHY250173' => [
+        'unknown.example.access-ci.org' => ['project_id' => 66897, 'resource_id' => 3031],
+      ],
+    ]);
+    $xd->getAccountForUser(Argument::cetera())->shouldNotBeCalled();
+
+    $svc = $this->makeService($alloc->reveal(), $xd->reveal());
+    $svc->refreshUserRpAccounts((int) $user->id());
+
+    $this->assertSame([], $this->loadRows((int) $user->id()));
   }
 
   public function testRefreshDoesNotPruneWhenGrantInIdentityButMissingFromProjectsMap(): void {
@@ -449,12 +482,12 @@ class RpAccountServiceTest extends KernelTestBase {
     $alloc->getProjectsForUser('aaadhavan')->willReturn([
       ['grant_number' => 'PHY250173', 'title' => 'Halo', 'allocation_type' => 'Accelerate', 'grant_type' => 'Diss.'],
     ]);
-    $alloc->getResourcesForUser(\Prophecy\Argument::any())->willReturn([]);
-    $alloc->getSiteLoginsForUser(\Prophecy\Argument::any())->willReturn([]);
+    $alloc->getResourcesForUser(Argument::any())->willReturn([]);
+    $alloc->getSiteLoginsForUser(Argument::any())->willReturn([]);
     $xd = $this->prophesize(XdusageClient::class);
-    $xd->getPersonByPortalUsername(\Prophecy\Argument::any())->shouldNotBeCalled();
+    $xd->getPersonByPortalUsername(Argument::any())->shouldNotBeCalled();
     $xd->getProjectsMap()->willReturn([]); // empty map
-    $xd->getAccountForUser(\Prophecy\Argument::cetera())->shouldNotBeCalled();
+    $xd->getAccountForUser(Argument::cetera())->shouldNotBeCalled();
 
     $svc = $this->makeService($alloc->reveal(), $xd->reveal());
     $svc->refreshUserRpAccounts((int) $user->id());
@@ -501,7 +534,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $alloc->getProjectsForUser('aaadhavan')->willReturn(NULL);
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getProjectsMap()->shouldNotBeCalled();
-    $xd->getAccountForUser(\Prophecy\Argument::cetera())->shouldNotBeCalled();
+    $xd->getAccountForUser(Argument::cetera())->shouldNotBeCalled();
 
     $svc = $this->makeService($alloc->reveal(), $xd->reveal());
     $result = $svc->getAccountsForUserAndRp((int) $user->id(), (int) $rp->id());
@@ -571,11 +604,11 @@ class RpAccountServiceTest extends KernelTestBase {
     // Identity API succeeds with truly zero projects.
     $alloc = $this->prophesize(AllocationsClient::class);
     $alloc->getProjectsForUser('aaadhavan')->willReturn([]);
-    $alloc->getResourcesForUser(\Prophecy\Argument::any())->willReturn([]);
-    $alloc->getSiteLoginsForUser(\Prophecy\Argument::any())->willReturn([]);
+    $alloc->getResourcesForUser(Argument::any())->willReturn([]);
+    $alloc->getSiteLoginsForUser(Argument::any())->willReturn([]);
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getProjectsMap()->willReturn([]);
-    $xd->getAccountForUser(\Prophecy\Argument::cetera())->shouldNotBeCalled();
+    $xd->getAccountForUser(Argument::cetera())->shouldNotBeCalled();
 
     $svc = $this->makeService($alloc->reveal(), $xd->reveal());
     $svc->refreshUserRpAccounts((int) $user->id());
@@ -624,7 +657,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $alloc->getProjectsForUser('aaadhavan')->willReturn(NULL);
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getProjectsMap()->shouldNotBeCalled();
-    $xd->getAccountForUser(\Prophecy\Argument::cetera())->shouldNotBeCalled();
+    $xd->getAccountForUser(Argument::cetera())->shouldNotBeCalled();
 
     $svc = $this->makeService($alloc->reveal(), $xd->reveal());
     $svc->refreshUserRpAccounts((int) $user->id());
@@ -714,7 +747,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $this->assertTrue($lock->acquire('rp_account_refresh:' . $uid));
 
     $alloc = $this->prophesize(AllocationsClient::class);
-    $alloc->getProjectsForUser(\Prophecy\Argument::any())->shouldNotBeCalled();
+    $alloc->getProjectsForUser(Argument::any())->shouldNotBeCalled();
     $xd = $this->prophesize(XdusageClient::class);
     $service = $this->makeService($alloc->reveal(), $xd->reveal());
 
@@ -764,7 +797,7 @@ class RpAccountServiceTest extends KernelTestBase {
 
     $alloc = $this->prophesize(AllocationsClient::class);
     // If the guarded refresh ran, it would call getProjectsForUser. It must NOT.
-    $alloc->getProjectsForUser(\Prophecy\Argument::any())->shouldNotBeCalled();
+    $alloc->getProjectsForUser(Argument::any())->shouldNotBeCalled();
     $xd = $this->prophesize(XdusageClient::class);
     $service = $this->makeService($alloc->reveal(), $xd->reveal());
 
@@ -779,7 +812,7 @@ class RpAccountServiceTest extends KernelTestBase {
     $alloc = $this->prophesize(AllocationsClient::class);
     $alloc->getProjectsForUser('guarded')->willReturn([])->shouldBeCalled();
     $alloc->getResourcesForUser('guarded')->willReturn([]);
-    $alloc->getSiteLoginsForUser(\Prophecy\Argument::any())->willReturn([]);
+    $alloc->getSiteLoginsForUser(Argument::any())->willReturn([]);
     $xd = $this->prophesize(XdusageClient::class);
     $xd->getPersonByPortalUsername('guarded')->willReturn(['person_id' => 111]);
     $xd->getProjectsMap()->willReturn([]);

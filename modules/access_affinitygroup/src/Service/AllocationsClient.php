@@ -28,7 +28,7 @@ class AllocationsClient {
    * - grant_number  (string) e.g. "PHY250173"
    * - allocation_type (string) e.g. "Accelerate", "Explore"
    * - grant_type    (string) e.g. "Dissertation or Thesis"
-   * - title         (string) free-form project title
+   * - title         (string) free-form project title.
    *
    * Additional keys may be present and should be passed through opaquely.
    *
@@ -62,6 +62,7 @@ class AllocationsClient {
    * array of resources on success.
    *
    * @return array<int, array<string, mixed>>|null
+   *   The resources array on success (may be empty), or NULL on failure.
    */
   public function getResourcesForUser(string $username): ?array {
     $data = $this->getJson('?resources=1', $username, 'resources');
@@ -104,23 +105,25 @@ class AllocationsClient {
   /**
    * Returns the user's RP-issued site logins, keyed by resource id.
    *
-   * GET /identity/profiles/v1/people/{username}/site_logins
+   * GET /identity/profiles/v1/people/{username}/site_logins.
    *
    * The API returns a top-level list of organizations, each with a `logins`
-   * list. The result is flattened to [ciderResourceId => username]. As a
-   * fallback, `resourceName` is also added as a key when it does not collide
-   * with an existing key, so ciderResourceId entries always win.
+   * list. The result is flattened to [ciderResourceId => username]. Logins
+   * without a usable ciderResourceId or a non-empty username are skipped.
+   * A non-list top-level body (for example an error object or a shape change)
+   * is treated as failure.
    *
    * @return array<string, string>|null
    *   Map of resource id to RP login username (may be empty), or NULL on any
-   *   failure (missing API key, HTTP error, non-200, malformed JSON).
+   *   failure (missing API key, HTTP error, non-200, malformed JSON, or a
+   *   non-list top-level body).
    */
   public function getSiteLoginsForUser(string $username): ?array {
     $data = $this->getJson('/site_logins', $username, 'site logins');
-    if (!is_array($data)) {
+    if (!is_array($data) || !array_is_list($data)) {
       return NULL;
     }
-    $entries = [];
+    $logins = [];
     foreach ($data as $org) {
       if (!is_array($org) || !isset($org['logins']) || !is_array($org['logins'])) {
         continue;
@@ -133,24 +136,11 @@ class AllocationsClient {
         if ($name === '') {
           continue;
         }
-        $entries[] = [$login['ciderResourceId'] ?? NULL, $login['resourceName'] ?? NULL, $name];
-      }
-    }
-    $logins = [];
-    // Pass 1: ciderResourceId keys take precedence.
-    foreach ($entries as [$cider, , $name]) {
-      if (is_string($cider) && trim($cider) !== '') {
+        $cider = $login['ciderResourceId'] ?? NULL;
+        if (!is_string($cider) || trim($cider) === '') {
+          continue;
+        }
         $logins[$cider] = $name;
-      }
-    }
-    // Pass 2: resourceName fallback, never overwriting an existing key. Only
-    // entries that also have a valid ciderResourceId are considered.
-    foreach ($entries as [$cider, $resourceName, $name]) {
-      if (!is_string($cider) || trim($cider) === '') {
-        continue;
-      }
-      if (is_string($resourceName) && trim($resourceName) !== '' && !array_key_exists($resourceName, $logins)) {
-        $logins[$resourceName] = $name;
       }
     }
     return $logins;
@@ -211,6 +201,12 @@ class AllocationsClient {
     return json_decode((string) $response->getBody(), TRUE);
   }
 
+  /**
+   * Reads the RAMPS API key from private secrets.json.
+   *
+   * @return string|null
+   *   The API key, or NULL when secrets are unavailable or malformed.
+   */
   private function getApiKey(): ?string {
     $base = $this->fileSystem->realpath('private://');
     if ($base === FALSE) {
