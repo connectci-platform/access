@@ -83,6 +83,9 @@ services:
 
   access_misc.project_submission_delete_access:
     class: Drupal\access_misc\Access\ProjectSubmissionDeleteAccess
+  access_misc.project_submission_view_access:
+    class: Drupal\access_misc\Access\ProjectSubmissionViewAccess
+    arguments: ['@database']
   access_misc.jsonapi_private_file_access:
     class: Drupal\access_misc\Access\JsonApiPrivateFileAccess
     arguments: ['@request_stack']
