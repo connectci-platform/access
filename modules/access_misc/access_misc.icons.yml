@@ -1,0 +1,32 @@
+access_misc:
+  enabled: true
+  label: "ACCESS Misc"
+  description: "Icons provided by access_misc, such as the Navigation Coffee button."
+  version: 1.x
+  extractor: svg
+  config:
+    sources:
+      - assets/icons/*.svg
+  settings:
+    size:
+      title: "Size"
+      description: "Set a size for this icon."
+      type: "integer"
+      default: 20
+    class:
+      title: "Class"
+      description: "Set a class for this icon."
+      type: "string"
+      default: ""
+  template: >
+    <svg
+      {{ attributes
+          .setAttribute('viewBox', attributes.viewBox|default('0 0 24 24'))
+          .setAttribute('class', class)
+          .setAttribute('width', size|default('20'))
+          .setAttribute('height', size|default('20'))
+          .setAttribute('aria-hidden', 'true')
+      }}
+    >
+      {{ content }}
+    </svg>
