@@ -32,10 +32,16 @@ class KbResourceSubmissionAccessTest extends KbResourceKernelTestBase {
   protected function setUp(): void {
     parent::setUp();
 
-    $file = $this->getSyncDir() . '/webform.webform.resource.yml';
-    $this->assertFileExists($file);
-    $config = Yaml::parse(file_get_contents($file));
-    $this->accessRules = $config['access'];
+    $sync_dir = $this->getSyncDir();
+    if ($sync_dir !== NULL) {
+      $file = $sync_dir . '/webform.webform.resource.yml';
+      $this->assertFileExists($file);
+      $config = Yaml::parse(file_get_contents($file));
+      $this->accessRules = $config['access'];
+    }
+    else {
+      $this->accessRules = $this->getFallbackAccessRules();
+    }
 
     // As in production, authenticated users may view their own submissions.
     Role::load('authenticated')->grantPermission('view own webform submission')->save();
@@ -46,8 +52,12 @@ class KbResourceSubmissionAccessTest extends KbResourceKernelTestBase {
 
   /**
    * Finds the exported config sync directory.
+   *
+   * @return string|null
+   *   The directory, or NULL when the access sub-repo is checked out
+   *   standalone and no site config is available.
    */
-  protected function getSyncDir(): string {
+  protected function getSyncDir(): ?string {
     $dir = __DIR__;
     while (($parent = dirname($dir)) !== $dir) {
       $candidate = $dir . '/sites/default/config/default';
@@ -56,13 +66,49 @@ class KbResourceSubmissionAccessTest extends KbResourceKernelTestBase {
       }
       $dir = $parent;
     }
-    $this->markTestSkipped('Config sync directory sites/default/config/default not found; the access sub-repo may be checked out standalone.');
+    return NULL;
+  }
+
+  /**
+   * Returns the resource access rules used when the sync directory is absent.
+   *
+   * These mirror webform.webform.resource.yml.
+   *
+   * @return array<string, array<string, array<int, string>>>
+   *   The access rules keyed by operation.
+   */
+  protected function getFallbackAccessRules(): array {
+    $roles = [
+      'create' => ['authenticated'],
+      'view_any' => ['administrator', 'kb_pm'],
+      'update_any' => ['administrator', 'match_pm', 'kb_pm'],
+      'delete_any' => ['administrator', 'match_pm', 'kb_pm'],
+      'purge_any' => [],
+      'view_own' => ['anonymous', 'authenticated'],
+      'update_own' => ['authenticated'],
+      'delete_own' => ['administrator'],
+      'administer' => [],
+      'test' => [],
+      'configuration' => [],
+    ];
+    $rules = [];
+    foreach ($roles as $operation => $operation_roles) {
+      $rules[$operation] = [
+        'roles' => $operation_roles,
+        'users' => [],
+        'permissions' => [],
+      ];
+    }
+    return $rules;
   }
 
   /**
    * Tests the exported rules restrict view_any.
    */
   public function testExportedViewAnyRoles(): void {
+    if ($this->getSyncDir() === NULL) {
+      $this->markTestSkipped('Config sync directory sites/default/config/default not found; the access sub-repo may be checked out standalone.');
+    }
     $roles = $this->accessRules['view_any']['roles'];
     sort($roles);
     $this->assertSame(['administrator', 'kb_pm'], $roles);

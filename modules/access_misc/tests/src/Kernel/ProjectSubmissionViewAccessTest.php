@@ -75,8 +75,11 @@ class ProjectSubmissionViewAccessTest extends KernelTestBase {
 
   /**
    * Finds the config sync directory relative to this file.
+   *
+   * @return string|null
+   *   The directory, or NULL when the module is checked out standalone.
    */
-  protected function getSyncDir(): string {
+  protected function getSyncDir(): ?string {
     $dir = __DIR__;
     while (($parent = dirname($dir)) !== $dir) {
       $candidate = $dir . '/sites/default/config/default';
@@ -85,14 +88,31 @@ class ProjectSubmissionViewAccessTest extends KernelTestBase {
       }
       $dir = $parent;
     }
-    $this->markTestSkipped('Config sync directory sites/default/config/default not found; the access sub-repo may be checked out standalone.');
+    return NULL;
   }
 
   /**
    * Loads the exported project webform config.
+   *
+   * Falls back to a hardcoded copy of the access rules when the config sync
+   * directory is not available.
    */
   protected function loadProjectConfig(): array {
-    $file = $this->getSyncDir() . '/webform.webform.project.yml';
+    $dir = $this->getSyncDir();
+    if ($dir === NULL) {
+      $rule = fn (array $roles) => ['roles' => $roles, 'users' => [], 'permissions' => []];
+      return [
+        'access' => [
+          'create' => $rule(['authenticated']),
+          'view_any' => $rule(['careers_sc', 'pascience_manager']),
+          'update_any' => $rule(['careers_sc', 'pascience_manager']),
+          'delete_any' => $rule(['administrator']),
+          'view_own' => $rule(['authenticated']),
+          'update_own' => $rule(['authenticated']),
+        ],
+      ];
+    }
+    $file = $dir . '/webform.webform.project.yml';
     $this->assertFileExists($file);
     return Yaml::parse(file_get_contents($file));
   }
@@ -196,6 +216,9 @@ class ProjectSubmissionViewAccessTest extends KernelTestBase {
    * The exported view_any rule is limited to staff roles.
    */
   public function testExportedViewAnyRoles(): void {
+    if ($this->getSyncDir() === NULL) {
+      $this->markTestSkipped('Config sync directory sites/default/config/default not found; the access sub-repo may be checked out standalone.');
+    }
     $roles = $this->loadProjectConfig()['access']['view_any']['roles'];
     $this->assertSame(['careers_sc', 'pascience_manager'], array_values($roles));
   }

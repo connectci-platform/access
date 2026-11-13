@@ -86,6 +86,15 @@ services:
   access_misc.project_submission_view_access:
     class: Drupal\access_misc\Access\ProjectSubmissionViewAccess
     arguments: ['@database']
+  access_misc.submission_page_access:
+    class: Drupal\access_misc\Access\SubmissionPageAccess
+    arguments: ['@access_misc.project_submission_view_access']
+    tags:
+      - { name: access_check, applies_to: _access_misc_submission_page }
+  access_misc.route_subscriber:
+    class: Drupal\access_misc\Routing\RouteSubscriber
+    tags:
+      - { name: event_subscriber }
   access_misc.jsonapi_private_file_access:
     class: Drupal\access_misc\Access\JsonApiPrivateFileAccess
     arguments: ['@request_stack']

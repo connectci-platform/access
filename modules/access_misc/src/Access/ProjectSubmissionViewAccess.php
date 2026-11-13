@@ -60,22 +60,40 @@ class ProjectSubmissionViewAccess {
       return AccessResult::allowed()->addCacheableDependency($submission);
     }
 
-    $result = AccessResult::neutral()
+    if ($this->isMember($submission, $account)) {
+      return AccessResult::allowed()
+        ->addCacheContexts(['user'])
+        ->addCacheableDependency($submission);
+    }
+    return AccessResult::neutral()
       ->addCacheContexts(['user'])
       ->addCacheableDependency($submission);
-    if ($account->isAuthenticated()) {
-      $uid = (string) $account->id();
-      foreach (self::MEMBER_ELEMENTS as $element) {
-        $value = $submission->getElementData($element);
-        $value = is_array($value) ? $value : [$value];
-        if (in_array($uid, array_map('strval', array_filter($value, 'is_scalar')), TRUE)) {
-          return AccessResult::allowed()
-            ->addCacheContexts(['user'])
-            ->addCacheableDependency($submission);
-        }
+  }
+
+  /**
+   * Checks whether the account is listed as a member of a project.
+   *
+   * @param \Drupal\webform\WebformSubmissionInterface $submission
+   *   The webform submission.
+   * @param \Drupal\Core\Session\AccountInterface $account
+   *   The account to check.
+   *
+   * @return bool
+   *   TRUE if the authenticated account is in a member element.
+   */
+  public function isMember(WebformSubmissionInterface $submission, AccountInterface $account): bool {
+    if (!$account->isAuthenticated()) {
+      return FALSE;
+    }
+    $uid = (string) $account->id();
+    foreach (self::MEMBER_ELEMENTS as $element) {
+      $value = $submission->getElementData($element);
+      $value = is_array($value) ? $value : [$value];
+      if (in_array($uid, array_map('strval', array_filter($value, 'is_scalar')), TRUE)) {
+        return TRUE;
       }
     }
-    return $result;
+    return FALSE;
   }
 
   /**
