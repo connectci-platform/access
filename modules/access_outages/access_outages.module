@@ -5,6 +5,8 @@
  * Hooks and preprocess functions for the ACCESS Outages module.
  */
 
+use Drupal\node\NodeInterface;
+
 /**
  * Implements hook_theme().
  *
@@ -29,15 +31,20 @@ function access_outages_theme(): array {
  * @phpstan-param array<string, mixed> $vars
  */
 function access_outages_preprocess_layout(array &$vars): void {
-  $entity = $vars['content']['#entity'];
-  if ($entity->bundle() == 'affinity_group') {
+  // Layouts not tied to an entity (e.g. the core Navigation sidebar) have no
+  // #entity, so only act on affinity group nodes.
+  $entity = $vars['content']['#entity'] ?? NULL;
+  if ($entity instanceof NodeInterface && $entity->bundle() == 'affinity_group') {
     $node_storage = \Drupal::entityTypeManager()->getStorage('node');
     $cider_resource_ids = [];
     if ($entity->hasField('field_cider_resources')) {
       $cider_ids = $entity->get('field_cider_resources')->getValue();
       foreach ($cider_ids as $cider_id) {
         $node = $node_storage->load($cider_id['target_id']);
-        $cider_resource_ids[] = $node->get('field_access_global_resource_id')->value;
+        // Skip references to CIDER resources that no longer exist.
+        if ($node instanceof NodeInterface) {
+          $cider_resource_ids[] = $node->get('field_access_global_resource_id')->value;
+        }
       }
     }
     if (count($cider_resource_ids) > 0) {

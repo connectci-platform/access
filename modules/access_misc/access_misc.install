@@ -10,6 +10,7 @@ use Drupal\menu_link_content\Entity\MenuLinkContent;
 use Drupal\node\Entity\Node;
 use Drupal\path_alias\Entity\PathAlias;
 use Drupal\redirect\Entity\Redirect;
+use Drupal\user\Entity\User;
 use Drupal\webform\Entity\Webform;
 use Drupal\webform\Entity\WebformSubmission;
 use Drupal\access_misc\Plugin\Util\SiteTools;
@@ -2546,4 +2547,39 @@ function access_misc_update_10043() {
   $node->save();
 
   return t('Updated the play-button icon on node 269 to the asp-theme copy.');
+}
+
+/**
+ * Uninstall the Shortcut module (D8-3104).
+ *
+ * Done here rather than by config import for two reasons:
+ * - Core blocks uninstalling a module that still has content entities, so the
+ *   shortcut links must be deleted first.
+ * - Deleting the default shortcut set fires simple_sitemap's bundle-delete
+ *   hook, which runs an access-checked shortcut query. Shortcut's query alter
+ *   then fatals for non-admins (Drush runs as anonymous) because the set is
+ *   already gone. Running as uid 1 skips that alter.
+ *
+ * The links are recreated in the navigation-shortcuts menu by
+ * access_misc_deploy_navigation_shortcuts().
+ */
+function access_misc_update_10044() {
+  if (!\Drupal::moduleHandler()->moduleExists('shortcut')) {
+    return t('Shortcut is not installed; nothing to do.');
+  }
+
+  $storage = \Drupal::entityTypeManager()->getStorage('shortcut');
+  $shortcuts = $storage->loadMultiple();
+  $storage->delete($shortcuts);
+
+  $account_switcher = \Drupal::service('account_switcher');
+  $account_switcher->switchTo(User::load(1));
+  try {
+    \Drupal::service('module_installer')->uninstall(['shortcut']);
+  }
+  finally {
+    $account_switcher->switchBack();
+  }
+
+  return t('Deleted @count shortcut links and uninstalled Shortcut.', ['@count' => count($shortcuts)]);
 }

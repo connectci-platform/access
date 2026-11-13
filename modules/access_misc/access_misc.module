@@ -16,6 +16,7 @@ use Drupal\Core\Session\AccountInterface;
 use Drupal\webform\WebformSubmissionInterface;
 use Drupal\file\FileInterface;
 use Drupal\Core\Render\Markup;
+use Drupal\Core\Template\Attribute;
 use Drupal\Core\Url;
 use Drupal\content_moderation_notifications\ContentModerationNotificationInterface;
 use Drupal\taxonomy\Entity\Term;
@@ -2368,3 +2369,46 @@ function _access_misc_build_json_ld($entity) {
 
 
 
+
+/**
+ * Implements hook_navigation_content_top().
+ *
+ * Adds Coffee's "Go to" button to the Navigation sidebar. Coffee only
+ * implements hook_toolbar(), so the button went away when Navigation
+ * replaced Toolbar (D8-3104). Coffee's JS binds its click handler to
+ * .toolbar-icon-coffee on page load, so the button carries that class.
+ */
+function access_misc_navigation_content_top(): array {
+  $item = [
+    '#cache' => ['contexts' => ['user.permissions']],
+  ];
+  if (!\Drupal::moduleHandler()->moduleExists('coffee')
+    || !\Drupal::currentUser()->hasPermission('access coffee')) {
+    return ['coffee' => $item];
+  }
+
+  return [
+    'coffee' => $item + [
+      '#type' => 'component',
+      '#component' => 'navigation:toolbar-button',
+      '#props' => [
+        'html_tag' => 'button',
+        'text' => t('Go to'),
+        'icon' => [
+          'pack_id' => 'access_misc',
+          'icon_id' => 'coffee-search',
+        ],
+        // Hides the label when the sidebar is collapsed, like menu items.
+        'modifiers' => ['collapsible'],
+        'extra_classes' => ['toolbar-icon-coffee'],
+        'attributes' => new Attribute([
+          'type' => 'button',
+          'data-drupal-tooltip' => t('Go to (Alt+D)'),
+          'data-drupal-tooltip-class' => 'admin-toolbar__tooltip',
+        ]),
+      ],
+      '#attached' => ['library' => ['coffee/drupal.coffee']],
+      '#weight' => -100,
+    ],
+  ];
+}
