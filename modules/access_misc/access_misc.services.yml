@@ -87,5 +87,9 @@ services:
     class: Drupal\access_misc\Access\JsonApiPrivateFileAccess
     arguments: ['@request_stack']
 
+  access_misc.office_hours_lookup:
+    class: Drupal\access_misc\Services\OfficeHoursLookup
+    arguments: ["@entity_type.manager", "@date.formatter", "@datetime.time"]
+
 parameters:
   access_misc.verbose: FALSE

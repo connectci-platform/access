@@ -1,0 +1,180 @@
+/**
+ * Homepage hero. Values follow the D8-2934 mockup (asp-home.html).
+ */
+.homepage-hero {
+  background-color: #1a5b6e;
+  background-position: right center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  color: #fff;
+  min-height: 504px;
+}
+
+.homepage-hero__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 56px;
+  align-items: center;
+  min-height: 504px;
+  padding-top: 112px;
+  padding-bottom: 112px;
+}
+
+.homepage-hero__title {
+  color: #fff;
+  font-size: 48px;
+  line-height: 52px;
+  margin: 0 0 8px;
+}
+
+.homepage-hero__intro {
+  color: #cee8e9;
+  margin: 0 0 22px;
+}
+
+/* Ask box. */
+.homepage-hero__search {
+  display: flex;
+  max-width: 600px;
+  background: #fff;
+}
+
+.homepage-hero__bot {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  background: #48c0b9;
+  color: #1a5b6e;
+}
+
+.homepage-hero__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  font: inherit;
+  font-size: 16px;
+  padding: 11px 14px;
+  color: #232323;
+}
+
+.homepage-hero__search button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: #ffc42d;
+  color: #232323;
+  font: inherit;
+  font-weight: 700;
+  font-size: 15px;
+  text-transform: uppercase;
+  padding: 0 18px;
+  cursor: pointer;
+}
+
+.homepage-hero__search button:hover,
+.homepage-hero__search button:focus {
+  background: #f07537;
+  color: #fff;
+}
+
+.homepage-hero__prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.homepage-hero__prompts a {
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 18px;
+  color: #fff;
+  background: transparent;
+  border: 1px solid #cee8e9;
+  border-radius: 10px;
+  padding: 7px 12px;
+  cursor: pointer;
+  text-align: left;
+  display: inline-block;
+  text-decoration: none;
+}
+
+.homepage-hero__prompts a:hover,
+.homepage-hero__prompts a:focus {
+  background: #cee8e9;
+  color: #232323;
+  text-decoration: none;
+}
+
+.homepage-hero__browse {
+  margin: 14px 0 0;
+  font-size: 14px;
+  line-height: 22px;
+  color: #cee8e9;
+}
+
+.homepage-hero__browse a {
+  color: #fff;
+  font-weight: 600;
+}
+
+/* "Need help from a person?" card. */
+.homepage-hero__help {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 28px;
+  background: #107180;
+}
+
+.homepage-hero__help-title {
+  color: #fff;
+  font-size: 30px;
+  line-height: 34px;
+  margin: 0;
+}
+
+.homepage-hero__help-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+}
+
+.homepage-hero__help-actions .btn {
+  margin: 0;
+}
+
+.homepage-hero__tickets {
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+@media (max-width: 1023px) {
+  .homepage-hero__grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+
+  .homepage-hero__ask {
+    max-width: 640px;
+  }
+}
+
+@media (max-width: 767px) {
+  .homepage-hero__grid {
+    padding-top: 48px;
+    padding-bottom: 96px;
+  }
+
+  .homepage-hero__title {
+    font-size: 36px;
+    line-height: 40px;
+  }
+}
