@@ -7,6 +7,8 @@ use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\node\Entity\Node;
 use Drupal\node\Entity\NodeType;
+use Drupal\taxonomy\Entity\Term;
+use Drupal\taxonomy\Entity\Vocabulary;
 use Drupal\webform\Entity\WebformSubmission;
 
 /**
@@ -51,7 +53,29 @@ class KbResourceAccessTest extends KbResourceKernelTestBase {
       'cardinality' => -1,
       'settings' => ['target_type' => 'user'],
     ])->save();
-    foreach (['field_resources_entity_reference', 'field_ag_private', 'field_ag_private_users'] as $name) {
+    FieldStorageConfig::create([
+      'field_name' => 'field_coordinator',
+      'entity_type' => 'node',
+      'type' => 'entity_reference',
+      'cardinality' => -1,
+      'settings' => ['target_type' => 'user'],
+    ])->save();
+    FieldStorageConfig::create([
+      'field_name' => 'field_affinity_group',
+      'entity_type' => 'node',
+      'type' => 'entity_reference',
+      'cardinality' => 1,
+      'settings' => ['target_type' => 'taxonomy_term'],
+    ])->save();
+    Vocabulary::create(['vid' => 'affinity_groups', 'name' => 'Affinity groups'])->save();
+    $fields = [
+      'field_resources_entity_reference',
+      'field_ag_private',
+      'field_ag_private_users',
+      'field_coordinator',
+      'field_affinity_group',
+    ];
+    foreach ($fields as $name) {
       FieldConfig::create([
         'field_name' => $name,
         'entity_type' => 'node',
@@ -81,13 +105,34 @@ class KbResourceAccessTest extends KbResourceKernelTestBase {
    *   Users allowed to view the private group.
    */
   protected function createPrivateGroup(WebformSubmission $submission, array $members): Node {
+    return $this->createGroup(1, $members, [], $submission);
+  }
+
+  /**
+   * Creates an affinity group.
+   *
+   * @param int $private
+   *   The field_ag_private value.
+   * @param \Drupal\user\Entity\User[] $members
+   *   Users in field_ag_private_users.
+   * @param \Drupal\user\Entity\User[] $coordinators
+   *   Users in field_coordinator.
+   * @param \Drupal\webform\Entity\WebformSubmission|null $referenced
+   *   A resource to reference in field_resources_entity_reference.
+   * @param \Drupal\taxonomy\Entity\Term|null $term
+   *   A term for field_affinity_group.
+   */
+  protected function createGroup(int $private, array $members = [], array $coordinators = [], ?WebformSubmission $referenced = NULL, ?Term $term = NULL): Node {
+    $map = fn($user) => ['target_id' => $user->id()];
     $node = Node::create([
       'type' => 'affinity_group',
-      'title' => 'Private group',
+      'title' => 'Group',
       'status' => 1,
-      'field_ag_private' => 1,
-      'field_ag_private_users' => array_map(fn($user) => ['target_id' => $user->id()], $members),
-      'field_resources_entity_reference' => [['target_id' => $submission->id()]],
+      'field_ag_private' => $private,
+      'field_ag_private_users' => array_map($map, $members),
+      'field_coordinator' => array_map($map, $coordinators),
+      'field_resources_entity_reference' => $referenced ? [['target_id' => $referenced->id()]] : [],
+      'field_affinity_group' => $term ? [['target_id' => $term->id()]] : [],
     ]);
     $node->save();
     return $node;
@@ -161,12 +206,13 @@ class KbResourceAccessTest extends KbResourceKernelTestBase {
   }
 
   /**
-   * Affinity group exception: members only, and only when allowed on the AG.
+   * Affinity group exception: members only, for pending and approved resources.
    */
   public function testPrivateAffinityGroupException(): void {
     $member = $this->createUser();
     $non_member = $this->createUser();
 
+    // Pending: the allowed flag opens it to members.
     $allowed = $this->createResource([
       'approved' => 0,
       'resource_allowed_on_affinity_group' => 1,
@@ -177,14 +223,151 @@ class KbResourceAccessTest extends KbResourceKernelTestBase {
     $this->assertStatus(403, $allowed, self::SUPPORT_HOST, $non_member);
     $this->assertStatus(403, $allowed);
 
-    // The exception overrides private too.
+    // Approved and private with the allowed flag unset, which is what the form
+    // produces: the exception overrides private for members.
     $private = $this->createResource([
       'private' => 1,
-      'resource_allowed_on_affinity_group' => 1,
+      'resource_allowed_on_affinity_group' => 0,
     ]);
     $this->createPrivateGroup($private, [$member]);
     $this->assertStatus(200, $private, self::SUPPORT_HOST, $member);
     $this->assertStatus(403, $private, self::SUPPORT_HOST, $non_member);
+    $this->assertStatus(403, $private);
+  }
+
+  /**
+   * Approved private resources open to members without the allowed flag.
+   */
+  public function testApprovedPrivateResourceOpenToMembers(): void {
+    $member = $this->createUser();
+    $stranger = $this->createUser();
+    $submission = $this->createResource([
+      'approved' => 1,
+      'private' => 1,
+      'resource_allowed_on_affinity_group' => 0,
+    ]);
+    $this->createPrivateGroup($submission, [$member]);
+
+    $this->assertStatus(200, $submission, self::SUPPORT_HOST, $member);
+    $this->assertStatus(403, $submission, self::SUPPORT_HOST, $stranger);
+    $this->assertStatus(403, $submission);
+  }
+
+  /**
+   * Members of an unpublished private group lose access, as do coordinators.
+   */
+  public function testUnpublishedGroupDoesNotGrantAccess(): void {
+    $member = $this->createUser();
+    $coordinator = $this->createUser();
+    $pending = $this->createResource([
+      'approved' => 0,
+      'resource_allowed_on_affinity_group' => 1,
+    ]);
+    $approved_private = $this->createResource([
+      'private' => 1,
+      'resource_allowed_on_affinity_group' => 0,
+    ]);
+    $groups = [];
+    foreach ([$pending, $approved_private] as $submission) {
+      $group = $this->createGroup(1, [$member], [$coordinator], $submission);
+      $groups[] = $group;
+      $this->assertStatus(200, $submission, self::SUPPORT_HOST, $member);
+      $this->assertStatus(200, $submission, self::SUPPORT_HOST, $coordinator);
+
+      $group->setUnpublished()->save();
+      $this->assertStatus(403, $submission, self::SUPPORT_HOST, $member);
+      $this->assertStatus(403, $submission, self::SUPPORT_HOST, $coordinator);
+    }
+
+    // Publishing the group again flips the result back.
+    foreach ($groups as $i => $group) {
+      $submission = [$pending, $approved_private][$i];
+      $result = $this->container->get('access_cilink.kb_resource_access')
+        ->access($submission->id(), $member);
+      $this->assertTrue($result->isForbidden());
+      $this->assertContains('node_list:affinity_group', $result->getCacheTags());
+
+      $group->setPublished()->save();
+      $this->assertStatus(200, $submission, self::SUPPORT_HOST, $member);
+      $this->assertStatus(200, $submission, self::SUPPORT_HOST, $coordinator);
+    }
+  }
+
+  /**
+   * A resource only tagged (not referenced) is open to private group members.
+   */
+  public function testTaggedOnlyResource(): void {
+    $member = $this->createUser();
+    $non_member = $this->createUser();
+    $term = $this->createTerm('affinity_groups', 'Group term');
+    $submission = $this->createResource([
+      'approved' => 0,
+      'resource_allowed_on_affinity_group' => 1,
+      'affinity_group' => $term->id(),
+    ]);
+    $this->createGroup(1, [$member], [], NULL, $term);
+    $this->assertStatus(200, $submission, self::SUPPORT_HOST, $member);
+    $this->assertStatus(403, $submission, self::SUPPORT_HOST, $non_member);
+    $this->assertStatus(403, $submission);
+  }
+
+  /**
+   * Public groups never grant access to unapproved resources.
+   */
+  public function testPublicGroupDoesNotGrantAccess(): void {
+    $stranger = $this->createUser();
+    $term = $this->createTerm('affinity_groups', 'Group term');
+    $submission = $this->createResource([
+      'approved' => 0,
+      'resource_allowed_on_affinity_group' => 1,
+      'affinity_group' => $term->id(),
+    ]);
+    $this->createGroup(0, [], [], $submission, $term);
+
+    $this->assertStatus(403, $submission);
+    $this->assertStatus(403, $submission, self::SUPPORT_HOST, $stranger);
+  }
+
+  /**
+   * Toggling a group from private to public revokes member access.
+   */
+  public function testPrivateToPublicToggleRevokesAccess(): void {
+    $member = $this->createUser();
+    $submission = $this->createResource([
+      'approved' => 0,
+      'resource_allowed_on_affinity_group' => 1,
+    ]);
+    $group = $this->createPrivateGroup($submission, [$member]);
+    $this->assertStatus(200, $submission, self::SUPPORT_HOST, $member);
+
+    $group->set('field_ag_private', 0)->save();
+    $this->assertStatus(403, $submission, self::SUPPORT_HOST, $member);
+
+    $result = $this->container->get('access_cilink.kb_resource_access')
+      ->access($submission->id(), $member);
+    $this->assertTrue($result->isForbidden());
+    $this->assertContains('node:' . $group->id(), $result->getCacheTags());
+  }
+
+  /**
+   * Coordinators see a pending resource of their own private group.
+   */
+  public function testCoordinatorAccess(): void {
+    $coordinator = $this->createUser();
+    $other_coordinator = $this->createUser();
+    $term = $this->createTerm('affinity_groups', 'Group term');
+    $other_term = $this->createTerm('affinity_groups', 'Other term');
+    $submission = $this->createResource([
+      'approved' => 0,
+      'resource_allowed_on_affinity_group' => 0,
+      'affinity_group' => $term->id(),
+    ]);
+    $this->createGroup(1, [], [$coordinator], NULL, $term);
+    $this->createGroup(1, [], [$other_coordinator], NULL, $other_term);
+
+    $this->assertStatus(200, $submission, self::SUPPORT_HOST, $coordinator);
+    $this->assertStatus(403, $submission, self::SUPPORT_HOST, $other_coordinator);
+    $this->assertStatus(403, $submission);
   }
 
   /**
