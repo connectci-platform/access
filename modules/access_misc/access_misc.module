@@ -11,6 +11,7 @@ use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Access\AccessResultInterface;
+use Drupal\Core\Database\Query\AlterableInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\webform\WebformSubmissionInterface;
@@ -862,15 +863,32 @@ function access_misc_form_alter(&$form, FormStateInterface $form_state, $form_id
 /**
  * Implements hook_webform_submission_access().
  *
- * Lets program-scoped roles delete project submissions of their own program.
+ * Lets program-scoped roles delete project submissions of their own program,
+ * and lets everyone view published projects (and members view their own).
  *
  * @see \Drupal\access_misc\Access\ProjectSubmissionDeleteAccess
+ * @see \Drupal\access_misc\Access\ProjectSubmissionViewAccess
  */
 function access_misc_webform_submission_access(WebformSubmissionInterface $entity, string $operation, AccountInterface $account): AccessResultInterface {
   if ($operation === 'delete') {
     return \Drupal::service('access_misc.project_submission_delete_access')->access($entity, $account);
   }
+  if ($operation === 'view') {
+    return \Drupal::service('access_misc.project_submission_view_access')->access($entity, $account);
+  }
   return AccessResult::neutral();
+}
+
+/**
+ * Implements hook_webform_submission_query_access_alter().
+ *
+ * Query-level counterpart of the project view access in
+ * access_misc_webform_submission_access().
+ */
+function access_misc_webform_submission_query_access_alter(AlterableInterface $query, array $webform_submission_tables): void {
+  $op = $query->getMetaData('op') ?: 'view';
+  $account = $query->getMetaData('account') ?: \Drupal::currentUser();
+  \Drupal::service('access_misc.project_submission_view_access')->alterQuery($query, $webform_submission_tables, $account, $op);
 }
 
 /**
