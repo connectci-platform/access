@@ -540,9 +540,16 @@ components:
           format: uri
         populated_sections:
           type: array
-          description: Section identifiers that have content on any member resource (e.g. `login`, `file_transfer`, `storage`, `queue_specs`, `top_software`, `datasets`).
+          description: A section is listed when any member resource's detail response (GET /resources/{resource_id}) has content for it, including content inherited from the Resource Group. Sections are returned in the fixed order of the enum below.
           items:
             type: string
+            enum:
+              - login
+              - file_transfer
+              - storage
+              - queue_specs
+              - top_software
+              - datasets
         variants:
           type: array
           items:
