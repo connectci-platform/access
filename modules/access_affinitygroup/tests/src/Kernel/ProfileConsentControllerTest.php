@@ -4,8 +4,7 @@ namespace Drupal\Tests\access_affinitygroup\Kernel;
 
 use Drupal\access_affinitygroup\Controller\ProfileConsentController;
 use Drupal\KernelTests\KernelTestBase;
-use Drupal\field\Entity\FieldConfig;
-use Drupal\field\Entity\FieldStorageConfig;
+use Drupal\Tests\access_affinitygroup\Traits\AssistantConsentFieldsTrait;
 use Drupal\user\Entity\User;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -17,10 +16,12 @@ use Symfony\Component\HttpFoundation\Request;
  */
 class ProfileConsentControllerTest extends KernelTestBase {
 
+  use AssistantConsentFieldsTrait;
+
   /**
    * Modules to enable.
    *
-   * @var array
+   * @var string[]
    */
   protected static $modules = [
     'system',
@@ -39,37 +40,6 @@ class ProfileConsentControllerTest extends KernelTestBase {
     parent::setUp();
     $this->installEntitySchema('user');
     $this->installConsentField();
-  }
-
-  /**
-   * Builds the consent field directly, exercising its shape.
-   *
-   * Does not use installConfig(['access_affinitygroup']), which throws
-   * SchemaIncompleteException for this module. The shipped config/install
-   * YAMLs are how the field reaches a real site via drush cim; that path is
-   * covered by manual verification, not by this kernel test.
-   */
-  private function installConsentField(): void {
-    FieldStorageConfig::create([
-      'field_name' => 'field_assistant_consent',
-      'entity_type' => 'user',
-      'type' => 'list_string',
-      'cardinality' => 1,
-      'settings' => [
-        'allowed_values' => [
-          'allow' => 'Allow',
-          'deny' => 'Deny',
-        ],
-      ],
-    ])->save();
-
-    FieldConfig::create([
-      'field_name' => 'field_assistant_consent',
-      'entity_type' => 'user',
-      'bundle' => 'user',
-      'label' => 'Let the ACCESS assistant personalize answers using my profile',
-      'required' => FALSE,
-    ])->save();
   }
 
   /**
@@ -145,6 +115,86 @@ class ProfileConsentControllerTest extends KernelTestBase {
     $this->post($user, json_encode(['consent' => 'deny']));
     $svc = $this->container->get('access_affinitygroup.profile');
     $this->assertSame('deny', $svc->consentState(User::load($user->id())));
+  }
+
+  /**
+   * Allow returns the stored value and when it was recorded.
+   */
+  public function testAllowResponseCarriesAskedAt(): void {
+    $user = User::create(['name' => 'shape']);
+    $user->save();
+    $data = json_decode($this->post($user, json_encode(['consent' => 'allow']))->getContent(), TRUE);
+    $this->assertSame('allow', $data['consent']);
+    $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $data['asked_at']);
+    $this->assertSame(['consent', 'asked_at'], array_keys($data));
+  }
+
+  /**
+   * Repeating the same choice still records version and a fresh asked time.
+   */
+  public function testRepeatedChoiceRestampsAskedAt(): void {
+    $user = User::create(['name' => 'again']);
+    $user->set('field_assistant_consent', 'allow');
+    $user->save();
+    $user->set('field_assistant_consent_asked', 1000);
+    $user->save();
+    $this->post($user, json_encode(['consent' => 'allow']));
+    $this->assertGreaterThan(1000, (int) User::load($user->id())->get('field_assistant_consent_asked')->value);
+  }
+
+  /**
+   * Not now on an unset user records the ask and leaves consent unset.
+   */
+  public function testNotNowWhenUnsetRecordsAsk(): void {
+    $user = User::create(['name' => 'later']);
+    $user->save();
+    $resp = $this->post($user, json_encode(['consent' => 'not_now']));
+    $this->assertSame(200, $resp->getStatusCode());
+    $data = json_decode($resp->getContent(), TRUE);
+    $this->assertSame('unset', $data['consent']);
+    $this->assertNotNull($data['asked_at']);
+
+    $svc = $this->container->get('access_affinitygroup.profile');
+    $reloaded = User::load($user->id());
+    $this->assertSame('unset', $svc->consentState($reloaded));
+    $this->assertSame($data['asked_at'], $svc->askedAt($reloaded));
+  }
+
+  /**
+   * Not now on an older-version allow clears it rather than reviving it.
+   */
+  public function testNotNowWhenOlderVersionAllowStaysUnset(): void {
+    $user = User::create(['name' => 'stale']);
+    $user->set('field_assistant_consent', 'allow');
+    $user->save();
+    $user->set('field_assistant_consent_version', 0);
+    $user->save();
+    $this->assertSame(200, $this->post($user, json_encode(['consent' => 'not_now']))->getStatusCode());
+    $svc = $this->container->get('access_affinitygroup.profile');
+    $this->assertSame('unset', $svc->consentState(User::load($user->id())));
+  }
+
+  /**
+   * Not now conflicts with a choice the user already made.
+   *
+   * @dataProvider madeChoices
+   */
+  public function testNotNowConflictsWithMadeChoice(string $choice): void {
+    $user = User::create(['name' => 'made']);
+    $user->set('field_assistant_consent', $choice);
+    $user->save();
+    $this->assertSame(409, $this->post($user, json_encode(['consent' => 'not_now']))->getStatusCode());
+    $this->assertSame($choice, $this->container->get('access_affinitygroup.profile')->consentState(User::load($user->id())));
+  }
+
+  /**
+   * Choices a user can already have made.
+   *
+   * @return array<int, array{string}>
+   *   One stored choice per case.
+   */
+  public static function madeChoices(): array {
+    return [['allow'], ['deny']];
   }
 
 }

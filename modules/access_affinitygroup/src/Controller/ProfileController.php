@@ -13,7 +13,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 /**
  * GET /api/1.0/profile — the consented PRIME profile for the acting user.
  */
-class ProfileController extends ControllerBase {
+final class ProfileController extends ControllerBase {
 
   public function __construct(
     private readonly ProfileService $profile,
@@ -22,16 +22,18 @@ class ProfileController extends ControllerBase {
   /**
    * {@inheritdoc}
    */
-  public static function create(ContainerInterface $container): self {
-    return new self($container->get('access_affinitygroup.profile'));
+  public static function create(ContainerInterface $container): static {
+    return new static($container->get('access_affinitygroup.profile'));
   }
 
   /**
-   * GET /api/1.0/profile.
+   * GET /api/1.0/profile[?once=1].
    *
-   * Returns {"consent": "allow", ...prime fields} when the acting user has
-   * consented; otherwise just {"consent": "unset"|"deny"}. Named get (not
-   * getProfile) to mirror RpAccountController's single-action naming.
+   * Always returns the effective {"consent", "asked_at"}. The profile fields
+   * are added when consent is allow, or when once=1 and the user has not
+   * chosen yet (the assistant's one-time use). once=1 never overrides deny.
+   * Named get (not getProfile) to mirror RpAccountController's single-action
+   * naming.
    */
   public function get(Request $request): JsonResponse {
     $uid = (int) $request->attributes->get('acting_user_uid');
@@ -44,8 +46,12 @@ class ProfileController extends ControllerBase {
     }
 
     $consent = $this->profile->consentState($user);
-    $payload = ['consent' => $consent];
-    if ($consent === 'allow') {
+    $payload = [
+      'consent' => $consent,
+      'asked_at' => $this->profile->askedAt($user),
+    ];
+    $once = $request->query->get('once') === '1';
+    if ($consent === 'allow' || ($once && $consent === 'unset')) {
       $payload += $this->profile->primeProfile($user);
     }
 

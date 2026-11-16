@@ -3,6 +3,7 @@
 namespace Drupal\Tests\access_affinitygroup\Kernel;
 
 use Drupal\KernelTests\KernelTestBase;
+use Drupal\Tests\access_affinitygroup\Traits\AssistantConsentFieldsTrait;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\node\Entity\Node;
@@ -16,10 +17,12 @@ use Drupal\user\Entity\User;
  */
 class ProfileServiceTest extends KernelTestBase {
 
+  use AssistantConsentFieldsTrait;
+
   /**
    * Modules to enable.
    *
-   * @var array
+   * @var string[]
    */
   protected static $modules = [
     'system',
@@ -45,37 +48,6 @@ class ProfileServiceTest extends KernelTestBase {
     $this->installConsentField();
     $this->installPrimeFields();
     $this->installResourceBundle();
-  }
-
-  /**
-   * Builds the consent field directly, exercising its shape.
-   *
-   * Does not use installConfig(['access_affinitygroup']), which throws
-   * SchemaIncompleteException for this module. The shipped config/install
-   * YAMLs are how the field reaches a real site via drush cim; that path is
-   * covered by manual verification, not by this kernel test.
-   */
-  private function installConsentField(): void {
-    FieldStorageConfig::create([
-      'field_name' => 'field_assistant_consent',
-      'entity_type' => 'user',
-      'type' => 'list_string',
-      'cardinality' => 1,
-      'settings' => [
-        'allowed_values' => [
-          'allow' => 'Allow',
-          'deny' => 'Deny',
-        ],
-      ],
-    ])->save();
-
-    FieldConfig::create([
-      'field_name' => 'field_assistant_consent',
-      'entity_type' => 'user',
-      'bundle' => 'user',
-      'label' => 'Let the ACCESS assistant personalize answers using my profile',
-      'required' => FALSE,
-    ])->save();
   }
 
   /**

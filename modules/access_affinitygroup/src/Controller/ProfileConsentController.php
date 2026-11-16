@@ -5,24 +5,37 @@ namespace Drupal\access_affinitygroup\Controller;
 use Drupal\access_affinitygroup\Service\ProfileService;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\user\UserInterface;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
- * POST /api/1.0/profile/consent — persist the acting user's consent choice.
+ * POST /api/1.0/profile/consent: records the acting user's consent answer.
  *
- * Accepts only 'allow' or 'deny'. The ephemeral "allow once" is agent-side and
- * never persisted, so it is not a valid body here.
+ * Accepts 'allow', 'deny', or 'not_now'. The assistant's one-time use is
+ * GET /api/1.0/profile?once=1 and is never stored, so it is not a value here.
  */
-class ProfileConsentController extends ControllerBase {
+final class ProfileConsentController extends ControllerBase {
+
+  public function __construct(
+    private readonly ProfileService $profile,
+  ) {}
+
+  /**
+   * {@inheritdoc}
+   */
+  public static function create(ContainerInterface $container): static {
+    return new static($container->get('access_affinitygroup.profile'));
+  }
 
   /**
    * POST /api/1.0/profile/consent.
    *
-   * Body {"consent":"allow"|"deny"} writes the field and returns
-   * {"consent":"<value>"}. Any other value, non-JSON body, or missing key
-   * returns 400.
+   * Body {"consent": "allow"|"deny"} stores the choice. {"consent": "not_now"}
+   * records that the user was asked and leaves consent unset; it is a 409
+   * when the user has already chosen allow or deny. Any other body is a 400.
+   * Responds with the effective {"consent", "asked_at"}.
    */
   public function post(Request $request): JsonResponse {
     $uid = (int) $request->attributes->get('acting_user_uid');
@@ -36,14 +49,25 @@ class ProfileConsentController extends ControllerBase {
 
     $data = json_decode((string) $request->getContent(), TRUE);
     $value = is_array($data) ? ($data['consent'] ?? NULL) : NULL;
-    if (!in_array($value, ['allow', 'deny'], TRUE)) {
-      return new JsonResponse(['error' => "consent must be 'allow' or 'deny'"], 400);
+    if (!in_array($value, ['allow', 'deny', 'not_now'], TRUE)) {
+      return new JsonResponse(['error' => "consent must be 'allow', 'deny', or 'not_now'"], 400);
     }
 
-    $user->set(ProfileService::CONSENT_FIELD, $value);
-    $user->save();
+    if ($value === 'not_now') {
+      if ($this->profile->consentState($user) !== 'unset') {
+        return (new JsonResponse(['error' => 'Consent has already been chosen.'], 409))
+          ->setPrivate()->setMaxAge(0);
+      }
+      $this->profile->recordNotNow($user);
+    }
+    else {
+      $this->profile->recordChoice($user, $value);
+    }
 
-    return (new JsonResponse(['consent' => $value]))->setPrivate()->setMaxAge(0);
+    return (new JsonResponse([
+      'consent' => $this->profile->consentState($user),
+      'asked_at' => $this->profile->askedAt($user),
+    ]))->setPrivate()->setMaxAge(0);
   }
 
 }

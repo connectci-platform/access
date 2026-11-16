@@ -4,6 +4,7 @@ namespace Drupal\Tests\access_affinitygroup\Kernel;
 
 use Drupal\access_affinitygroup\Controller\ProfileController;
 use Drupal\KernelTests\KernelTestBase;
+use Drupal\Tests\access_affinitygroup\Traits\AssistantConsentFieldsTrait;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\user\Entity\User;
@@ -16,10 +17,12 @@ use Symfony\Component\HttpFoundation\Request;
  */
 class ProfileControllerTest extends KernelTestBase {
 
+  use AssistantConsentFieldsTrait;
+
   /**
    * Modules to enable.
    *
-   * @var array
+   * @var string[]
    */
   protected static $modules = [
     'system',
@@ -44,37 +47,6 @@ class ProfileControllerTest extends KernelTestBase {
     $this->installEntitySchema('node');
     $this->installConsentField();
     $this->installPrimeFields();
-  }
-
-  /**
-   * Builds the consent field directly, exercising its shape.
-   *
-   * Does not use installConfig(['access_affinitygroup']), which throws
-   * SchemaIncompleteException for this module. The shipped config/install
-   * YAMLs are how the field reaches a real site via drush cim; that path is
-   * covered by manual verification, not by this kernel test.
-   */
-  private function installConsentField(): void {
-    FieldStorageConfig::create([
-      'field_name' => 'field_assistant_consent',
-      'entity_type' => 'user',
-      'type' => 'list_string',
-      'cardinality' => 1,
-      'settings' => [
-        'allowed_values' => [
-          'allow' => 'Allow',
-          'deny' => 'Deny',
-        ],
-      ],
-    ])->save();
-
-    FieldConfig::create([
-      'field_name' => 'field_assistant_consent',
-      'entity_type' => 'user',
-      'bundle' => 'user',
-      'label' => 'Let the ACCESS assistant personalize answers using my profile',
-      'required' => FALSE,
-    ])->save();
   }
 
   /**
@@ -201,10 +173,18 @@ class ProfileControllerTest extends KernelTestBase {
    *
    * The real ActingUserAccess gate is proven separately in its own test; here
    * the attribute is set directly on the request.
+   *
+   * @param \Drupal\user\Entity\User $user
+   *   The acting user.
+   * @param array<string, string> $query
+   *   Query string parameters.
+   *
+   * @return array<string, mixed>
+   *   The decoded JSON response.
    */
-  private function invoke(User $user): array {
+  private function invoke(User $user, array $query = []): array {
     $controller = ProfileController::create($this->container);
-    $request = Request::create('/api/1.0/profile');
+    $request = Request::create('/api/1.0/profile', 'GET', $query);
     $request->attributes->set('acting_user_uid', (int) $user->id());
     return json_decode($controller->get($request)->getContent(), TRUE);
   }
@@ -257,6 +237,79 @@ class ProfileControllerTest extends KernelTestBase {
     $request->attributes->set('acting_user_uid', 0);
     $response = $controller->get($request);
     $this->assertSame(403, $response->getStatusCode());
+  }
+
+  /**
+   * Every response carries consent and asked_at, even with no choice yet.
+   */
+  public function testUnsetResponseIsConsentAndNullAskedAt(): void {
+    $user = User::create(['name' => 'shape']);
+    $user->save();
+    $this->assertSame(['consent' => 'unset', 'asked_at' => NULL], $this->invoke($user));
+  }
+
+  /**
+   * An allow response reports when the choice was made.
+   */
+  public function testAllowReportsAskedAt(): void {
+    $user = User::create(['name' => 'when']);
+    $user->set('field_assistant_consent', 'allow');
+    $user->save();
+    $data = $this->invoke($user);
+    $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $data['asked_at']);
+  }
+
+  /**
+   * With once=1 an unset user's profile fields are returned for one answer.
+   */
+  public function testOnceReturnsProfileWhenUnset(): void {
+    $user = User::create(['name' => 'once']);
+    $user->set('field_user_first_name', 'Grace');
+    $user->save();
+    $data = $this->invoke($user, ['once' => '1']);
+    $this->assertSame('unset', $data['consent']);
+    $this->assertSame('Grace', $data['first_name']);
+    $this->assertArrayHasKey('allocated_resources', $data);
+  }
+
+  /**
+   * With once=1 a user who said deny still gets no profile fields.
+   */
+  public function testOnceNeverReturnsProfileWhenDenied(): void {
+    $user = User::create(['name' => 'oncedeny']);
+    $user->set('field_assistant_consent', 'deny');
+    $user->set('field_user_first_name', 'Grace');
+    $user->save();
+    $data = $this->invoke($user, ['once' => '1']);
+    $this->assertSame('deny', $data['consent']);
+    $this->assertArrayNotHasKey('first_name', $data);
+  }
+
+  /**
+   * An allow stored under an older consent version is unset and unshared.
+   */
+  public function testOlderVersionAllowReturnsUnsetWithoutProfile(): void {
+    $user = User::create(['name' => 'stale']);
+    $user->set('field_assistant_consent', 'allow');
+    $user->save();
+    $user->set('field_assistant_consent_version', 0);
+    $user->save();
+    $data = $this->invoke($user);
+    $this->assertSame(['consent' => 'unset', 'asked_at' => NULL], $data);
+  }
+
+  /**
+   * The response is private and never cached.
+   */
+  public function testResponseIsPrivateAndUncached(): void {
+    $user = User::create(['name' => 'cache']);
+    $user->save();
+    $controller = ProfileController::create($this->container);
+    $request = Request::create('/api/1.0/profile');
+    $request->attributes->set('acting_user_uid', (int) $user->id());
+    $response = $controller->get($request);
+    $this->assertTrue($response->headers->hasCacheControlDirective('private'));
+    $this->assertSame('0', $response->headers->getCacheControlDirective('max-age'));
   }
 
 }

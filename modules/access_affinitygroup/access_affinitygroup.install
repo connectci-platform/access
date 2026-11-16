@@ -1,6 +1,9 @@
 <?php
 
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Entity\Display\EntityFormDisplayInterface;
+use Drupal\field\Entity\FieldConfig;
+use Drupal\field\Entity\FieldStorageConfig;
 
 /**
  * @file
@@ -1198,16 +1201,93 @@ function _access_affinitygroup_resolve_resource_nid(Connection $db, int $resourc
 }
 
 /**
- * Add the assistant-personalization consent widget to the user form display.
+ * Creates the ACCESS Assistant consent fields on the user entity.
+ *
+ * The module is already installed everywhere, so its config/install YAMLs
+ * never run on existing sites; this creates the fields directly. It also
+ * brings an existing consent field's label and description up to date and
+ * shows only the consent choice on the user edit form, keeping the version
+ * and asked-at bookkeeping fields hidden. Safe to re-run.
  */
-function access_affinitygroup_update_10016(): void {
+function access_affinitygroup_update_10017(): string {
+  $fields = [
+    'field_assistant_consent' => [
+      'type' => 'list_string',
+      'storage_settings' => [
+        'allowed_values' => [
+          'allow' => 'Allow',
+          'deny' => 'Deny',
+        ],
+      ],
+      'label' => 'Let the ACCESS Assistant personalize answers using my profile',
+      'description' => 'When on, the assistant may use your ACCESS profile (name, institution, academic status) and your allocation and account information (which resources you have and your login on each) to tailor its answers. You can turn this on or off at any time.',
+    ],
+    'field_assistant_consent_version' => [
+      'type' => 'integer',
+      'storage_settings' => [],
+      'label' => 'Assistant consent version',
+      'description' => 'The consent wording version the assistant consent choice was made under.',
+    ],
+    'field_assistant_consent_asked' => [
+      'type' => 'timestamp',
+      'storage_settings' => [],
+      'label' => 'Assistant consent asked at',
+      'description' => 'When the user last answered or dismissed the assistant consent question.',
+    ],
+  ];
+
+  $messages = [];
+  foreach ($fields as $field_name => $info) {
+    if (FieldStorageConfig::loadByName('user', $field_name)) {
+      $messages[] = "Storage for $field_name already exists.";
+    }
+    else {
+      FieldStorageConfig::create([
+        'field_name' => $field_name,
+        'entity_type' => 'user',
+        'type' => $info['type'],
+        'cardinality' => 1,
+        'settings' => $info['storage_settings'],
+      ])->save();
+      $messages[] = "Created storage $field_name.";
+    }
+
+    $field = FieldConfig::loadByName('user', 'user', $field_name);
+    if ($field) {
+      $field->set('label', $info['label'])
+        ->set('description', $info['description'])
+        ->save();
+      $messages[] = "Set the label and description of $field_name.";
+    }
+    else {
+      FieldConfig::create([
+        'field_name' => $field_name,
+        'entity_type' => 'user',
+        'bundle' => 'user',
+        'label' => $info['label'],
+        'description' => $info['description'],
+        'required' => FALSE,
+      ])->save();
+      $messages[] = "Created field $field_name.";
+    }
+  }
+
   $display = \Drupal::entityTypeManager()
     ->getStorage('entity_form_display')
     ->load('user.user.default');
-  if ($display && !$display->getComponent('field_assistant_consent')) {
-    $display->setComponent('field_assistant_consent', [
-      'type' => 'options_buttons',
-      'weight' => 50,
-    ])->save();
+  if ($display instanceof EntityFormDisplayInterface) {
+    if (!$display->getComponent('field_assistant_consent')) {
+      $display->setComponent('field_assistant_consent', [
+        'type' => 'options_buttons',
+        'weight' => 50,
+        'region' => 'content',
+      ]);
+    }
+    $display->removeComponent('field_assistant_consent_version')
+      ->removeComponent('field_assistant_consent_asked')
+      ->save();
+    $messages[] = 'Updated the user form display.';
   }
+
+  return implode(' ', $messages);
 }

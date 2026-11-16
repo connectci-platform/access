@@ -42,3 +42,5 @@ services:
       - { name: event_subscriber }
   access_affinitygroup.profile:
     class: Drupal\access_affinitygroup\Service\ProfileService
+    arguments:
+      - '@datetime.time'

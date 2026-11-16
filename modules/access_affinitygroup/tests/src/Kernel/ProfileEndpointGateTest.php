@@ -24,7 +24,7 @@ class ProfileEndpointGateTest extends KernelTestBase {
   /**
    * Modules to enable.
    *
-   * @var array
+   * @var string[]
    */
   protected static $modules = ['system', 'user', 'field', 'options', 'key', 'access', 'access_affinitygroup'];
 
@@ -131,6 +131,23 @@ class ProfileEndpointGateTest extends KernelTestBase {
     $request = Request::create('/api/1.0/profile');
     $request->headers->set('X-Acting-User', 'target-user@access-ci.org');
     $result = $this->gate()->check($plain, $request);
+
+    $this->assertTrue($result->isForbidden());
+    $this->assertNull($request->attributes->get('acting_user_uid'));
+  }
+
+  /**
+   * An ACCESS ID with no Drupal account is forbidden, never another user.
+   */
+  public function testUnknownAccessIdForbidden(): void {
+    $caller = $this->makeServiceCaller('mcp-svc');
+    $other = User::create(['name' => 'someone@access-ci.org', 'mail' => 's@example.com', 'status' => 1]);
+    $other->save();
+    $this->writeAuthmap($other, 'someone@access-ci.org');
+
+    $request = Request::create('/api/1.0/profile');
+    $request->headers->set('X-Acting-User', 'nobody@access-ci.org');
+    $result = $this->gate()->check($caller, $request);
 
     $this->assertTrue($result->isForbidden());
     $this->assertNull($request->attributes->get('acting_user_uid'));

@@ -9,8 +9,8 @@ id: user.user.field_assistant_consent
 field_name: field_assistant_consent
 entity_type: user
 bundle: user
-label: 'Let the ACCESS assistant personalize answers using my profile'
-description: 'When enabled, the AI assistant may read your profile (name, institution, academic status, allocated resources) to tailor its answers. This is separate from whether your profile appears in the public community directory. You can change this at any time.'
+label: 'Let the ACCESS Assistant personalize answers using my profile'
+description: 'When on, the assistant may use your ACCESS profile (name, institution, academic status) and your allocation and account information (which resources you have and your login on each) to tailor its answers. You can turn this on or off at any time.'
 required: false
 translatable: false
 default_value: {  }

@@ -1171,9 +1171,13 @@ function access_affinitygroup_user_login(UserInterface $account) {
 
 /**
  * Implements hook_user_presave().
+ *
+ * Stamps the assistant consent version and time when the choice changes.
  * If user's email address changes, tell simplelists email.
  */
-function access_affinitygroup_user_presave($uu) {
+function access_affinitygroup_user_presave(UserInterface $uu): void {
+  \Drupal::service('access_affinitygroup.profile')->stampIfConsentChanged($uu);
+
   if (isset($uu->original) && ($uu->original->getEmail() <> $uu->getEmail())) {
     $msg = "";
     $simpleListsApi = new SimpleListsApi();
