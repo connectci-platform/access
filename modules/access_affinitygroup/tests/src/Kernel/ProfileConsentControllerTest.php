@@ -3,6 +3,8 @@
 namespace Drupal\Tests\access_affinitygroup\Kernel;
 
 use Drupal\access_affinitygroup\Controller\ProfileConsentController;
+use Drupal\access_affinitygroup\Service\ProfileService;
+use Drupal\Core\Lock\NullLockBackend;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\Tests\access_affinitygroup\Traits\AssistantConsentFieldsTrait;
 use Drupal\user\Entity\User;
@@ -188,19 +190,65 @@ class ProfileConsentControllerTest extends KernelTestBase {
   }
 
   /**
-   * Not now checks the stored answer, not a copy loaded before a deny.
+   * Not now checks the stored answer, not a cached copy from before a deny.
    */
   public function testNotNowReadsTheStoredAnswer(): void {
     $user = User::create(['name' => 'race']);
     $user->save();
-    // Another request saves deny after this copy was loaded.
-    $other = $this->container->get('entity_type.manager')->getStorage('user')->loadUnchanged($user->id());
-    $other->set('field_assistant_consent', 'deny');
-    $other->save();
+    // Hold the unanswered user in this request's memory, then store a deny
+    // the way another request saving at the same moment would.
+    $storage = $this->container->get('entity_type.manager')->getStorage('user');
+    $storage->load($user->id());
+    $row = [
+      'bundle' => 'user',
+      'deleted' => 0,
+      'entity_id' => $user->id(),
+      'revision_id' => $user->id(),
+      'langcode' => 'en',
+      'delta' => 0,
+    ];
+    $database = $this->container->get('database');
+    $database->insert('user__field_assistant_consent')
+      ->fields($row + ['field_assistant_consent_value' => 'deny'])->execute();
+    $database->insert('user__field_assistant_consent_version')
+      ->fields($row + ['field_assistant_consent_version_value' => ProfileService::CONSENT_VERSION])->execute();
+    // A save in another request clears the persistent entity cache, but not
+    // this request's in-memory copy.
+    $this->container->get('cache.entity')->deleteAll();
+    $this->assertSame('unset', $this->container->get('access_affinitygroup.profile')->consentState($storage->load($user->id())));
 
     $this->assertSame(409, $this->post($user, json_encode(['consent' => 'not_now']))->getStatusCode());
-    $stored = $this->container->get('entity_type.manager')->getStorage('user')->loadUnchanged($user->id());
-    $this->assertSame('deny', $this->container->get('access_affinitygroup.profile')->consentState($stored));
+  }
+
+  /**
+   * A consent change already in progress for the user is a 503, not a race.
+   */
+  public function testBusyLockIsServiceUnavailable(): void {
+    $user = User::create(['name' => 'busy']);
+    $user->save();
+    $lock = new class extends NullLockBackend {
+
+      /**
+       * {@inheritdoc}
+       */
+      public function acquire($name, $timeout = 30.0) {
+        return FALSE;
+      }
+
+      /**
+       * {@inheritdoc}
+       */
+      public function wait($name, $delay = 30) {
+        return TRUE;
+      }
+
+    };
+    $controller = new ProfileConsentController($this->container->get('access_affinitygroup.profile'), $lock);
+    $request = Request::create('/api/1.0/profile/consent', 'POST', [], [], [], [], json_encode(['consent' => 'deny']));
+    $request->attributes->set('acting_user_uid', (int) $user->id());
+
+    $this->assertSame(503, $controller->post($request)->getStatusCode());
+    $this->assertSame('unset', $this->container->get('access_affinitygroup.profile')->consentState(User::load($user->id())));
   }
 
   /**

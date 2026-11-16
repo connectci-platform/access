@@ -3,9 +3,14 @@
 namespace Drupal\access_affinitygroup\Service;
 
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Core\Cache\Cache;
+use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Entity\FieldableEntityInterface;
+use Drupal\Core\Entity\Sql\DefaultTableMapping;
+use Drupal\Core\Entity\Sql\SqlEntityStorageInterface;
+use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\user\UserInterface;
 
 /**
@@ -29,11 +34,6 @@ class ProfileService {
    * answers are cleared and the profile form shows what the assistant uses.
    */
   public const CONSENT_VERSION = 1;
-
-  /**
-   * Set while resetAllConsent() saves users, so presave doesn't stamp them.
-   */
-  private bool $resetting = FALSE;
 
   public function __construct(
     private readonly TimeInterface $time,
@@ -95,14 +95,21 @@ class ProfileService {
    * entity save are covered as well as the endpoint.
    */
   public function stampIfConsentChanged(UserInterface $user): void {
-    if ($this->resetting || !$user->hasField(self::CONSENT_FIELD)) {
+    if (!$user->hasField(self::CONSENT_FIELD)) {
       return;
     }
     $original = $user->isNew() ? NULL : $user->getOriginal();
     $before = $original instanceof UserInterface ? $this->raw($original, self::CONSENT_FIELD) : NULL;
-    if ($before !== $this->raw($user, self::CONSENT_FIELD)) {
-      $this->stamp($user);
+    $after = $this->raw($user, self::CONSENT_FIELD);
+    if ($before === $after) {
+      return;
     }
+    // Clearing an outdated choice (the profile form shows it as N/A, so any
+    // save of the form clears it) answers nothing: leave the user unasked.
+    if ($after === NULL && $original instanceof UserInterface && $this->isStale($original)) {
+      return;
+    }
+    $this->stamp($user);
   }
 
   /**
@@ -131,33 +138,41 @@ class ProfileService {
   /**
    * Clears every user's stored answer, for raising CONSENT_VERSION.
    *
-   * Call from the update hook that ships with the new version. Users are
-   * saved without being stamped, so everyone reads as never asked.
+   * Call from the update hook that ships with the new version. It deletes
+   * the three fields' rows directly instead of saving each user, so no other
+   * user-save hooks run (badges, search indexing, the changed time) and it
+   * stays fast however many people have answered. Then everyone reads as
+   * never asked.
    *
    * @return int
    *   How many users were cleared.
    */
-  public function resetAllConsent(EntityTypeManagerInterface $entityTypeManager): int {
+  public function resetAllConsent(EntityTypeManagerInterface $entityTypeManager, Connection $database): int {
     $storage = $entityTypeManager->getStorage('user');
-    $query = $storage->getQuery()->accessCheck(FALSE);
-    $any = $query->orConditionGroup()
-      ->exists(self::CONSENT_FIELD)
-      ->exists(self::CONSENT_VERSION_FIELD)
-      ->exists(self::CONSENT_ASKED_FIELD);
-    $ids = $query->condition($any)->execute();
-    $this->resetting = TRUE;
-    try {
-      foreach (array_chunk($ids, 100) as $chunk) {
-        foreach ($storage->loadMultiple($chunk) as $user) {
-          $user->set(self::CONSENT_FIELD, NULL)
-            ->set(self::CONSENT_VERSION_FIELD, NULL)
-            ->set(self::CONSENT_ASKED_FIELD, NULL)
-            ->save();
-        }
+    if (!$storage instanceof SqlEntityStorageInterface) {
+      throw new \LogicException('User storage is not SQL storage.');
+    }
+    $mapping = $storage->getTableMapping();
+    $tables = [];
+    foreach ([self::CONSENT_FIELD, self::CONSENT_VERSION_FIELD, self::CONSENT_ASKED_FIELD] as $name) {
+      $definition = FieldStorageConfig::loadByName('user', $name);
+      if ($definition instanceof FieldStorageConfig && $mapping instanceof DefaultTableMapping) {
+        $tables[] = $mapping->getDedicatedDataTableName($definition);
       }
     }
-    finally {
-      $this->resetting = FALSE;
+    $ids = [];
+    foreach ($tables as $table) {
+      foreach ($database->select($table, 't')->fields('t', ['entity_id'])->distinct()->execute()->fetchCol() as $id) {
+        $ids[(int) $id] = TRUE;
+      }
+    }
+    foreach ($tables as $table) {
+      $database->delete($table)->execute();
+    }
+    $ids = array_keys($ids);
+    if ($ids) {
+      $storage->resetCache($ids);
+      Cache::invalidateTags(array_map(static fn (int $id): string => 'user:' . $id, $ids));
     }
     return count($ids);
   }

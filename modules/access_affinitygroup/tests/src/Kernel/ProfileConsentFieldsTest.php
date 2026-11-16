@@ -254,7 +254,8 @@ class ProfileConsentFieldsTest extends KernelTestBase {
     $never->save();
 
     $svc = $this->container->get('access_affinitygroup.profile');
-    $this->assertSame(2, $svc->resetAllConsent($this->container->get('entity_type.manager')));
+    $changed = $this->container->get('entity_type.manager')->getStorage('user')->loadUnchanged($deny->id())->getChangedTime();
+    $this->assertSame(2, $svc->resetAllConsent($this->container->get('entity_type.manager'), $this->container->get('database')));
 
     $storage = $this->container->get('entity_type.manager')->getStorage('user');
     foreach ([$allow, $deny] as $user) {
@@ -263,11 +264,61 @@ class ProfileConsentFieldsTest extends KernelTestBase {
       $this->assertNull($svc->askedAt($user));
       $this->assertTrue($user->get(ProfileService::CONSENT_VERSION_FIELD)->isEmpty());
     }
+    // Users aren't re-saved, so other save effects (here the changed time)
+    // don't run.
+    $this->assertSame($changed, $storage->loadUnchanged($deny->id())->getChangedTime());
+
     // Stamping works again after the reset.
     $user = $storage->loadUnchanged($deny->id());
     $user->set(ProfileService::CONSENT_FIELD, 'allow');
     $user->save();
     $this->assertSame('allow', $svc->consentState($user));
+  }
+
+  /**
+   * Clearing an outdated choice, as the form's N/A does, asks nothing.
+   */
+  public function testClearingAnOutdatedChoiceLeavesTheUserUnasked(): void {
+    $this->installConsentField();
+    $user = User::create(['name' => 'clear']);
+    $user->set(ProfileService::CONSENT_FIELD, 'allow');
+    $user->save();
+    $user->set(ProfileService::CONSENT_VERSION_FIELD, ProfileService::CONSENT_VERSION - 1);
+    $user->set(ProfileService::CONSENT_ASKED_FIELD, NULL);
+    $user->save();
+
+    $user->set(ProfileService::CONSENT_FIELD, NULL);
+    $user->save();
+
+    $svc = $this->container->get('access_affinitygroup.profile');
+    $this->assertSame('unset', $svc->consentState($user));
+    $this->assertNull($svc->askedAt($user));
+    $this->assertTrue($user->get(ProfileService::CONSENT_ASKED_FIELD)->isEmpty());
+  }
+
+  /**
+   * The user form shows an outdated choice as N/A and stamps form choices.
+   */
+  public function testUserFormShowsAnOutdatedChoiceAsUnanswered(): void {
+    $this->createUserFormDisplay();
+    $this->installConsentField();
+    $user = User::create(['name' => 'formuser', 'mail' => 'formuser@example.com']);
+    $user->set(ProfileService::CONSENT_FIELD, 'deny');
+    $user->save();
+    $user->set(ProfileService::CONSENT_VERSION_FIELD, ProfileService::CONSENT_VERSION - 1);
+    $user->save();
+    $this->container->get('current_user')->setAccount($user);
+
+    $form = $this->container->get('entity.form_builder')->getForm($user, 'default');
+    $this->assertSame('_none', $form[ProfileService::CONSENT_FIELD]['widget']['#default_value']);
+    $this->assertContains('_access_affinitygroup_consent_entity_builder', $form['#entity_builders']);
+
+    // A current choice keeps its own default.
+    $fresh = User::create(['name' => 'formfresh', 'mail' => 'formfresh@example.com']);
+    $fresh->set(ProfileService::CONSENT_FIELD, 'allow');
+    $fresh->save();
+    $form = $this->container->get('entity.form_builder')->getForm($fresh, 'default');
+    $this->assertSame('allow', $form[ProfileService::CONSENT_FIELD]['widget']['#default_value']);
   }
 
 }
