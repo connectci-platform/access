@@ -1,0 +1,19 @@
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.user.field_assistant_consent_asked
+  module:
+    - user
+id: user.user.field_assistant_consent_asked
+field_name: field_assistant_consent_asked
+entity_type: user
+bundle: user
+label: 'Assistant consent asked at'
+description: 'When the user last answered or dismissed the assistant consent question.'
+required: false
+translatable: false
+default_value: {  }
+default_value_callback: ''
+settings: {  }
+field_type: timestamp

@@ -104,3 +104,25 @@ access_affinitygroup.announcement_delete:
   options:
     no_cache: TRUE
 
+access_affinitygroup.profile:
+  path: '/api/1.0/profile'
+  methods: [GET]
+  defaults:
+    _controller: '\Drupal\access_affinitygroup\Controller\ProfileController::get'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+  options:
+    no_cache: TRUE
+
+access_affinitygroup.profile_consent:
+  path: '/api/1.0/profile/consent'
+  methods: [POST]
+  defaults:
+    _controller: '\Drupal\access_affinitygroup\Controller\ProfileConsentController::post'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    _custom_access: 'access_affinitygroup.acting_user_access:check'
+    _csrf_request_header_token: 'TRUE'
+  options:
+    no_cache: TRUE

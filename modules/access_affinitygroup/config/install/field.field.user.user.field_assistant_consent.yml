@@ -1,0 +1,19 @@
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.user.field_assistant_consent
+  module:
+    - user
+id: user.user.field_assistant_consent
+field_name: field_assistant_consent
+entity_type: user
+bundle: user
+label: 'Let AI assistants personalize answers using my profile'
+description: 'When on, AI assistants on this site may use your profile and account information to tailor their answers, such as your name, institution, academic status, and the resources you have access to with your login on each. You can turn this on or off at any time.'
+required: false
+translatable: false
+default_value: {  }
+default_value_callback: ''
+settings: {  }
+field_type: list_string
