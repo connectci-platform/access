@@ -2200,3 +2200,28 @@ function access_affinitygroup_entity_access(EntityInterface $entity, $operation,
   }
 
 }
+
+/**
+ * Implements hook_form_FORM_ID_alter() for the user edit form.
+ *
+ * An assistant consent choice made under an older wording version doesn't
+ * count, so the form shows it as unanswered, and choosing on the form stamps
+ * the choice even when it matches the old stored value.
+ */
+function access_affinitygroup_form_user_form_alter(array &$form, FormStateInterface $form_state): void {
+  if (!isset($form['field_assistant_consent']['widget'])) {
+    return;
+  }
+  $user = $form_state->getFormObject()->getEntity();
+  if ($user instanceof UserInterface && \Drupal::service('access_affinitygroup.profile')->isStale($user)) {
+    $form['field_assistant_consent']['widget']['#default_value'] = '_none';
+  }
+  $form['#entity_builders'][] = '_access_affinitygroup_consent_entity_builder';
+}
+
+/**
+ * Entity builder for the user form: stamps a consent choice made on it.
+ */
+function _access_affinitygroup_consent_entity_builder(string $entity_type, UserInterface $user, array &$form, FormStateInterface $form_state): void {
+  \Drupal::service('access_affinitygroup.profile')->stampFormChoice($user);
+}

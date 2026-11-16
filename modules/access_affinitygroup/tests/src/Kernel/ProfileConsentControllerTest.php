@@ -188,6 +188,22 @@ class ProfileConsentControllerTest extends KernelTestBase {
   }
 
   /**
+   * Not now checks the stored answer, not a copy loaded before a deny.
+   */
+  public function testNotNowReadsTheStoredAnswer(): void {
+    $user = User::create(['name' => 'race']);
+    $user->save();
+    // Another request saves deny after this copy was loaded.
+    $other = $this->container->get('entity_type.manager')->getStorage('user')->loadUnchanged($user->id());
+    $other->set('field_assistant_consent', 'deny');
+    $other->save();
+
+    $this->assertSame(409, $this->post($user, json_encode(['consent' => 'not_now']))->getStatusCode());
+    $stored = $this->container->get('entity_type.manager')->getStorage('user')->loadUnchanged($user->id());
+    $this->assertSame('deny', $this->container->get('access_affinitygroup.profile')->consentState($stored));
+  }
+
+  /**
    * Choices a user can already have made.
    *
    * @return array<int, array{string}>

@@ -260,29 +260,14 @@ class ProfileControllerTest extends KernelTestBase {
   }
 
   /**
-   * With once=1 an unset user's profile fields are returned for one answer.
+   * The old once=1 query no longer returns profile fields to anyone unset.
    */
-  public function testOnceReturnsProfileWhenUnset(): void {
+  public function testOnceIsIgnored(): void {
     $user = User::create(['name' => 'once']);
     $user->set('field_user_first_name', 'Grace');
     $user->save();
     $data = $this->invoke($user, ['once' => '1']);
-    $this->assertSame('unset', $data['consent']);
-    $this->assertSame('Grace', $data['first_name']);
-    $this->assertArrayHasKey('allocated_resources', $data);
-  }
-
-  /**
-   * With once=1 a user who said deny still gets no profile fields.
-   */
-  public function testOnceNeverReturnsProfileWhenDenied(): void {
-    $user = User::create(['name' => 'oncedeny']);
-    $user->set('field_assistant_consent', 'deny');
-    $user->set('field_user_first_name', 'Grace');
-    $user->save();
-    $data = $this->invoke($user, ['once' => '1']);
-    $this->assertSame('deny', $data['consent']);
-    $this->assertArrayNotHasKey('first_name', $data);
+    $this->assertSame(['consent' => 'unset', 'asked_at' => NULL], $data);
   }
 
   /**

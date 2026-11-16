@@ -1208,10 +1208,17 @@ function _access_affinitygroup_resolve_resource_nid(Connection $db, int $resourc
  * brings an existing consent field's label and description up to date and
  * shows only the consent choice on the user edit form, keeping the version
  * and asked-at bookkeeping fields hidden. Safe to re-run.
+ *
+ * The fields get the UUIDs the portal's config sync carries, so the config
+ * import that follows this update on deploy sees the same fields rather than
+ * deleting and recreating them, which would wipe any answers stored between
+ * the two.
  */
 function access_affinitygroup_update_10017(): string {
   $fields = [
     'field_assistant_consent' => [
+      'storage_uuid' => '67e8dfc4-fa0e-418f-8f39-7bd48f29f025',
+      'field_uuid' => '2b502270-b2af-462f-abe0-d5abfc78f6ea',
       'type' => 'list_string',
       'storage_settings' => [
         'allowed_values' => [
@@ -1219,16 +1226,20 @@ function access_affinitygroup_update_10017(): string {
           'deny' => 'Deny',
         ],
       ],
-      'label' => 'Let the ACCESS Assistant personalize answers using my profile',
-      'description' => 'When on, the assistant may use your ACCESS profile (name, institution, academic status) and your allocation and account information (which resources you have and your login on each) to tailor its answers. You can turn this on or off at any time.',
+      'label' => 'Let AI assistants personalize answers using my profile',
+      'description' => 'When on, AI assistants on this site may use your profile and account information to tailor their answers, such as your name, institution, academic status, and the resources you have access to with your login on each. You can turn this on or off at any time.',
     ],
     'field_assistant_consent_version' => [
+      'storage_uuid' => 'f5d0c1fe-6d07-4aca-ae84-22ec03915e87',
+      'field_uuid' => '46647a6c-afe0-4da2-a12d-b1e7d181eb43',
       'type' => 'integer',
       'storage_settings' => [],
       'label' => 'Assistant consent version',
       'description' => 'The consent wording version the assistant consent choice was made under.',
     ],
     'field_assistant_consent_asked' => [
+      'storage_uuid' => 'f69b05cf-9674-4369-a332-592a4792f2e3',
+      'field_uuid' => 'b73a6eb5-e542-4878-8061-4af576385109',
       'type' => 'timestamp',
       'storage_settings' => [],
       'label' => 'Assistant consent asked at',
@@ -1243,6 +1254,7 @@ function access_affinitygroup_update_10017(): string {
     }
     else {
       FieldStorageConfig::create([
+        'uuid' => $info['storage_uuid'],
         'field_name' => $field_name,
         'entity_type' => 'user',
         'type' => $info['type'],
@@ -1261,6 +1273,7 @@ function access_affinitygroup_update_10017(): string {
     }
     else {
       FieldConfig::create([
+        'uuid' => $info['field_uuid'],
         'field_name' => $field_name,
         'entity_type' => 'user',
         'bundle' => 'user',

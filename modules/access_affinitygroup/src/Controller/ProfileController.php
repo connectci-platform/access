@@ -27,11 +27,10 @@ final class ProfileController extends ControllerBase {
   }
 
   /**
-   * GET /api/1.0/profile[?once=1].
+   * GET /api/1.0/profile.
    *
    * Always returns the effective {"consent", "asked_at"}. The profile fields
-   * are added when consent is allow, or when once=1 and the user has not
-   * chosen yet (the assistant's one-time use). once=1 never overrides deny.
+   * are added only when consent is allow.
    * Named get (not getProfile) to mirror RpAccountController's single-action
    * naming.
    */
@@ -50,8 +49,7 @@ final class ProfileController extends ControllerBase {
       'consent' => $consent,
       'asked_at' => $this->profile->askedAt($user),
     ];
-    $once = $request->query->get('once') === '1';
-    if ($consent === 'allow' || ($once && $consent === 'unset')) {
+    if ($consent === 'allow') {
       $payload += $this->profile->primeProfile($user);
     }
 

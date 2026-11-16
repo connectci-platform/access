@@ -73,10 +73,19 @@ class ProfileConsentFieldsTest extends KernelTestBase {
     $this->assertSame('timestamp', FieldStorageConfig::loadByName('user', ProfileService::CONSENT_ASKED_FIELD)->getType());
 
     $field = FieldConfig::loadByName('user', 'user', ProfileService::CONSENT_FIELD);
-    $this->assertSame('Let the ACCESS Assistant personalize answers using my profile', $field->getLabel());
-    $this->assertStringContainsString('your allocation and account information', $field->getDescription());
+    $this->assertSame('Let AI assistants personalize answers using my profile', $field->getLabel());
+    $this->assertStringContainsString('your profile and account information', $field->getDescription());
     $this->assertNotNull(FieldConfig::loadByName('user', 'user', ProfileService::CONSENT_VERSION_FIELD));
     $this->assertNotNull(FieldConfig::loadByName('user', 'user', ProfileService::CONSENT_ASKED_FIELD));
+
+    // The portal config's UUIDs, so the config import after updb keeps the
+    // fields instead of recreating them.
+    $this->assertSame('67e8dfc4-fa0e-418f-8f39-7bd48f29f025', $consent->uuid());
+    $this->assertSame('2b502270-b2af-462f-abe0-d5abfc78f6ea', $field->uuid());
+    $this->assertSame('f5d0c1fe-6d07-4aca-ae84-22ec03915e87', FieldStorageConfig::loadByName('user', ProfileService::CONSENT_VERSION_FIELD)->uuid());
+    $this->assertSame('46647a6c-afe0-4da2-a12d-b1e7d181eb43', FieldConfig::loadByName('user', 'user', ProfileService::CONSENT_VERSION_FIELD)->uuid());
+    $this->assertSame('f69b05cf-9674-4369-a332-592a4792f2e3', FieldStorageConfig::loadByName('user', ProfileService::CONSENT_ASKED_FIELD)->uuid());
+    $this->assertSame('b73a6eb5-e542-4878-8061-4af576385109', FieldConfig::loadByName('user', 'user', ProfileService::CONSENT_ASKED_FIELD)->uuid());
 
     $display = EntityFormDisplay::load('user.user.default');
     $this->assertSame('options_buttons', $display->getComponent(ProfileService::CONSENT_FIELD)['type']);
@@ -96,8 +105,8 @@ class ProfileConsentFieldsTest extends KernelTestBase {
     $this->installConsentField();
 
     $field = FieldConfig::loadByName('user', 'user', ProfileService::CONSENT_FIELD);
-    $this->assertSame('Let the ACCESS Assistant personalize answers using my profile', $field->getLabel());
-    $this->assertStringStartsWith('When on, the assistant may use your ACCESS profile', $field->getDescription());
+    $this->assertSame('Let AI assistants personalize answers using my profile', $field->getLabel());
+    $this->assertStringStartsWith('When on, AI assistants on this site may use your profile and account information to tailor their answers, such as your name, institution, academic status, and the resources you have access to with your login on each. You can turn this on or off at any time.', $field->getDescription());
   }
 
   /**
@@ -192,6 +201,73 @@ class ProfileConsentFieldsTest extends KernelTestBase {
     $user->save();
 
     $this->assertSame('2026-01-01T00:00:00Z', $this->container->get('access_affinitygroup.profile')->askedAt($user));
+  }
+
+  /**
+   * Choosing on the form over an outdated choice counts, even if it matches.
+   */
+  public function testFormChoiceStampsAnOutdatedMatchingChoice(): void {
+    $this->installConsentField();
+    $user = User::create(['name' => 'reaffirm']);
+    $user->set(ProfileService::CONSENT_FIELD, 'deny');
+    $user->save();
+    $user->set(ProfileService::CONSENT_VERSION_FIELD, ProfileService::CONSENT_VERSION - 1);
+    $user->save();
+    $svc = $this->container->get('access_affinitygroup.profile');
+    $this->assertTrue($svc->isStale($user));
+
+    // A plain save with the same value doesn't bring the old choice back.
+    $user->save();
+    $this->assertSame('unset', $svc->consentState($user));
+
+    // The form's entity builder does, because the user just chose it.
+    $svc->stampFormChoice($user);
+    $user->save();
+    $this->assertSame('deny', $svc->consentState($user));
+    $this->assertFalse($svc->isStale($user));
+  }
+
+  /**
+   * An empty choice on the form isn't stamped by the form builder.
+   */
+  public function testFormChoiceIgnoresAnEmptyChoice(): void {
+    $this->installConsentField();
+    $user = User::create(['name' => 'empty']);
+    $user->save();
+    $svc = $this->container->get('access_affinitygroup.profile');
+    $svc->stampFormChoice($user);
+    $this->assertTrue($user->get(ProfileService::CONSENT_VERSION_FIELD)->isEmpty());
+  }
+
+  /**
+   * Resetting for a version bump clears every answer without stamping.
+   */
+  public function testResetAllConsentClearsEveryAnswer(): void {
+    $this->installConsentField();
+    $allow = User::create(['name' => 'a']);
+    $allow->set(ProfileService::CONSENT_FIELD, 'allow');
+    $allow->save();
+    $deny = User::create(['name' => 'd']);
+    $deny->set(ProfileService::CONSENT_FIELD, 'deny');
+    $deny->save();
+    $never = User::create(['name' => 'n']);
+    $never->save();
+
+    $svc = $this->container->get('access_affinitygroup.profile');
+    $this->assertSame(2, $svc->resetAllConsent($this->container->get('entity_type.manager')));
+
+    $storage = $this->container->get('entity_type.manager')->getStorage('user');
+    foreach ([$allow, $deny] as $user) {
+      $user = $storage->loadUnchanged($user->id());
+      $this->assertSame('unset', $svc->consentState($user));
+      $this->assertNull($svc->askedAt($user));
+      $this->assertTrue($user->get(ProfileService::CONSENT_VERSION_FIELD)->isEmpty());
+    }
+    // Stamping works again after the reset.
+    $user = $storage->loadUnchanged($deny->id());
+    $user->set(ProfileService::CONSENT_FIELD, 'allow');
+    $user->save();
+    $this->assertSame('allow', $svc->consentState($user));
   }
 
 }

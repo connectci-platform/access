@@ -4,6 +4,7 @@ namespace Drupal\access_affinitygroup\Service;
 
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Entity\FieldableEntityInterface;
 use Drupal\user\UserInterface;
 
@@ -22,9 +23,17 @@ class ProfileService {
    * The current version of the consent wording.
    *
    * A stored allow or deny made under a lower version reads as unset, so
-   * raising this asks everyone again.
+   * raising this asks everyone again, including people who chose deny: a new
+   * version means a new kind of data and so a new question. Raise it in the
+   * same release as an update hook that calls resetAllConsent(), so stored
+   * answers are cleared and the profile form shows what the assistant uses.
    */
   public const CONSENT_VERSION = 1;
+
+  /**
+   * Set while resetAllConsent() saves users, so presave doesn't stamp them.
+   */
+  private bool $resetting = FALSE;
 
   public function __construct(
     private readonly TimeInterface $time,
@@ -86,7 +95,7 @@ class ProfileService {
    * entity save are covered as well as the endpoint.
    */
   public function stampIfConsentChanged(UserInterface $user): void {
-    if (!$user->hasField(self::CONSENT_FIELD)) {
+    if ($this->resetting || !$user->hasField(self::CONSENT_FIELD)) {
       return;
     }
     $original = $user->isNew() ? NULL : $user->getOriginal();
@@ -94,6 +103,63 @@ class ProfileService {
     if ($before !== $this->raw($user, self::CONSENT_FIELD)) {
       $this->stamp($user);
     }
+  }
+
+  /**
+   * Whether a stored allow or deny was made under an older wording version.
+   */
+  public function isStale(UserInterface $user): bool {
+    return $user->hasField(self::CONSENT_FIELD)
+      && $this->raw($user, self::CONSENT_FIELD) !== NULL
+      && !$this->hasCurrentVersion($user);
+  }
+
+  /**
+   * Stamps a choice made on the profile form over an outdated one.
+   *
+   * The form shows an outdated choice as unanswered. Picking the same value
+   * again leaves the stored value unchanged, so presave alone wouldn't stamp
+   * it; this runs only when the form is submitted, never on other saves.
+   */
+  public function stampFormChoice(UserInterface $user): void {
+    $value = $this->raw($user, self::CONSENT_FIELD);
+    if (in_array($value, ['allow', 'deny'], TRUE) && !$this->hasCurrentVersion($user)) {
+      $this->stamp($user);
+    }
+  }
+
+  /**
+   * Clears every user's stored answer, for raising CONSENT_VERSION.
+   *
+   * Call from the update hook that ships with the new version. Users are
+   * saved without being stamped, so everyone reads as never asked.
+   *
+   * @return int
+   *   How many users were cleared.
+   */
+  public function resetAllConsent(EntityTypeManagerInterface $entityTypeManager): int {
+    $storage = $entityTypeManager->getStorage('user');
+    $query = $storage->getQuery()->accessCheck(FALSE);
+    $any = $query->orConditionGroup()
+      ->exists(self::CONSENT_FIELD)
+      ->exists(self::CONSENT_VERSION_FIELD)
+      ->exists(self::CONSENT_ASKED_FIELD);
+    $ids = $query->condition($any)->execute();
+    $this->resetting = TRUE;
+    try {
+      foreach (array_chunk($ids, 100) as $chunk) {
+        foreach ($storage->loadMultiple($chunk) as $user) {
+          $user->set(self::CONSENT_FIELD, NULL)
+            ->set(self::CONSENT_VERSION_FIELD, NULL)
+            ->set(self::CONSENT_ASKED_FIELD, NULL)
+            ->save();
+        }
+      }
+    }
+    finally {
+      $this->resetting = FALSE;
+    }
+    return count($ids);
   }
 
   /**
