@@ -19,9 +19,10 @@ use Symfony\Component\Yaml\Yaml;
  * Tests view access to project submissions.
  *
  * D8-3101: the project webform's view_any rule is limited to staff roles, and
- * published ("approved") projects plus projects that list the user as mentor or
- * student stay viewable through access_misc. The real exported access rules
- * are applied. Both entity access and query level access (views) are checked.
+ * published ("approved") projects plus projects that list the user as a member
+ * (mentor, mentors, student, students or mentee_s_) stay viewable through
+ * access_misc. The real exported access rules are applied. Both entity access
+ * and query level access (views) are checked.
  *
  * @coversDefaultClass \Drupal\access_misc\Access\ProjectSubmissionViewAccess
  * @group access_misc
@@ -75,8 +76,11 @@ class ProjectSubmissionViewAccessTest extends KernelTestBase {
 
   /**
    * Finds the config sync directory relative to this file.
+   *
+   * @return string|null
+   *   The directory, or NULL when the module is checked out standalone.
    */
-  protected function getSyncDir(): string {
+  protected function getSyncDir(): ?string {
     $dir = __DIR__;
     while (($parent = dirname($dir)) !== $dir) {
       $candidate = $dir . '/sites/default/config/default';
@@ -85,14 +89,31 @@ class ProjectSubmissionViewAccessTest extends KernelTestBase {
       }
       $dir = $parent;
     }
-    $this->markTestSkipped('Config sync directory sites/default/config/default not found; the access sub-repo may be checked out standalone.');
+    return NULL;
   }
 
   /**
    * Loads the exported project webform config.
+   *
+   * Falls back to a hardcoded copy of the access rules when the config sync
+   * directory is not available.
    */
   protected function loadProjectConfig(): array {
-    $file = $this->getSyncDir() . '/webform.webform.project.yml';
+    $dir = $this->getSyncDir();
+    if ($dir === NULL) {
+      $rule = fn (array $roles) => ['roles' => $roles, 'users' => [], 'permissions' => []];
+      return [
+        'access' => [
+          'create' => $rule(['authenticated']),
+          'view_any' => $rule(['careers_sc', 'pascience_manager']),
+          'update_any' => $rule(['careers_sc', 'pascience_manager']),
+          'delete_any' => $rule(['administrator']),
+          'view_own' => $rule(['authenticated']),
+          'update_own' => $rule(['authenticated']),
+        ],
+      ];
+    }
+    $file = $dir . '/webform.webform.project.yml';
     $this->assertFileExists($file);
     return Yaml::parse(file_get_contents($file));
   }
@@ -130,11 +151,14 @@ class ProjectSubmissionViewAccessTest extends KernelTestBase {
 
     $elements = "approved:\n  '#type': checkbox\n  '#title': Approved\n"
       . "mentor:\n  '#type': entity_autocomplete\n  '#title': Mentor\n  '#multiple': true\n  '#target_type': user\n"
-      . "student:\n  '#type': entity_autocomplete\n  '#title': Student\n  '#multiple': true\n  '#target_type': user\n";
+      . "student:\n  '#type': entity_autocomplete\n  '#title': Student\n  '#multiple': true\n  '#target_type': user\n"
+      . "mentors:\n  '#type': entity_autocomplete\n  '#title': Mentors\n  '#tags': true\n  '#target_type': user\n"
+      . "students:\n  '#type': entity_autocomplete\n  '#title': Students\n  '#tags': true\n  '#target_type': user\n"
+      . "mentee_s_:\n  '#type': entity_autocomplete\n  '#title': Mentees\n  '#multiple': true\n  '#target_type': user\n";
     $webform = Webform::create(['id' => 'project', 'title' => 'Project', 'elements' => $elements]);
     $webform->setAccessRules($config['access'])->save();
 
-    foreach (['owner', 'mentor', 'student', 'other', 'manager'] as $label) {
+    foreach (['owner', 'mentor', 'mentors_user', 'student', 'students_user', 'mentee', 'other', 'manager'] as $label) {
       $this->users[$label] = $this->createUser();
     }
     $this->users['manager']->addRole('pascience_manager')->save();
@@ -144,6 +168,9 @@ class ProjectSubmissionViewAccessTest extends KernelTestBase {
     $this->sids['hidden'] = $this->submission(0, [])->id();
     $this->sids['mentored'] = $this->submission(0, ['mentor' => [$this->users['mentor']->id()]])->id();
     $this->sids['studented'] = $this->submission(0, ['student' => [$this->users['student']->id()]])->id();
+    $this->sids['mentorsed'] = $this->submission(0, ['mentors' => [$this->users['mentors_user']->id()]])->id();
+    $this->sids['studentsed'] = $this->submission(0, ['students' => [$this->users['students_user']->id()]])->id();
+    $this->sids['menteed'] = $this->submission(0, ['mentee_s_' => [$this->users['mentee']->id()]])->id();
   }
 
   /**
@@ -196,6 +223,9 @@ class ProjectSubmissionViewAccessTest extends KernelTestBase {
    * The exported view_any rule is limited to staff roles.
    */
   public function testExportedViewAnyRoles(): void {
+    if ($this->getSyncDir() === NULL) {
+      $this->markTestSkipped('Config sync directory sites/default/config/default not found; the access sub-repo may be checked out standalone.');
+    }
     $roles = $this->loadProjectConfig()['access']['view_any']['roles'];
     $this->assertSame(['careers_sc', 'pascience_manager'], array_values($roles));
   }
@@ -211,6 +241,12 @@ class ProjectSubmissionViewAccessTest extends KernelTestBase {
     $this->assertTrue($hidden->access('view', $this->users['manager']));
     $this->assertTrue($this->load('mentored')->access('view', $this->users['mentor']));
     $this->assertTrue($this->load('studented')->access('view', $this->users['student']));
+    $this->assertTrue($this->load('mentorsed')->access('view', $this->users['mentors_user']));
+    $this->assertTrue($this->load('studentsed')->access('view', $this->users['students_user']));
+    $this->assertTrue($this->load('menteed')->access('view', $this->users['mentee']));
+    $this->assertFalse($this->load('mentorsed')->access('view', $this->users['other']));
+    $this->assertFalse($this->load('studentsed')->access('view', $this->users['other']));
+    $this->assertFalse($this->load('menteed')->access('view', $this->users['other']));
     // Membership is per project.
     $this->assertFalse($this->load('mentored')->access('view', $this->users['student']));
     $this->assertFalse($hidden->access('view', $this->users['mentor']));
@@ -233,8 +269,12 @@ class ProjectSubmissionViewAccessTest extends KernelTestBase {
     $this->assertSame($this->sidsOf(['approved']), $this->visibleSids('other'));
     $this->assertSame($this->sidsOf(['approved', 'mentored']), $this->visibleSids('mentor'));
     $this->assertSame($this->sidsOf(['approved', 'studented']), $this->visibleSids('student'));
-    $this->assertSame($this->sidsOf(['approved', 'hidden', 'mentored', 'studented']), $this->visibleSids('owner'));
-    $this->assertSame($this->sidsOf(['approved', 'hidden', 'mentored', 'studented']), $this->visibleSids('manager'));
+    $this->assertSame($this->sidsOf(['approved', 'mentorsed']), $this->visibleSids('mentors_user'));
+    $this->assertSame($this->sidsOf(['approved', 'studentsed']), $this->visibleSids('students_user'));
+    $this->assertSame($this->sidsOf(['approved', 'menteed']), $this->visibleSids('mentee'));
+    $all = ['approved', 'hidden', 'mentored', 'studented', 'mentorsed', 'studentsed', 'menteed'];
+    $this->assertSame($this->sidsOf($all), $this->visibleSids('owner'));
+    $this->assertSame($this->sidsOf($all), $this->visibleSids('manager'));
   }
 
   /**

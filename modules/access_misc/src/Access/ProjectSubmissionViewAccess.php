@@ -16,7 +16,8 @@ use Drupal\webform\WebformSubmissionInterface;
  * The "project" webform's own view_any rule is limited to staff roles. This
  * service adds view access (for single submissions and for entity queries and
  * views) for projects that are published (the "approved" element is set) and
- * for users listed in the project's "mentor" or "student" elements.
+ * for users listed in the project's "mentor", "mentors", "student", "students"
+ * or "mentee_s_" elements.
  *
  * Only ever grants access (allowed or neutral, never forbidden).
  */
@@ -30,7 +31,7 @@ class ProjectSubmissionViewAccess {
   /**
    * Elements that list the users who belong to a project.
    */
-  const MEMBER_ELEMENTS = ['mentor', 'student'];
+  const MEMBER_ELEMENTS = ['mentor', 'mentors', 'student', 'students', 'mentee_s_'];
 
   /**
    * Constructs a ProjectSubmissionViewAccess object.
@@ -60,22 +61,40 @@ class ProjectSubmissionViewAccess {
       return AccessResult::allowed()->addCacheableDependency($submission);
     }
 
-    $result = AccessResult::neutral()
+    if ($this->isMember($submission, $account)) {
+      return AccessResult::allowed()
+        ->addCacheContexts(['user'])
+        ->addCacheableDependency($submission);
+    }
+    return AccessResult::neutral()
       ->addCacheContexts(['user'])
       ->addCacheableDependency($submission);
-    if ($account->isAuthenticated()) {
-      $uid = (string) $account->id();
-      foreach (self::MEMBER_ELEMENTS as $element) {
-        $value = $submission->getElementData($element);
-        $value = is_array($value) ? $value : [$value];
-        if (in_array($uid, array_map('strval', array_filter($value, 'is_scalar')), TRUE)) {
-          return AccessResult::allowed()
-            ->addCacheContexts(['user'])
-            ->addCacheableDependency($submission);
-        }
+  }
+
+  /**
+   * Checks whether the account is listed as a member of a project.
+   *
+   * @param \Drupal\webform\WebformSubmissionInterface $submission
+   *   The webform submission.
+   * @param \Drupal\Core\Session\AccountInterface $account
+   *   The account to check.
+   *
+   * @return bool
+   *   TRUE if the authenticated account is in a member element.
+   */
+  public function isMember(WebformSubmissionInterface $submission, AccountInterface $account): bool {
+    if (!$account->isAuthenticated()) {
+      return FALSE;
+    }
+    $uid = (string) $account->id();
+    foreach (self::MEMBER_ELEMENTS as $element) {
+      $value = $submission->getElementData($element);
+      $value = is_array($value) ? $value : [$value];
+      if (in_array($uid, array_map('strval', array_filter($value, 'is_scalar')), TRUE)) {
+        return TRUE;
       }
     }
-    return $result;
+    return FALSE;
   }
 
   /**
