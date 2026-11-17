@@ -340,8 +340,20 @@ components:
             $ref: '#/components/schemas/StorageFilesystem'
         queue_specs:
           type: array
+          deprecated: true
+          description: Deprecated. One row per queue and node type, derived from `node_types` and `queues` (or read from the old queue hardware fields for a resource that has no node types yet). It will be removed after consumers migrate to `node_types` and `queues`.
           items:
             $ref: '#/components/schemas/QueueSpec'
+        node_types:
+          type: array
+          description: Hardware of each kind of compute node, entered once. Queues refer to these by `label`. Empty when the resource has none documented.
+          items:
+            $ref: '#/components/schemas/NodeType'
+        queues:
+          type: array
+          description: Queues (partitions), one entry per queue name, each listing the node types it can use. For a resource without node types, `nodes` is empty.
+          items:
+            $ref: '#/components/schemas/Queue'
         datasets:
           type: array
           items:
@@ -467,8 +479,96 @@ components:
           nullable: true
           description: Derived human-readable one-line summary (e.g. "25 GB, 1,000,000 files").
 
+    NodeGpu:
+      type: object
+      properties:
+        type:
+          type: string
+          nullable: true
+          description: GPU model (e.g. "AMD MI210").
+        count:
+          type: integer
+          nullable: true
+          description: GPUs of this model per node. Null when not documented.
+        vram:
+          type: integer
+          nullable: true
+          description: vRAM per GPU in GB. Null when not documented.
+
+    NodeType:
+      type: object
+      properties:
+        label:
+          type: string
+          nullable: true
+          description: Name unique within the resource. Queues reference it in `nodes[].node_type`.
+        description:
+          type: string
+          nullable: true
+        node_count:
+          type: integer
+          nullable: true
+          description: Total nodes of this type in the system, when documented.
+        cpu_type:
+          type: string
+          nullable: true
+          description: CPU model string (e.g. "AMD EPYC 7763").
+        cpu_count:
+          type: integer
+          nullable: true
+          description: Number of CPU cores per node.
+        ram:
+          type: integer
+          nullable: true
+          description: Node RAM in GB.
+        gpus:
+          type: array
+          description: GPU models on each node. Empty for a node without GPUs.
+          items:
+            $ref: '#/components/schemas/NodeGpu'
+        summary:
+          type: string
+          nullable: true
+          description: Derived one-line hardware summary listing each GPU model (e.g. "4× AMD MI100 (32 GB vRAM), 4× AMD MI210, 64-core AMD EPYC 7763, 512 GB RAM").
+
+    QueueNode:
+      type: object
+      properties:
+        node_type:
+          type: string
+          nullable: true
+          description: Label of a node type in `node_types`.
+        node_count:
+          type: integer
+          nullable: true
+          description: Number of nodes of that type this queue can use.
+
+    Queue:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Queue name. Unique within the resource; joins one-to-one with `queue_metrics`.
+        purpose:
+          type: string
+          nullable: true
+        max_wall_time_hours:
+          type: number
+          nullable: true
+          description: Maximum wall time a single job may run on this queue, in hours. May be fractional. Null means no limit.
+        max_wall_time_display:
+          type: string
+          nullable: true
+          description: Friendly rendering of the wall-time limit (e.g. "48 hours"). Null means no limit.
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueueNode'
+
     QueueSpec:
       type: object
+      deprecated: true
+      description: Deprecated; see `node_types` and `queues`. With several GPU models on one node type, `gpu_type` joins the models with ", ", `gpu_count` sums the known counts (null if none) and `gpu_vram` is null.
       properties:
         name:
           type: string
