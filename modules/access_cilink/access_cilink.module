@@ -92,6 +92,18 @@ function access_cilink_views_query_alter($view, $query) {
       }
     }
   }
+
+  // The KB resource picker on affinity groups (the views selection handler
+  // for field_resources_entity_reference) must not offer private resources.
+  // A private resource is only reachable through the group it is tagged with,
+  // so referencing it from another group would list a row its members cannot
+  // open. The same view validates submitted references, so this also rejects
+  // a private resource posted to the field directly. NOT EXISTS (rather than a
+  // views filter on the private value) keeps resources saved before the
+  // private element existed, which have no private row at all.
+  if ($view->id() == 'resources_entity_reference' && $query instanceof \Drupal\views\Plugin\views\query\Sql) {
+    $query->addWhereExpression(0, "NOT EXISTS (SELECT 1 FROM {webform_submission_data} kb_private WHERE kb_private.sid = webform_submission.sid AND kb_private.name = 'private' AND kb_private.value = '1')");
+  }
 }
 
 /**
@@ -573,6 +585,7 @@ function access_cilink_form_alter(&$form, FormStateInterface $form_state, $form_
     }
 
     access_cilink_restrict_allowed_on_group($form, $form_state, $form_id);
+    $form['#validate'][] = 'access_cilink_private_requires_private_group_validate';
 
     $form['actions']['submit']['#submit'][] = 'access_cilink_webform_submission_resource_submit';
   }
@@ -604,6 +617,48 @@ function access_cilink_restrict_allowed_on_group(array &$form, FormStateInterfac
   $element = &$form['elements']['resource_allowed_on_affinity_group'];
   $element['#access'] = ($element['#access'] ?? TRUE) && $can_allow;
   $form['#validate'][] = 'access_cilink_allowed_on_group_validate';
+}
+
+/**
+ * Validates that a private resource is tagged only with private groups.
+ *
+ * A private resource is visible to its owner, administrators, KB PMs and the
+ * members and coordinators of the private affinity group(s) it is tagged
+ * with. Without a private group nobody but administrators could see it, so
+ * the form rejects it, for every user including administrators. Every tagged
+ * group must be private, because a public group would not grant access.
+ *
+ * @param array<string, mixed> $form
+ *   The form.
+ * @param \Drupal\Core\Form\FormStateInterface $form_state
+ *   The form state.
+ */
+function access_cilink_private_requires_private_group_validate(array &$form, FormStateInterface $form_state): void {
+  if ((int) $form_state->getValue('private') !== 1) {
+    return;
+  }
+  $tids = access_cilink_normalize_tids($form_state->getValue('affinity_group'));
+  $nodes = [];
+  if ($tids) {
+    $storage = \Drupal::entityTypeManager()->getStorage('node');
+    // accessCheck(FALSE): only the groups' own private flag matters here.
+    $nids = $storage->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('type', 'affinity_group')
+      ->condition('field_affinity_group', $tids, 'IN')
+      ->execute();
+    $nodes = $storage->loadMultiple($nids);
+  }
+  $valid = !empty($nodes);
+  foreach ($nodes as $node) {
+    if ((int) $node->get('field_ag_private')->value !== 1) {
+      $valid = FALSE;
+      break;
+    }
+  }
+  if (!$valid) {
+    $form_state->setErrorByName('private', t('A resource can only be private when its Affinity Group is private.'));
+  }
 }
 
 /**

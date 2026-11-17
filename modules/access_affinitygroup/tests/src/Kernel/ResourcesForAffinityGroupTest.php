@@ -9,6 +9,7 @@ use Drupal\Core\Render\RenderContext;
 use Drupal\Core\Render\RendererInterface;
 use Drupal\Core\Routing\RouteMatch;
 use Drupal\Core\Security\TrustedCallbackInterface;
+use Drupal\Core\Session\AnonymousUserSession;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\KernelTests\KernelTestBase;
@@ -50,6 +51,9 @@ class ResourcesForAffinityGroupTest extends KernelTestBase implements TrustedCal
     'webform',
     'block',
     'access',
+    'flag',
+    'domain',
+    'access_cilink',
     'access_affinitygroup',
     'key',
   ];
@@ -70,6 +74,8 @@ class ResourcesForAffinityGroupTest extends KernelTestBase implements TrustedCal
     $this->installEntitySchema('webform_submission');
     $this->installSchema('node', ['node_access']);
     $this->installSchema('webform', ['webform']);
+    $this->installEntitySchema('flagging');
+    $this->installSchema('flag', ['flag_counts']);
     $this->installConfig(['system', 'filter', 'user', 'webform']);
 
     // Stub the heavy skill level service.
@@ -125,6 +131,8 @@ tags:
   '#options': {}
 resource_allowed_on_affinity_group:
   '#type': checkbox
+private:
+  '#type': checkbox
 YAML,
     ])->save();
 
@@ -153,13 +161,13 @@ YAML,
   /**
    * Creates an affinity group node and makes it the current route's node.
    */
-  protected function createGroup(bool $private, array $referenced = [], array $coordinators = [], array $members = []): NodeInterface {
+  protected function createGroup(bool $private, array $referenced = [], array $coordinators = [], array $members = [], string $title = 'Access Group'): NodeInterface {
     $group = Node::create([
       'type' => 'affinity_group',
-      'title' => 'Access Group',
+      'title' => $title,
       'status' => 1,
       'field_ag_private' => (int) $private,
-      'field_group_slug' => 'access-group',
+      'field_group_slug' => 'slug-' . strtolower(str_replace(' ', '-', $title)),
       'field_use_ext_email_list' => 0,
       'field_resources_entity_reference' => $referenced,
       'field_coordinator' => array_map(fn($account) => ['target_id' => $account->id()], $coordinators),
@@ -183,6 +191,7 @@ YAML,
         'title' => $title,
         'tags' => [],
         'skill_level' => [],
+        'private' => 0,
         'resource_allowed_on_affinity_group' => 0,
       ],
     ]);
@@ -397,6 +406,50 @@ YAML,
 
     $this->assertSame('', trim($this->renderBlock($this->createUser(['access content']))));
     $this->assertStringContainsString('Approved resource', $this->renderBlock($member));
+  }
+
+  /**
+   * An approved private resource is hidden on a public group.
+   *
+   * The row would link to a 403 for anyone who is not the owner, an
+   * administrator, a KB PM or a member of a private group it is tagged with.
+   */
+  public function testPublicGroupHidesApprovedPrivateResource(): void {
+    $group = $this->createGroup(FALSE);
+    $tid = $this->groupTid($group);
+    $this->createResource('Secret resource', ['private' => 1, 'affinity_group' => $tid]);
+    $this->createResource('Open resource', ['affinity_group' => $tid]);
+
+    if (!Role::load('anonymous')) {
+      Role::create(['id' => 'anonymous', 'label' => 'Anonymous'])->save();
+    }
+    user_role_grant_permissions('anonymous', ['access content']);
+
+    foreach ([new AnonymousUserSession(), $this->createUser(['access content'])] as $account) {
+      $html = $this->renderBlock($account);
+      // Control: the public resource shows, so the block is not just empty.
+      $this->assertStringContainsString('Open resource', $html);
+      $this->assertStringNotContainsString('Secret resource', $html);
+    }
+  }
+
+  /**
+   * A group that only references a private resource does not list it.
+   */
+  public function testReferencedPrivateResourceHiddenFromOtherGroup(): void {
+    $group_a = $this->createGroup(TRUE);
+    $secret = $this->createResource('Secret resource', [
+      'private' => 1,
+      'affinity_group' => $this->groupTid($group_a),
+    ]);
+    $public = $this->createResource('Referenced open resource');
+    $member_b = $this->createUser(['access content']);
+    $this->createGroup(TRUE, [['target_id' => $secret->id()], ['target_id' => $public->id()]], [], [$member_b], 'Group B');
+
+    $html = $this->renderBlock($member_b);
+    $this->assertStringNotContainsString('Secret resource', $html);
+    // Control: a public resource is still listed by reference.
+    $this->assertStringContainsString('Referenced open resource', $html);
   }
 
   /**

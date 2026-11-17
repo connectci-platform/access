@@ -132,6 +132,14 @@ class ResourcesForAffinityGroup extends BlockBase {
           // Webform submissions are sanitized in dev enviroments.
           continue;
         }
+        // Rows the viewer cannot open would link to a 403. The detail page
+        // rule is the single source of truth for who may see a resource.
+        $resource_access = \Drupal::service('access_cilink.kb_resource_access')
+          ->access($webform_submission->id(), $user);
+        $cache->addCacheableDependency($resource_access);
+        if (!$resource_access->isAllowed()) {
+          continue;
+        }
         $submission_data = $webform_submission->getData();
 
         if ($submission_data['approved'] == 0) {

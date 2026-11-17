@@ -16,11 +16,14 @@ use Drupal\webform\WebformSubmissionInterface;
  *
  * Allowed when the resource is public (approved and not private), when the
  * user owns it or is an administrator or kb_pm, or through a private affinity
- * group the resource is linked to (referenced in
- * field_resources_entity_reference or tagged via the affinity_group term).
- * A private group (field_ag_private = 1) grants access to its members when the
- * resource is approved or allowed on affinity groups (the allowed flag only
- * matters while the resource is pending), and to its coordinators always.
+ * group the resource is TAGGED with (the group's field_affinity_group term is
+ * one of the submission's affinity_group terms). A group that merely
+ * references the resource in field_resources_entity_reference never grants
+ * access: coordinators can reference any resource, so that would let one
+ * private group open another group's private resource. A private group
+ * (field_ag_private = 1) grants access to its members when the resource is
+ * approved or allowed on affinity groups (the allowed flag only matters while
+ * the resource is pending), and to its coordinators always.
  * Public and unpublished groups never grant access.
  */
 class KbResourceAccess {
@@ -68,14 +71,15 @@ class KbResourceAccess {
     }
 
     // Affinity group exception: overrides both approved and private, but only
-    // through a private group (see the class docblock).
+    // through a private group the resource is tagged with. A reference from
+    // another group never grants access (see the class docblock).
     $cacheability->addCacheTags(['node_list:affinity_group']);
     $uid = $account->isAuthenticated() ? (int) $account->id() : 0;
     if ($uid > 0) {
       $data = $submission->getData();
       $allowed_on_group = (int) ($data['resource_allowed_on_affinity_group'] ?? 0) === 1;
       $approved = (int) ($data['approved'] ?? 0) === 1;
-      foreach ($this->loadGroups($submission) as $node) {
+      foreach ($this->loadTaggedGroups($submission) as $node) {
         // Toggling field_ag_private or editing membership must invalidate.
         $cacheability->addCacheableDependency($node);
         if ((int) $node->get('field_ag_private')->value !== 1) {
@@ -100,17 +104,24 @@ class KbResourceAccess {
   }
 
   /**
-   * Loads the affinity groups a resource is linked to.
+   * Loads the published affinity groups a resource is tagged with.
    *
-   * A group is linked when it references the submission in
-   * field_resources_entity_reference, or is tagged (field_affinity_group) with
-   * one of the submission's affinity_group term IDs. Unpublished groups are
-   * skipped.
+   * A group is tagged when its field_affinity_group term is one of the
+   * submission's affinity_group term IDs. Groups that only reference the
+   * submission in field_resources_entity_reference are deliberately not
+   * returned, and unpublished groups are skipped.
    *
    * @return \Drupal\node\NodeInterface[]
    *   The distinct group nodes.
    */
-  protected function loadGroups(WebformSubmissionInterface $submission): array {
+  protected function loadTaggedGroups(WebformSubmissionInterface $submission): array {
+    $tids = $submission->getData()['affinity_group'] ?? [];
+    $tids = array_values(array_unique(array_filter(
+      array_map('intval', (array) $tids)
+    )));
+    if (!$tids) {
+      return [];
+    }
     $storage = $this->entityTypeManager->getStorage('node');
     // accessCheck(FALSE): private affinity group access lives in
     // hook_entity_access, which entity queries do not apply. Membership is
@@ -119,22 +130,8 @@ class KbResourceAccess {
       ->accessCheck(FALSE)
       ->condition('type', 'affinity_group')
       ->condition('status', 1)
-      ->condition('field_resources_entity_reference', $submission->id())
+      ->condition('field_affinity_group', $tids, 'IN')
       ->execute();
-
-    $tids = $submission->getData()['affinity_group'] ?? [];
-    $tids = array_values(array_unique(array_filter(
-      array_map('intval', (array) $tids)
-    )));
-    if ($tids) {
-      $tagged = $storage->getQuery()
-        ->accessCheck(FALSE)
-        ->condition('type', 'affinity_group')
-        ->condition('status', 1)
-        ->condition('field_affinity_group', $tids, 'IN')
-        ->execute();
-      $nids = array_unique(array_merge(array_values($nids), array_values($tagged)));
-    }
 
     /** @var \Drupal\node\NodeInterface[] $nodes */
     $nodes = $storage->loadMultiple($nids);

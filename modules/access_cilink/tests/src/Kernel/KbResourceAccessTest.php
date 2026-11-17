@@ -97,15 +97,32 @@ class KbResourceAccessTest extends KbResourceKernelTestBase {
   }
 
   /**
-   * Creates a private affinity group referencing a submission.
+   * Returns the term a submission is tagged with, tagging it if needed.
    *
    * @param \Drupal\webform\Entity\WebformSubmission $submission
-   *   The referenced resource.
+   *   The resource.
+   */
+  protected function tagTerm(WebformSubmission $submission): Term {
+    $tid = $submission->getElementData('affinity_group');
+    if ($tid) {
+      return Term::load($tid);
+    }
+    $term = $this->createTerm('affinity_groups', 'Term ' . $submission->id());
+    $submission->setElementData('affinity_group', $term->id());
+    $submission->save();
+    return $term;
+  }
+
+  /**
+   * Creates a private affinity group tagged with a submission's term.
+   *
+   * @param \Drupal\webform\Entity\WebformSubmission $submission
+   *   The tagged resource.
    * @param \Drupal\user\Entity\User[] $members
    *   Users allowed to view the private group.
    */
   protected function createPrivateGroup(WebformSubmission $submission, array $members): Node {
-    return $this->createGroup(1, $members, [], $submission);
+    return $this->createGroup(1, $members, [], NULL, $this->tagTerm($submission));
   }
 
   /**
@@ -269,7 +286,7 @@ class KbResourceAccessTest extends KbResourceKernelTestBase {
     ]);
     $groups = [];
     foreach ([$pending, $approved_private] as $submission) {
-      $group = $this->createGroup(1, [$member], [$coordinator], $submission);
+      $group = $this->createGroup(1, [$member], [$coordinator], NULL, $this->tagTerm($submission));
       $groups[] = $group;
       $this->assertStatus(200, $submission, self::SUPPORT_HOST, $member);
       $this->assertStatus(200, $submission, self::SUPPORT_HOST, $coordinator);
@@ -322,7 +339,7 @@ class KbResourceAccessTest extends KbResourceKernelTestBase {
       'resource_allowed_on_affinity_group' => 1,
       'affinity_group' => $term->id(),
     ]);
-    $this->createGroup(0, [], [], $submission, $term);
+    $this->createGroup(0, [], [], NULL, $term);
 
     $this->assertStatus(403, $submission);
     $this->assertStatus(403, $submission, self::SUPPORT_HOST, $stranger);
@@ -368,6 +385,38 @@ class KbResourceAccessTest extends KbResourceKernelTestBase {
     $this->assertStatus(200, $submission, self::SUPPORT_HOST, $coordinator);
     $this->assertStatus(403, $submission, self::SUPPORT_HOST, $other_coordinator);
     $this->assertStatus(403, $submission);
+  }
+
+  /**
+   * A group that only references a resource never grants access to it.
+   */
+  public function testReferencingGroupDoesNotGrantAccess(): void {
+    $member_a = $this->createUser();
+    $member_b = $this->createUser();
+    $coordinator_b = $this->createUser();
+    $term = $this->createTerm('affinity_groups', 'Group A term');
+
+    $approved_private = $this->createResource([
+      'private' => 1,
+      'resource_allowed_on_affinity_group' => 0,
+      'affinity_group' => $term->id(),
+    ]);
+    $pending = $this->createResource([
+      'approved' => 0,
+      'resource_allowed_on_affinity_group' => 1,
+      'affinity_group' => $term->id(),
+    ]);
+    // Group A is tagged with the term. Group B has no term and only
+    // references both resources.
+    $this->createGroup(1, [$member_a], [], NULL, $term);
+    $this->createGroup(1, [$member_b], [$coordinator_b], $approved_private);
+    $this->createGroup(1, [$member_b], [$coordinator_b], $pending);
+
+    $this->assertStatus(403, $approved_private, self::SUPPORT_HOST, $member_b);
+    $this->assertStatus(403, $pending, self::SUPPORT_HOST, $member_b);
+    $this->assertStatus(403, $pending, self::SUPPORT_HOST, $coordinator_b);
+    // Control: the tagged group's member is allowed.
+    $this->assertStatus(200, $approved_private, self::SUPPORT_HOST, $member_a);
   }
 
   /**
