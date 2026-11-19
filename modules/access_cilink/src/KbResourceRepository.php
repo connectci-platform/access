@@ -5,6 +5,8 @@ namespace Drupal\access_cilink;
 use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\UrlHelper;
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\Query\Condition;
+use Drupal\Core\Database\Query\ConditionInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\domain\DomainNegotiatorInterface;
 use Drupal\domain\Entity\Domain;
@@ -87,6 +89,37 @@ class KbResourceRepository {
     $query->orderBy('approved.sid', 'ASC');
 
     return array_map('intval', $query->execute()->fetchCol());
+  }
+
+  /**
+   * Adds the public resource condition to a webform_submission query.
+   *
+   * Used by the webform submission query access alter hook. A missing
+   * "private" value (older submissions) counts as public, as in isPublic().
+   *
+   * @param \Drupal\Core\Database\Query\ConditionInterface $group
+   *   The OR condition group to add the public branch to.
+   * @param string $alias
+   *   The alias of the webform_submission table in the altered query.
+   */
+  public function addPublicCondition(ConditionInterface $group, string $alias): void {
+    $approved = $this->database->select('webform_submission_data', 'pub_approved');
+    $approved->fields('pub_approved', ['sid']);
+    $approved->condition('pub_approved.webform_id', self::WEBFORM_ID);
+    $approved->condition('pub_approved.name', 'approved');
+    $approved->condition('pub_approved.value', '1');
+
+    $private = $this->database->select('webform_submission_data', 'pub_private');
+    $private->fields('pub_private', ['sid']);
+    $private->condition('pub_private.webform_id', self::WEBFORM_ID);
+    $private->condition('pub_private.name', 'private');
+    $private->condition('pub_private.value', '1');
+
+    $public = (new Condition('AND'))
+      ->condition($alias . '.webform_id', self::WEBFORM_ID)
+      ->condition($alias . '.sid', $approved, 'IN')
+      ->condition($alias . '.sid', $private, 'NOT IN');
+    $group->condition($public);
   }
 
   /**

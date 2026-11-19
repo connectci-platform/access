@@ -5,6 +5,12 @@
  */
 
 use Drupal\Component\Utility\Html;
+use Drupal\Core\Access\AccessResult;
+use Drupal\Core\Access\AccessResultInterface;
+use Drupal\Core\Cache\CacheableMetadata;
+use Drupal\Core\Database\Query\AlterableInterface;
+use Drupal\Core\Session\AccountInterface;
+use Drupal\webform\WebformSubmissionInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Render\Markup;
 use Drupal\node\Entity\Node;
@@ -720,4 +726,42 @@ function access_cilink_tokens($type, $tokens, array $data, array $options, \Drup
   }
 
   return $replacements;
+}
+
+/**
+ * Implements hook_webform_submission_access().
+ *
+ * The resource webform restricts view_any to administrators and KB PMs. Grant
+ * view access to everyone allowed by the KB resource rules (public resources,
+ * owners, affinity group members). Never returns forbidden, so other grants
+ * are not overridden.
+ */
+function access_cilink_webform_submission_access(WebformSubmissionInterface $entity, string $operation, AccountInterface $account): AccessResultInterface {
+  if ($operation !== 'view' || $entity->getWebform()->id() !== 'resource') {
+    return AccessResult::neutral();
+  }
+  $result = \Drupal::service('access_cilink.kb_resource_access')->checkSubmission($entity, $account);
+  if ($result->isAllowed()) {
+    return $result;
+  }
+  return AccessResult::neutral()
+    ->addCacheableDependency(CacheableMetadata::createFromObject($result));
+}
+
+/**
+ * Implements hook_webform_submission_query_access_alter().
+ *
+ * Keeps public KB resources visible in views and entity queries now that the
+ * resource webform restricts view_any.
+ *
+ * @phpstan-param array<int, array{alias: string, condition: \Drupal\Core\Database\Query\ConditionInterface}> $webform_submission_tables
+ */
+function access_cilink_webform_submission_query_access_alter(AlterableInterface $query, array $webform_submission_tables): void {
+  if (($query->getMetaData('op') ?: 'view') !== 'view') {
+    return;
+  }
+  $repository = \Drupal::service('access_cilink.kb_resource_repository');
+  foreach ($webform_submission_tables as $table) {
+    $repository->addPublicCondition($table['condition'], $table['alias']);
+  }
 }

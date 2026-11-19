@@ -41,6 +41,18 @@ class KbResourceAccess {
       return AccessResult::allowed()->addCacheTags(['webform_submission_list']);
     }
 
+    return $this->checkSubmission($submission, $account);
+  }
+
+  /**
+   * Checks access to a loaded KB resource submission.
+   *
+   * @param \Drupal\webform\WebformSubmissionInterface $submission
+   *   The resource submission.
+   * @param \Drupal\Core\Session\AccountInterface $account
+   *   The account to check.
+   */
+  public function checkSubmission(WebformSubmissionInterface $submission, AccountInterface $account): AccessResultInterface {
     $cacheability = (new CacheableMetadata())
       ->addCacheTags(['webform_submission:' . $submission->id()]);
 

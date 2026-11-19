@@ -29,3 +29,24 @@ function access_cilink_deploy_reindex_ci_links_approved_private(): string {
 
   return sprintf('Reindexed ci_links: %d items indexed.', $indexed);
 }
+
+/**
+ * Reindexes ci_links so role_access reflects the new resource view access.
+ *
+ * The role_access processor stores per-role view access at index time. View
+ * access to resource submissions changed in D8-3101 (view_any is restricted to
+ * administrators and KB PMs, with public resources granted by
+ * hook_webform_submission_access), so the stored values are stale. Index
+ * everything synchronously.
+ */
+function access_cilink_deploy_reindex_ci_links_role_access(): string {
+  $index = Index::load('ci_links');
+  if (!$index) {
+    return 'Search API index ci_links not found; nothing to reindex.';
+  }
+
+  $index->reindex();
+  $indexed = $index->indexItems(-1);
+
+  return sprintf('Reindexed ci_links: %d items indexed.', $indexed);
+}
