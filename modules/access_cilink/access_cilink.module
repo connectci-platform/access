@@ -98,12 +98,30 @@ function access_cilink_views_query_alter($view, $query) {
   // A private resource is only reachable through the group it is tagged with,
   // so referencing it from another group would list a row its members cannot
   // open. The same view validates submitted references, so this also rejects
-  // a private resource posted to the field directly. NOT EXISTS (rather than a
-  // views filter on the private value) keeps resources saved before the
-  // private element existed, which have no private row at all.
-  if ($view->id() == 'resources_entity_reference' && $query instanceof \Drupal\views\Plugin\views\query\Sql) {
-    $query->addWhereExpression(0, "NOT EXISTS (SELECT 1 FROM {webform_submission_data} kb_private WHERE kb_private.sid = webform_submission.sid AND kb_private.name = 'private' AND kb_private.value = '1')");
+  // a private resource posted to the field directly.
+  //
+  // The public resource lists (every display of the resources view:
+  // /ci-links, /ci-links-card, /tags/%/resources and the tag-page blocks)
+  // must not list them either, or anonymous visitors see a title whose link
+  // returns 403. Members find their group's private resources through the
+  // ResourcesForAffinityGroup block, which does not use this view.
+  if (in_array($view->id(), ['resources_entity_reference', 'resources'], TRUE) && $query instanceof \Drupal\views\Plugin\views\query\Sql) {
+    _access_cilink_exclude_private_resources($query);
   }
+}
+
+/**
+ * Excludes private KB resources from a webform_submission-based views query.
+ *
+ * NOT EXISTS (rather than a views filter on the private value) keeps
+ * resources saved before the private element existed, which have no private
+ * row at all.
+ *
+ * @param \Drupal\views\Plugin\views\query\Sql $query
+ *   A views SQL query whose base table is webform_submission.
+ */
+function _access_cilink_exclude_private_resources(\Drupal\views\Plugin\views\query\Sql $query): void {
+  $query->addWhereExpression(0, "NOT EXISTS (SELECT 1 FROM {webform_submission_data} kb_private WHERE kb_private.sid = webform_submission.sid AND kb_private.name = 'private' AND kb_private.value = '1')");
 }
 
 /**
