@@ -6,4 +6,4 @@ package: Custom
 dependencies:
   - access
   - operations_cider
-
+  - access:access_cilink
