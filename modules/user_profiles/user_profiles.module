@@ -12,22 +12,6 @@ use Drupal\Core\Url;
 use Drupal\user\Entity\User;
 use Drupal\user\UserInterface;
 use Drupal\user_profiles\Exception\UserMergeException;
-use Symfony\Component\HttpFoundation\RedirectResponse;
-
-/**
- * Implements hook_menu_local_tasks_alter().
- *
- * @phpstan-param array<string, mixed> $data
- */
-function user_profiles_menu_local_tasks_alter(array &$data, string $route_name): void {
-  // Get current domain name.
-  $token = \Drupal::token();
-  $domainName = t("[domain:name]");
-  $current_domain_name = Html::getClass($token->replace($domainName));
-  if ($route_name == 'entity.user.canonical' && isset($data['tabs'][0]) && $current_domain_name == 'access-support') {
-    $data['tabs'][0]['change_pwd_page.change_password_form']['#access'] = FALSE;
-  }
-}
 
 /**
  * Implements hook_form_alter().
@@ -45,13 +29,6 @@ function user_profiles_form_alter(array &$form, FormStateInterface $form_state, 
   $is_asp = $current_domain_name == 'access-support';
 
   switch ($form_id) {
-    case 'change_pwd_form':
-      if ($is_asp) {
-        $response = new RedirectResponse('/user');
-        $response->send();
-      }
-      break;
-
     case 'user_form':
       $user_roles = \Drupal::currentUser()->getRoles();
       $is_admin = in_array('administrator', $user_roles);

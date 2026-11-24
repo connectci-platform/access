@@ -600,3 +600,73 @@ function access_misc_deploy_event_registration_fields(&$sandbox) {
   return 'Added registration_enabled/capacity/has_waitlist to events index and api/2.3 export.';
 }
 
+/**
+ * Replace Shortcut module links with the navigation-shortcuts menu (D8-3104).
+ *
+ * Deploy hooks run after config import, so the navigation-shortcuts menu
+ * already exists and the Shortcut module is already uninstalled. The links
+ * are a fixed list carried over from the former default shortcut set.
+ */
+function access_misc_deploy_navigation_shortcuts() {
+  $menu_name = 'navigation-shortcuts';
+
+  // Idempotency: skip if the menu already has links.
+  $existing = \Drupal::entityQuery('menu_link_content')
+    ->accessCheck(FALSE)
+    ->condition('menu_name', $menu_name)
+    ->count()
+    ->execute();
+  if ($existing) {
+    return "$menu_name already has links; skipped.";
+  }
+
+  // Parent item renders as a collapsible "Shortcuts" group in Navigation.
+  $parent = MenuLinkContent::create([
+    'title' => 'Shortcuts',
+    'link' => [
+      'uri' => 'route:<nolink>',
+      'options' => ['icon' => ['icon_id' => 'shortcuts']],
+    ],
+    'menu_name' => $menu_name,
+    'expanded' => TRUE,
+    'weight' => 0,
+  ]);
+  $parent->save();
+
+  $links = [
+    'Recent log messages' => 'internal:/admin/reports/dblog',
+    'Export - CSSN' => 'internal:/cssn-export',
+    'Block layout' => 'internal:/admin/structure/block',
+    'ccadmin' => 'internal:/cc-applications',
+    'Find people by tag' => 'internal:/admin/people/filter-by-tags',
+    'Help Desk' => 'internal:/help-desk',
+    'Interested in Project' => 'internal:/interested-in-project',
+    'Project Submissions' => 'internal:/admin/structure/webform/manage/project/results/submissions',
+    'Project Submissions - Sorted' => 'internal:/project-submissions',
+    'Resource Submissions' => 'internal:/admin/structure/webform/manage/resource/results/submissions',
+    'Tags' => 'internal:/admin/structure/taxonomy/manage/tags/overview',
+    'Menus' => 'internal:/admin/structure/menu',
+    'Export - People' => 'internal:/people-all',
+    'MATCH-Engagement-Submissions' => 'internal:/match-engagements-submissions',
+    'MATCH-Interested-Users' => 'internal:/match-interested-users',
+    'Content Moderation Notifications' => 'internal:/admin/config/workflow/notifications',
+    'Add content' => 'internal:/node/add',
+    'Create MATCH+ Engagement' => 'internal:/node/add/match_engagement',
+    'People' => 'internal:/admin/people',
+    'Views' => 'internal:/admin/structure/views',
+  ];
+
+  $weight = 0;
+  foreach ($links as $title => $uri) {
+    MenuLinkContent::create([
+      'title' => $title,
+      'link' => ['uri' => $uri],
+      'menu_name' => $menu_name,
+      'parent' => $parent->getPluginId(),
+      'weight' => $weight++,
+    ])->save();
+  }
+
+  return 'Added ' . count($links) . " links to $menu_name.";
+}
+
