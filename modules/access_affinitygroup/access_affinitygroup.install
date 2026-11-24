@@ -1,5 +1,6 @@
 <?php
 
+use Drupal\Core\Cache\Cache;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\Display\EntityFormDisplayInterface;
 use Drupal\field\Entity\FieldConfig;
@@ -1303,4 +1304,69 @@ function access_affinitygroup_update_10017(): string {
   }
 
   return implode(' ', $messages);
+}
+
+/**
+ * Repairs Constant Contact IDs whose 'support' value is a list, not a string.
+ *
+ * Re-runs the update_10008 repair for accounts created after it ran. The root
+ * cause was ConstantContactApi::addContact() returning the whole preg_match
+ * array on an HTTP 409 response, until a14e8add (2026-02-11). Safe to re-run.
+ */
+function access_affinitygroup_update_10018(): string {
+  $db = \Drupal::database();
+  if (!$db->schema()->tableExists('user__field_constant_contact_id')) {
+    return 'The user__field_constant_contact_id table does not exist; nothing to repair.';
+  }
+
+  // Cheap prefilter only; the real check is done on the decoded JSON.
+  $rows = $db->select('user__field_constant_contact_id', 'cc')
+    ->fields('cc', ['entity_id', 'delta', 'field_constant_contact_id_value'])
+    ->condition('field_constant_contact_id_value', '%' . $db->escapeLike('support') . '%', 'LIKE')
+    ->execute()
+    ->fetchAll();
+
+  $uids = [];
+  $skipped = 0;
+  foreach ($rows as $row) {
+    $data = json_decode((string) $row->field_constant_contact_id_value, TRUE);
+    if (!is_array($data)) {
+      $skipped++;
+      \Drupal::logger('access_affinitygroup')->warning(
+        'Update 10018: Could not decode Constant Contact data for user @uid.',
+        ['@uid' => $row->entity_id]
+      );
+      continue;
+    }
+    if (isset($data['support']) && is_array($data['support'])) {
+      $support = '';
+      foreach ($data['support'] as $candidate) {
+        if (is_string($candidate) && $candidate !== '') {
+          $support = $candidate;
+          break;
+        }
+      }
+      $data['support'] = $support;
+      $db->update('user__field_constant_contact_id')
+        ->fields(['field_constant_contact_id_value' => json_encode($data, JSON_UNESCAPED_SLASHES)])
+        ->condition('entity_id', $row->entity_id)
+        ->condition('delta', $row->delta)
+        ->execute();
+      $uids[] = (int) $row->entity_id;
+    }
+  }
+
+  if ($uids) {
+    \Drupal::entityTypeManager()->getStorage('user')->resetCache($uids);
+    Cache::invalidateTags(array_map(static fn (int $uid): string => 'user:' . $uid, $uids));
+  }
+
+  $fixed = count($uids);
+  $message = "Fixed $fixed user(s) with a list-shaped Constant Contact support ID.";
+  if ($skipped > 0) {
+    $message .= " $skipped value(s) could not be decoded and were skipped.";
+  }
+  \Drupal::logger('access_affinitygroup')->info('Update 10018: @message', ['@message' => $message]);
+
+  return $message;
 }
